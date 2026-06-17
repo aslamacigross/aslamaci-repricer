@@ -289,10 +289,11 @@ app.get("/products-summary", async (req, res) => {
     const result = await pool.query(`
       SELECT
         COUNT(*) AS total_products,
-        COUNT(*) FILTER (WHERE is_active = true) AS active_products,
+        COUNT(*) FILTER (WHERE on_sale = true) AS active_products,
+        COUNT(*) FILTER (WHERE on_sale = false) AS passive_products,
         COUNT(*) FILTER (WHERE on_sale = true) AS on_sale_products,
-        COUNT(*) FILTER (WHERE needs_cost_mapping = true) AS needs_cost_mapping,
-        COUNT(*) FILTER (WHERE auto_update = true) AS auto_update_enabled
+        COUNT(*) FILTER (WHERE needs_cost_mapping = true AND on_sale = true) AS needs_cost_mapping,
+        COUNT(*) FILTER (WHERE auto_update = true AND on_sale = true) AS auto_update_enabled
       FROM products
       WHERE marketplace = 'TRENDYOL'
     `);
@@ -308,4 +309,5 @@ app.get("/products-summary", async (req, res) => {
       message: error.message
     });
   }
+});
 });
