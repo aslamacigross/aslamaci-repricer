@@ -51,7 +51,25 @@ app.get("/health", async (req, res) => {
     });
   }
 });
+app.get("/reset-products", async (req,res)=>{
+  try{
 
+    await pool.query(`
+      DROP TABLE IF EXISTS products;
+    `);
+
+    res.json({
+      status:"ok",
+      message:"Products table dropped"
+    });
+
+  }catch(error){
+    res.status(500).json({
+      status:"error",
+      message:error.message
+    });
+  }
+});
 app.get("/setup-db", async (req, res) => {
   try {
     await pool.query(`
