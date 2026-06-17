@@ -207,7 +207,72 @@ app.get("/test-trendyol", async (req, res) => {
     });
   }
 });
+app.get("/cost-items", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT *
+      FROM cost_items
+      ORDER BY item_name ASC
+    `);
 
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      items: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+app.get("/add-cost-item", async (req, res) => {
+  try {
+    const itemCode = String(req.query.code || "").trim();
+    const itemName = String(req.query.name || "").trim();
+    const unitCost = Number(req.query.cost || 0);
+    const unit = String(req.query.unit || "adet").trim();
+
+    if (!itemCode || !itemName || unitCost <= 0) {
+      return res.status(400).json({
+        status: "error",
+        message: "code, name ve cost zorunlu. Örnek: /add-cost-item?code=YUM1500&name=Yumusatici 1500ml&cost=78"
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO cost_items (
+        item_code,
+        item_name,
+        unit_cost,
+        unit,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (item_code)
+      DO UPDATE SET
+        item_name = EXCLUDED.item_name,
+        unit_cost = EXCLUDED.unit_cost,
+        unit = EXCLUDED.unit,
+        updated_at = NOW()
+      RETURNING *
+      `,
+      [itemCode, itemName, unitCost, unit]
+    );
+
+    res.json({
+      status: "ok",
+      item: result.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
