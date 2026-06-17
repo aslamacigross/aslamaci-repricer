@@ -16,10 +16,9 @@ const pool = new Pool({
 });
 
 function trendyolAuthHeader() {
-  const apiKey = process.env.TY_API_KEY;
-  const apiSecret = process.env.TY_API_SECRET;
-
-  return "Basic " + Buffer.from(apiKey + ":" + apiSecret).toString("base64");
+  return "Basic " + Buffer
+    .from(process.env.TY_API_KEY + ":" + process.env.TY_API_SECRET)
+    .toString("base64");
 }
 
 function trendyolHeaders() {
@@ -37,7 +36,6 @@ app.get("/", (req, res) => {
 app.get("/health", async (req, res) => {
   try {
     const db = await pool.query("SELECT NOW() as now");
-
     res.json({
       status: "ok",
       app: "aslamaci-repricer",
@@ -45,140 +43,142 @@ app.get("/health", async (req, res) => {
       time: db.rows[0].now
     });
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
-app.get("/reset-products", async (req,res)=>{
-  try{
 
-    await pool.query(`
-      DROP TABLE IF EXISTS products;
-    `);
-
-    res.json({
-      status:"ok",
-      message:"Products table dropped"
-    });
-
-  }catch(error){
-    res.status(500).json({
-      status:"error",
-      message:error.message
-    });
+app.get("/reset-products", async (req, res) => {
+  try {
+    await pool.query(`DROP TABLE IF EXISTS products;`);
+    res.json({ status: "ok", message: "Products table dropped" });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/setup-db", async (req, res) => {
   try {
-    await pool.query(`
-  CREATE TABLE IF NOT EXISTS products (
-    id SERIAL PRIMARY KEY,
-    marketplace TEXT NOT NULL,
-    barcode TEXT NOT NULL,
-    product_name TEXT,
-    brand TEXT,
-    category_name TEXT,
-    category_id TEXT,
-    commission_rate NUMERIC,
-    my_price NUMERIC,
-    list_price NUMERIC,
-    stock_quantity INTEGER,
-    archived BOOLEAN DEFAULT false,
-    locked BOOLEAN DEFAULT false,
-    on_sale BOOLEAN DEFAULT false,
-    approved BOOLEAN DEFAULT false,
-    buybox_price NUMERIC,
-    second_price NUMERIC,
-    third_price NUMERIC,
-    rank INTEGER,
-    has_multiple_seller BOOLEAN,
-    desi NUMERIC,
-    min_price NUMERIC,
-    auto_update BOOLEAN DEFAULT false,
-    is_active BOOLEAN DEFAULT true,
-    needs_cost_mapping BOOLEAN DEFAULT true,
-    updated_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(marketplace, barcode)
-  );
-`);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
         marketplace TEXT NOT NULL,
         barcode TEXT NOT NULL,
         product_name TEXT,
+        brand TEXT,
+        category_name TEXT,
+        category_id TEXT,
+        commission_rate NUMERIC,
         my_price NUMERIC,
+        list_price NUMERIC,
+        stock_quantity INTEGER,
+        archived BOOLEAN DEFAULT false,
+        locked BOOLEAN DEFAULT false,
+        on_sale BOOLEAN DEFAULT false,
+        approved BOOLEAN DEFAULT false,
         buybox_price NUMERIC,
         second_price NUMERIC,
         third_price NUMERIC,
         rank INTEGER,
         has_multiple_seller BOOLEAN,
+        desi NUMERIC,
+        packaging_cost NUMERIC DEFAULT 0,
+        service_fee NUMERIC DEFAULT 13.19,
+        target_profit NUMERIC DEFAULT 0,
+        calculated_product_cost NUMERIC DEFAULT 0,
+        calculated_shipping_cost NUMERIC DEFAULT 0,
+        calculated_total_cost NUMERIC DEFAULT 0,
+        calculated_min_price NUMERIC DEFAULT 0,
         min_price NUMERIC,
-        auto_update BOOLEAN DEFAULT true,
+        auto_update BOOLEAN DEFAULT false,
         is_active BOOLEAN DEFAULT true,
+        needs_cost_mapping BOOLEAN DEFAULT true,
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(marketplace, barcode)
       );
     `);
-await pool.query(`
-  CREATE TABLE IF NOT EXISTS cost_items (
-    id SERIAL PRIMARY KEY,
-    item_code TEXT UNIQUE NOT NULL,
-    item_name TEXT NOT NULL,
-    unit_cost NUMERIC NOT NULL DEFAULT 0,
-    unit TEXT DEFAULT 'adet',
-    updated_at TIMESTAMP DEFAULT NOW()
-  );
-`);
 
-await pool.query(`
-  CREATE TABLE IF NOT EXISTS product_cost_mappings (
-    id SERIAL PRIMARY KEY,
-    marketplace TEXT NOT NULL,
-    barcode TEXT NOT NULL,
-    cost_item_code TEXT NOT NULL,
-    quantity NUMERIC NOT NULL DEFAULT 1,
-    updated_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(marketplace, barcode, cost_item_code)
-  );
-`);
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS brand TEXT,
+      ADD COLUMN IF NOT EXISTS category_name TEXT,
+      ADD COLUMN IF NOT EXISTS category_id TEXT,
+      ADD COLUMN IF NOT EXISTS commission_rate NUMERIC,
+      ADD COLUMN IF NOT EXISTS list_price NUMERIC,
+      ADD COLUMN IF NOT EXISTS stock_quantity INTEGER,
+      ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS on_sale BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS desi NUMERIC,
+      ADD COLUMN IF NOT EXISTS packaging_cost NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS service_fee NUMERIC DEFAULT 13.19,
+      ADD COLUMN IF NOT EXISTS target_profit NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS calculated_product_cost NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS calculated_shipping_cost NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
+    `);
 
-await pool.query(`
-  CREATE TABLE IF NOT EXISTS shipping_rules (
-    id SERIAL PRIMARY KEY,
-    marketplace TEXT NOT NULL DEFAULT 'TRENDYOL',
-    min_desi NUMERIC NOT NULL,
-    max_desi NUMERIC NOT NULL,
-    shipping_cost NUMERIC NOT NULL,
-    updated_at TIMESTAMP DEFAULT NOW()
-  );
-`);
-    res.json({
-      status: "ok",
-      message: "Database tables created"
-    });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cost_items (
+        id SERIAL PRIMARY KEY,
+        item_code TEXT UNIQUE NOT NULL,
+        item_name TEXT NOT NULL,
+        unit_cost NUMERIC NOT NULL DEFAULT 0,
+        unit TEXT DEFAULT 'adet',
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS product_cost_mappings (
+        id SERIAL PRIMARY KEY,
+        marketplace TEXT NOT NULL,
+        barcode TEXT NOT NULL,
+        cost_item_code TEXT NOT NULL,
+        quantity NUMERIC NOT NULL DEFAULT 1,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(marketplace, barcode, cost_item_code)
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shipping_rules (
+        id SERIAL PRIMARY KEY,
+        marketplace TEXT NOT NULL DEFAULT 'TRENDYOL',
+        min_desi NUMERIC NOT NULL,
+        max_desi NUMERIC NOT NULL,
+        shipping_cost NUMERIC NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS price_war_log (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT NOW(),
+        marketplace TEXT NOT NULL,
+        barcode TEXT NOT NULL,
+        product_name TEXT,
+        old_price NUMERIC,
+        new_price NUMERIC,
+        price_diff NUMERIC,
+        buybox_price NUMERIC,
+        second_price NUMERIC,
+        third_price NUMERIC,
+        rank INTEGER,
+        min_price NUMERIC,
+        action TEXT
+      );
+    `);
+
+    res.json({ status: "ok", message: "Database tables created" });
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
-await pool.query(`
-  ALTER TABLE products
-  ADD COLUMN IF NOT EXISTS desi NUMERIC,
-  ADD COLUMN IF NOT EXISTS packaging_cost NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS service_fee NUMERIC DEFAULT 13.19,
-  ADD COLUMN IF NOT EXISTS target_profit NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS calculated_product_cost NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS calculated_shipping_cost NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
-`);
+
 app.get("/test-trendyol", async (req, res) => {
   try {
     const supplierId = process.env.TY_SUPPLIER_ID;
@@ -201,81 +201,10 @@ app.get("/test-trendyol", async (req, res) => {
       raw: text
     });
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
-app.get("/cost-items", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT *
-      FROM cost_items
-      ORDER BY item_name ASC
-    `);
 
-    res.json({
-      status: "ok",
-      count: result.rows.length,
-      items: result.rows
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/add-cost-item", async (req, res) => {
-  try {
-    const itemCode = String(req.query.code || "").trim();
-    const itemName = String(req.query.name || "").trim();
-    const unitCost = Number(req.query.cost || 0);
-    const unit = String(req.query.unit || "adet").trim();
-
-    if (!itemCode || !itemName || unitCost <= 0) {
-      return res.status(400).json({
-        status: "error",
-        message: "code, name ve cost zorunlu. Örnek: /add-cost-item?code=YUM1500&name=Yumusatici 1500ml&cost=78"
-      });
-    }
-
-    const result = await pool.query(
-      `
-      INSERT INTO cost_items (
-        item_code,
-        item_name,
-        unit_cost,
-        unit,
-        updated_at
-      )
-      VALUES ($1, $2, $3, $4, NOW())
-      ON CONFLICT (item_code)
-      DO UPDATE SET
-        item_name = EXCLUDED.item_name,
-        unit_cost = EXCLUDED.unit_cost,
-        unit = EXCLUDED.unit,
-        updated_at = NOW()
-      RETURNING *
-      `,
-      [itemCode, itemName, unitCost, unit]
-    );
-
-    res.json({
-      status: "ok",
-      item: result.rows[0]
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.listen(PORT, () => {
-  console.log(`Aşlamacı Repricer running on port ${PORT}`);
-});
 app.get("/sync-products", async (req, res) => {
   try {
     const supplierId = process.env.TY_SUPPLIER_ID;
@@ -375,7 +304,6 @@ app.get("/sync-products", async (req, res) => {
       }
 
       if (data.last === true || products.length === 0) break;
-
       page++;
     }
 
@@ -384,14 +312,11 @@ app.get("/sync-products", async (req, res) => {
       synced: totalSynced,
       message: "Products synced to PostgreSQL"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/products-summary", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -410,11 +335,74 @@ app.get("/products-summary", async (req, res) => {
       status: "ok",
       summary: result.rows[0]
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
+});
+
+app.get("/cost-items", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT *
+      FROM cost_items
+      ORDER BY item_name ASC
+    `);
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      items: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/add-cost-item", async (req, res) => {
+  try {
+    const itemCode = String(req.query.code || "").trim();
+    const itemName = String(req.query.name || "").trim();
+    const unitCost = Number(req.query.cost || 0);
+    const unit = String(req.query.unit || "adet").trim();
+
+    if (!itemCode || !itemName || unitCost <= 0) {
+      return res.status(400).json({
+        status: "error",
+        message:
+          "code, name ve cost zorunlu. Örnek: /add-cost-item?code=YUM1500&name=Yumusatici%201500ml&cost=78"
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO cost_items (
+        item_code,
+        item_name,
+        unit_cost,
+        unit,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (item_code)
+      DO UPDATE SET
+        item_name = EXCLUDED.item_name,
+        unit_cost = EXCLUDED.unit_cost,
+        unit = EXCLUDED.unit,
+        updated_at = NOW()
+      RETURNING *
+      `,
+      [itemCode, itemName, unitCost, unit]
+    );
+
+    res.json({
+      status: "ok",
+      item: result.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
