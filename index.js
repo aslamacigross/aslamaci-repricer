@@ -2,6 +2,20 @@ require("dotenv").config();
 
 const express = require("express");
 const { Pool } = require("pg");
+function trendyolAuthHeader() {
+  const apiKey = process.env.TY_API_KEY;
+  const apiSecret = process.env.TY_API_SECRET;
+
+  return "Basic " + Buffer.from(apiKey + ":" + apiSecret).toString("base64");
+}
+
+function trendyolHeaders() {
+  return {
+    Authorization: trendyolAuthHeader(),
+    "User-Agent": process.env.TY_SUPPLIER_ID + " - SelfIntegration",
+    "Content-Type": "application/json"
+  };
+}
 
 const app = express();
 app.use(express.json());
