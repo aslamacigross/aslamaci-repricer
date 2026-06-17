@@ -310,4 +310,3 @@ app.get("/products-summary", async (req, res) => {
     });
   }
 });
-});
