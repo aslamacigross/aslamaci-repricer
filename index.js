@@ -531,6 +531,98 @@ app.get("/calculate-costs", async (req, res) => {
     });
   }
 });
+app.get("/add-shipping-rule", async (req, res) => {
+  try {
+    const minDesi = Number(req.query.min);
+    const maxDesi = Number(req.query.max);
+    const cost = Number(req.query.cost);
+
+    if (isNaN(minDesi) || isNaN(maxDesi) || isNaN(cost) || maxDesi <= minDesi) {
+      return res.status(400).json({
+        status: "error",
+        message: "min, max ve cost zorunlu. Örnek: /add-shipping-rule?min=0&max=1&cost=62.5"
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO shipping_rules (
+        marketplace,
+        min_desi,
+        max_desi,
+        shipping_cost,
+        updated_at
+      )
+      VALUES ('TRENDYOL', $1, $2, $3, NOW())
+      RETURNING *
+      `,
+      [minDesi, maxDesi, cost]
+    );
+
+    res.json({
+      status: "ok",
+      rule: result.rows[0]
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/shipping-rules", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT *
+      FROM shipping_rules
+      WHERE marketplace = 'TRENDYOL'
+      ORDER BY min_desi ASC
+    `);
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      rules: result.rows
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/set-product-desi", async (req, res) => {
+  try {
+    const barcode = String(req.query.barcode || "").trim();
+    const desi = Number(req.query.desi);
+
+    if (!barcode || isNaN(desi) || desi <= 0) {
+      return res.status(400).json({
+        status: "error",
+        message: "barcode ve desi zorunlu. Örnek: /set-product-desi?barcode=869xxx&desi=3.2"
+      });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE products
+      SET desi = $1,
+          updated_at = NOW()
+      WHERE marketplace = 'TRENDYOL'
+        AND barcode = $2
+      RETURNING barcode, product_name, desi
+      `,
+      [desi, barcode]
+    );
+
+    res.json({
+      status: "ok",
+      updated: result.rows.length,
+      product: result.rows[0] || null
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
