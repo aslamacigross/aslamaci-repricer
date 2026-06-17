@@ -402,7 +402,94 @@ app.get("/add-cost-item", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+app.get("/map-product-cost", async (req, res) => {
+  try {
+    const barcode = String(req.query.barcode || "").trim();
+    const costItemCode = String(req.query.cost_code || "").trim();
+    const quantity = Number(req.query.qty || 1);
 
+    if (!barcode || !costItemCode || quantity <= 0) {
+      return res.status(400).json({
+        status: "error",
+        message: "barcode, cost_code ve qty zorunlu. Örnek: /map-product-cost?barcode=869xxx&cost_code=YUM1500&qty=4"
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO product_cost_mappings (
+        marketplace,
+        barcode,
+        cost_item_code,
+        quantity,
+        updated_at
+      )
+      VALUES ('TRENDYOL', $1, $2, $3, NOW())
+      ON CONFLICT (marketplace, barcode, cost_item_code)
+      DO UPDATE SET
+        quantity = EXCLUDED.quantity,
+        updated_at = NOW()
+      RETURNING *
+      `,
+      [barcode, costItemCode, quantity]
+    );
+
+    await pool.query(
+      `
+      UPDATE products
+      SET needs_cost_mapping = false
+      WHERE marketplace = 'TRENDYOL'
+      AND barcode = $1
+      `,
+      [barcode]
+    );
+
+    res.json({
+      status: "ok",
+      mapping: result.rows[0]
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+app.get("/product-cost-mappings", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        pcm.barcode,
+        p.product_name,
+        pcm.cost_item_code,
+        ci.item_name,
+        pcm.quantity,
+        ci.unit_cost,
+        pcm.quantity * ci.unit_cost AS total_cost
+      FROM product_cost_mappings pcm
+      LEFT JOIN cost_items ci
+        ON ci.item_code = pcm.cost_item_code
+      LEFT JOIN products p
+        ON p.marketplace = pcm.marketplace
+       AND p.barcode = pcm.barcode
+      WHERE pcm.marketplace = 'TRENDYOL'
+      ORDER BY p.product_name ASC
+    `);
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      mappings: result.rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
