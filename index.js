@@ -2,6 +2,19 @@ require("dotenv").config();
 
 const express = require("express");
 const { Pool } = require("pg");
+
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: false }
+    : false
+});
+
 function trendyolAuthHeader() {
   const apiKey = process.env.TY_API_KEY;
   const apiSecret = process.env.TY_API_SECRET;
@@ -16,18 +29,6 @@ function trendyolHeaders() {
     "Content-Type": "application/json"
   };
 }
-
-const app = express();
-app.use(express.json());
-
-const PORT = process.env.PORT || 3000;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production"
-    ? { rejectUnauthorized: false }
-    : false
-});
 
 app.get("/", (req, res) => {
   res.send("Aşlamacı Repricer v2 çalışıyor 🚀");
@@ -71,35 +72,7 @@ app.get("/setup-db", async (req, res) => {
         action TEXT
       );
     `);
-app.get("/test-trendyol", async (req, res) => {
-  try {
-    const supplierId = process.env.TY_SUPPLIER_ID;
 
-    const url =
-      "https://apigw.trendyol.com/integration/product/sellers/" +
-      supplierId +
-      "/products?approved=true&page=0&size=1";
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: trendyolHeaders()
-    });
-
-    const text = await response.text();
-
-    res.status(response.status).json({
-      status: response.ok ? "ok" : "error",
-      httpStatus: response.status,
-      raw: text
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-    
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
@@ -123,6 +96,35 @@ app.get("/test-trendyol", async (req, res) => {
     res.json({
       status: "ok",
       message: "Database tables created"
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
+app.get("/test-trendyol", async (req, res) => {
+  try {
+    const supplierId = process.env.TY_SUPPLIER_ID;
+
+    const url =
+      "https://apigw.trendyol.com/integration/product/sellers/" +
+      supplierId +
+      "/products?approved=true&page=0&size=1";
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: trendyolHeaders()
+    });
+
+    const text = await response.text();
+
+    res.status(response.status).json({
+      status: response.ok ? "ok" : "error",
+      httpStatus: response.status,
+      raw: text
     });
   } catch (error) {
     res.status(500).json({
