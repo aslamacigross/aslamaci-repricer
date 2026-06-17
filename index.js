@@ -698,6 +698,63 @@ app.get("/set-product-desi", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+app.get("/products", async (req, res) => {
+  try {
+    const active = req.query.active;
+    const needsCost = req.query.needs_cost;
+    const missingDesi = req.query.missing_desi;
+    const loss = req.query.loss;
+    const limit = Number(req.query.limit || 100);
+
+    const conditions = ["marketplace = 'TRENDYOL'"];
+
+    if (active === "true") conditions.push("on_sale = true");
+    if (active === "false") conditions.push("on_sale = false");
+    if (needsCost === "true") conditions.push("needs_cost_mapping = true");
+    if (missingDesi === "true") conditions.push("(desi IS NULL OR desi <= 0)");
+    if (loss === "true") conditions.push("my_price > 0 AND min_price > 0 AND my_price < min_price");
+
+    const whereClause = conditions.join(" AND ");
+
+    const result = await pool.query(`
+      SELECT
+        barcode,
+        product_name,
+        brand,
+        category_name,
+        my_price,
+        list_price,
+        stock_quantity,
+        on_sale,
+        desi,
+        commission_rate,
+        calculated_product_cost,
+        calculated_shipping_cost,
+        calculated_total_cost,
+        min_price,
+        ROUND((my_price - min_price), 2) AS price_vs_min,
+        needs_cost_mapping,
+        auto_update,
+        updated_at
+      FROM products
+      WHERE ${whereClause}
+      ORDER BY category_name ASC, product_name ASC
+      LIMIT $1
+    `, [limit]);
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      products: result.rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
