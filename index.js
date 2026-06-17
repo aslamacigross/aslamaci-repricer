@@ -71,7 +71,35 @@ app.get("/setup-db", async (req, res) => {
         action TEXT
       );
     `);
+app.get("/test-trendyol", async (req, res) => {
+  try {
+    const supplierId = process.env.TY_SUPPLIER_ID;
 
+    const url =
+      "https://apigw.trendyol.com/integration/product/sellers/" +
+      supplierId +
+      "/products?approved=true&page=0&size=1";
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: trendyolHeaders()
+    });
+
+    const text = await response.text();
+
+    res.status(response.status).json({
+      status: response.ok ? "ok" : "error",
+      httpStatus: response.status,
+      raw: text
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+    
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
