@@ -490,6 +490,47 @@ app.get("/product-cost-mappings", async (req, res) => {
     });
   }
 });
+app.get("/calculate-costs", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      WITH product_costs AS (
+        SELECT
+          pcm.marketplace,
+          pcm.barcode,
+          SUM(pcm.quantity * ci.unit_cost) AS product_cost
+        FROM product_cost_mappings pcm
+        JOIN cost_items ci
+          ON ci.item_code = pcm.cost_item_code
+        WHERE pcm.marketplace = 'TRENDYOL'
+        GROUP BY pcm.marketplace, pcm.barcode
+      )
+      UPDATE products p
+      SET
+        calculated_product_cost = pc.product_cost,
+        needs_cost_mapping = false,
+        updated_at = NOW()
+      FROM product_costs pc
+      WHERE p.marketplace = pc.marketplace
+        AND p.barcode = pc.barcode
+      RETURNING
+        p.barcode,
+        p.product_name,
+        p.calculated_product_cost
+    `);
+
+    res.json({
+      status: "ok",
+      updated: result.rows.length,
+      products: result.rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
