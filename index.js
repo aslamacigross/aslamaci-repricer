@@ -123,7 +123,39 @@ app.get("/setup-db", async (req, res) => {
         UNIQUE(marketplace, barcode)
       );
     `);
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS cost_items (
+    id SERIAL PRIMARY KEY,
+    item_code TEXT UNIQUE NOT NULL,
+    item_name TEXT NOT NULL,
+    unit_cost NUMERIC NOT NULL DEFAULT 0,
+    unit TEXT DEFAULT 'adet',
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+`);
 
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS product_cost_mappings (
+    id SERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL,
+    barcode TEXT NOT NULL,
+    cost_item_code TEXT NOT NULL,
+    quantity NUMERIC NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(marketplace, barcode, cost_item_code)
+  );
+`);
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS shipping_rules (
+    id SERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL DEFAULT 'TRENDYOL',
+    min_desi NUMERIC NOT NULL,
+    max_desi NUMERIC NOT NULL,
+    shipping_cost NUMERIC NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+`);
     res.json({
       status: "ok",
       message: "Database tables created"
@@ -135,7 +167,18 @@ app.get("/setup-db", async (req, res) => {
     });
   }
 });
-
+await pool.query(`
+  ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS desi NUMERIC,
+  ADD COLUMN IF NOT EXISTS packaging_cost NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS service_fee NUMERIC DEFAULT 13.19,
+  ADD COLUMN IF NOT EXISTS target_profit NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS calculated_product_cost NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS calculated_shipping_cost NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
+`);
 app.get("/test-trendyol", async (req, res) => {
   try {
     const supplierId = process.env.TY_SUPPLIER_ID;
