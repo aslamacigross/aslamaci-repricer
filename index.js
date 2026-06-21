@@ -863,6 +863,70 @@ app.get("/import-cost-index", async (req, res) => {
     });
   }
 });
+app.get("/import-product-mappings", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "UrunMaliyetMap!A2:D"
+    });
+
+    const rows = result.data.values || [];
+    let imported = 0;
+
+    for (const row of rows) {
+      const barcode = String(row[0] || "").trim();
+      const costCode = String(row[1] || "").trim();
+      const quantity = Number(String(row[2] || "1").replace(",", "."));
+
+      if (!barcode || !costCode || quantity <= 0) continue;
+
+      await pool.query(
+        `
+        INSERT INTO product_cost_mappings (
+          marketplace,
+          barcode,
+          cost_item_code,
+          quantity,
+          updated_at
+        )
+        VALUES ('TRENDYOL', $1, $2, $3, NOW())
+        ON CONFLICT (marketplace, barcode, cost_item_code)
+        DO UPDATE SET
+          quantity = EXCLUDED.quantity,
+          updated_at = NOW()
+        `,
+        [barcode, costCode, quantity]
+      );
+
+      await pool.query(
+        `
+        UPDATE products
+        SET needs_cost_mapping = false,
+            updated_at = NOW()
+        WHERE marketplace = 'TRENDYOL'
+          AND barcode = $1
+        `,
+        [barcode]
+      );
+
+      imported++;
+    }
+
+    res.json({
+      status: "ok",
+      imported,
+      message: "UrunMaliyetMap imported"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
