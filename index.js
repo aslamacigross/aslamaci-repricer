@@ -1471,17 +1471,115 @@ app.get("/refresh-cost-mapping-status", async (req, res) => {
   try {
     const result = await pool.query(`
       UPDATE products p
-      SET needs_cost_mapping =
-        CASE
-          WHEN EXISTS (
-            SELECT 1
-            FROM product_cost_mappings pcm
-            WHERE pcm.marketplace = p.marketplace
-              AND pcm.barcode = p.barcode
-          )
-          THEN false
-          ELSE true
-        END,
+      SET
+        needs_cost_mapping =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN false
+            ELSE true
+          END,
+
+        desi =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.desi
+            ELSE NULL
+          END,
+
+        calculated_product_cost =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.calculated_product_cost
+            ELSE 0
+          END,
+
+        calculated_shipping_cost =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.calculated_shipping_cost
+            ELSE 0
+          END,
+
+        calculated_total_cost =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.calculated_total_cost
+            ELSE 0
+          END,
+
+        calculated_min_price =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.calculated_min_price
+            ELSE 0
+          END,
+
+        min_price =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.min_price
+            ELSE 0
+          END,
+
+        calculated_net_profit =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.calculated_net_profit
+            ELSE 0
+          END,
+
+        calculated_net_margin =
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM product_cost_mappings pcm
+              WHERE pcm.marketplace = p.marketplace
+                AND pcm.barcode = p.barcode
+            )
+            THEN p.calculated_net_margin
+            ELSE 0
+          END,
+
         updated_at = NOW()
       WHERE p.marketplace = 'TRENDYOL'
       RETURNING barcode, product_name, needs_cost_mapping
@@ -1490,7 +1588,7 @@ app.get("/refresh-cost-mapping-status", async (req, res) => {
     res.json({
       status: "ok",
       updated: result.rows.length,
-      message: "Cost mapping status refreshed"
+      message: "Cost mapping status and stale calculated fields refreshed"
     });
   } catch (error) {
     res.status(500).json({
