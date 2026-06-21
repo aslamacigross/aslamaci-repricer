@@ -755,6 +755,43 @@ app.get("/products", async (req, res) => {
     });
   }
 });
+const { google } = require("googleapis");
+
+function getGoogleAuth() {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
+  return new google.auth.GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
+}
+
+async function getSheetsClient() {
+  const auth = getGoogleAuth();
+  return google.sheets({ version: "v4", auth });
+}
+
+app.get("/test-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID
+    });
+
+    res.json({
+      status: "ok",
+      title: result.data.properties.title,
+      sheets: result.data.sheets.map(s => s.properties.title)
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
