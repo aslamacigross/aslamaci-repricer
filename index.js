@@ -1467,6 +1467,38 @@ app.get("/reset-commissions", async (req, res) => {
     });
   }
 });
+app.get("/refresh-cost-mapping-status", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      UPDATE products p
+      SET needs_cost_mapping =
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM product_cost_mappings pcm
+            WHERE pcm.marketplace = p.marketplace
+              AND pcm.barcode = p.barcode
+          )
+          THEN false
+          ELSE true
+        END,
+        updated_at = NOW()
+      WHERE p.marketplace = 'TRENDYOL'
+      RETURNING barcode, product_name, needs_cost_mapping
+    `);
+
+    res.json({
+      status: "ok",
+      updated: result.rows.length,
+      message: "Cost mapping status refreshed"
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
