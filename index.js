@@ -494,16 +494,17 @@ app.get("/calculate-costs", async (req, res) => {
   try {
     const result = await pool.query(`
       WITH product_costs AS (
-        SELECT
-          pcm.marketplace,
-          pcm.barcode,
-          SUM(pcm.quantity * ci.unit_cost) AS product_cost
-        FROM product_cost_mappings pcm
-        JOIN cost_items ci
-          ON ci.item_code = pcm.cost_item_code
-        WHERE pcm.marketplace = 'TRENDYOL'
-        GROUP BY pcm.marketplace, pcm.barcode
-      ),
+    SELECT
+      pcm.marketplace,
+      pcm.barcode,
+      SUM(pcm.quantity * ci.unit_cost) AS product_cost,
+      SUM(pcm.quantity * COALESCE(ci.unit_desi,0)) AS total_desi
+    FROM product_cost_mappings pcm
+    JOIN cost_items ci
+      ON ci.item_code = pcm.cost_item_code
+    WHERE pcm.marketplace = 'TRENDYOL'
+    GROUP BY pcm.marketplace, pcm.barcode
+),
       shipping AS (
         SELECT
           p.marketplace,
