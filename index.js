@@ -1597,6 +1597,102 @@ app.get("/refresh-cost-mapping-status", async (req, res) => {
     });
   }
 });
+app.get("/export-new-products-to-sheet", async (req, res) => {
+  try {
+
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(`
+      SELECT
+        barcode,
+        product_name,
+        brand,
+        category_name,
+        my_price,
+        commission_rate,
+        needs_cost_mapping,
+        min_price,
+
+        CASE
+          WHEN needs_cost_mapping = true
+            THEN 'Maliyet Mapping Eksik'
+
+          WHEN commission_rate IS NULL
+            THEN 'Komisyon Eksik'
+
+          WHEN COALESCE(min_price,0) = 0
+            THEN 'Minimum Fiyat Hesaplanamıyor'
+
+          ELSE 'Kontrol Edilmeli'
+        END AS issue
+
+      FROM products
+      WHERE marketplace='TRENDYOL'
+      AND (
+           needs_cost_mapping = true
+        OR commission_rate IS NULL
+        OR COALESCE(min_price,0)=0
+      )
+
+      ORDER BY
+        needs_cost_mapping DESC,
+        commission_rate NULLS FIRST,
+        product_name
+    `);
+
+    const header = [[
+      "Barkod",
+      "Ürün",
+      "Marka",
+      "Kategori",
+      "TY Fiyat",
+      "Komisyon %",
+      "Mapping",
+      "Minimum Fiyat",
+      "Eksik Sebep"
+    ]];
+
+    const values = result.rows.map(r => ([
+      r.barcode,
+      r.product_name,
+      r.brand,
+      r.category_name,
+      Number(r.my_price || 0),
+      r.commission_rate || "",
+      r.needs_cost_mapping ? "EKSİK" : "TAMAM",
+      Number(r.min_price || 0),
+      r.issue
+    ]));
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "YeniUrunler!A:I"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "YeniUrunler!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: header.concat(values)
+      }
+    });
+
+    res.json({
+      status: "ok",
+      exported: values.length,
+      message: "YeniUrunler updated"
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
