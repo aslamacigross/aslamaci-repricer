@@ -1127,6 +1127,87 @@ app.get("/import-shipping-costs", async (req, res) => {
     });
   }
 });
+app.get("/import-shipping-barems", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "KargoBarem!A1:J"
+    });
+
+    const rows = result.data.values || [];
+
+    if (rows.length < 2) {
+      return res.json({
+        status: "ok",
+        imported: 0,
+        message: "KargoBarem boş"
+      });
+    }
+
+    const headers = rows[0].map(h => String(h || "").trim());
+
+    await pool.query(`DELETE FROM shipping_barems;`);
+
+    let imported = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+
+      const minBasket = Number(String(row[0] || "0").replace(",", "."));
+      const maxBasket = Number(String(row[1] || "999999").replace(",", "."));
+      const baremName = String(row[2] || "").trim();
+
+      if (isNaN(minBasket) || isNaN(maxBasket)) continue;
+
+      for (let c = 3; c < headers.length; c++) {
+        const carrier = headers[c];
+        const costExVat = Number(String(row[c] || "").replace(",", "."));
+
+        if (!carrier || isNaN(costExVat) || costExVat <= 0) continue;
+
+        const costIncVat = Number((costExVat * 1.20).toFixed(2));
+
+        await pool.query(
+          `
+          INSERT INTO shipping_barems (
+            min_basket,
+            max_basket,
+            barem_name,
+            carrier,
+            cost_ex_vat,
+            cost_inc_vat,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, NOW())
+          ON CONFLICT (min_basket, max_basket, carrier)
+          DO UPDATE SET
+            barem_name = EXCLUDED.barem_name,
+            cost_ex_vat = EXCLUDED.cost_ex_vat,
+            cost_inc_vat = EXCLUDED.cost_inc_vat,
+            updated_at = NOW()
+          `,
+          [minBasket, maxBasket, baremName, carrier, costExVat, costIncVat]
+        );
+
+        imported++;
+      }
+    }
+
+    res.json({
+      status: "ok",
+      imported,
+      message: "KargoBarem imported"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
