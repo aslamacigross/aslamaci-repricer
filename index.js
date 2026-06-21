@@ -927,6 +927,52 @@ app.get("/import-product-mappings", async (req, res) => {
     });
   }
 });
+app.get("/delete-product-mapping", async (req, res) => {
+  try {
+    const barcode = String(req.query.barcode || "").trim();
+    const costCode = String(req.query.cost_code || "").trim();
+
+    if (!barcode) {
+      return res.status(400).json({
+        status: "error",
+        message: "barcode zorunlu."
+      });
+    }
+
+    let result;
+
+    if (costCode) {
+      result = await pool.query(
+        `
+        DELETE FROM product_cost_mappings
+        WHERE marketplace = 'TRENDYOL'
+          AND barcode = $1
+          AND cost_item_code = $2
+        RETURNING *
+        `,
+        [barcode, costCode]
+      );
+    } else {
+      result = await pool.query(
+        `
+        DELETE FROM product_cost_mappings
+        WHERE marketplace = 'TRENDYOL'
+          AND barcode = $1
+        RETURNING *
+        `,
+        [barcode]
+      );
+    }
+
+    res.json({
+      status: "ok",
+      deleted: result.rows.length
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
