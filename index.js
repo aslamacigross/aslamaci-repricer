@@ -1055,12 +1055,69 @@ app.get("/setup-shipping-v2", async (req, res) => {
 });
 app.get("/import-shipping-costs", async (req, res) => {
   try {
-    // Şimdilik test amaçlı manuel import edeceğiz.
-    // Google Sheets entegrasyonunu bir sonraki adımda bağlayacağız.
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "KargoMaliyetleri!A1:K"
+    });
+
+    const rows = result.data.values || [];
+    if (rows.length < 2) {
+      return res.json({
+        status: "ok",
+        imported: 0,
+        message: "KargoMaliyetleri boş"
+      });
+    }
+
+    const headers = rows[0].map(h => String(h || "").trim());
+
+    await pool.query(`DELETE FROM shipping_costs;`);
+
+    let imported = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const desiKg = Number(String(row[0] || "").replace(",", "."));
+
+      if (isNaN(desiKg)) continue;
+
+      for (let c = 1; c < headers.length; c++) {
+        const carrier = headers[c];
+        const costExVat = Number(String(row[c] || "").replace(",", "."));
+
+        if (!carrier || isNaN(costExVat) || costExVat <= 0) continue;
+
+        const costIncVat = Number((costExVat * 1.20).toFixed(2));
+
+        await pool.query(
+          `
+          INSERT INTO shipping_costs (
+            desi_kg,
+            carrier,
+            cost_ex_vat,
+            cost_inc_vat,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, NOW())
+          ON CONFLICT (desi_kg, carrier)
+          DO UPDATE SET
+            cost_ex_vat = EXCLUDED.cost_ex_vat,
+            cost_inc_vat = EXCLUDED.cost_inc_vat,
+            updated_at = NOW()
+          `,
+          [desiKg, carrier, costExVat, costIncVat]
+        );
+
+        imported++;
+      }
+    }
 
     res.json({
       status: "ok",
-      message: "Endpoint hazır"
+      imported,
+      message: "KargoMaliyetleri imported"
     });
 
   } catch (error) {
