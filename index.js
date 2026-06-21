@@ -1447,6 +1447,26 @@ app.get("/export-products-to-sheet", async (req, res) => {
     });
   }
 });
+app.get("/reset-commissions", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      UPDATE products
+      SET commission_rate = NULL,
+          updated_at = NOW()
+      WHERE marketplace = 'TRENDYOL'
+    `);
+
+    res.json({
+      status: "ok",
+      message: "All Trendyol commissions cleared"
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
