@@ -354,7 +354,6 @@ app.get("/sync-products", async (req, res) => {
             brand,
             category_name,
             category_id,
-            commission_rate,
             my_price,
             list_price,
             stock_quantity,
@@ -367,7 +366,7 @@ app.get("/sync-products", async (req, res) => {
           )
           VALUES (
             'TRENDYOL',
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,NOW()
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,NOW()
           )
           ON CONFLICT (marketplace, barcode)
           DO UPDATE SET
@@ -375,7 +374,6 @@ app.get("/sync-products", async (req, res) => {
             brand = EXCLUDED.brand,
             category_name = EXCLUDED.category_name,
             category_id = EXCLUDED.category_id,
-            commission_rate = EXCLUDED.commission_rate,
             my_price = EXCLUDED.my_price,
             list_price = EXCLUDED.list_price,
             stock_quantity = EXCLUDED.stock_quantity,
@@ -392,7 +390,6 @@ app.get("/sync-products", async (req, res) => {
             p.brand || "",
             p.categoryName || "",
             String(p.pimCategoryId || p.categoryId || ""),
-            null,
             Number(p.salePrice || 0),
             Number(p.listPrice || 0),
             Number(p.quantity || 0),
@@ -413,13 +410,16 @@ app.get("/sync-products", async (req, res) => {
     res.json({
       status: "ok",
       synced: totalSynced,
-      message: "Products synced to PostgreSQL"
+      message: "Products synced to PostgreSQL without overwriting commissions"
     });
+
   } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
   }
 });
-
 app.get("/products-summary", async (req, res) => {
   try {
     const result = await pool.query(`
