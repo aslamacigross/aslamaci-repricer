@@ -972,6 +972,51 @@ app.get("/delete-product-mapping", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+app.get("/import-commissions", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "KomisyonKurallari!A2:C"
+    });
+
+    const rows = result.data.values || [];
+    let imported = 0;
+
+    for (const row of rows) {
+      const barcode = String(row[0] || "").trim();
+      const commissionRate = Number(String(row[1] || "0").replace(",", "."));
+
+      if (!barcode || commissionRate <= 0) continue;
+
+      await pool.query(
+        `
+        UPDATE products
+        SET commission_rate = $1,
+            updated_at = NOW()
+        WHERE marketplace = 'TRENDYOL'
+          AND barcode = $2
+        `,
+        [commissionRate, barcode]
+      );
+
+      imported++;
+    }
+
+    res.json({
+      status: "ok",
+      imported,
+      message: "KomisyonKurallari imported"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
