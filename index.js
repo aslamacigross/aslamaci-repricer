@@ -519,8 +519,9 @@ app.get("/calculate-costs", async (req, res) => {
       )
       UPDATE products p
       SET
-        calculated_product_cost = COALESCE(pc.product_cost, 0),
-        calculated_shipping_cost = COALESCE(s.shipping_cost, 0),
+        calculated_product_cost = COALESCE(pc.product_cost,0),
+desi = COALESCE(pc.total_desi, desi),
+calculated_shipping_cost = ...
         calculated_total_cost =
           COALESCE(pc.product_cost, 0)
           + COALESCE(s.shipping_cost, 0)
