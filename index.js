@@ -511,16 +511,23 @@ app.get("/calculate-costs", async (req, res) => {
           p.barcode,
           pc.product_cost,
           pc.total_desi,
-          COALESCE(sr.shipping_cost, 0) AS shipping_cost
+          CASE
+  WHEN p.my_price <= 349.99
+    THEN COALESCE(sb.cost_inc_vat,0)
+  ELSE
+    COALESCE(sc.cost_inc_vat,0)
+END AS shipping_cost
         FROM products p
         JOIN product_costs pc
           ON pc.marketplace = p.marketplace
          AND pc.barcode = p.barcode
-        LEFT JOIN shipping_rules sr
-          ON sr.marketplace = p.marketplace
-         AND pc.total_desi >= sr.min_desi
-         AND pc.total_desi <= sr.max_desi
-        WHERE p.marketplace = 'TRENDYOL'
+        LEFT JOIN shipping_barems sb
+          ON sb.carrier = 'TEX'
+         AND p.my_price >= sb.min_basket
+         AND p.my_price <= sb.max_basket
+        LEFT JOIN shipping_costs sc
+         ON sc.carrier = 'TEX'
+         AND sc.desi_kg = CEIL(pc.total_desi)
       )
       UPDATE products p
       SET
