@@ -392,7 +392,7 @@ app.get("/sync-products", async (req, res) => {
             p.brand || "",
             p.categoryName || "",
             String(p.pimCategoryId || p.categoryId || ""),
-            Number(p.vatRate || 0),
+            null,
             Number(p.salePrice || 0),
             Number(p.listPrice || 0),
             Number(p.quantity || 0),
