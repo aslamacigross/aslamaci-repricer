@@ -1017,6 +1017,42 @@ app.get("/import-commissions", async (req, res) => {
     });
   }
 });
+app.get("/setup-shipping-v2", async (req, res) => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shipping_costs (
+        id SERIAL PRIMARY KEY,
+        desi_kg NUMERIC NOT NULL,
+        carrier TEXT NOT NULL,
+        cost_ex_vat NUMERIC NOT NULL,
+        cost_inc_vat NUMERIC NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(desi_kg, carrier)
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shipping_barems (
+        id SERIAL PRIMARY KEY,
+        min_basket NUMERIC NOT NULL,
+        max_basket NUMERIC NOT NULL,
+        barem_name TEXT,
+        carrier TEXT NOT NULL,
+        cost_ex_vat NUMERIC NOT NULL,
+        cost_inc_vat NUMERIC NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(min_basket, max_basket, carrier)
+      );
+    `);
+
+    res.json({
+      status: "ok",
+      message: "Shipping v2 tables created"
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
