@@ -118,6 +118,8 @@ app.get("/setup-db", async (req, res) => {
       ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0,
       ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0,
       ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
+      ADD COLUMN IF NOT EXISTS calculated_net_profit NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS calculated_net_margin NUMERIC DEFAULT 0;
     `);
 
     await pool.query(`
@@ -512,11 +514,11 @@ app.get("/calculate-costs", async (req, res) => {
           pc.product_cost,
           pc.total_desi,
           CASE
-  WHEN p.my_price <= 349.99
-    THEN COALESCE(sb.cost_inc_vat,0)
-  ELSE
-    COALESCE(sc.cost_inc_vat,0)
-END AS shipping_cost
+            WHEN p.my_price <= 349.99
+              THEN COALESCE(sb.cost_inc_vat, 0)
+            ELSE
+              COALESCE(sc.cost_inc_vat, 0)
+          END AS shipping_cost
         FROM products p
         JOIN product_costs pc
           ON pc.marketplace = p.marketplace
@@ -526,7 +528,7 @@ END AS shipping_cost
          AND p.my_price >= sb.min_basket
          AND p.my_price <= sb.max_basket
         LEFT JOIN shipping_costs sc
-         ON sc.carrier = 'TEX'
+          ON sc.carrier = 'TEX'
          AND sc.desi_kg = CEIL(pc.total_desi)
       )
       UPDATE products p
@@ -540,6 +542,7 @@ END AS shipping_cost
           + COALESCE(p.packaging_cost, 0)
           + COALESCE(p.service_fee, 13.19)
           + COALESCE(p.target_profit, 0),
+
         calculated_min_price =
           CASE
             WHEN COALESCE(p.commission_rate, 0) > 0
@@ -557,6 +560,7 @@ END AS shipping_cost
               + COALESCE(p.service_fee, 13.19)
               + COALESCE(p.target_profit, 0)
           END,
+
         min_price =
           CASE
             WHEN COALESCE(p.commission_rate, 0) > 0
@@ -574,11 +578,41 @@ END AS shipping_cost
               + COALESCE(p.service_fee, 13.19)
               + COALESCE(p.target_profit, 0)
           END,
+
+        calculated_net_profit =
+          COALESCE(p.my_price, 0)
+          - (COALESCE(p.my_price, 0) * (COALESCE(p.commission_rate, 0) / 100))
+          - (
+            COALESCE(c.product_cost, 0)
+            + COALESCE(c.shipping_cost, 0)
+            + COALESCE(p.packaging_cost, 0)
+            + COALESCE(p.service_fee, 13.19)
+          ),
+
+        calculated_net_margin =
+          CASE
+            WHEN COALESCE(p.my_price, 0) > 0
+            THEN (
+              (
+                COALESCE(p.my_price, 0)
+                - (COALESCE(p.my_price, 0) * (COALESCE(p.commission_rate, 0) / 100))
+                - (
+                  COALESCE(c.product_cost, 0)
+                  + COALESCE(c.shipping_cost, 0)
+                  + COALESCE(p.packaging_cost, 0)
+                  + COALESCE(p.service_fee, 13.19)
+                )
+              ) / COALESCE(p.my_price, 0)
+            ) * 100
+            ELSE 0
+          END,
+
         needs_cost_mapping =
           CASE
             WHEN c.product_cost IS NULL OR c.product_cost <= 0 THEN true
             ELSE false
           END,
+
         updated_at = NOW()
       FROM calculated c
       WHERE p.marketplace = c.marketplace
@@ -596,7 +630,9 @@ END AS shipping_cost
         p.target_profit,
         p.calculated_total_cost,
         p.calculated_min_price,
-        p.min_price
+        p.min_price,
+        p.calculated_net_profit,
+        p.calculated_net_margin
     `);
 
     res.json({
