@@ -1053,6 +1053,23 @@ app.get("/setup-shipping-v2", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+app.get("/import-shipping-costs", async (req, res) => {
+  try {
+    // Şimdilik test amaçlı manuel import edeceğiz.
+    // Google Sheets entegrasyonunu bir sonraki adımda bağlayacağız.
+
+    res.json({
+      status: "ok",
+      message: "Endpoint hazır"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
