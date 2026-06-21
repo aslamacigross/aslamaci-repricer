@@ -1352,6 +1352,101 @@ app.get("/import-shipping-barems", async (req, res) => {
     });
   }
 });
+app.get("/export-products-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(`
+      SELECT
+        barcode,
+        product_name,
+        brand,
+        category_name,
+        my_price,
+        commission_rate,
+        stock_quantity,
+        on_sale,
+        needs_cost_mapping,
+        desi,
+        calculated_product_cost,
+        calculated_shipping_cost,
+        calculated_total_cost,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin,
+        updated_at
+      FROM products
+      WHERE marketplace = 'TRENDYOL'
+      ORDER BY on_sale DESC, category_name ASC, product_name ASC
+    `);
+
+    const header = [
+      "Barkod",
+      "Ürün Adı",
+      "Marka",
+      "Kategori",
+      "TY Fiyatı",
+      "Komisyon %",
+      "Stok",
+      "Aktif mi",
+      "Maliyet Durumu",
+      "Desi",
+      "Ürün Maliyeti",
+      "Kargo Maliyeti",
+      "Toplam Maliyet",
+      "Minimum Fiyat",
+      "Net Kâr",
+      "Net Marj %",
+      "Son Güncelleme"
+    ];
+
+    const rows = result.rows.map(p => [
+      p.barcode,
+      p.product_name,
+      p.brand,
+      p.category_name,
+      Number(p.my_price || 0),
+      Number(p.commission_rate || 0),
+      Number(p.stock_quantity || 0),
+      p.on_sale ? "EVET" : "HAYIR",
+      p.needs_cost_mapping ? "EKSİK" : "TAMAM",
+      Number(p.desi || 0),
+      Number(p.calculated_product_cost || 0),
+      Number(p.calculated_shipping_cost || 0),
+      Number(p.calculated_total_cost || 0),
+      Number(p.min_price || 0),
+      Number(p.calculated_net_profit || 0),
+      Number(p.calculated_net_margin || 0),
+      p.updated_at
+    ]);
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Urunler!A:Q"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Urunler!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [header, ...rows]
+      }
+    });
+
+    res.json({
+      status: "ok",
+      exported: rows.length,
+      message: "Urunler sheet updated"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
