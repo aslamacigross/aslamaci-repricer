@@ -792,6 +792,77 @@ app.get("/test-sheet", async (req, res) => {
     });
   }
 });
+app.get("/import-cost-index", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "MaliyetIndex!A2:F"
+    });
+
+    const rows = result.data.values || [];
+    let imported = 0;
+
+    for (const row of rows) {
+      const itemCode = String(row[0] || "").trim();
+      const itemName = String(row[1] || "").trim();
+      const unitCost = Number(String(row[2] || "0").replace(",", "."));
+      const unitDesi = Number(String(row[3] || "0").replace(",", "."));
+      const unit = String(row[4] || "adet").trim();
+
+      if (!itemCode || !itemName || unitCost <= 0) continue;
+
+      await pool.query(
+        `
+        INSERT INTO cost_items (
+          item_code,
+          item_name,
+          unit_cost,
+          unit,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (item_code)
+        DO UPDATE SET
+          item_name = EXCLUDED.item_name,
+          unit_cost = EXCLUDED.unit_cost,
+          unit = EXCLUDED.unit,
+          updated_at = NOW()
+        `,
+        [itemCode, itemName, unitCost, unit]
+      );
+
+      await pool.query(`
+        ALTER TABLE cost_items
+        ADD COLUMN IF NOT EXISTS unit_desi NUMERIC DEFAULT 0;
+      `);
+
+      await pool.query(
+        `
+        UPDATE cost_items
+        SET unit_desi = $1
+        WHERE item_code = $2
+        `,
+        [unitDesi, itemCode]
+      );
+
+      imported++;
+    }
+
+    res.json({
+      status: "ok",
+      imported,
+      message: "MaliyetIndex imported"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
