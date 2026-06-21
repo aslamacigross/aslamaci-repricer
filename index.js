@@ -58,6 +58,8 @@ app.get("/reset-products", async (req, res) => {
 
 app.get("/setup-db", async (req, res) => {
   try {
+
+    // PRODUCTS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
@@ -67,61 +69,113 @@ app.get("/setup-db", async (req, res) => {
         brand TEXT,
         category_name TEXT,
         category_id TEXT,
+
         commission_rate NUMERIC,
+
         my_price NUMERIC,
         list_price NUMERIC,
+
         stock_quantity INTEGER,
+
         archived BOOLEAN DEFAULT false,
         locked BOOLEAN DEFAULT false,
         on_sale BOOLEAN DEFAULT false,
         approved BOOLEAN DEFAULT false,
+
         buybox_price NUMERIC,
         second_price NUMERIC,
         third_price NUMERIC,
         rank INTEGER,
         has_multiple_seller BOOLEAN,
+
         desi NUMERIC,
+
         packaging_cost NUMERIC DEFAULT 0,
         service_fee NUMERIC DEFAULT 13.19,
         target_profit NUMERIC DEFAULT 0,
+
         calculated_product_cost NUMERIC DEFAULT 0,
         calculated_shipping_cost NUMERIC DEFAULT 0,
         calculated_total_cost NUMERIC DEFAULT 0,
+
         calculated_min_price NUMERIC DEFAULT 0,
-        min_price NUMERIC,
+        min_price NUMERIC DEFAULT 0,
+
+        calculated_net_profit NUMERIC DEFAULT 0,
+        calculated_net_margin NUMERIC DEFAULT 0,
+
         auto_update BOOLEAN DEFAULT false,
         is_active BOOLEAN DEFAULT true,
         needs_cost_mapping BOOLEAN DEFAULT true,
+
         updated_at TIMESTAMP DEFAULT NOW(),
+
         UNIQUE(marketplace, barcode)
       );
     `);
 
+    // Eski kurulmuş products tablolarını upgrade et
     await pool.query(`
       ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS brand TEXT,
-      ADD COLUMN IF NOT EXISTS category_name TEXT,
-      ADD COLUMN IF NOT EXISTS category_id TEXT,
-      ADD COLUMN IF NOT EXISTS commission_rate NUMERIC,
-      ADD COLUMN IF NOT EXISTS list_price NUMERIC,
-      ADD COLUMN IF NOT EXISTS stock_quantity INTEGER,
-      ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS on_sale BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS desi NUMERIC,
-      ADD COLUMN IF NOT EXISTS packaging_cost NUMERIC DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS service_fee NUMERIC DEFAULT 13.19,
-      ADD COLUMN IF NOT EXISTS target_profit NUMERIC DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS calculated_product_cost NUMERIC DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS calculated_shipping_cost NUMERIC DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
-      ADD COLUMN IF NOT EXISTS calculated_net_profit NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS packaging_cost NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS service_fee NUMERIC DEFAULT 13.19;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS target_profit NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS calculated_product_cost NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS calculated_shipping_cost NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS min_price NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS calculated_net_profit NUMERIC DEFAULT 0;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
       ADD COLUMN IF NOT EXISTS calculated_net_margin NUMERIC DEFAULT 0;
     `);
 
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
+    `);
+
+    await pool.query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS desi NUMERIC;
+    `);
+
+    // COST ITEMS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cost_items (
         id SERIAL PRIMARY KEY,
@@ -129,10 +183,12 @@ app.get("/setup-db", async (req, res) => {
         item_name TEXT NOT NULL,
         unit_cost NUMERIC NOT NULL DEFAULT 0,
         unit TEXT DEFAULT 'adet',
+        unit_desi NUMERIC DEFAULT 0,
         updated_at TIMESTAMP DEFAULT NOW()
       );
     `);
 
+    // PRODUCT COST MAPPINGS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS product_cost_mappings (
         id SERIAL PRIMARY KEY,
@@ -141,43 +197,88 @@ app.get("/setup-db", async (req, res) => {
         cost_item_code TEXT NOT NULL,
         quantity NUMERIC NOT NULL DEFAULT 1,
         updated_at TIMESTAMP DEFAULT NOW(),
+
         UNIQUE(marketplace, barcode, cost_item_code)
       );
     `);
 
+    // SHIPPING COSTS (ANA TEX TABLOSU)
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS shipping_rules (
+      CREATE TABLE IF NOT EXISTS shipping_costs (
         id SERIAL PRIMARY KEY,
-        marketplace TEXT NOT NULL DEFAULT 'TRENDYOL',
-        min_desi NUMERIC NOT NULL,
-        max_desi NUMERIC NOT NULL,
-        shipping_cost NUMERIC NOT NULL,
-        updated_at TIMESTAMP DEFAULT NOW()
+
+        desi_kg NUMERIC NOT NULL,
+        carrier TEXT NOT NULL,
+
+        cost_ex_vat NUMERIC NOT NULL,
+        cost_inc_vat NUMERIC NOT NULL,
+
+        updated_at TIMESTAMP DEFAULT NOW(),
+
+        UNIQUE(desi_kg, carrier)
       );
     `);
 
+    // SHIPPING BAREMS (0-199 / 200-349 vb)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shipping_barems (
+        id SERIAL PRIMARY KEY,
+
+        min_basket NUMERIC NOT NULL,
+        max_basket NUMERIC NOT NULL,
+
+        barem_name TEXT,
+
+        carrier TEXT NOT NULL,
+
+        cost_ex_vat NUMERIC NOT NULL,
+        cost_inc_vat NUMERIC NOT NULL,
+
+        updated_at TIMESTAMP DEFAULT NOW(),
+
+        UNIQUE(min_basket, max_basket, carrier)
+      );
+    `);
+
+    // PRICE WAR LOG
     await pool.query(`
       CREATE TABLE IF NOT EXISTS price_war_log (
         id SERIAL PRIMARY KEY,
+
         created_at TIMESTAMP DEFAULT NOW(),
+
         marketplace TEXT NOT NULL,
         barcode TEXT NOT NULL,
+
         product_name TEXT,
+
         old_price NUMERIC,
         new_price NUMERIC,
+
         price_diff NUMERIC,
+
         buybox_price NUMERIC,
         second_price NUMERIC,
         third_price NUMERIC,
+
         rank INTEGER,
+
         min_price NUMERIC,
+
         action TEXT
       );
     `);
 
-    res.json({ status: "ok", message: "Database tables created" });
+    res.json({
+      status: "ok",
+      message: "Database tables created/updated"
+    });
+
   } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
   }
 });
 
