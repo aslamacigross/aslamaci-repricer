@@ -494,93 +494,88 @@ app.get("/calculate-costs", async (req, res) => {
   try {
     const result = await pool.query(`
       WITH product_costs AS (
-    SELECT
-      pcm.marketplace,
-      pcm.barcode,
-      SUM(pcm.quantity * ci.unit_cost) AS product_cost,
-      SUM(pcm.quantity * COALESCE(ci.unit_desi,0)) AS total_desi
-    FROM product_cost_mappings pcm
-    JOIN cost_items ci
-      ON ci.item_code = pcm.cost_item_code
-    WHERE pcm.marketplace = 'TRENDYOL'
-    GROUP BY pcm.marketplace, pcm.barcode
-),
-      shipping AS (
+        SELECT
+          pcm.marketplace,
+          pcm.barcode,
+          SUM(pcm.quantity * ci.unit_cost) AS product_cost,
+          SUM(pcm.quantity * COALESCE(ci.unit_desi, 0)) AS total_desi
+        FROM product_cost_mappings pcm
+        JOIN cost_items ci
+          ON ci.item_code = pcm.cost_item_code
+        WHERE pcm.marketplace = 'TRENDYOL'
+        GROUP BY pcm.marketplace, pcm.barcode
+      ),
+      calculated AS (
         SELECT
           p.marketplace,
           p.barcode,
-          sr.shipping_cost
+          pc.product_cost,
+          pc.total_desi,
+          COALESCE(sr.shipping_cost, 0) AS shipping_cost
         FROM products p
+        JOIN product_costs pc
+          ON pc.marketplace = p.marketplace
+         AND pc.barcode = p.barcode
         LEFT JOIN shipping_rules sr
           ON sr.marketplace = p.marketplace
-         AND p.desi >= sr.min_desi
-         AND p.desi <= sr.max_desi
+         AND pc.total_desi >= sr.min_desi
+         AND pc.total_desi <= sr.max_desi
         WHERE p.marketplace = 'TRENDYOL'
       )
       UPDATE products p
       SET
-        SET
-    calculated_product_cost = COALESCE(pc.product_cost, 0),
-    desi = COALESCE(pc.total_desi, p.desi),
-    calculated_shipping_cost = COALESCE(s.shipping_cost, 0),
-
-    calculated_total_cost =
-      COALESCE(pc.product_cost, 0)
-      + COALESCE(s.shipping_cost, 0)
-      + COALESCE(p.packaging_cost, 0)
-      + COALESCE(p.service_fee, 13.19)
-      + COALESCE(p.target_profit, 0),
-
+        calculated_product_cost = COALESCE(c.product_cost, 0),
+        desi = COALESCE(c.total_desi, p.desi),
+        calculated_shipping_cost = COALESCE(c.shipping_cost, 0),
+        calculated_total_cost =
+          COALESCE(c.product_cost, 0)
+          + COALESCE(c.shipping_cost, 0)
+          + COALESCE(p.packaging_cost, 0)
+          + COALESCE(p.service_fee, 13.19)
+          + COALESCE(p.target_profit, 0),
         calculated_min_price =
           CASE
             WHEN COALESCE(p.commission_rate, 0) > 0
             THEN (
-              COALESCE(pc.product_cost, 0)
-              + COALESCE(s.shipping_cost, 0)
+              COALESCE(c.product_cost, 0)
+              + COALESCE(c.shipping_cost, 0)
               + COALESCE(p.packaging_cost, 0)
               + COALESCE(p.service_fee, 13.19)
               + COALESCE(p.target_profit, 0)
             ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
             ELSE
-              COALESCE(pc.product_cost, 0)
-              + COALESCE(s.shipping_cost, 0)
+              COALESCE(c.product_cost, 0)
+              + COALESCE(c.shipping_cost, 0)
               + COALESCE(p.packaging_cost, 0)
               + COALESCE(p.service_fee, 13.19)
               + COALESCE(p.target_profit, 0)
           END,
-
         min_price =
           CASE
             WHEN COALESCE(p.commission_rate, 0) > 0
             THEN (
-              COALESCE(pc.product_cost, 0)
-              + COALESCE(s.shipping_cost, 0)
+              COALESCE(c.product_cost, 0)
+              + COALESCE(c.shipping_cost, 0)
               + COALESCE(p.packaging_cost, 0)
               + COALESCE(p.service_fee, 13.19)
               + COALESCE(p.target_profit, 0)
             ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
             ELSE
-              COALESCE(pc.product_cost, 0)
-              + COALESCE(s.shipping_cost, 0)
+              COALESCE(c.product_cost, 0)
+              + COALESCE(c.shipping_cost, 0)
               + COALESCE(p.packaging_cost, 0)
               + COALESCE(p.service_fee, 13.19)
               + COALESCE(p.target_profit, 0)
           END,
-
         needs_cost_mapping =
           CASE
-            WHEN pc.product_cost IS NULL OR pc.product_cost <= 0 THEN true
+            WHEN c.product_cost IS NULL OR c.product_cost <= 0 THEN true
             ELSE false
           END,
-
         updated_at = NOW()
-
-      FROM product_costs pc
-      LEFT JOIN shipping s
-        ON s.marketplace = pc.marketplace
-       AND s.barcode = pc.barcode
-      WHERE p.marketplace = pc.marketplace
-        AND p.barcode = pc.barcode
+      FROM calculated c
+      WHERE p.marketplace = c.marketplace
+        AND p.barcode = c.barcode
       RETURNING
         p.barcode,
         p.product_name,
