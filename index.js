@@ -225,7 +225,8 @@ app.get("/setup-db", async (req, res) => {
         action TEXT
       );
     `);
-    await pool.query(
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS buybox_snapshots (
         id SERIAL PRIMARY KEY,
         marketplace TEXT NOT NULL,
@@ -243,7 +244,7 @@ app.get("/setup-db", async (req, res) => {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-    
+
     res.json({
       status: "ok",
       message: "Database tables created/updated"
@@ -252,7 +253,6 @@ app.get("/setup-db", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
 app.get("/test-trendyol", async (req, res) => {
   try {
     const supplierId = process.env.TY_SUPPLIER_ID;
