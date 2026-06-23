@@ -225,7 +225,25 @@ app.get("/setup-db", async (req, res) => {
         action TEXT
       );
     `);
-
+    await pool.query(
+      CREATE TABLE IF NOT EXISTS buybox_snapshots (
+        id SERIAL PRIMARY KEY,
+        marketplace TEXT NOT NULL,
+        barcode TEXT NOT NULL,
+        product_name TEXT,
+        my_price NUMERIC,
+        buybox_price NUMERIC,
+        second_price NUMERIC,
+        third_price NUMERIC,
+        rank INTEGER,
+        has_multiple_seller BOOLEAN,
+        min_price NUMERIC,
+        net_profit NUMERIC,
+        net_margin NUMERIC,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    
     res.json({
       status: "ok",
       message: "Database tables created/updated"
