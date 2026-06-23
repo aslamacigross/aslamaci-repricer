@@ -2,23 +2,38 @@ require("dotenv").config();
 
 const express = require("express");
 const { Pool } = require("pg");
+const { google } = require("googleapis");
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+const MARKETPLACE = "TRENDYOL";
+const DEFAULT_CARRIER = "TEX";
+const DEFAULT_SERVICE_FEE = 13.19;
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production"
-    ? { rejectUnauthorized: false }
-    : false
+  ssl:
+    process.env.NODE_ENV === "production"
+      ? { rejectUnauthorized: false }
+      : false
 });
 
+function parseNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const n = Number(String(value).replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function trendyolAuthHeader() {
-  return "Basic " + Buffer
-    .from(process.env.TY_API_KEY + ":" + process.env.TY_API_SECRET)
-    .toString("base64");
+  return (
+    "Basic " +
+    Buffer.from(
+      process.env.TY_API_KEY + ":" + process.env.TY_API_SECRET
+    ).toString("base64")
+  );
 }
 
 function trendyolHeaders() {
@@ -29,13 +44,27 @@ function trendyolHeaders() {
   };
 }
 
+function getGoogleAuth() {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
+  return new google.auth.GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
+}
+
+async function getSheetsClient() {
+  const auth = getGoogleAuth();
+  return google.sheets({ version: "v4", auth });
+}
+
 app.get("/", (req, res) => {
-  res.send("Aşlamacı Repricer v2 çalışıyor 🚀");
+  res.send("Aşlamacı ERP / Repricer çalışıyor 🚀");
 });
 
 app.get("/health", async (req, res) => {
   try {
-    const db = await pool.query("SELECT NOW() as now");
+    const db = await pool.query("SELECT NOW() AS now");
     res.json({
       status: "ok",
       app: "aslamaci-repricer",
@@ -47,18 +76,8 @@ app.get("/health", async (req, res) => {
   }
 });
 
-app.get("/reset-products", async (req, res) => {
-  try {
-    await pool.query(`DROP TABLE IF EXISTS products;`);
-    res.json({ status: "ok", message: "Products table dropped" });
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
-
 app.get("/setup-db", async (req, res) => {
   try {
-    // PRODUCTS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
@@ -68,113 +87,76 @@ app.get("/setup-db", async (req, res) => {
         brand TEXT,
         category_name TEXT,
         category_id TEXT,
-
         commission_rate NUMERIC,
-
         my_price NUMERIC,
         list_price NUMERIC,
-
         stock_quantity INTEGER,
-
         archived BOOLEAN DEFAULT false,
         locked BOOLEAN DEFAULT false,
         on_sale BOOLEAN DEFAULT false,
         approved BOOLEAN DEFAULT false,
-
         buybox_price NUMERIC,
         second_price NUMERIC,
         third_price NUMERIC,
         rank INTEGER,
         has_multiple_seller BOOLEAN,
-
         desi NUMERIC,
-
         packaging_cost NUMERIC DEFAULT 0,
         service_fee NUMERIC DEFAULT 13.19,
         target_profit NUMERIC DEFAULT 0,
-
         calculated_product_cost NUMERIC DEFAULT 0,
         calculated_shipping_cost NUMERIC DEFAULT 0,
         calculated_total_cost NUMERIC DEFAULT 0,
-
         calculated_min_price NUMERIC DEFAULT 0,
         min_price NUMERIC DEFAULT 0,
-
         calculated_net_profit NUMERIC DEFAULT 0,
         calculated_net_margin NUMERIC DEFAULT 0,
-
         auto_update BOOLEAN DEFAULT false,
         is_active BOOLEAN DEFAULT true,
         needs_cost_mapping BOOLEAN DEFAULT true,
-
         updated_at TIMESTAMP DEFAULT NOW(),
-
         UNIQUE(marketplace, barcode)
       );
     `);
 
-    // Eski kurulmuş products tablolarını upgrade et
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS packaging_cost NUMERIC DEFAULT 0;
-    `);
+    const productColumns = [
+      "brand TEXT",
+      "category_name TEXT",
+      "category_id TEXT",
+      "commission_rate NUMERIC",
+      "my_price NUMERIC",
+      "list_price NUMERIC",
+      "stock_quantity INTEGER",
+      "archived BOOLEAN DEFAULT false",
+      "locked BOOLEAN DEFAULT false",
+      "on_sale BOOLEAN DEFAULT false",
+      "approved BOOLEAN DEFAULT false",
+      "buybox_price NUMERIC",
+      "second_price NUMERIC",
+      "third_price NUMERIC",
+      "rank INTEGER",
+      "has_multiple_seller BOOLEAN",
+      "desi NUMERIC",
+      "packaging_cost NUMERIC DEFAULT 0",
+      "service_fee NUMERIC DEFAULT 13.19",
+      "target_profit NUMERIC DEFAULT 0",
+      "calculated_product_cost NUMERIC DEFAULT 0",
+      "calculated_shipping_cost NUMERIC DEFAULT 0",
+      "calculated_total_cost NUMERIC DEFAULT 0",
+      "calculated_min_price NUMERIC DEFAULT 0",
+      "min_price NUMERIC DEFAULT 0",
+      "calculated_net_profit NUMERIC DEFAULT 0",
+      "calculated_net_margin NUMERIC DEFAULT 0",
+      "auto_update BOOLEAN DEFAULT false",
+      "is_active BOOLEAN DEFAULT true",
+      "needs_cost_mapping BOOLEAN DEFAULT true",
+      "updated_at TIMESTAMP DEFAULT NOW()"
+    ];
 
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS service_fee NUMERIC DEFAULT 13.19;
-    `);
+    for (const col of productColumns) {
+      await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS ${col};`);
+    }
 
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS target_profit NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS calculated_product_cost NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS calculated_shipping_cost NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS calculated_total_cost NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS calculated_min_price NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS min_price NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS calculated_net_profit NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS calculated_net_margin NUMERIC DEFAULT 0;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS needs_cost_mapping BOOLEAN DEFAULT true;
-    `);
-
-    await pool.query(`
-      ALTER TABLE products
-      ADD COLUMN IF NOT EXISTS desi NUMERIC;
-    `);
-
-    // COST ITEMS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cost_items (
         id SERIAL PRIMARY KEY,
@@ -187,7 +169,6 @@ app.get("/setup-db", async (req, res) => {
       );
     `);
 
-    // PRODUCT COST MAPPINGS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS product_cost_mappings (
         id SERIAL PRIMARY KEY,
@@ -196,74 +177,51 @@ app.get("/setup-db", async (req, res) => {
         cost_item_code TEXT NOT NULL,
         quantity NUMERIC NOT NULL DEFAULT 1,
         updated_at TIMESTAMP DEFAULT NOW(),
-
         UNIQUE(marketplace, barcode, cost_item_code)
       );
     `);
 
-    // SHIPPING COSTS (ANA TEX TABLOSU)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS shipping_costs (
         id SERIAL PRIMARY KEY,
-
         desi_kg NUMERIC NOT NULL,
         carrier TEXT NOT NULL,
-
         cost_ex_vat NUMERIC NOT NULL,
         cost_inc_vat NUMERIC NOT NULL,
-
         updated_at TIMESTAMP DEFAULT NOW(),
-
         UNIQUE(desi_kg, carrier)
       );
     `);
 
-    // SHIPPING BAREMS (0-199 / 200-349 vb)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS shipping_barems (
         id SERIAL PRIMARY KEY,
-
         min_basket NUMERIC NOT NULL,
         max_basket NUMERIC NOT NULL,
-
         barem_name TEXT,
-
         carrier TEXT NOT NULL,
-
         cost_ex_vat NUMERIC NOT NULL,
         cost_inc_vat NUMERIC NOT NULL,
-
         updated_at TIMESTAMP DEFAULT NOW(),
-
         UNIQUE(min_basket, max_basket, carrier)
       );
     `);
 
-    // PRICE WAR LOG
     await pool.query(`
       CREATE TABLE IF NOT EXISTS price_war_log (
         id SERIAL PRIMARY KEY,
-
         created_at TIMESTAMP DEFAULT NOW(),
-
         marketplace TEXT NOT NULL,
         barcode TEXT NOT NULL,
-
         product_name TEXT,
-
         old_price NUMERIC,
         new_price NUMERIC,
-
         price_diff NUMERIC,
-
         buybox_price NUMERIC,
         second_price NUMERIC,
         third_price NUMERIC,
-
         rank INTEGER,
-
         min_price NUMERIC,
-
         action TEXT
       );
     `);
@@ -272,12 +230,8 @@ app.get("/setup-db", async (req, res) => {
       status: "ok",
       message: "Database tables created/updated"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
@@ -286,9 +240,8 @@ app.get("/test-trendyol", async (req, res) => {
     const supplierId = process.env.TY_SUPPLIER_ID;
 
     const url =
-      "https://apigw.trendyol.com/integration/product/sellers/" +
-      supplierId +
-      "/products?approved=true&page=0&size=1";
+      `https://apigw.trendyol.com/integration/product/sellers/${supplierId}` +
+      `/products?approved=true&page=0&size=1`;
 
     const response = await fetch(url, {
       method: "GET",
@@ -307,20 +260,34 @@ app.get("/test-trendyol", async (req, res) => {
   }
 });
 
+app.get("/test-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID
+    });
+
+    res.json({
+      status: "ok",
+      title: result.data.properties.title,
+      sheets: result.data.sheets.map(s => s.properties.title)
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 app.get("/sync-products", async (req, res) => {
   try {
     const supplierId = process.env.TY_SUPPLIER_ID;
-
     let page = 0;
     let totalSynced = 0;
 
     while (true) {
       const url =
-        "https://apigw.trendyol.com/integration/product/sellers/" +
-        supplierId +
-        "/products?approved=true&page=" +
-        page +
-        "&size=200";
+        `https://apigw.trendyol.com/integration/product/sellers/${supplierId}` +
+        `/products?approved=true&page=${page}&size=200`;
 
       const response = await fetch(url, {
         method: "GET",
@@ -364,8 +331,7 @@ app.get("/sync-products", async (req, res) => {
             updated_at
           )
           VALUES (
-            'TRENDYOL',
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,NOW()
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,NOW()
           )
           ON CONFLICT (marketplace, barcode)
           DO UPDATE SET
@@ -384,14 +350,15 @@ app.get("/sync-products", async (req, res) => {
             updated_at = NOW()
           `,
           [
+            MARKETPLACE,
             barcode,
             p.title || "",
             p.brand || "",
             p.categoryName || "",
             String(p.pimCategoryId || p.categoryId || ""),
-            Number(p.salePrice || 0),
-            Number(p.listPrice || 0),
-            Number(p.quantity || 0),
+            parseNumber(p.salePrice),
+            parseNumber(p.listPrice),
+            parseNumber(p.quantity),
             Boolean(p.archived),
             Boolean(p.locked),
             Boolean(p.onSale),
@@ -409,394 +376,13 @@ app.get("/sync-products", async (req, res) => {
     res.json({
       status: "ok",
       synced: totalSynced,
-      message: "Products synced to PostgreSQL without overwriting commissions"
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/products-summary", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT
-        COUNT(*) AS total_products,
-        COUNT(*) FILTER (WHERE on_sale = true) AS active_products,
-        COUNT(*) FILTER (WHERE on_sale = false) AS passive_products,
-        COUNT(*) FILTER (WHERE on_sale = true) AS on_sale_products,
-        COUNT(*) FILTER (WHERE needs_cost_mapping = true AND on_sale = true) AS needs_cost_mapping,
-        COUNT(*) FILTER (WHERE auto_update = true AND on_sale = true) AS auto_update_enabled
-      FROM products
-      WHERE marketplace = 'TRENDYOL'
-    `);
-
-    res.json({
-      status: "ok",
-      summary: result.rows[0]
+      message: "Products synced without overwriting commissions"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
 
-app.get("/cost-items", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT *
-      FROM cost_items
-      ORDER BY item_name ASC
-    `);
-
-    res.json({
-      status: "ok",
-      count: result.rows.length,
-      items: result.rows
-    });
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
-app.get("/map-product-cost", async (req, res) => {
-  try {
-    const barcode = String(req.query.barcode || "").trim();
-    const costItemCode = String(req.query.cost_code || "").trim();
-    const quantity = Number(req.query.qty || 1);
-
-    if (!barcode || !costItemCode || quantity <= 0) {
-      return res.status(400).json({
-        status: "error",
-        message: "barcode, cost_code ve qty zorunlu. Örnek: /map-product-cost?barcode=869xxx&cost_code=YUM1500&qty=4"
-      });
-    }
-
-    const result = await pool.query(
-      `
-      INSERT INTO product_cost_mappings (
-        marketplace,
-        barcode,
-        cost_item_code,
-        quantity,
-        updated_at
-      )
-      VALUES ('TRENDYOL', $1, $2, $3, NOW())
-      ON CONFLICT (marketplace, barcode, cost_item_code)
-      DO UPDATE SET
-        quantity = EXCLUDED.quantity,
-        updated_at = NOW()
-      RETURNING *
-      `,
-      [barcode, costItemCode, quantity]
-    );
-
-    await pool.query(
-      `
-      UPDATE products
-      SET needs_cost_mapping = false
-      WHERE marketplace = 'TRENDYOL'
-      AND barcode = $1
-      `,
-      [barcode]
-    );
-
-    res.json({
-      status: "ok",
-      mapping: result.rows[0]
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/product-cost-mappings", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT
-        pcm.barcode,
-        p.product_name,
-        pcm.cost_item_code,
-        ci.item_name,
-        pcm.quantity,
-        ci.unit_cost,
-        pcm.quantity * ci.unit_cost AS total_cost
-      FROM product_cost_mappings pcm
-      LEFT JOIN cost_items ci
-        ON ci.item_code = pcm.cost_item_code
-      LEFT JOIN products p
-        ON p.marketplace = pcm.marketplace
-       AND p.barcode = pcm.barcode
-      WHERE pcm.marketplace = 'TRENDYOL'
-      ORDER BY p.product_name ASC
-    `);
-
-    res.json({
-      status: "ok",
-      count: result.rows.length,
-      mappings: result.rows
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/calculate-costs", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      WITH product_costs AS (
-        SELECT
-          pcm.marketplace,
-          pcm.barcode,
-          SUM(pcm.quantity * ci.unit_cost) AS product_cost,
-          SUM(pcm.quantity * COALESCE(ci.unit_desi, 0)) AS total_desi
-        FROM product_cost_mappings pcm
-        JOIN cost_items ci
-          ON ci.item_code = pcm.cost_item_code
-        WHERE pcm.marketplace = 'TRENDYOL'
-        GROUP BY pcm.marketplace, pcm.barcode
-      ),
-      calculated AS (
-        SELECT
-          p.marketplace,
-          p.barcode,
-          pc.product_cost,
-          pc.total_desi,
-          CASE
-            WHEN p.my_price <= 349.99
-              THEN COALESCE(sb.cost_inc_vat, 0)
-            ELSE
-              COALESCE(sc.cost_inc_vat, 0)
-          END AS shipping_cost
-        FROM products p
-        JOIN product_costs pc
-          ON pc.marketplace = p.marketplace
-         AND pc.barcode = p.barcode
-        LEFT JOIN shipping_barems sb
-          ON sb.carrier = 'TEX'
-         AND p.my_price >= sb.min_basket
-         AND p.my_price <= sb.max_basket
-        LEFT JOIN shipping_costs sc
-          ON sc.carrier = 'TEX'
-         AND sc.desi_kg = CEIL(pc.total_desi)
-      )
-      UPDATE products p
-      SET
-        calculated_product_cost = COALESCE(c.product_cost, 0),
-        desi = COALESCE(c.total_desi, p.desi),
-        calculated_shipping_cost = COALESCE(c.shipping_cost, 0),
-        calculated_total_cost =
-          COALESCE(c.product_cost, 0)
-          + COALESCE(c.shipping_cost, 0)
-          + COALESCE(p.packaging_cost, 0)
-          + COALESCE(p.service_fee, 13.19)
-          + COALESCE(p.target_profit, 0),
-
-        calculated_min_price =
-          CASE
-            WHEN COALESCE(p.commission_rate, 0) > 0
-            THEN (
-              COALESCE(c.product_cost, 0)
-              + COALESCE(c.shipping_cost, 0)
-              + COALESCE(p.packaging_cost, 0)
-              + COALESCE(p.service_fee, 13.19)
-              + COALESCE(p.target_profit, 0)
-            ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
-            ELSE
-              COALESCE(c.product_cost, 0)
-              + COALESCE(c.shipping_cost, 0)
-              + COALESCE(p.packaging_cost, 0)
-              + COALESCE(p.service_fee, 13.19)
-              + COALESCE(p.target_profit, 0)
-          END,
-
-        min_price =
-          CASE
-            WHEN COALESCE(p.commission_rate, 0) > 0
-            THEN (
-              COALESCE(c.product_cost, 0)
-              + COALESCE(c.shipping_cost, 0)
-              + COALESCE(p.packaging_cost, 0)
-              + COALESCE(p.service_fee, 13.19)
-              + COALESCE(p.target_profit, 0)
-            ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
-            ELSE
-              COALESCE(c.product_cost, 0)
-              + COALESCE(c.shipping_cost, 0)
-              + COALESCE(p.packaging_cost, 0)
-              + COALESCE(p.service_fee, 13.19)
-              + COALESCE(p.target_profit, 0)
-          END,
-
-        calculated_net_profit =
-          COALESCE(p.my_price, 0)
-          - (COALESCE(p.my_price, 0) * (COALESCE(p.commission_rate, 0) / 100))
-          - (
-            COALESCE(c.product_cost, 0)
-            + COALESCE(c.shipping_cost, 0)
-            + COALESCE(p.packaging_cost, 0)
-            + COALESCE(p.service_fee, 13.19)
-          ),
-
-        calculated_net_margin =
-          CASE
-            WHEN COALESCE(p.my_price, 0) > 0
-            THEN (
-              (
-                COALESCE(p.my_price, 0)
-                - (COALESCE(p.my_price, 0) * (COALESCE(p.commission_rate, 0) / 100))
-                - (
-                  COALESCE(c.product_cost, 0)
-                  + COALESCE(c.shipping_cost, 0)
-                  + COALESCE(p.packaging_cost, 0)
-                  + COALESCE(p.service_fee, 13.19)
-                )
-              ) / COALESCE(p.my_price, 0)
-            ) * 100
-            ELSE 0
-          END,
-
-        needs_cost_mapping =
-          CASE
-            WHEN c.product_cost IS NULL OR c.product_cost <= 0 THEN true
-            ELSE false
-          END,
-
-        updated_at = NOW()
-      FROM calculated c
-      WHERE p.marketplace = c.marketplace
-        AND p.barcode = c.barcode
-      RETURNING
-        p.barcode,
-        p.product_name,
-        p.my_price,
-        p.commission_rate,
-        p.desi,
-        p.calculated_product_cost,
-        p.calculated_shipping_cost,
-        p.packaging_cost,
-        p.service_fee,
-        p.target_profit,
-        p.calculated_total_cost,
-        p.calculated_min_price,
-        p.min_price,
-        p.calculated_net_profit,
-        p.calculated_net_margin
-    `);
-
-    res.json({
-      status: "ok",
-      updated: result.rows.length,
-      products: result.rows
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/products", async (req, res) => {
-  try {
-    const active = req.query.active;
-    const needsCost = req.query.needs_cost;
-    const missingDesi = req.query.missing_desi;
-    const loss = req.query.loss;
-    const limit = Number(req.query.limit || 100);
-
-    const conditions = ["marketplace = 'TRENDYOL'"];
-
-    if (active === "true") conditions.push("on_sale = true");
-    if (active === "false") conditions.push("on_sale = false");
-    if (needsCost === "true") conditions.push("needs_cost_mapping = true");
-    if (missingDesi === "true") conditions.push("(desi IS NULL OR desi <= 0)");
-    if (loss === "true") conditions.push("my_price > 0 AND min_price > 0 AND my_price < min_price");
-
-    const whereClause = conditions.join(" AND ");
-
-    const result = await pool.query(`
-      SELECT
-        barcode,
-        product_name,
-        brand,
-        category_name,
-        my_price,
-        list_price,
-        stock_quantity,
-        on_sale,
-        desi,
-        commission_rate,
-        calculated_product_cost,
-        calculated_shipping_cost,
-        calculated_total_cost,
-        min_price,
-        ROUND((my_price - min_price), 2) AS price_vs_min,
-        needs_cost_mapping,
-        auto_update,
-        updated_at
-      FROM products
-      WHERE ${whereClause}
-      ORDER BY category_name ASC, product_name ASC
-      LIMIT $1
-    `, [limit]);
-
-    res.json({
-      status: "ok",
-      count: result.rows.length,
-      products: result.rows
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-const { google } = require("googleapis");
-
-function getGoogleAuth() {
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-  });
-}
-
-async function getSheetsClient() {
-  const auth = getGoogleAuth();
-  return google.sheets({ version: "v4", auth });
-}
-
-app.get("/test-sheet", async (req, res) => {
-  try {
-    const sheets = await getSheetsClient();
-
-    const result = await sheets.spreadsheets.get({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID
-    });
-
-    res.json({
-      status: "ok",
-      title: result.data.properties.title,
-      sheets: result.data.sheets.map(s => s.properties.title)
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
 app.get("/import-cost-index", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -812,8 +398,8 @@ app.get("/import-cost-index", async (req, res) => {
     for (const row of rows) {
       const itemCode = String(row[0] || "").trim();
       const itemName = String(row[1] || "").trim();
-      const unitCost = Number(String(row[2] || "0").replace(",", "."));
-      const unitDesi = Number(String(row[3] || "0").replace(",", "."));
+      const unitCost = parseNumber(row[2]);
+      const unitDesi = parseNumber(row[3]);
       const unit = String(row[4] || "adet").trim();
 
       if (!itemCode || !itemName || unitCost <= 0) continue;
@@ -824,32 +410,20 @@ app.get("/import-cost-index", async (req, res) => {
           item_code,
           item_name,
           unit_cost,
+          unit_desi,
           unit,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, NOW())
+        VALUES ($1,$2,$3,$4,$5,NOW())
         ON CONFLICT (item_code)
         DO UPDATE SET
           item_name = EXCLUDED.item_name,
           unit_cost = EXCLUDED.unit_cost,
+          unit_desi = EXCLUDED.unit_desi,
           unit = EXCLUDED.unit,
           updated_at = NOW()
         `,
-        [itemCode, itemName, unitCost, unit]
-      );
-
-      await pool.query(`
-        ALTER TABLE cost_items
-        ADD COLUMN IF NOT EXISTS unit_desi NUMERIC DEFAULT 0;
-      `);
-
-      await pool.query(
-        `
-        UPDATE cost_items
-        SET unit_desi = $1
-        WHERE item_code = $2
-        `,
-        [unitDesi, itemCode]
+        [itemCode, itemName, unitCost, unitDesi, unit]
       );
 
       imported++;
@@ -860,14 +434,11 @@ app.get("/import-cost-index", async (req, res) => {
       imported,
       message: "MaliyetIndex imported"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/import-product-mappings", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -883,7 +454,7 @@ app.get("/import-product-mappings", async (req, res) => {
     for (const row of rows) {
       const barcode = String(row[0] || "").trim();
       const costCode = String(row[1] || "").trim();
-      const quantity = Number(String(row[2] || "1").replace(",", "."));
+      const quantity = parseNumber(row[2], 1);
 
       if (!barcode || !costCode || quantity <= 0) continue;
 
@@ -896,24 +467,13 @@ app.get("/import-product-mappings", async (req, res) => {
           quantity,
           updated_at
         )
-        VALUES ('TRENDYOL', $1, $2, $3, NOW())
+        VALUES ($1,$2,$3,$4,NOW())
         ON CONFLICT (marketplace, barcode, cost_item_code)
         DO UPDATE SET
           quantity = EXCLUDED.quantity,
           updated_at = NOW()
         `,
-        [barcode, costCode, quantity]
-      );
-
-      await pool.query(
-        `
-        UPDATE products
-        SET needs_cost_mapping = false,
-            updated_at = NOW()
-        WHERE marketplace = 'TRENDYOL'
-          AND barcode = $1
-        `,
-        [barcode]
+        [MARKETPLACE, barcode, costCode, quantity]
       );
 
       imported++;
@@ -924,60 +484,11 @@ app.get("/import-product-mappings", async (req, res) => {
       imported,
       message: "UrunMaliyetMap imported"
     });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/delete-product-mapping", async (req, res) => {
-  try {
-    const barcode = String(req.query.barcode || "").trim();
-    const costCode = String(req.query.cost_code || "").trim();
-
-    if (!barcode) {
-      return res.status(400).json({
-        status: "error",
-        message: "barcode zorunlu."
-      });
-    }
-
-    let result;
-
-    if (costCode) {
-      result = await pool.query(
-        `
-        DELETE FROM product_cost_mappings
-        WHERE marketplace = 'TRENDYOL'
-          AND barcode = $1
-          AND cost_item_code = $2
-        RETURNING *
-        `,
-        [barcode, costCode]
-      );
-    } else {
-      result = await pool.query(
-        `
-        DELETE FROM product_cost_mappings
-        WHERE marketplace = 'TRENDYOL'
-          AND barcode = $1
-        RETURNING *
-        `,
-        [barcode]
-      );
-    }
-
-    res.json({
-      status: "ok",
-      deleted: result.rows.length
-    });
-
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/import-commissions", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -992,7 +503,7 @@ app.get("/import-commissions", async (req, res) => {
 
     for (const row of rows) {
       const barcode = String(row[0] || "").trim();
-      const commissionRate = Number(String(row[1] || "0").replace(",", "."));
+      const commissionRate = parseNumber(row[1]);
 
       if (!barcode || commissionRate <= 0) continue;
 
@@ -1001,10 +512,10 @@ app.get("/import-commissions", async (req, res) => {
         UPDATE products
         SET commission_rate = $1,
             updated_at = NOW()
-        WHERE marketplace = 'TRENDYOL'
-          AND barcode = $2
+        WHERE marketplace = $2
+          AND barcode = $3
         `,
-        [commissionRate, barcode]
+        [commissionRate, MARKETPLACE, barcode]
       );
 
       imported++;
@@ -1015,14 +526,11 @@ app.get("/import-commissions", async (req, res) => {
       imported,
       message: "KomisyonKurallari imported"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/import-shipping-costs", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -1049,17 +557,16 @@ app.get("/import-shipping-costs", async (req, res) => {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      const desiKg = Number(String(row[0] || "").replace(",", "."));
-
-      if (isNaN(desiKg)) continue;
+      const desiKg = parseNumber(row[0], NaN);
+      if (!Number.isFinite(desiKg)) continue;
 
       for (let c = 1; c < headers.length; c++) {
         const carrier = headers[c];
-        const costExVat = Number(String(row[c] || "").replace(",", "."));
+        const costExVat = parseNumber(row[c], NaN);
 
-        if (!carrier || isNaN(costExVat) || costExVat <= 0) continue;
+        if (!carrier || !Number.isFinite(costExVat) || costExVat <= 0) continue;
 
-        const costIncVat = Number((costExVat * 1.20).toFixed(2));
+        const costIncVat = Number((costExVat * 1.2).toFixed(2));
 
         await pool.query(
           `
@@ -1070,7 +577,7 @@ app.get("/import-shipping-costs", async (req, res) => {
             cost_inc_vat,
             updated_at
           )
-          VALUES ($1, $2, $3, $4, NOW())
+          VALUES ($1,$2,$3,$4,NOW())
           ON CONFLICT (desi_kg, carrier)
           DO UPDATE SET
             cost_ex_vat = EXCLUDED.cost_ex_vat,
@@ -1089,14 +596,11 @@ app.get("/import-shipping-costs", async (req, res) => {
       imported,
       message: "KargoMaliyetleri imported"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/import-shipping-barems", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -1107,7 +611,6 @@ app.get("/import-shipping-barems", async (req, res) => {
     });
 
     const rows = result.data.values || [];
-
     if (rows.length < 2) {
       return res.json({
         status: "ok",
@@ -1125,19 +628,17 @@ app.get("/import-shipping-barems", async (req, res) => {
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
 
-      const minBasket = Number(String(row[0] || "0").replace(",", "."));
-      const maxBasket = Number(String(row[1] || "999999").replace(",", "."));
+      const minBasket = parseNumber(row[0]);
+      const maxBasket = parseNumber(row[1], 999999);
       const baremName = String(row[2] || "").trim();
-
-      if (isNaN(minBasket) || isNaN(maxBasket)) continue;
 
       for (let c = 3; c < headers.length; c++) {
         const carrier = headers[c];
-        const costExVat = Number(String(row[c] || "").replace(",", "."));
+        const costExVat = parseNumber(row[c], NaN);
 
-        if (!carrier || isNaN(costExVat) || costExVat <= 0) continue;
+        if (!carrier || !Number.isFinite(costExVat) || costExVat <= 0) continue;
 
-        const costIncVat = Number((costExVat * 1.20).toFixed(2));
+        const costIncVat = Number((costExVat * 1.2).toFixed(2));
 
         await pool.query(
           `
@@ -1150,7 +651,7 @@ app.get("/import-shipping-barems", async (req, res) => {
             cost_inc_vat,
             updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, NOW())
+          VALUES ($1,$2,$3,$4,$5,$6,NOW())
           ON CONFLICT (min_basket, max_basket, carrier)
           DO UPDATE SET
             barem_name = EXCLUDED.barem_name,
@@ -1170,132 +671,15 @@ app.get("/import-shipping-barems", async (req, res) => {
       imported,
       message: "KargoBarem imported"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
-app.get("/export-products-to-sheet", async (req, res) => {
-  try {
-    const sheets = await getSheetsClient();
 
-    const result = await pool.query(`
-      SELECT
-        barcode,
-        product_name,
-        brand,
-        category_name,
-        my_price,
-        commission_rate,
-        stock_quantity,
-        on_sale,
-        needs_cost_mapping,
-        desi,
-        calculated_product_cost,
-        calculated_shipping_cost,
-        calculated_total_cost,
-        min_price,
-        calculated_net_profit,
-        calculated_net_margin,
-        updated_at
-      FROM products
-      WHERE marketplace = 'TRENDYOL'
-      ORDER BY on_sale DESC, category_name ASC, product_name ASC
-    `);
-
-    const header = [
-      "Barkod",
-      "Ürün Adı",
-      "Marka",
-      "Kategori",
-      "TY Fiyatı",
-      "Komisyon %",
-      "Stok",
-      "Aktif mi",
-      "Maliyet Durumu",
-      "Desi",
-      "Ürün Maliyeti",
-      "Kargo Maliyeti",
-      "Toplam Maliyet",
-      "Minimum Fiyat",
-      "Net Kâr",
-      "Net Marj %",
-      "Son Güncelleme"
-    ];
-
-    const rows = result.rows.map(p => [
-      p.barcode,
-      p.product_name,
-      p.brand,
-      p.category_name,
-      Number(p.my_price || 0),
-      p.commission_rate === null ? "" : Number(p.commission_rate),
-      Number(p.stock_quantity || 0),
-      p.on_sale ? "EVET" : "HAYIR",
-      p.needs_cost_mapping ? "EKSİK" : "TAMAM",
-      Number(p.desi || 0),
-      Number(p.calculated_product_cost || 0),
-      Number(p.calculated_shipping_cost || 0),
-      Number(p.calculated_total_cost || 0),
-      Number(p.min_price || 0),
-      Number(p.calculated_net_profit || 0),
-      Number(p.calculated_net_margin || 0),
-      p.updated_at
-    ]);
-
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Urunler!A:Q"
-    });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Urunler!A1",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [header, ...rows]
-      }
-    });
-
-    res.json({
-      status: "ok",
-      exported: rows.length,
-      message: "Urunler sheet updated"
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-app.get("/reset-commissions", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      UPDATE products
-      SET commission_rate = NULL,
-          updated_at = NOW()
-      WHERE marketplace = 'TRENDYOL'
-    `);
-
-    res.json({
-      status: "ok",
-      message: "All Trendyol commissions cleared"
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
 app.get("/refresh-cost-mapping-status", async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await pool.query(
+      `
       UPDATE products p
       SET
         needs_cost_mapping =
@@ -1407,92 +791,574 @@ app.get("/refresh-cost-mapping-status", async (req, res) => {
           END,
 
         updated_at = NOW()
-      WHERE p.marketplace = 'TRENDYOL'
+      WHERE p.marketplace = $1
       RETURNING barcode, product_name, needs_cost_mapping
+      `,
+      [MARKETPLACE]
+    );
+
+    res.json({
+      status: "ok",
+      updated: result.rows.length,
+      message: "Cost mapping status refreshed"
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/calculate-costs", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      WITH product_costs AS (
+        SELECT
+          pcm.marketplace,
+          pcm.barcode,
+          SUM(pcm.quantity * ci.unit_cost) AS product_cost,
+          SUM(pcm.quantity * COALESCE(ci.unit_desi, 0)) AS total_desi
+        FROM product_cost_mappings pcm
+        JOIN cost_items ci
+          ON ci.item_code = pcm.cost_item_code
+        WHERE pcm.marketplace = '${MARKETPLACE}'
+        GROUP BY pcm.marketplace, pcm.barcode
+      ),
+      calculated AS (
+        SELECT
+          p.marketplace,
+          p.barcode,
+          pc.product_cost,
+          pc.total_desi,
+          CASE
+            WHEN p.my_price <= 349.99
+              THEN COALESCE(sb.cost_inc_vat, 0)
+            ELSE
+              COALESCE(sc.cost_inc_vat, 0)
+          END AS shipping_cost
+        FROM products p
+        JOIN product_costs pc
+          ON pc.marketplace = p.marketplace
+         AND pc.barcode = p.barcode
+        LEFT JOIN shipping_barems sb
+          ON sb.carrier = '${DEFAULT_CARRIER}'
+         AND p.my_price >= sb.min_basket
+         AND p.my_price <= sb.max_basket
+        LEFT JOIN shipping_costs sc
+          ON sc.carrier = '${DEFAULT_CARRIER}'
+         AND sc.desi_kg = CEIL(pc.total_desi)
+      )
+      UPDATE products p
+      SET
+        calculated_product_cost = COALESCE(c.product_cost, 0),
+        desi = COALESCE(c.total_desi, p.desi),
+        calculated_shipping_cost = COALESCE(c.shipping_cost, 0),
+        calculated_total_cost =
+          COALESCE(c.product_cost, 0)
+          + COALESCE(c.shipping_cost, 0)
+          + COALESCE(p.packaging_cost, 0)
+          + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
+          + COALESCE(p.target_profit, 0),
+
+        calculated_min_price =
+          CASE
+            WHEN COALESCE(p.commission_rate, 0) > 0
+            THEN (
+              COALESCE(c.product_cost, 0)
+              + COALESCE(c.shipping_cost, 0)
+              + COALESCE(p.packaging_cost, 0)
+              + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
+              + COALESCE(p.target_profit, 0)
+            ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
+            ELSE 0
+          END,
+
+        min_price =
+          CASE
+            WHEN COALESCE(p.commission_rate, 0) > 0
+            THEN (
+              COALESCE(c.product_cost, 0)
+              + COALESCE(c.shipping_cost, 0)
+              + COALESCE(p.packaging_cost, 0)
+              + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
+              + COALESCE(p.target_profit, 0)
+            ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
+            ELSE 0
+          END,
+
+        calculated_net_profit =
+          CASE
+            WHEN COALESCE(p.commission_rate, 0) > 0
+            THEN
+              COALESCE(p.my_price, 0)
+              - (COALESCE(p.my_price, 0) * (COALESCE(p.commission_rate, 0) / 100))
+              - (
+                COALESCE(c.product_cost, 0)
+                + COALESCE(c.shipping_cost, 0)
+                + COALESCE(p.packaging_cost, 0)
+                + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
+              )
+            ELSE 0
+          END,
+
+        calculated_net_margin =
+          CASE
+            WHEN COALESCE(p.my_price, 0) > 0
+             AND COALESCE(p.commission_rate, 0) > 0
+            THEN (
+              (
+                COALESCE(p.my_price, 0)
+                - (COALESCE(p.my_price, 0) * (COALESCE(p.commission_rate, 0) / 100))
+                - (
+                  COALESCE(c.product_cost, 0)
+                  + COALESCE(c.shipping_cost, 0)
+                  + COALESCE(p.packaging_cost, 0)
+                  + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
+                )
+              ) / COALESCE(p.my_price, 0)
+            ) * 100
+            ELSE 0
+          END,
+
+        needs_cost_mapping =
+          CASE
+            WHEN c.product_cost IS NULL OR c.product_cost <= 0 THEN true
+            ELSE false
+          END,
+
+        updated_at = NOW()
+      FROM calculated c
+      WHERE p.marketplace = c.marketplace
+        AND p.barcode = c.barcode
+      RETURNING
+        p.barcode,
+        p.product_name,
+        p.my_price,
+        p.commission_rate,
+        p.desi,
+        p.calculated_product_cost,
+        p.calculated_shipping_cost,
+        p.packaging_cost,
+        p.service_fee,
+        p.target_profit,
+        p.calculated_total_cost,
+        p.calculated_min_price,
+        p.min_price,
+        p.calculated_net_profit,
+        p.calculated_net_margin
     `);
 
     res.json({
       status: "ok",
       updated: result.rows.length,
-      message: "Cost mapping status and stale calculated fields refreshed"
+      products: result.rows
     });
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
-app.get("/export-new-products-to-sheet", async (req, res) => {
+
+app.get("/products-summary", async (req, res) => {
   try {
+    const result = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS total_products,
+        COUNT(*) FILTER (WHERE on_sale = true) AS active_products,
+        COUNT(*) FILTER (WHERE on_sale = false) AS passive_products,
+        COUNT(*) FILTER (WHERE needs_cost_mapping = true AND on_sale = true) AS needs_cost_mapping,
+        COUNT(*) FILTER (WHERE commission_rate IS NULL AND on_sale = true) AS missing_commission,
+        COUNT(*) FILTER (WHERE auto_update = true AND on_sale = true) AS auto_update_enabled
+      FROM products
+      WHERE marketplace = $1
+      `,
+      [MARKETPLACE]
+    );
 
-    const sheets = await getSheetsClient();
+    res.json({
+      status: "ok",
+      summary: result.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 
-    const result = await pool.query(`
+app.get("/products", async (req, res) => {
+  try {
+    const active = req.query.active;
+    const needsCost = req.query.needs_cost;
+    const missingDesi = req.query.missing_desi;
+    const missingCommission = req.query.missing_commission;
+    const loss = req.query.loss;
+    const limit = Math.min(parseNumber(req.query.limit, 100), 500);
+
+    const conditions = ["marketplace = $1"];
+    const params = [MARKETPLACE];
+
+    if (active === "true") conditions.push("on_sale = true");
+    if (active === "false") conditions.push("on_sale = false");
+    if (needsCost === "true") conditions.push("needs_cost_mapping = true");
+    if (missingDesi === "true") conditions.push("(desi IS NULL OR desi <= 0)");
+    if (missingCommission === "true") conditions.push("commission_rate IS NULL");
+    if (loss === "true") {
+      conditions.push(
+        "my_price > 0 AND min_price > 0 AND calculated_net_profit < 0"
+      );
+    }
+
+    const result = await pool.query(
+      `
       SELECT
         barcode,
         product_name,
         brand,
         category_name,
+        category_id,
+        my_price,
+        list_price,
+        stock_quantity,
+        on_sale,
+        desi,
+        commission_rate,
+        calculated_product_cost,
+        calculated_shipping_cost,
+        calculated_total_cost,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin,
+        ROUND((my_price - min_price), 2) AS price_vs_min,
+        needs_cost_mapping,
+        auto_update,
+        updated_at
+      FROM products
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY category_name ASC, product_name ASC
+      LIMIT $2
+      `,
+      [...params, limit]
+    );
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      products: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/categories", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        category_id,
+        category_name,
+        COUNT(*) AS product_count
+      FROM products
+      WHERE marketplace = $1
+      GROUP BY category_id, category_name
+      ORDER BY product_count DESC
+      `,
+      [MARKETPLACE]
+    );
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      categories: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/cost-items", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT *
+      FROM cost_items
+      ORDER BY item_name ASC
+    `);
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      items: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/product-cost-mappings", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        pcm.barcode,
+        p.product_name,
+        pcm.cost_item_code,
+        ci.item_name,
+        pcm.quantity,
+        ci.unit_cost,
+        ci.unit_desi,
+        pcm.quantity * ci.unit_cost AS total_cost,
+        pcm.quantity * COALESCE(ci.unit_desi,0) AS total_desi
+      FROM product_cost_mappings pcm
+      LEFT JOIN cost_items ci
+        ON ci.item_code = pcm.cost_item_code
+      LEFT JOIN products p
+        ON p.marketplace = pcm.marketplace
+       AND p.barcode = pcm.barcode
+      WHERE pcm.marketplace = $1
+      ORDER BY p.product_name ASC
+      `,
+      [MARKETPLACE]
+    );
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      mappings: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/delete-product-mapping", async (req, res) => {
+  try {
+    const barcode = String(req.query.barcode || "").trim();
+    const costCode = String(req.query.cost_code || "").trim();
+
+    if (!barcode) {
+      return res.status(400).json({
+        status: "error",
+        message: "barcode zorunlu."
+      });
+    }
+
+    let result;
+
+    if (costCode) {
+      result = await pool.query(
+        `
+        DELETE FROM product_cost_mappings
+        WHERE marketplace = $1
+          AND barcode = $2
+          AND cost_item_code = $3
+        RETURNING *
+        `,
+        [MARKETPLACE, barcode, costCode]
+      );
+    } else {
+      result = await pool.query(
+        `
+        DELETE FROM product_cost_mappings
+        WHERE marketplace = $1
+          AND barcode = $2
+        RETURNING *
+        `,
+        [MARKETPLACE, barcode]
+      );
+    }
+
+    res.json({
+      status: "ok",
+      deleted: result.rows.length
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/reset-commissions", async (req, res) => {
+  try {
+    await pool.query(
+      `
+      UPDATE products
+      SET commission_rate = NULL,
+          updated_at = NOW()
+      WHERE marketplace = $1
+      `,
+      [MARKETPLACE]
+    );
+
+    res.json({
+      status: "ok",
+      message: "All Trendyol commissions cleared"
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/export-products-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(
+      `
+      SELECT
+        barcode,
+        product_name,
+        brand,
+        category_name,
+        category_id,
+        my_price,
+        commission_rate,
+        stock_quantity,
+        on_sale,
+        needs_cost_mapping,
+        desi,
+        calculated_product_cost,
+        calculated_shipping_cost,
+        calculated_total_cost,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin,
+        updated_at
+      FROM products
+      WHERE marketplace = $1
+      ORDER BY on_sale DESC, category_name ASC, product_name ASC
+      `,
+      [MARKETPLACE]
+    );
+
+    const header = [
+      "Barkod",
+      "Ürün Adı",
+      "Marka",
+      "Kategori",
+      "Kategori ID",
+      "TY Fiyatı",
+      "Komisyon %",
+      "Stok",
+      "Aktif mi",
+      "Maliyet Durumu",
+      "Desi",
+      "Ürün Maliyeti",
+      "Kargo Maliyeti",
+      "Toplam Maliyet",
+      "Minimum Fiyat",
+      "Net Kâr",
+      "Net Marj %",
+      "Son Güncelleme"
+    ];
+
+    const rows = result.rows.map(p => [
+      p.barcode,
+      p.product_name,
+      p.brand,
+      p.category_name,
+      p.category_id,
+      parseNumber(p.my_price),
+      p.commission_rate === null ? "" : parseNumber(p.commission_rate),
+      parseNumber(p.stock_quantity),
+      p.on_sale ? "EVET" : "HAYIR",
+      p.needs_cost_mapping ? "EKSİK" : "TAMAM",
+      p.desi === null ? "" : parseNumber(p.desi),
+      parseNumber(p.calculated_product_cost),
+      parseNumber(p.calculated_shipping_cost),
+      parseNumber(p.calculated_total_cost),
+      parseNumber(p.min_price),
+      parseNumber(p.calculated_net_profit),
+      parseNumber(p.calculated_net_margin),
+      p.updated_at
+    ]);
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Urunler!A:R"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Urunler!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [header, ...rows]
+      }
+    });
+
+    res.json({
+      status: "ok",
+      exported: rows.length,
+      message: "Urunler sheet updated"
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get("/export-new-products-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(
+      `
+      SELECT
+        barcode,
+        product_name,
+        brand,
+        category_name,
+        category_id,
         my_price,
         commission_rate,
         needs_cost_mapping,
         min_price,
-
         CASE
-          WHEN needs_cost_mapping = true
-            THEN 'Maliyet Mapping Eksik'
-
-          WHEN commission_rate IS NULL
-            THEN 'Komisyon Eksik'
-
-          WHEN COALESCE(min_price,0) = 0
-            THEN 'Minimum Fiyat Hesaplanamıyor'
-
+          WHEN needs_cost_mapping = true THEN 'Maliyet Mapping Eksik'
+          WHEN commission_rate IS NULL THEN 'Komisyon Eksik'
+          WHEN COALESCE(min_price,0) = 0 THEN 'Minimum Fiyat Hesaplanamıyor'
           ELSE 'Kontrol Edilmeli'
         END AS issue
-
       FROM products
-      WHERE marketplace='TRENDYOL'
-      AND (
-           needs_cost_mapping = true
-        OR commission_rate IS NULL
-        OR COALESCE(min_price,0)=0
-      )
-
+      WHERE marketplace = $1
+        AND on_sale = true
+        AND (
+             needs_cost_mapping = true
+          OR commission_rate IS NULL
+          OR COALESCE(min_price,0) = 0
+        )
       ORDER BY
         needs_cost_mapping DESC,
         commission_rate NULLS FIRST,
-        product_name
-    `);
+        product_name ASC
+      `,
+      [MARKETPLACE]
+    );
 
-    const header = [[
+    const header = [
       "Barkod",
       "Ürün",
       "Marka",
       "Kategori",
+      "Kategori ID",
       "TY Fiyat",
       "Komisyon %",
       "Mapping",
       "Minimum Fiyat",
       "Eksik Sebep"
-    ]];
+    ];
 
-    const values = result.rows.map(r => ([
+    const values = result.rows.map(r => [
       r.barcode,
       r.product_name,
       r.brand,
       r.category_name,
-      Number(r.my_price || 0),
-      r.commission_rate || "",
+      r.category_id,
+      parseNumber(r.my_price),
+      r.commission_rate === null ? "" : parseNumber(r.commission_rate),
       r.needs_cost_mapping ? "EKSİK" : "TAMAM",
-      Number(r.min_price || 0),
+      parseNumber(r.min_price),
       r.issue
-    ]));
+    ]);
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "YeniUrunler!A:I"
+      range: "YeniUrunler!A:J"
     });
 
     await sheets.spreadsheets.values.update({
@@ -1500,7 +1366,7 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
       range: "YeniUrunler!A1",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: header.concat(values)
+        values: [header, ...values]
       }
     });
 
@@ -1509,21 +1375,17 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
       exported: values.length,
       message: "YeniUrunler updated"
     });
-
   } catch (error) {
-
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 app.get("/export-dashboard-to-sheet", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
 
-    const summary = await pool.query(`
+    const summary = await pool.query(
+      `
       SELECT
         COUNT(*) AS total_products,
         COUNT(*) FILTER (WHERE on_sale = true) AS active_products,
@@ -1535,33 +1397,32 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
             OR COALESCE(min_price,0) = 0
           )
         ) AS action_needed,
-
         COUNT(*) FILTER (WHERE on_sale = true AND needs_cost_mapping = true) AS missing_mapping,
         COUNT(*) FILTER (WHERE on_sale = true AND commission_rate IS NULL) AS missing_commission,
-
         COUNT(*) FILTER (
           WHERE on_sale = true
           AND calculated_net_profit < 0
           AND needs_cost_mapping = false
           AND commission_rate IS NOT NULL
         ) AS loss_products,
-
         ROUND(AVG(calculated_net_margin) FILTER (
           WHERE on_sale = true
           AND needs_cost_mapping = false
           AND commission_rate IS NOT NULL
         ), 2) AS avg_net_margin,
-
         ROUND(SUM(calculated_net_profit) FILTER (
           WHERE on_sale = true
           AND needs_cost_mapping = false
           AND commission_rate IS NOT NULL
         ), 2) AS total_profit_per_unit
       FROM products
-      WHERE marketplace = 'TRENDYOL'
-    `);
+      WHERE marketplace = $1
+      `,
+      [MARKETPLACE]
+    );
 
-    const topProfit = await pool.query(`
+    const topProfit = await pool.query(
+      `
       SELECT
         barcode,
         product_name,
@@ -1569,15 +1430,18 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
         calculated_net_profit,
         calculated_net_margin
       FROM products
-      WHERE marketplace = 'TRENDYOL'
+      WHERE marketplace = $1
         AND on_sale = true
         AND needs_cost_mapping = false
         AND commission_rate IS NOT NULL
       ORDER BY calculated_net_profit DESC
       LIMIT 20
-    `);
+      `,
+      [MARKETPLACE]
+    );
 
-    const risky = await pool.query(`
+    const risky = await pool.query(
+      `
       SELECT
         barcode,
         product_name,
@@ -1586,13 +1450,15 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
         calculated_net_profit,
         calculated_net_margin
       FROM products
-      WHERE marketplace = 'TRENDYOL'
+      WHERE marketplace = $1
         AND on_sale = true
         AND needs_cost_mapping = false
         AND commission_rate IS NOT NULL
       ORDER BY calculated_net_margin ASC
       LIMIT 20
-    `);
+      `,
+      [MARKETPLACE]
+    );
 
     const s = summary.rows[0];
 
@@ -1615,9 +1481,9 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
       ...topProfit.rows.map(r => [
         r.barcode,
         r.product_name,
-        Number(r.my_price || 0),
-        Number(r.calculated_net_profit || 0),
-        Number(r.calculated_net_margin || 0)
+        parseNumber(r.my_price),
+        parseNumber(r.calculated_net_profit),
+        parseNumber(r.calculated_net_margin)
       ]),
       [""],
       ["Riskli / Düşük Marjlı Ürünler"],
@@ -1625,10 +1491,10 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
       ...risky.rows.map(r => [
         r.barcode,
         r.product_name,
-        Number(r.my_price || 0),
-        Number(r.min_price || 0),
-        Number(r.calculated_net_profit || 0),
-        Number(r.calculated_net_margin || 0)
+        parseNumber(r.my_price),
+        parseNumber(r.min_price),
+        parseNumber(r.calculated_net_profit),
+        parseNumber(r.calculated_net_margin)
       ])
     ];
 
@@ -1648,43 +1514,11 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
       status: "ok",
       message: "Dashboard updated"
     });
-
   } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
-app.get("/categories", async (req, res) => {
-  try {
 
-    const result = await pool.query(`
-      SELECT
-        category_id,
-        category_name,
-        COUNT(*) AS product_count
-      FROM products
-      WHERE marketplace = 'TRENDYOL'
-      GROUP BY category_id, category_name
-      ORDER BY product_count DESC
-    `);
-
-    res.json({
-      status: "ok",
-      count: result.rows.length,
-      categories: result.rows
-    });
-
-  } catch(error) {
-
-    res.status(500).json({
-      status:"error",
-      message:error.message
-    });
-
-  }
-});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
