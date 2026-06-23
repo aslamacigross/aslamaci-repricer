@@ -58,23 +58,6 @@ app.get("/reset-products", async (req, res) => {
 
 app.get("/setup-db", async (req, res) => {
   try {
-CREATE TABLE IF NOT EXISTS buybox_status (
-  id SERIAL PRIMARY KEY,
-
-  marketplace TEXT NOT NULL,
-  barcode TEXT NOT NULL,
-
-  buybox_price NUMERIC,
-  buybox_order INTEGER,
-
-  second_price NUMERIC,
-  third_price NUMERIC,
-
-  has_multiple_seller BOOLEAN,
-
-  updated_at TIMESTAMP DEFAULT NOW(),
-
-  UNIQUE(marketplace, barcode)
 );
     // PRODUCTS
     await pool.query(`
