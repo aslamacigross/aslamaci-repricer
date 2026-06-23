@@ -504,7 +504,7 @@ app.get("/import-commissions", async (req, res) => {
 
     for (const row of rows) {
       const categoryId = String(row[0] || "").trim();
-      const commissionRate = parseNumber(row[2]);
+      const commissionRate = parseNumber(row[1]);
 
       if (!categoryId || commissionRate <= 0) continue;
 
