@@ -1520,7 +1520,23 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+app.get("/debug-commissions-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
 
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "KomisyonKurallari!A1:D10"
+    });
+
+    res.json({
+      status: "ok",
+      values: result.data.values || []
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
