@@ -1693,6 +1693,143 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
 
   }
 });
+app.get("/export-dashboard-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const summary = await pool.query(`
+      SELECT
+        COUNT(*) AS total_products,
+        COUNT(*) FILTER (WHERE on_sale = true) AS active_products,
+        COUNT(*) FILTER (
+          WHERE on_sale = true
+          AND (
+            needs_cost_mapping = true
+            OR commission_rate IS NULL
+            OR COALESCE(min_price,0) = 0
+          )
+        ) AS action_needed,
+
+        COUNT(*) FILTER (WHERE on_sale = true AND needs_cost_mapping = true) AS missing_mapping,
+        COUNT(*) FILTER (WHERE on_sale = true AND commission_rate IS NULL) AS missing_commission,
+
+        COUNT(*) FILTER (
+          WHERE on_sale = true
+          AND calculated_net_profit < 0
+          AND needs_cost_mapping = false
+          AND commission_rate IS NOT NULL
+        ) AS loss_products,
+
+        ROUND(AVG(calculated_net_margin) FILTER (
+          WHERE on_sale = true
+          AND needs_cost_mapping = false
+          AND commission_rate IS NOT NULL
+        ), 2) AS avg_net_margin,
+
+        ROUND(SUM(calculated_net_profit) FILTER (
+          WHERE on_sale = true
+          AND needs_cost_mapping = false
+          AND commission_rate IS NOT NULL
+        ), 2) AS total_profit_per_unit
+      FROM products
+      WHERE marketplace = 'TRENDYOL'
+    `);
+
+    const topProfit = await pool.query(`
+      SELECT
+        barcode,
+        product_name,
+        my_price,
+        calculated_net_profit,
+        calculated_net_margin
+      FROM products
+      WHERE marketplace = 'TRENDYOL'
+        AND on_sale = true
+        AND needs_cost_mapping = false
+        AND commission_rate IS NOT NULL
+      ORDER BY calculated_net_profit DESC
+      LIMIT 20
+    `);
+
+    const risky = await pool.query(`
+      SELECT
+        barcode,
+        product_name,
+        my_price,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin
+      FROM products
+      WHERE marketplace = 'TRENDYOL'
+        AND on_sale = true
+        AND needs_cost_mapping = false
+        AND commission_rate IS NOT NULL
+      ORDER BY calculated_net_margin ASC
+      LIMIT 20
+    `);
+
+    const s = summary.rows[0];
+
+    const values = [
+      ["Aşlamacı Repricer Dashboard"],
+      [""],
+      ["KPI", "Değer"],
+      ["Toplam Ürün", Number(s.total_products || 0)],
+      ["Aktif Ürün", Number(s.active_products || 0)],
+      ["Aksiyon Bekleyen Ürün", Number(s.action_needed || 0)],
+      ["Maliyet Mapping Eksik", Number(s.missing_mapping || 0)],
+      ["Komisyon Eksik", Number(s.missing_commission || 0)],
+      ["Zarardaki Ürün", Number(s.loss_products || 0)],
+      ["Ortalama Net Marj %", Number(s.avg_net_margin || 0)],
+      ["Toplam Ürün Başı Net Kâr", Number(s.total_profit_per_unit || 0)],
+      ["Son Güncelleme", new Date().toISOString()],
+      [""],
+      ["En Çok Kâr Bırakan Ürünler"],
+      ["Barkod", "Ürün", "TY Fiyat", "Net Kâr", "Net Marj %"],
+      ...topProfit.rows.map(r => [
+        r.barcode,
+        r.product_name,
+        Number(r.my_price || 0),
+        Number(r.calculated_net_profit || 0),
+        Number(r.calculated_net_margin || 0)
+      ]),
+      [""],
+      ["Riskli / Düşük Marjlı Ürünler"],
+      ["Barkod", "Ürün", "TY Fiyat", "Minimum Fiyat", "Net Kâr", "Net Marj %"],
+      ...risky.rows.map(r => [
+        r.barcode,
+        r.product_name,
+        Number(r.my_price || 0),
+        Number(r.min_price || 0),
+        Number(r.calculated_net_profit || 0),
+        Number(r.calculated_net_margin || 0)
+      ])
+    ];
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Dashboard!A:Z"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Dashboard!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values }
+    });
+
+    res.json({
+      status: "ok",
+      message: "Dashboard updated"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
