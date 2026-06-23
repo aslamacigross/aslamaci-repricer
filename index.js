@@ -1847,6 +1847,35 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
     });
   }
 });
+app.get("/categories", async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+        category_id,
+        category_name,
+        COUNT(*) AS product_count
+      FROM products
+      WHERE marketplace = 'TRENDYOL'
+      GROUP BY category_id, category_name
+      ORDER BY product_count DESC
+    `);
+
+    res.json({
+      status: "ok",
+      count: result.rows.length,
+      categories: result.rows
+    });
+
+  } catch(error) {
+
+    res.status(500).json({
+      status:"error",
+      message:error.message
+    });
+
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
