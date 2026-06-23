@@ -495,42 +495,44 @@ app.get("/import-commissions", async (req, res) => {
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "KomisyonKurallari!A2:C"
+      range: "KomisyonKurallari!A2:D"
     });
 
     const rows = result.data.values || [];
-    let imported = 0;
+    let importedRules = 0;
+    let updatedProducts = 0;
 
     for (const row of rows) {
-      const barcode = String(row[0] || "").trim();
-      const commissionRate = parseNumber(row[1]);
+      const categoryId = String(row[0] || "").trim();
+      const commissionRate = parseNumber(row[2]);
 
-      if (!barcode || commissionRate <= 0) continue;
+      if (!categoryId || commissionRate <= 0) continue;
 
-      await pool.query(
+      const update = await pool.query(
         `
         UPDATE products
         SET commission_rate = $1,
             updated_at = NOW()
         WHERE marketplace = $2
-          AND barcode = $3
+          AND category_id = $3
         `,
-        [commissionRate, MARKETPLACE, barcode]
+        [commissionRate, MARKETPLACE, categoryId]
       );
 
-      imported++;
+      importedRules++;
+      updatedProducts += update.rowCount;
     }
 
     res.json({
       status: "ok",
-      imported,
-      message: "KomisyonKurallari imported"
+      imported_rules: importedRules,
+      updated_products: updatedProducts,
+      message: "Category-based commissions imported"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
 app.get("/import-shipping-costs", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
