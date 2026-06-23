@@ -1391,6 +1391,7 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
       SELECT
         COUNT(*) AS total_products,
         COUNT(*) FILTER (WHERE on_sale = true) AS active_products,
+
         COUNT(*) FILTER (
           WHERE on_sale = true
           AND (
@@ -1399,24 +1400,40 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
             OR COALESCE(min_price,0) = 0
           )
         ) AS action_needed,
+
+        COUNT(*) FILTER (WHERE on_sale = true AND needs_cost_mapping = false) AS costed_products,
         COUNT(*) FILTER (WHERE on_sale = true AND needs_cost_mapping = true) AS missing_mapping,
         COUNT(*) FILTER (WHERE on_sale = true AND commission_rate IS NULL) AS missing_commission,
+
         COUNT(*) FILTER (
           WHERE on_sale = true
           AND calculated_net_profit < 0
           AND needs_cost_mapping = false
           AND commission_rate IS NOT NULL
         ) AS loss_products,
+
         ROUND(AVG(calculated_net_margin) FILTER (
           WHERE on_sale = true
           AND needs_cost_mapping = false
           AND commission_rate IS NOT NULL
         ), 2) AS avg_net_margin,
+
         ROUND(SUM(calculated_net_profit) FILTER (
           WHERE on_sale = true
           AND needs_cost_mapping = false
           AND commission_rate IS NOT NULL
-        ), 2) AS total_profit_per_unit
+        ), 2) AS total_profit_per_unit,
+
+        ROUND(SUM(stock_quantity * calculated_product_cost) FILTER (
+          WHERE on_sale = true
+          AND needs_cost_mapping = false
+        ), 2) AS total_stock_value,
+
+        ROUND(SUM(stock_quantity * calculated_net_profit) FILTER (
+          WHERE on_sale = true
+          AND needs_cost_mapping = false
+          AND commission_rate IS NOT NULL
+        ), 2) AS total_potential_stock_profit
       FROM products
       WHERE marketplace = $1
       `,
@@ -1425,12 +1442,8 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
 
     const topProfit = await pool.query(
       `
-      SELECT
-        barcode,
-        product_name,
-        my_price,
-        calculated_net_profit,
-        calculated_net_margin
+      SELECT barcode, product_name, my_price, stock_quantity,
+             calculated_net_profit, calculated_net_margin
       FROM products
       WHERE marketplace = $1
         AND on_sale = true
@@ -1444,13 +1457,8 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
 
     const risky = await pool.query(
       `
-      SELECT
-        barcode,
-        product_name,
-        my_price,
-        min_price,
-        calculated_net_profit,
-        calculated_net_margin
+      SELECT barcode, product_name, my_price, min_price,
+             calculated_net_profit, calculated_net_margin
       FROM products
       WHERE marketplace = $1
         AND on_sale = true
@@ -1471,19 +1479,23 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
       ["Toplam Ürün", Number(s.total_products || 0)],
       ["Aktif Ürün", Number(s.active_products || 0)],
       ["Aksiyon Bekleyen Ürün", Number(s.action_needed || 0)],
+      ["Maliyetlendirilmiş Ürün", Number(s.costed_products || 0)],
       ["Maliyet Mapping Eksik", Number(s.missing_mapping || 0)],
       ["Komisyon Eksik", Number(s.missing_commission || 0)],
       ["Zarardaki Ürün", Number(s.loss_products || 0)],
       ["Ortalama Net Marj %", Number(s.avg_net_margin || 0)],
       ["Toplam Ürün Başı Net Kâr", Number(s.total_profit_per_unit || 0)],
+      ["Toplam Stok Değeri", Number(s.total_stock_value || 0)],
+      ["Toplam Potansiyel Stok Kârı", Number(s.total_potential_stock_profit || 0)],
       ["Son Güncelleme", new Date().toISOString()],
       [""],
       ["En Çok Kâr Bırakan Ürünler"],
-      ["Barkod", "Ürün", "TY Fiyat", "Net Kâr", "Net Marj %"],
+      ["Barkod", "Ürün", "TY Fiyat", "Stok", "Net Kâr", "Net Marj %"],
       ...topProfit.rows.map(r => [
         r.barcode,
         r.product_name,
         parseNumber(r.my_price),
+        parseNumber(r.stock_quantity),
         parseNumber(r.calculated_net_profit),
         parseNumber(r.calculated_net_margin)
       ]),
@@ -1514,7 +1526,7 @@ app.get("/export-dashboard-to-sheet", async (req, res) => {
 
     res.json({
       status: "ok",
-      message: "Dashboard updated"
+      message: "Dashboard updated with enhanced KPIs"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
