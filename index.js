@@ -1720,6 +1720,99 @@ app.get("/sync-buybox", async (req, res) => {
     });
   }
 });
+app.get("/export-buybox-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(
+      `
+      SELECT
+        barcode,
+        product_name,
+        my_price,
+        buybox_price,
+        second_price,
+        third_price,
+        rank,
+        has_multiple_seller,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin,
+        CASE
+          WHEN rank = 1 THEN 'Buybox Bizde'
+          WHEN rank IS NULL THEN 'Buybox Bilgisi Yok'
+          WHEN min_price > 0 AND buybox_price > 0 AND buybox_price >= min_price THEN 'Buybox Alınabilir'
+          WHEN min_price > 0 AND buybox_price > 0 AND buybox_price < min_price THEN 'Min Fiyat Altı - Girme'
+          ELSE 'Kontrol Et'
+        END AS status
+      FROM products
+      WHERE marketplace = $1
+        AND on_sale = true
+      ORDER BY
+        CASE WHEN rank = 1 THEN 1 ELSE 0 END ASC,
+        calculated_net_margin ASC,
+        product_name ASC
+      `,
+      [MARKETPLACE]
+    );
+
+    const header = [
+      "Barkod",
+      "Ürün",
+      "Benim Fiyat",
+      "Buybox Fiyat",
+      "2. Fiyat",
+      "3. Fiyat",
+      "Sıra",
+      "Çoklu Satıcı",
+      "Min Fiyat",
+      "Net Kâr",
+      "Net Marj %",
+      "Durum"
+    ];
+
+    const values = result.rows.map(r => [
+      r.barcode,
+      r.product_name,
+      parseNumber(r.my_price),
+      parseNumber(r.buybox_price),
+      r.second_price === null ? "" : parseNumber(r.second_price),
+      r.third_price === null ? "" : parseNumber(r.third_price),
+      r.rank === null ? "" : parseNumber(r.rank),
+      r.has_multiple_seller ? "EVET" : "HAYIR",
+      parseNumber(r.min_price),
+      parseNumber(r.calculated_net_profit),
+      parseNumber(r.calculated_net_margin),
+      r.status
+    ]);
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Buybox!A:L"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Buybox!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [header, ...values]
+      }
+    });
+
+    res.json({
+      status: "ok",
+      exported: values.length,
+      message: "Buybox sheet updated"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
