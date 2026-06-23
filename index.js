@@ -58,7 +58,6 @@ app.get("/reset-products", async (req, res) => {
 
 app.get("/setup-db", async (req, res) => {
   try {
-);
     // PRODUCTS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
@@ -460,51 +459,6 @@ app.get("/cost-items", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
-app.get("/add-cost-item", async (req, res) => {
-  try {
-    const itemCode = String(req.query.code || "").trim();
-    const itemName = String(req.query.name || "").trim();
-    const unitCost = Number(req.query.cost || 0);
-    const unit = String(req.query.unit || "adet").trim();
-
-    if (!itemCode || !itemName || unitCost <= 0) {
-      return res.status(400).json({
-        status: "error",
-        message:
-          "code, name ve cost zorunlu. Örnek: /add-cost-item?code=YUM1500&name=Yumusatici%201500ml&cost=78"
-      });
-    }
-
-    const result = await pool.query(
-      `
-      INSERT INTO cost_items (
-        item_code,
-        item_name,
-        unit_cost,
-        unit,
-        updated_at
-      )
-      VALUES ($1, $2, $3, $4, NOW())
-      ON CONFLICT (item_code)
-      DO UPDATE SET
-        item_name = EXCLUDED.item_name,
-        unit_cost = EXCLUDED.unit_cost,
-        unit = EXCLUDED.unit,
-        updated_at = NOW()
-      RETURNING *
-      `,
-      [itemCode, itemName, unitCost, unit]
-    );
-
-    res.json({
-      status: "ok",
-      item: result.rows[0]
-    });
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
 app.get("/map-product-cost", async (req, res) => {
   try {
     const barcode = String(req.query.barcode || "").trim();
@@ -747,98 +701,6 @@ app.get("/calculate-costs", async (req, res) => {
       status: "error",
       message: error.message
     });
-  }
-});
-app.get("/add-shipping-rule", async (req, res) => {
-  try {
-    const minDesi = Number(req.query.min);
-    const maxDesi = Number(req.query.max);
-    const cost = Number(req.query.cost);
-
-    if (isNaN(minDesi) || isNaN(maxDesi) || isNaN(cost) || maxDesi <= minDesi) {
-      return res.status(400).json({
-        status: "error",
-        message: "min, max ve cost zorunlu. Örnek: /add-shipping-rule?min=0&max=1&cost=62.5"
-      });
-    }
-
-    const result = await pool.query(
-      `
-      INSERT INTO shipping_rules (
-        marketplace,
-        min_desi,
-        max_desi,
-        shipping_cost,
-        updated_at
-      )
-      VALUES ('TRENDYOL', $1, $2, $3, NOW())
-      RETURNING *
-      `,
-      [minDesi, maxDesi, cost]
-    );
-
-    res.json({
-      status: "ok",
-      rule: result.rows[0]
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
-
-app.get("/shipping-rules", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT *
-      FROM shipping_rules
-      WHERE marketplace = 'TRENDYOL'
-      ORDER BY min_desi ASC
-    `);
-
-    res.json({
-      status: "ok",
-      count: result.rows.length,
-      rules: result.rows
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
-
-app.get("/set-product-desi", async (req, res) => {
-  try {
-    const barcode = String(req.query.barcode || "").trim();
-    const desi = Number(req.query.desi);
-
-    if (!barcode || isNaN(desi) || desi <= 0) {
-      return res.status(400).json({
-        status: "error",
-        message: "barcode ve desi zorunlu. Örnek: /set-product-desi?barcode=869xxx&desi=3.2"
-      });
-    }
-
-    const result = await pool.query(
-      `
-      UPDATE products
-      SET desi = $1,
-          updated_at = NOW()
-      WHERE marketplace = 'TRENDYOL'
-        AND barcode = $2
-      RETURNING barcode, product_name, desi
-      `,
-      [desi, barcode]
-    );
-
-    res.json({
-      status: "ok",
-      updated: result.rows.length,
-      product: result.rows[0] || null
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
   }
 });
 app.get("/products", async (req, res) => {
@@ -1161,42 +1023,6 @@ app.get("/import-commissions", async (req, res) => {
     });
   }
 });
-app.get("/setup-shipping-v2", async (req, res) => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS shipping_costs (
-        id SERIAL PRIMARY KEY,
-        desi_kg NUMERIC NOT NULL,
-        carrier TEXT NOT NULL,
-        cost_ex_vat NUMERIC NOT NULL,
-        cost_inc_vat NUMERIC NOT NULL,
-        updated_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(desi_kg, carrier)
-      );
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS shipping_barems (
-        id SERIAL PRIMARY KEY,
-        min_basket NUMERIC NOT NULL,
-        max_basket NUMERIC NOT NULL,
-        barem_name TEXT,
-        carrier TEXT NOT NULL,
-        cost_ex_vat NUMERIC NOT NULL,
-        cost_inc_vat NUMERIC NOT NULL,
-        updated_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(min_basket, max_basket, carrier)
-      );
-    `);
-
-    res.json({
-      status: "ok",
-      message: "Shipping v2 tables created"
-    });
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
 app.get("/import-shipping-costs", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -1406,7 +1232,7 @@ app.get("/export-products-to-sheet", async (req, res) => {
       p.brand,
       p.category_name,
       Number(p.my_price || 0),
-      Number(p.commission_rate || 0),
+      p.commission_rate === null ? "" : Number(p.commission_rate),
       Number(p.stock_quantity || 0),
       p.on_sale ? "EVET" : "HAYIR",
       p.needs_cost_mapping ? "EKSİK" : "TAMAM",
