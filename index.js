@@ -1579,6 +1579,147 @@ app.get("/debug-commissions-sheet", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+app.get("/sync-buybox", async (req, res) => {
+  try {
+    const supplierId = process.env.TY_SUPPLIER_ID;
+
+    const productsResult = await pool.query(
+      `
+      SELECT
+        barcode,
+        product_name,
+        my_price,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin
+      FROM products
+      WHERE marketplace = $1
+        AND on_sale = true
+      ORDER BY product_name ASC
+      `,
+      [MARKETPLACE]
+    );
+
+    const products = productsResult.rows;
+    let updated = 0;
+    let snapshotCount = 0;
+
+    for (let i = 0; i < products.length; i += 10) {
+      const chunk = products.slice(i, i + 10);
+      const barcodes = chunk.map(p => p.barcode);
+
+      const url =
+        `https://apigw.trendyol.com/integration/product/sellers/${supplierId}` +
+        `/products/buybox-information`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: trendyolHeaders(),
+        body: JSON.stringify({ barcodes })
+      });
+
+      const text = await response.text();
+
+      if (!response.ok) {
+        console.log("Buybox HTTP Error:", response.status, text);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+      const infoList = data.buyboxInfo || [];
+
+      for (const info of infoList) {
+        const barcode = String(info.barcode || "").trim();
+        const original = chunk.find(p => p.barcode === barcode);
+        if (!original) continue;
+
+        const buyboxPrice = parseNumber(info.buyboxPrice);
+        const secondPrice = info.secondBuyboxPrice === undefined ? null : parseNumber(info.secondBuyboxPrice);
+        const thirdPrice = info.thirdBuyboxPrice === undefined ? null : parseNumber(info.thirdBuyboxPrice);
+        const rank = info.buyboxOrder === undefined ? null : parseNumber(info.buyboxOrder);
+        const hasMultipleSeller = Boolean(info.hasMultipleSeller);
+
+        await pool.query(
+          `
+          UPDATE products
+          SET
+            buybox_price = $1,
+            second_price = $2,
+            third_price = $3,
+            rank = $4,
+            has_multiple_seller = $5,
+            updated_at = NOW()
+          WHERE marketplace = $6
+            AND barcode = $7
+          `,
+          [
+            buyboxPrice,
+            secondPrice,
+            thirdPrice,
+            rank,
+            hasMultipleSeller,
+            MARKETPLACE,
+            barcode
+          ]
+        );
+
+        await pool.query(
+          `
+          INSERT INTO buybox_snapshots (
+            marketplace,
+            barcode,
+            product_name,
+            my_price,
+            buybox_price,
+            second_price,
+            third_price,
+            rank,
+            has_multiple_seller,
+            min_price,
+            net_profit,
+            net_margin,
+            created_at
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+          `,
+          [
+            MARKETPLACE,
+            barcode,
+            original.product_name,
+            original.my_price,
+            buyboxPrice,
+            secondPrice,
+            thirdPrice,
+            rank,
+            hasMultipleSeller,
+            original.min_price,
+            original.calculated_net_profit,
+            original.calculated_net_margin
+          ]
+        );
+
+        updated++;
+        snapshotCount++;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    res.json({
+      status: "ok",
+      checked_products: products.length,
+      updated,
+      snapshots: snapshotCount,
+      message: "Buybox synced"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
