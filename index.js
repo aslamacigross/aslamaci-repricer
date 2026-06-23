@@ -1310,12 +1310,17 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
         commission_rate,
         needs_cost_mapping,
         min_price,
-        CASE
-          WHEN needs_cost_mapping = true THEN 'Maliyet Mapping Eksik'
-          WHEN commission_rate IS NULL THEN 'Komisyon Eksik'
-          WHEN COALESCE(min_price,0) = 0 THEN 'Minimum Fiyat Hesaplanamıyor'
-          ELSE 'Kontrol Edilmeli'
-        END AS issue
+        desi,
+        calculated_product_cost,
+
+        CONCAT_WS(' + ',
+          CASE WHEN needs_cost_mapping = true THEN 'Maliyet Mapping Eksik' END,
+          CASE WHEN commission_rate IS NULL THEN 'Komisyon Eksik' END,
+          CASE WHEN needs_cost_mapping = false AND (desi IS NULL OR desi <= 0) THEN 'Desi Eksik/Hatalı' END,
+          CASE WHEN needs_cost_mapping = false AND COALESCE(calculated_product_cost,0) <= 0 THEN 'Ürün Maliyeti Hesaplanamıyor' END,
+          CASE WHEN needs_cost_mapping = false AND commission_rate IS NOT NULL AND COALESCE(min_price,0) = 0 THEN 'Minimum Fiyat Hesaplanamıyor' END
+        ) AS issue
+
       FROM products
       WHERE marketplace = $1
         AND on_sale = true
@@ -1323,6 +1328,9 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
              needs_cost_mapping = true
           OR commission_rate IS NULL
           OR COALESCE(min_price,0) = 0
+          OR desi IS NULL
+          OR desi <= 0
+          OR COALESCE(calculated_product_cost,0) <= 0
         )
       ORDER BY
         needs_cost_mapping DESC,
@@ -1341,6 +1349,8 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
       "TY Fiyat",
       "Komisyon %",
       "Mapping",
+      "Desi",
+      "Ürün Maliyeti",
       "Minimum Fiyat",
       "Eksik Sebep"
     ];
@@ -1354,13 +1364,15 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
       parseNumber(r.my_price),
       r.commission_rate === null ? "" : parseNumber(r.commission_rate),
       r.needs_cost_mapping ? "EKSİK" : "TAMAM",
+      r.desi === null ? "" : parseNumber(r.desi),
+      parseNumber(r.calculated_product_cost),
       parseNumber(r.min_price),
-      r.issue
+      r.issue || "Kontrol Edilmeli"
     ]);
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "YeniUrunler!A:J"
+      range: "YeniUrunler!A:L"
     });
 
     await sheets.spreadsheets.values.update({
@@ -1375,7 +1387,7 @@ app.get("/export-new-products-to-sheet", async (req, res) => {
     res.json({
       status: "ok",
       exported: values.length,
-      message: "YeniUrunler updated"
+      message: "YeniUrunler updated with detailed issues"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
