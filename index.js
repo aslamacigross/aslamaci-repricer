@@ -2490,6 +2490,60 @@ app.get("/import-packaging-rules", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+
+app.get("/run-full-refresh", async (req, res) => {
+  try {
+    const baseUrl = `https://${req.get("host")}`;
+
+    const steps = [
+      "/sync-products",
+      "/import-cost-index",
+      "/import-product-mappings",
+      "/import-commissions",
+      "/import-product-settings",
+      "/import-packaging-rules",
+      "/refresh-cost-mapping-status",
+      "/calculate-costs",
+      "/sync-buybox",
+      "/export-products-to-sheet",
+      "/export-new-products-to-sheet",
+      "/export-buybox-to-sheet",
+      "/export-buybox-suggestions-to-sheet",
+      "/export-price-actions-to-sheet",
+      "/export-dashboard-to-sheet"
+    ];
+
+    const results = [];
+
+    for (const step of steps) {
+      const response = await fetch(baseUrl + step);
+      const text = await response.text();
+
+      results.push({
+        step,
+        status: response.status,
+        ok: response.ok,
+        response: text.slice(0, 500)
+      });
+
+      if (!response.ok) {
+        break;
+      }
+    }
+
+    res.json({
+      status: "ok",
+      message: "Full refresh completed",
+      results
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
