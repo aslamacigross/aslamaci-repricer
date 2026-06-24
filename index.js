@@ -170,6 +170,17 @@ app.get("/setup-db", async (req, res) => {
     `);
 
     await pool.query(`
+  CREATE TABLE IF NOT EXISTS packaging_rules (
+    id SERIAL PRIMARY KEY,
+    min_desi NUMERIC NOT NULL,
+    max_desi NUMERIC NOT NULL,
+    packaging_cost NUMERIC NOT NULL,
+    note TEXT,
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+`);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS product_cost_mappings (
         id SERIAL PRIMARY KEY,
         marketplace TEXT NOT NULL,
@@ -2399,6 +2410,56 @@ app.get("/import-product-settings", async (req, res) => {
       status: "error",
       message: error.message
     });
+  }
+});
+
+app.get("/import-packaging-rules", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "AmbalajKurallari!A2:D"
+    });
+
+    const rows = result.data.values || [];
+
+    await pool.query(`DELETE FROM packaging_rules;`);
+
+    let imported = 0;
+
+    for (const row of rows) {
+      const minDesi = parseNumber(row[0]);
+      const maxDesi = parseNumber(row[1]);
+      const packagingCost = parseNumber(row[2]);
+      const note = String(row[3] || "").trim();
+
+      if (packagingCost <= 0) continue;
+
+      await pool.query(
+        `
+        INSERT INTO packaging_rules (
+          min_desi,
+          max_desi,
+          packaging_cost,
+          note,
+          updated_at
+        )
+        VALUES ($1,$2,$3,$4,NOW())
+        `,
+        [minDesi, maxDesi, packagingCost, note]
+      );
+
+      imported++;
+    }
+
+    res.json({
+      status: "ok",
+      imported,
+      message: "AmbalajKurallari imported"
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 app.listen(PORT, () => {
