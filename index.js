@@ -2102,6 +2102,137 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
     });
   }
 });
+
+app.get("/apply-approved-prices", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+    const supplierId = process.env.TY_SUPPLIER_ID;
+
+    const sheetResult = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "FiyatAksiyonlari!A2:N"
+    });
+
+    const rows = sheetResult.data.values || [];
+    const approved = [];
+
+    for (const row of rows) {
+      const barcode = String(row[0] || "").trim();
+      const productName = String(row[1] || "").trim();
+      const currentPrice = parseNumber(row[2]);
+      const suggestedPrice = parseNumber(row[3]);
+      const action = String(row[5] || "").trim();
+      const minPrice = parseNumber(row[9]);
+      const approval = String(row[12] || "").trim().toUpperCase();
+
+      if (approval !== "EVET") continue;
+      if (!barcode) continue;
+      if (!["FIYAT ARTIR", "FIYAT DUSUR"].includes(action)) continue;
+      if (suggestedPrice <= 0) continue;
+      if (minPrice > 0 && suggestedPrice < minPrice) continue;
+
+      const diffRate = Math.abs(suggestedPrice - currentPrice) / currentPrice;
+      if (diffRate > 0.15) continue;
+
+      approved.push({
+        barcode,
+        productName,
+        currentPrice,
+        suggestedPrice: Number(suggestedPrice.toFixed(2)),
+        action,
+        minPrice
+      });
+    }
+
+    if (approved.length === 0) {
+      return res.json({
+        status: "ok",
+        sent: 0,
+        message: "Onaylı ve güvenli fiyat aksiyonu yok"
+      });
+    }
+
+    const items = approved.map(p => ({
+      barcode: p.barcode,
+      salePrice: p.suggestedPrice,
+      listPrice: p.suggestedPrice
+    }));
+
+    const url =
+      `https://apigw.trendyol.com/integration/inventory/sellers/${supplierId}` +
+      `/products/price-and-inventory`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: trendyolHeaders(),
+      body: JSON.stringify({ items })
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        status: "error",
+        httpStatus: response.status,
+        raw: text
+      });
+    }
+
+    for (const p of approved) {
+      await pool.query(
+        `
+        UPDATE products
+        SET my_price = $1,
+            updated_at = NOW()
+        WHERE marketplace = $2
+          AND barcode = $3
+        `,
+        [p.suggestedPrice, MARKETPLACE, p.barcode]
+      );
+
+      await pool.query(
+        `
+        INSERT INTO price_war_log (
+          marketplace,
+          barcode,
+          product_name,
+          old_price,
+          new_price,
+          price_diff,
+          min_price,
+          action,
+          created_at
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+        `,
+        [
+          MARKETPLACE,
+          p.barcode,
+          p.productName,
+          p.currentPrice,
+          p.suggestedPrice,
+          Number((p.suggestedPrice - p.currentPrice).toFixed(2)),
+          p.minPrice,
+          p.action
+        ]
+      );
+    }
+
+    res.json({
+      status: "ok",
+      sent: approved.length,
+      items,
+      trendyol_response: text,
+      message: "Onaylı fiyatlar Trendyol'a gönderildi"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
