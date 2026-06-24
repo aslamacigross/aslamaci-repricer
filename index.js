@@ -2233,6 +2233,48 @@ app.get("/apply-approved-prices", async (req, res) => {
     });
   }
 });
+
+app.get("/refresh-after-price-update", async (req, res) => {
+  try {
+    const baseUrl = `https://${req.get("host")}`;
+
+    const steps = [
+      "/sync-products",
+      "/sync-buybox",
+      "/calculate-costs",
+      "/export-products-to-sheet",
+      "/export-buybox-to-sheet",
+      "/export-buybox-suggestions-to-sheet",
+      "/export-price-actions-to-sheet",
+      "/export-dashboard-to-sheet"
+    ];
+
+    const results = [];
+
+    for (const step of steps) {
+      const response = await fetch(baseUrl + step);
+      const text = await response.text();
+
+      results.push({
+        step,
+        status: response.status,
+        response: text
+      });
+    }
+
+    res.json({
+      status: "ok",
+      message: "Refresh completed",
+      results
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
