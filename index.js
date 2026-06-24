@@ -192,6 +192,23 @@ app.get("/setup-db", async (req, res) => {
         UNIQUE(desi_kg, carrier)
       );
     `);
+    
+    await pool.query(`
+  CREATE TABLE IF NOT EXISTS product_settings (
+    id SERIAL PRIMARY KEY,
+    marketplace TEXT NOT NULL,
+    barcode TEXT,
+    category_id TEXT,
+    strategy TEXT DEFAULT 'Normal',
+    price_cut_tl NUMERIC DEFAULT 1,
+    max_increase_tl NUMERIC DEFAULT 10,
+    max_daily_change_pct NUMERIC DEFAULT 15,
+    auto_update BOOLEAN DEFAULT false,
+    note TEXT,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(marketplace, barcode, category_id)
+  );
+`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS shipping_barems (
@@ -2296,10 +2313,49 @@ app.get("/import-product-settings", async (req, res) => {
       const maxIncreaseTl = parseNumber(row[4], 10);
       const maxDailyChangePct = parseNumber(row[5], 15);
       const autoUpdateText = String(row[6] || "HAYIR").trim().toUpperCase();
+      const note = String(row[7] || "").trim();
 
       const autoUpdate = autoUpdateText === "EVET";
 
       if (!barcode && !categoryId) continue;
+
+      await pool.query(
+        `
+        INSERT INTO product_settings (
+          marketplace,
+          barcode,
+          category_id,
+          strategy,
+          price_cut_tl,
+          max_increase_tl,
+          max_daily_change_pct,
+          auto_update,
+          note,
+          updated_at
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+        ON CONFLICT (marketplace, barcode, category_id)
+        DO UPDATE SET
+          strategy = EXCLUDED.strategy,
+          price_cut_tl = EXCLUDED.price_cut_tl,
+          max_increase_tl = EXCLUDED.max_increase_tl,
+          max_daily_change_pct = EXCLUDED.max_daily_change_pct,
+          auto_update = EXCLUDED.auto_update,
+          note = EXCLUDED.note,
+          updated_at = NOW()
+        `,
+        [
+          MARKETPLACE,
+          barcode || null,
+          categoryId || null,
+          strategy,
+          priceCutTl,
+          maxIncreaseTl,
+          maxDailyChangePct,
+          autoUpdate,
+          note
+        ]
+      );
 
       let update;
 
@@ -2307,9 +2363,8 @@ app.get("/import-product-settings", async (req, res) => {
         update = await pool.query(
           `
           UPDATE products
-          SET
-            auto_update = $1,
-            updated_at = NOW()
+          SET auto_update = $1,
+              updated_at = NOW()
           WHERE marketplace = $2
             AND barcode = $3
           `,
@@ -2319,9 +2374,8 @@ app.get("/import-product-settings", async (req, res) => {
         update = await pool.query(
           `
           UPDATE products
-          SET
-            auto_update = $1,
-            updated_at = NOW()
+          SET auto_update = $1,
+              updated_at = NOW()
           WHERE marketplace = $2
             AND category_id = $3
           `,
@@ -2337,7 +2391,7 @@ app.get("/import-product-settings", async (req, res) => {
       status: "ok",
       imported_rows: importedRows,
       updated_products: updatedProducts,
-      message: "UrunAyar imported"
+      message: "UrunAyar imported into product_settings"
     });
 
   } catch (error) {
