@@ -1277,6 +1277,8 @@ app.get("/export-products-to-sheet", async (req, res) => {
         min_price,
         calculated_net_profit,
         calculated_net_margin,
+        packaging_cost,
+        service_fee,
         updated_at
       FROM products
       WHERE marketplace = $1
@@ -1299,6 +1301,8 @@ app.get("/export-products-to-sheet", async (req, res) => {
       "Desi",
       "Ürün Maliyeti",
       "Kargo Maliyeti",
+      "Ambalaj Maliyeti",
+      "Hizmet Bedeli",
       "Toplam Maliyet",
       "Minimum Fiyat",
       "Net Kâr",
