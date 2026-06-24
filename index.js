@@ -2325,7 +2325,7 @@ app.get("/import-product-settings", async (req, res) => {
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "UrunAyar!A2:H"
+      range: "UrunAyar!A2:J"
     });
 
     const rows = result.data.values || [];
@@ -2340,7 +2340,16 @@ app.get("/import-product-settings", async (req, res) => {
       const maxIncreaseTl = parseNumber(row[4], 10);
       const maxDailyChangePct = parseNumber(row[5], 15);
       const autoUpdateText = String(row[6] || "HAYIR").trim().toUpperCase();
-      const note = String(row[7] || "").trim();
+
+      const minProfitTlRaw = String(row[7] || "").trim();
+      const minProfitPctRaw = String(row[8] || "").trim();
+      const note = String(row[9] || "").trim();
+
+      const minProfitTl =
+        minProfitTlRaw === "" ? 40 : parseNumber(minProfitTlRaw, 40);
+
+      const minProfitPct =
+        minProfitPctRaw === "" ? null : parseNumber(minProfitPctRaw, null);
 
       const autoUpdate = autoUpdateText === "EVET";
 
@@ -2390,23 +2399,27 @@ app.get("/import-product-settings", async (req, res) => {
         update = await pool.query(
           `
           UPDATE products
-          SET auto_update = $1,
-              updated_at = NOW()
-          WHERE marketplace = $2
-            AND barcode = $3
+          SET
+            auto_update = $1,
+            target_profit = $2,
+            updated_at = NOW()
+          WHERE marketplace = $3
+            AND barcode = $4
           `,
-          [autoUpdate, MARKETPLACE, barcode]
+          [autoUpdate, minProfitTl, MARKETPLACE, barcode]
         );
       } else {
         update = await pool.query(
           `
           UPDATE products
-          SET auto_update = $1,
-              updated_at = NOW()
-          WHERE marketplace = $2
-            AND category_id = $3
+          SET
+            auto_update = $1,
+            target_profit = $2,
+            updated_at = NOW()
+          WHERE marketplace = $3
+            AND category_id = $4
           `,
-          [autoUpdate, MARKETPLACE, categoryId]
+          [autoUpdate, minProfitTl, MARKETPLACE, categoryId]
         );
       }
 
@@ -2418,7 +2431,7 @@ app.get("/import-product-settings", async (req, res) => {
       status: "ok",
       imported_rows: importedRows,
       updated_products: updatedProducts,
-      message: "UrunAyar imported into product_settings"
+      message: "UrunAyar imported with minimum profit rules"
     });
 
   } catch (error) {
@@ -2428,7 +2441,6 @@ app.get("/import-product-settings", async (req, res) => {
     });
   }
 });
-
 app.get("/import-packaging-rules", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
