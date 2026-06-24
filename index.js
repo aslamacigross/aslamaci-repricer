@@ -1958,6 +1958,150 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
     });
   }
 });
+
+app.get("/export-price-actions-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(
+      `
+      SELECT
+        barcode,
+        product_name,
+        my_price,
+        buybox_price,
+        second_price,
+        rank,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin,
+        needs_cost_mapping,
+        commission_rate,
+
+        CASE
+          WHEN needs_cost_mapping = true THEN 'PAS - Maliyet Eksik'
+          WHEN commission_rate IS NULL THEN 'PAS - Komisyon Eksik'
+          WHEN COALESCE(min_price,0) <= 0 THEN 'PAS - Min Fiyat Yok'
+
+          WHEN rank = 1
+            AND second_price IS NOT NULL
+            AND second_price > my_price
+          THEN 'FIYAT ARTIR'
+
+          WHEN rank <> 1
+            AND buybox_price IS NOT NULL
+            AND buybox_price > min_price
+          THEN 'FIYAT DUSUR'
+
+          WHEN rank <> 1
+            AND buybox_price IS NOT NULL
+            AND buybox_price <= min_price
+          THEN 'PAS - Min Altı'
+
+          WHEN rank = 1 THEN 'KORU'
+          ELSE 'KONTROL'
+        END AS action,
+
+        CASE
+          WHEN needs_cost_mapping = true OR commission_rate IS NULL OR COALESCE(min_price,0) <= 0
+          THEN my_price
+
+          WHEN rank = 1
+            AND second_price IS NOT NULL
+            AND second_price > my_price
+          THEN LEAST(second_price - 0.10, my_price + 10)
+
+          WHEN rank <> 1
+            AND buybox_price IS NOT NULL
+            AND buybox_price > min_price
+          THEN GREATEST(buybox_price - 0.10, min_price)
+
+          ELSE my_price
+        END AS suggested_price
+
+      FROM products
+      WHERE marketplace = $1
+        AND on_sale = true
+      ORDER BY
+        CASE
+          WHEN needs_cost_mapping = true OR commission_rate IS NULL THEN 5
+          WHEN rank <> 1 AND buybox_price <= min_price THEN 4
+          WHEN rank <> 1 THEN 1
+          WHEN rank = 1 THEN 2
+          ELSE 3
+        END,
+        calculated_net_margin ASC,
+        product_name ASC
+      `,
+      [MARKETPLACE]
+    );
+
+    const header = [
+      "Barkod",
+      "Ürün",
+      "Mevcut Fiyat",
+      "Önerilen Fiyat",
+      "Fark",
+      "Aksiyon",
+      "Buybox Fiyat",
+      "2. Fiyat",
+      "Sıra",
+      "Min Fiyat",
+      "Net Kâr",
+      "Net Marj %",
+      "Onay",
+      "Not"
+    ];
+
+    const values = result.rows.map(r => {
+      const myPrice = parseNumber(r.my_price);
+      const suggestedPrice = parseNumber(r.suggested_price);
+
+      return [
+        r.barcode,
+        r.product_name,
+        myPrice,
+        suggestedPrice,
+        Number((suggestedPrice - myPrice).toFixed(2)),
+        r.action,
+        parseNumber(r.buybox_price),
+        r.second_price === null ? "" : parseNumber(r.second_price),
+        r.rank === null ? "" : parseNumber(r.rank),
+        parseNumber(r.min_price),
+        parseNumber(r.calculated_net_profit),
+        parseNumber(r.calculated_net_margin),
+        "",
+        ""
+      ];
+    });
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "FiyatAksiyonlari!A:N"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "FiyatAksiyonlari!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [header, ...values]
+      }
+    });
+
+    res.json({
+      status: "ok",
+      exported: values.length,
+      message: "FiyatAksiyonlari simulation updated"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
