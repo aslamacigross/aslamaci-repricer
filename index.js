@@ -2275,6 +2275,78 @@ app.get("/refresh-after-price-update", async (req, res) => {
     });
   }
 });
+app.get("/import-product-settings", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "UrunAyar!A2:H"
+    });
+
+    const rows = result.data.values || [];
+    let importedRows = 0;
+    let updatedProducts = 0;
+
+    for (const row of rows) {
+      const barcode = String(row[0] || "").trim();
+      const categoryId = String(row[1] || "").trim();
+      const strategy = String(row[2] || "Normal").trim();
+      const priceCutTl = parseNumber(row[3], 1);
+      const maxIncreaseTl = parseNumber(row[4], 10);
+      const maxDailyChangePct = parseNumber(row[5], 15);
+      const autoUpdateText = String(row[6] || "HAYIR").trim().toUpperCase();
+
+      const autoUpdate = autoUpdateText === "EVET";
+
+      if (!barcode && !categoryId) continue;
+
+      let update;
+
+      if (barcode) {
+        update = await pool.query(
+          `
+          UPDATE products
+          SET
+            auto_update = $1,
+            updated_at = NOW()
+          WHERE marketplace = $2
+            AND barcode = $3
+          `,
+          [autoUpdate, MARKETPLACE, barcode]
+        );
+      } else {
+        update = await pool.query(
+          `
+          UPDATE products
+          SET
+            auto_update = $1,
+            updated_at = NOW()
+          WHERE marketplace = $2
+            AND category_id = $3
+          `,
+          [autoUpdate, MARKETPLACE, categoryId]
+        );
+      }
+
+      importedRows++;
+      updatedProducts += update.rowCount;
+    }
+
+    res.json({
+      status: "ok",
+      imported_rows: importedRows,
+      updated_products: updatedProducts,
+      message: "UrunAyar imported"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
