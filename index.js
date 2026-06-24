@@ -1813,6 +1813,151 @@ app.get("/export-buybox-to-sheet", async (req, res) => {
     });
   }
 });
+
+app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
+  try {
+    const sheets = await getSheetsClient();
+
+    const result = await pool.query(
+      `
+      SELECT
+        barcode,
+        product_name,
+        my_price,
+        buybox_price,
+        second_price,
+        third_price,
+        rank,
+        min_price,
+        calculated_net_profit,
+        calculated_net_margin,
+        needs_cost_mapping,
+        commission_rate,
+
+        CASE
+          WHEN needs_cost_mapping = true THEN 'İşlem Yok - Maliyet Eksik'
+          WHEN commission_rate IS NULL THEN 'İşlem Yok - Komisyon Eksik'
+          WHEN COALESCE(min_price,0) <= 0 THEN 'İşlem Yok - Min Fiyat Yok'
+
+          WHEN rank = 1
+            AND second_price IS NOT NULL
+            AND second_price > my_price
+          THEN 'Fiyat Artırılabilir'
+
+          WHEN rank = 1
+          THEN 'Buybox Bizde - Koru'
+
+          WHEN rank <> 1
+            AND buybox_price IS NOT NULL
+            AND buybox_price > min_price
+          THEN 'Buybox İçin Fiyat Düşürülebilir'
+
+          WHEN rank <> 1
+            AND buybox_price IS NOT NULL
+            AND buybox_price <= min_price
+          THEN 'Min Fiyat Altı - Girme'
+
+          ELSE 'Kontrol Et'
+        END AS suggestion,
+
+        CASE
+          WHEN needs_cost_mapping = true OR commission_rate IS NULL OR COALESCE(min_price,0) <= 0
+          THEN my_price
+
+          WHEN rank = 1
+            AND second_price IS NOT NULL
+            AND second_price > my_price
+          THEN LEAST(second_price - 0.10, my_price + 10)
+
+          WHEN rank <> 1
+            AND buybox_price IS NOT NULL
+            AND buybox_price > min_price
+          THEN GREATEST(buybox_price - 0.10, min_price)
+
+          ELSE my_price
+        END AS suggested_price
+
+      FROM products
+      WHERE marketplace = $1
+        AND on_sale = true
+      ORDER BY
+        CASE
+          WHEN needs_cost_mapping = true OR commission_rate IS NULL THEN 5
+          WHEN rank <> 1 AND buybox_price <= min_price THEN 4
+          WHEN rank <> 1 THEN 1
+          WHEN rank = 1 THEN 2
+          ELSE 3
+        END,
+        calculated_net_margin ASC,
+        product_name ASC
+      `,
+      [MARKETPLACE]
+    );
+
+    const header = [
+      "Barkod",
+      "Ürün",
+      "Benim Fiyat",
+      "Buybox Fiyat",
+      "2. Fiyat",
+      "3. Fiyat",
+      "Sıra",
+      "Min Fiyat",
+      "Net Kâr",
+      "Net Marj %",
+      "Öneri",
+      "Önerilen Fiyat",
+      "Fark"
+    ];
+
+    const values = result.rows.map(r => {
+      const myPrice = parseNumber(r.my_price);
+      const suggestedPrice = parseNumber(r.suggested_price);
+
+      return [
+        r.barcode,
+        r.product_name,
+        myPrice,
+        parseNumber(r.buybox_price),
+        r.second_price === null ? "" : parseNumber(r.second_price),
+        r.third_price === null ? "" : parseNumber(r.third_price),
+        r.rank === null ? "" : parseNumber(r.rank),
+        parseNumber(r.min_price),
+        parseNumber(r.calculated_net_profit),
+        parseNumber(r.calculated_net_margin),
+        r.suggestion,
+        suggestedPrice,
+        Number((suggestedPrice - myPrice).toFixed(2))
+      ];
+    });
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "BuyboxOneriler!A:M"
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "BuyboxOneriler!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [header, ...values]
+      }
+    });
+
+    res.json({
+      status: "ok",
+      exported: values.length,
+      message: "Buybox suggestions updated"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Aşlamacı Repricer running on port ${PORT}`);
 });
