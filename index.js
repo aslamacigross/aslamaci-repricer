@@ -876,33 +876,45 @@ app.get("/calculate-costs", async (req, res) => {
           p.barcode,
           pc.product_cost,
           pc.total_desi,
+
           CASE
             WHEN p.my_price <= 349.99
               THEN COALESCE(sb.cost_inc_vat, 0)
             ELSE
               COALESCE(sc.cost_inc_vat, 0)
-          END AS shipping_cost
+          END AS shipping_cost,
+
+          COALESCE(pr.packaging_cost, 0) AS packaging_cost
+
         FROM products p
         JOIN product_costs pc
           ON pc.marketplace = p.marketplace
          AND pc.barcode = p.barcode
+
         LEFT JOIN shipping_barems sb
           ON sb.carrier = '${DEFAULT_CARRIER}'
          AND p.my_price >= sb.min_basket
          AND p.my_price <= sb.max_basket
+
         LEFT JOIN shipping_costs sc
           ON sc.carrier = '${DEFAULT_CARRIER}'
          AND sc.desi_kg = CEIL(pc.total_desi)
+
+        LEFT JOIN packaging_rules pr
+          ON CEIL(pc.total_desi) >= pr.min_desi
+         AND CEIL(pc.total_desi) <= pr.max_desi
       )
       UPDATE products p
       SET
         calculated_product_cost = COALESCE(c.product_cost, 0),
         desi = COALESCE(c.total_desi, p.desi),
         calculated_shipping_cost = COALESCE(c.shipping_cost, 0),
+        packaging_cost = COALESCE(c.packaging_cost, 0),
+
         calculated_total_cost =
           COALESCE(c.product_cost, 0)
           + COALESCE(c.shipping_cost, 0)
-          + COALESCE(p.packaging_cost, 0)
+          + COALESCE(c.packaging_cost, 0)
           + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
           + COALESCE(p.target_profit, 0),
 
@@ -912,7 +924,7 @@ app.get("/calculate-costs", async (req, res) => {
             THEN (
               COALESCE(c.product_cost, 0)
               + COALESCE(c.shipping_cost, 0)
-              + COALESCE(p.packaging_cost, 0)
+              + COALESCE(c.packaging_cost, 0)
               + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
               + COALESCE(p.target_profit, 0)
             ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
@@ -925,7 +937,7 @@ app.get("/calculate-costs", async (req, res) => {
             THEN (
               COALESCE(c.product_cost, 0)
               + COALESCE(c.shipping_cost, 0)
-              + COALESCE(p.packaging_cost, 0)
+              + COALESCE(c.packaging_cost, 0)
               + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
               + COALESCE(p.target_profit, 0)
             ) / (1 - (COALESCE(p.commission_rate, 0) / 100))
@@ -941,7 +953,7 @@ app.get("/calculate-costs", async (req, res) => {
               - (
                 COALESCE(c.product_cost, 0)
                 + COALESCE(c.shipping_cost, 0)
-                + COALESCE(p.packaging_cost, 0)
+                + COALESCE(c.packaging_cost, 0)
                 + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
               )
             ELSE 0
@@ -958,7 +970,7 @@ app.get("/calculate-costs", async (req, res) => {
                 - (
                   COALESCE(c.product_cost, 0)
                   + COALESCE(c.shipping_cost, 0)
-                  + COALESCE(p.packaging_cost, 0)
+                  + COALESCE(c.packaging_cost, 0)
                   + COALESCE(p.service_fee, ${DEFAULT_SERVICE_FEE})
                 )
               ) / COALESCE(p.my_price, 0)
@@ -1003,7 +1015,6 @@ app.get("/calculate-costs", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
 app.get("/products-summary", async (req, res) => {
   try {
     const result = await pool.query(
