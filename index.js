@@ -1273,12 +1273,12 @@ app.get("/export-products-to-sheet", async (req, res) => {
         desi,
         calculated_product_cost,
         calculated_shipping_cost,
+        packaging_cost,
+        service_fee,
         calculated_total_cost,
         min_price,
         calculated_net_profit,
         calculated_net_margin,
-        packaging_cost,
-        service_fee,
         updated_at
       FROM products
       WHERE marketplace = $1
@@ -1324,6 +1324,8 @@ app.get("/export-products-to-sheet", async (req, res) => {
       p.desi === null ? "" : parseNumber(p.desi),
       parseNumber(p.calculated_product_cost),
       parseNumber(p.calculated_shipping_cost),
+      parseNumber(p.packaging_cost),
+      parseNumber(p.service_fee),
       parseNumber(p.calculated_total_cost),
       parseNumber(p.min_price),
       parseNumber(p.calculated_net_profit),
@@ -1333,7 +1335,7 @@ app.get("/export-products-to-sheet", async (req, res) => {
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Urunler!A:R"
+      range: "Urunler!A:T"
     });
 
     await sheets.spreadsheets.values.update({
@@ -1348,13 +1350,12 @@ app.get("/export-products-to-sheet", async (req, res) => {
     res.json({
       status: "ok",
       exported: rows.length,
-      message: "Urunler sheet updated"
+      message: "Urunler sheet updated with packaging and service fee"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
 app.get("/export-new-products-to-sheet", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
