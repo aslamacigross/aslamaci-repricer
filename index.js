@@ -495,6 +495,15 @@ app.get("/import-product-mappings", async (req, res) => {
     });
 
     const rows = result.data.values || [];
+
+    await pool.query(
+      `
+      DELETE FROM product_cost_mappings
+      WHERE marketplace = $1
+      `,
+      [MARKETPLACE]
+    );
+
     let imported = 0;
 
     for (const row of rows) {
@@ -528,7 +537,7 @@ app.get("/import-product-mappings", async (req, res) => {
     res.json({
       status: "ok",
       imported,
-      message: "UrunMaliyetMap imported"
+      message: "UrunMaliyetMap imported after full cleanup"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
@@ -732,115 +741,25 @@ app.get("/refresh-cost-mapping-status", async (req, res) => {
       SET
         needs_cost_mapping =
           CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
+            WHEN COALESCE(p.calculated_product_cost, 0) > 0
+             AND COALESCE(p.desi, 0) > 0
+             AND COALESCE(p.calculated_shipping_cost, 0) > 0
+             AND COALESCE(p.min_price, 0) > 0
+             AND p.commission_rate IS NOT NULL
             THEN false
             ELSE true
           END,
-
-        desi =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.desi
-            ELSE NULL
-          END,
-
-        calculated_product_cost =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.calculated_product_cost
-            ELSE 0
-          END,
-
-        calculated_shipping_cost =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.calculated_shipping_cost
-            ELSE 0
-          END,
-
-        calculated_total_cost =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.calculated_total_cost
-            ELSE 0
-          END,
-
-        calculated_min_price =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.calculated_min_price
-            ELSE 0
-          END,
-
-        min_price =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.min_price
-            ELSE 0
-          END,
-
-        calculated_net_profit =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.calculated_net_profit
-            ELSE 0
-          END,
-
-        calculated_net_margin =
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM product_cost_mappings pcm
-              WHERE pcm.marketplace = p.marketplace
-                AND pcm.barcode = p.barcode
-            )
-            THEN p.calculated_net_margin
-            ELSE 0
-          END,
-
         updated_at = NOW()
       WHERE p.marketplace = $1
-      RETURNING barcode, product_name, needs_cost_mapping
+      RETURNING
+        barcode,
+        product_name,
+        calculated_product_cost,
+        desi,
+        calculated_shipping_cost,
+        min_price,
+        commission_rate,
+        needs_cost_mapping
       `,
       [MARKETPLACE]
     );
@@ -848,7 +767,8 @@ app.get("/refresh-cost-mapping-status", async (req, res) => {
     res.json({
       status: "ok",
       updated: result.rows.length,
-      message: "Cost mapping status refreshed"
+      message: "Cost mapping status refreshed by real calculated values",
+      sample: result.rows.slice(0, 20)
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
@@ -1015,6 +935,171 @@ app.get("/calculate-costs", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+
+app.get("/debug-product-cost", async (req, res) => {
+  try {
+    const barcode = String(req.query.barcode || "").trim();
+
+    if (!barcode) {
+      return res.status(400).json({
+        status: "error",
+        message: "barcode zorunlu. Örnek: /debug-product-cost?barcode=8690609598109"
+      });
+    }
+
+    const productResult = await pool.query(
+      `
+      SELECT *
+      FROM products
+      WHERE marketplace = $1
+        AND barcode = $2
+      LIMIT 1
+      `,
+      [MARKETPLACE, barcode]
+    );
+
+    if (productResult.rows.length === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: "Ürün bulunamadı"
+      });
+    }
+
+    const product = productResult.rows[0];
+
+    const mappingResult = await pool.query(
+      `
+      SELECT
+        pcm.barcode,
+        pcm.cost_item_code,
+        pcm.quantity,
+        ci.item_name,
+        ci.unit_cost,
+        ci.unit_desi,
+        ci.unit,
+        pcm.quantity * ci.unit_cost AS line_cost,
+        pcm.quantity * COALESCE(ci.unit_desi, 0) AS line_desi
+      FROM product_cost_mappings pcm
+      LEFT JOIN cost_items ci
+        ON ci.item_code = pcm.cost_item_code
+      WHERE pcm.marketplace = $1
+        AND pcm.barcode = $2
+      ORDER BY pcm.cost_item_code ASC
+      `,
+      [MARKETPLACE, barcode]
+    );
+
+    const productCost = mappingResult.rows.reduce(
+      (sum, r) => sum + parseNumber(r.line_cost),
+      0
+    );
+
+    const totalDesi = mappingResult.rows.reduce(
+      (sum, r) => sum + parseNumber(r.line_desi),
+      0
+    );
+
+    const shippingBaremResult = await pool.query(
+      `
+      SELECT *
+      FROM shipping_barems
+      WHERE carrier = $1
+        AND $2 >= min_basket
+        AND $2 <= max_basket
+      ORDER BY min_basket ASC
+      LIMIT 1
+      `,
+      [DEFAULT_CARRIER, parseNumber(product.my_price)]
+    );
+
+    const shippingDesiResult = await pool.query(
+      `
+      SELECT *
+      FROM shipping_costs
+      WHERE carrier = $1
+        AND desi_kg = CEIL($2::numeric)
+      LIMIT 1
+      `,
+      [DEFAULT_CARRIER, totalDesi]
+    );
+
+    const shippingCost =
+      parseNumber(product.my_price) <= 349.99
+        ? parseNumber(shippingBaremResult.rows[0]?.cost_inc_vat)
+        : parseNumber(shippingDesiResult.rows[0]?.cost_inc_vat);
+
+    const packagingResult = await pool.query(
+      `
+      SELECT *
+      FROM packaging_rules
+      WHERE CEIL($1::numeric) >= min_desi
+        AND CEIL($1::numeric) <= max_desi
+      ORDER BY min_desi ASC
+      LIMIT 1
+      `,
+      [totalDesi]
+    );
+
+    const packagingCost = parseNumber(packagingResult.rows[0]?.packaging_cost);
+    const serviceFee = parseNumber(product.service_fee, DEFAULT_SERVICE_FEE);
+    const targetProfit = parseNumber(product.target_profit, 40);
+    const commissionRate = parseNumber(product.commission_rate);
+
+    const totalCost =
+      productCost + shippingCost + packagingCost + serviceFee + targetProfit;
+
+    const minPrice =
+      commissionRate > 0
+        ? totalCost / (1 - commissionRate / 100)
+        : 0;
+
+    res.json({
+      status: "ok",
+      barcode,
+      product: {
+        product_name: product.product_name,
+        my_price: product.my_price,
+        category_name: product.category_name,
+        category_id: product.category_id,
+        commission_rate: product.commission_rate,
+        current_sheet_values: {
+          desi: product.desi,
+          calculated_product_cost: product.calculated_product_cost,
+          calculated_shipping_cost: product.calculated_shipping_cost,
+          packaging_cost: product.packaging_cost,
+          service_fee: product.service_fee,
+          target_profit: product.target_profit,
+          calculated_total_cost: product.calculated_total_cost,
+          min_price: product.min_price,
+          calculated_net_profit: product.calculated_net_profit,
+          calculated_net_margin: product.calculated_net_margin
+        }
+      },
+      mapping: mappingResult.rows,
+      recalculated: {
+        product_cost: Number(productCost.toFixed(2)),
+        total_desi: Number(totalDesi.toFixed(2)),
+        shipping_cost: Number(shippingCost.toFixed(2)),
+        shipping_source:
+          parseNumber(product.my_price) <= 349.99
+            ? "shipping_barems"
+            : "shipping_costs",
+        packaging_cost: Number(packagingCost.toFixed(2)),
+        service_fee: Number(serviceFee.toFixed(2)),
+        target_profit: Number(targetProfit.toFixed(2)),
+        commission_rate: Number(commissionRate.toFixed(2)),
+        total_cost_with_profit: Number(totalCost.toFixed(2)),
+        expected_min_price: Number(minPrice.toFixed(2))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
 app.get("/products-summary", async (req, res) => {
   try {
     const result = await pool.query(
