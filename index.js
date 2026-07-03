@@ -2581,22 +2581,22 @@ app.get("/run-full-refresh", async (req, res) => {
     const baseUrl = `https://${req.get("host")}`;
 
     const steps = [
-      "/sync-products",
-      "/import-cost-index",
-      "/import-product-mappings",
-      "/import-commissions",
-      "/import-product-settings",
-      "/import-packaging-rules",
-      "/refresh-cost-mapping-status",
-      "/calculate-costs",
-      "/sync-buybox",
-      "/export-products-to-sheet",
-      "/export-new-products-to-sheet",
-      "/export-buybox-to-sheet",
-      "/export-buybox-suggestions-to-sheet",
-      "/export-price-actions-to-sheet",
-      "/export-dashboard-to-sheet"
-    ];
+  "/sync-products",
+  "/import-cost-index",
+  "/import-product-mappings",
+  "/import-commissions",
+  "/import-product-settings",
+  "/import-packaging-rules",
+  "/calculate-costs",
+  "/refresh-cost-mapping-status",
+  "/sync-buybox",
+  "/export-products-to-sheet",
+  "/export-new-products-to-sheet",
+  "/export-buybox-to-sheet",
+  "/export-buybox-suggestions-to-sheet",
+  "/export-price-actions-to-sheet",
+  "/export-dashboard-to-sheet"
+];
 
     const results = [];
 
