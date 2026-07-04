@@ -54,8 +54,25 @@ function getGoogleAuth() {
 }
 
 async function getSheetsClient() {
-  const auth = getGoogleAuth();
-  return google.sheets({ version: "v4", auth });
+  let lastError;
+
+  for (let i = 1; i <= 3; i++) {
+    try {
+      const auth = getGoogleAuth();
+      const client = google.sheets({ version: "v4", auth });
+
+      await client.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEET_ID
+      });
+
+      return client;
+    } catch (error) {
+      lastError = error;
+      await new Promise(resolve => setTimeout(resolve, i * 1000));
+    }
+  }
+
+  throw lastError;
 }
 
 app.get("/", (req, res) => {
