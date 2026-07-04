@@ -48,15 +48,34 @@ function trendyolHeaders() {
   };
 }
 
-function getGoogleAuth() {
-  if (googleAuthClient) return googleAuthClient;
-
+function getGoogleCredentials() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
-  googleAuthClient = new google.auth.GoogleAuth({
-    credentials,
+  if (credentials.private_key) {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
+  }
+
+  return credentials;
+}
+
+function createGoogleAuthClient() {
+  const credentials = getGoogleCredentials();
+
+  return new google.auth.JWT({
+    email: credentials.client_email,
+    key: credentials.private_key,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   });
+}
+
+async function getGoogleAuth() {
+  if (googleAuthClient) return googleAuthClient;
+
+  googleAuthClient = await withRetry(async () => {
+    const client = createGoogleAuthClient();
+    await client.authorize();
+    return client;
+  }, "Google auth token", 8);
 
   return googleAuthClient;
 }
@@ -95,7 +114,7 @@ async function withRetry(fn, label, maxAttempts = 5) {
         break;
       }
 
-      await sleep(attempt * 1000);
+      await sleep(Math.min(15000, attempt * attempt * 1000));
     }
   }
 
@@ -127,7 +146,7 @@ function wrapSheetsClientWithRetry(client) {
 async function getSheetsClient() {
   if (sheetsClient) return sheetsClient;
 
-  const auth = getGoogleAuth();
+  const auth = await getGoogleAuth();
   const client = wrapSheetsClientWithRetry(
     google.sheets({ version: "v4", auth })
   );
