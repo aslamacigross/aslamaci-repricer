@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const { Pool } = require("pg");
 const { google } = require("googleapis");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
@@ -16,6 +17,7 @@ const SHIPPING_VAT_RATE = 0.20;
 
 let googleAuthClient = null;
 let sheetsClient = null;
+let googleTokenExpiresAt = 0;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -58,24 +60,86 @@ function getGoogleCredentials() {
   return credentials;
 }
 
-function createGoogleAuthClient() {
-  const credentials = getGoogleCredentials();
+function base64Url(input) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
 
-  return new google.auth.JWT({
-    email: credentials.client_email,
-    key: credentials.private_key,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+function signServiceAccountJwt(credentials) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = {
+    alg: "RS256",
+    typ: "JWT"
+  };
+  const payload = {
+    iss: credentials.client_email,
+    scope: "https://www.googleapis.com/auth/spreadsheets",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600
+  };
+
+  const unsignedToken = `${base64Url(JSON.stringify(header))}.${base64Url(JSON.stringify(payload))}`;
+  const signature = crypto
+    .createSign("RSA-SHA256")
+    .update(unsignedToken)
+    .sign(credentials.private_key);
+
+  return `${unsignedToken}.${base64Url(signature)}`;
+}
+
+async function fetchGoogleAccessToken() {
+  const credentials = getGoogleCredentials();
+  const assertion = signServiceAccountJwt(credentials);
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion
   });
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Google token HTTP ${response.status}: ${text}`);
+  }
+
+  const data = JSON.parse(text);
+
+  if (!data.access_token) {
+    throw new Error(`Google token response missing access_token: ${text}`);
+  }
+
+  return {
+    accessToken: data.access_token,
+    expiresIn: Number(data.expires_in || 3600)
+  };
 }
 
 async function getGoogleAuth() {
-  if (googleAuthClient) return googleAuthClient;
+  if (googleAuthClient && Date.now() < googleTokenExpiresAt - 300000) {
+    return googleAuthClient;
+  }
 
-  googleAuthClient = await withRetry(async () => {
-    const client = createGoogleAuthClient();
-    await client.authorize();
-    return client;
-  }, "Google auth token", 8);
+  const token = await withRetry(fetchGoogleAccessToken, "Google auth token", 8);
+  const authClient = new google.auth.OAuth2();
+  authClient.setCredentials({
+    access_token: token.accessToken,
+    expiry_date: Date.now() + token.expiresIn * 1000
+  });
+
+  googleAuthClient = authClient;
+  googleTokenExpiresAt = Date.now() + token.expiresIn * 1000;
+  sheetsClient = null;
 
   return googleAuthClient;
 }
@@ -144,7 +208,9 @@ function wrapSheetsClientWithRetry(client) {
 }
 
 async function getSheetsClient() {
-  if (sheetsClient) return sheetsClient;
+  if (sheetsClient && Date.now() < googleTokenExpiresAt - 300000) {
+    return sheetsClient;
+  }
 
   const auth = await getGoogleAuth();
   const client = wrapSheetsClientWithRetry(
