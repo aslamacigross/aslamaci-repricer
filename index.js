@@ -12,6 +12,10 @@ const PORT = process.env.PORT || 3000;
 const MARKETPLACE = "TRENDYOL";
 const DEFAULT_CARRIER = "TEX";
 const DEFAULT_SERVICE_FEE = 13.19;
+const SHIPPING_VAT_RATE = 0.20;
+
+let googleAuthClient = null;
+let sheetsClient = null;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -45,34 +49,106 @@ function trendyolHeaders() {
 }
 
 function getGoogleAuth() {
+  if (googleAuthClient) return googleAuthClient;
+
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
-  return new google.auth.GoogleAuth({
+  googleAuthClient = new google.auth.GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   });
+
+  return googleAuthClient;
 }
 
-async function getSheetsClient() {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRetryableGoogleError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const code = Number(error?.code || error?.response?.status || 0);
+
+  return (
+    code === 429 ||
+    code === 500 ||
+    code === 502 ||
+    code === 503 ||
+    code === 504 ||
+    message.includes("premature close") ||
+    message.includes("socket hang up") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout")
+  );
+}
+
+async function withRetry(fn, label, maxAttempts = 5) {
   let lastError;
 
-  for (let i = 1; i <= 3; i++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const auth = getGoogleAuth();
-      const client = google.sheets({ version: "v4", auth });
-
-      await client.spreadsheets.get({
-        spreadsheetId: process.env.GOOGLE_SHEET_ID
-      });
-
-      return client;
+      return await fn();
     } catch (error) {
       lastError = error;
-      await new Promise(resolve => setTimeout(resolve, i * 1000));
+
+      if (!isRetryableGoogleError(error) || attempt === maxAttempts) {
+        break;
+      }
+
+      await sleep(attempt * 1000);
     }
   }
 
-  throw lastError;
+  const message = lastError?.message || String(lastError);
+  throw new Error(`${label} failed after retry: ${message}`);
+}
+
+function wrapSheetsClientWithRetry(client) {
+  const originalSpreadsheetGet = client.spreadsheets.get.bind(client.spreadsheets);
+  const originalValuesGet = client.spreadsheets.values.get.bind(client.spreadsheets.values);
+  const originalValuesUpdate = client.spreadsheets.values.update.bind(client.spreadsheets.values);
+  const originalValuesClear = client.spreadsheets.values.clear.bind(client.spreadsheets.values);
+
+  client.spreadsheets.get = params =>
+    withRetry(() => originalSpreadsheetGet(params), "Google Sheets metadata get");
+
+  client.spreadsheets.values.get = params =>
+    withRetry(() => originalValuesGet(params), "Google Sheets values get");
+
+  client.spreadsheets.values.update = params =>
+    withRetry(() => originalValuesUpdate(params), "Google Sheets values update");
+
+  client.spreadsheets.values.clear = params =>
+    withRetry(() => originalValuesClear(params), "Google Sheets values clear");
+
+  return client;
+}
+
+async function getSheetsClient() {
+  if (sheetsClient) return sheetsClient;
+
+  const auth = getGoogleAuth();
+  const client = wrapSheetsClientWithRetry(
+    google.sheets({ version: "v4", auth })
+  );
+
+  await withRetry(
+    () =>
+      client.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEET_ID
+      }),
+    "Google Sheets initial connection"
+  );
+
+  sheetsClient = client;
+  return sheetsClient;
+}
+
+function getRequestBaseUrl(req) {
+  const forwardedProto = String(req.get("x-forwarded-proto") || "").split(",")[0];
+  const protocol = forwardedProto || req.protocol || "http";
+
+  return `${protocol}://${req.get("host")}`;
 }
 
 app.get("/", (req, res) => {
@@ -640,7 +716,8 @@ app.get("/import-shipping-costs", async (req, res) => {
 
         if (!carrier || !Number.isFinite(costExVat) || costExVat <= 0) continue;
 
-        const costIncVat = Number((costExVat * 1.2).toFixed(2));
+        // KargoMaliyetleri sheetindeki tutarlar KDV haricidir; minimum fiyat hesabı gerçek ödenen kargo maliyetini kullanır.
+        const costIncVat = Number((costExVat * (1 + SHIPPING_VAT_RATE)).toFixed(2));
 
         await pool.query(
           `
@@ -712,7 +789,8 @@ app.get("/import-shipping-barems", async (req, res) => {
 
         if (!carrier || !Number.isFinite(costExVat) || costExVat <= 0) continue;
 
-        const costIncVat = Number((costExVat * 1.2).toFixed(2));
+        // KargoBarem sheetindeki tutarlar KDV haricidir; minimum fiyat hesabı gerçek ödenen barem maliyetini kullanır.
+        const costIncVat = Number((costExVat * (1 + SHIPPING_VAT_RATE)).toFixed(2));
 
         await pool.query(
           `
@@ -2382,7 +2460,7 @@ app.get("/apply-approved-prices", async (req, res) => {
 
 app.get("/refresh-after-price-update", async (req, res) => {
   try {
-    const baseUrl = `https://${req.get("host")}`;
+    const baseUrl = getRequestBaseUrl(req);
 
     const steps = [
       "/sync-products",
@@ -2595,25 +2673,27 @@ app.get("/import-packaging-rules", async (req, res) => {
 
 app.get("/run-full-refresh", async (req, res) => {
   try {
-    const baseUrl = `https://${req.get("host")}`;
+    const baseUrl = getRequestBaseUrl(req);
 
     const steps = [
-  "/sync-products",
-  "/import-cost-index",
-  "/import-product-mappings",
-  "/import-commissions",
-  "/import-product-settings",
-  "/import-packaging-rules",
-  "/calculate-costs",
-  "/refresh-cost-mapping-status",
-  "/sync-buybox",
-  "/export-products-to-sheet",
-  "/export-new-products-to-sheet",
-  "/export-buybox-to-sheet",
-  "/export-buybox-suggestions-to-sheet",
-  "/export-price-actions-to-sheet",
-  "/export-dashboard-to-sheet"
-];
+      "/sync-products",
+      "/import-cost-index",
+      "/import-product-mappings",
+      "/import-commissions",
+      "/import-shipping-costs",
+      "/import-shipping-barems",
+      "/import-product-settings",
+      "/import-packaging-rules",
+      "/calculate-costs",
+      "/refresh-cost-mapping-status",
+      "/sync-buybox",
+      "/export-products-to-sheet",
+      "/export-new-products-to-sheet",
+      "/export-buybox-to-sheet",
+      "/export-buybox-suggestions-to-sheet",
+      "/export-price-actions-to-sheet",
+      "/export-dashboard-to-sheet"
+    ];
 
     const results = [];
 
