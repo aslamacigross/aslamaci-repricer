@@ -14,6 +14,11 @@ const MARKETPLACE = "TRENDYOL";
 const DEFAULT_CARRIER = "TEX";
 const DEFAULT_SERVICE_FEE = 13.19;
 const SHIPPING_VAT_RATE = 0.20;
+const GOOGLE_TOKEN_URLS = [
+  "https://oauth2.googleapis.com/token",
+  "https://www.googleapis.com/oauth2/v4/token"
+];
+const GOOGLE_TOKEN_TIMEOUT_MS = 10000;
 
 let googleAuthClient = null;
 let sheetsClient = null;
@@ -98,31 +103,46 @@ async function fetchGoogleAccessToken() {
     grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
     assertion
   });
+  let lastError;
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body
-  });
+  for (const tokenUrl of GOOGLE_TOKEN_URLS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GOOGLE_TOKEN_TIMEOUT_MS);
 
-  const text = await response.text();
+    try {
+      const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body,
+        signal: controller.signal
+      });
 
-  if (!response.ok) {
-    throw new Error(`Google token HTTP ${response.status}: ${text}`);
+      const text = await response.text();
+
+      if (!response.ok) {
+        throw new Error(`Google token HTTP ${response.status}: ${text}`);
+      }
+
+      const data = JSON.parse(text);
+
+      if (!data.access_token) {
+        throw new Error(`Google token response missing access_token: ${text}`);
+      }
+
+      return {
+        accessToken: data.access_token,
+        expiresIn: Number(data.expires_in || 3600)
+      };
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
-  const data = JSON.parse(text);
-
-  if (!data.access_token) {
-    throw new Error(`Google token response missing access_token: ${text}`);
-  }
-
-  return {
-    accessToken: data.access_token,
-    expiresIn: Number(data.expires_in || 3600)
-  };
+  throw lastError;
 }
 
 async function getGoogleAuth() {
@@ -130,7 +150,7 @@ async function getGoogleAuth() {
     return googleAuthClient;
   }
 
-  const token = await withRetry(fetchGoogleAccessToken, "Google auth token", 8);
+  const token = await withRetry(fetchGoogleAccessToken, "Google auth token", 4);
   const authClient = new google.auth.OAuth2();
   authClient.setCredentials({
     access_token: token.accessToken,
