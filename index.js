@@ -24,6 +24,7 @@ const GOOGLE_API_TIMEOUT_MS = 15000;
 
 let googleAuthClient = null;
 let sheetsClient = null;
+let googleAccessToken = null;
 let googleTokenExpiresAt = 0;
 
 const pool = new Pool({
@@ -169,6 +170,7 @@ async function getGoogleAuth() {
   });
 
   googleAuthClient = authClient;
+  googleAccessToken = token.accessToken;
   googleTokenExpiresAt = Date.now() + token.expiresIn * 1000;
   sheetsClient = null;
 
@@ -225,25 +227,85 @@ async function withRetry(fn, label, maxAttempts = 5) {
   throw new Error(`${label} failed after retry: ${message}`);
 }
 
-function wrapSheetsClientWithRetry(client) {
-  const originalSpreadsheetGet = client.spreadsheets.get.bind(client.spreadsheets);
-  const originalValuesGet = client.spreadsheets.values.get.bind(client.spreadsheets.values);
-  const originalValuesUpdate = client.spreadsheets.values.update.bind(client.spreadsheets.values);
-  const originalValuesClear = client.spreadsheets.values.clear.bind(client.spreadsheets.values);
+async function googleSheetsRestRequest(spreadsheetId, path, options = {}) {
+  await getGoogleAuth();
 
-  client.spreadsheets.get = params =>
-    withRetry(() => originalSpreadsheetGet(params), "Google Sheets metadata get");
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}${path}`;
+  const response = await fetch(url, {
+    method: options.method || "GET",
+    headers: {
+      Authorization: `Bearer ${googleAccessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
 
-  client.spreadsheets.values.get = params =>
-    withRetry(() => originalValuesGet(params), "Google Sheets values get");
+  const text = await response.text();
 
-  client.spreadsheets.values.update = params =>
-    withRetry(() => originalValuesUpdate(params), "Google Sheets values update");
+  if (!response.ok) {
+    throw new Error(`Google Sheets HTTP ${response.status}: ${text}`);
+  }
 
-  client.spreadsheets.values.clear = params =>
-    withRetry(() => originalValuesClear(params), "Google Sheets values clear");
+  return text ? JSON.parse(text) : {};
+}
 
-  return client;
+function createSheetsRestClient() {
+  return {
+    spreadsheets: {
+      get: params =>
+        withRetry(async () => {
+          const query = params.fields
+            ? `?fields=${encodeURIComponent(params.fields)}`
+            : "";
+          const data = await googleSheetsRestRequest(
+            params.spreadsheetId,
+            query
+          );
+          return { data };
+        }, "Google Sheets metadata get"),
+
+      values: {
+        get: params =>
+          withRetry(async () => {
+            const query = params.valueRenderOption
+              ? `?valueRenderOption=${encodeURIComponent(params.valueRenderOption)}`
+              : "";
+            const data = await googleSheetsRestRequest(
+              params.spreadsheetId,
+              `/values/${encodeURIComponent(params.range)}${query}`
+            );
+            return { data };
+          }, "Google Sheets values get"),
+
+        update: params =>
+          withRetry(async () => {
+            const valueInputOption = params.valueInputOption || "USER_ENTERED";
+            const data = await googleSheetsRestRequest(
+              params.spreadsheetId,
+              `/values/${encodeURIComponent(params.range)}?valueInputOption=${encodeURIComponent(valueInputOption)}`,
+              {
+                method: "PUT",
+                body: params.requestBody
+              }
+            );
+            return { data };
+          }, "Google Sheets values update"),
+
+        clear: params =>
+          withRetry(async () => {
+            const data = await googleSheetsRestRequest(
+              params.spreadsheetId,
+              `/values/${encodeURIComponent(params.range)}:clear`,
+              {
+                method: "POST",
+                body: {}
+              }
+            );
+            return { data };
+          }, "Google Sheets values clear")
+      }
+    }
+  };
 }
 
 async function getSheetsClient() {
@@ -251,10 +313,8 @@ async function getSheetsClient() {
     return sheetsClient;
   }
 
-  const auth = await getGoogleAuth();
-  const client = wrapSheetsClientWithRetry(
-    google.sheets({ version: "v4", auth })
-  );
+  await getGoogleAuth();
+  const client = createSheetsRestClient();
 
   await withRetry(
     () =>
@@ -573,18 +633,12 @@ app.get("/debug-google-auth", async (req, res) => {
 app.get("/debug-sheet-metadata", async (req, res) => {
   try {
     const startedAt = Date.now();
-    const auth = await getGoogleAuth();
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = await getSheetsClient();
 
-    const result = await withRetry(
-      () =>
-        sheets.spreadsheets.get({
-          spreadsheetId: process.env.GOOGLE_SHEET_ID,
-          fields: "properties(title),sheets(properties(title))"
-        }),
-      "Google Sheets debug metadata",
-      2
-    );
+    const result = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      fields: "properties(title),sheets(properties(title))"
+    });
 
     res.json({
       status: "ok",
