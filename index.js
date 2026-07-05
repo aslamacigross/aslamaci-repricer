@@ -13,8 +13,17 @@ const PORT = process.env.PORT || 3000;
 const MARKETPLACE = "TRENDYOL";
 const DEFAULT_CARRIER = "TEX";
 const DEFAULT_SERVICE_FEE = 13.19;
-const APP_VERSION = "2026-07-05-google-token-timeout";
+const APP_VERSION = "2026-07-05-urunler-repricer-settings";
 const SHIPPING_VAT_RATE = 0.20;
+const PRODUCT_SETTING_HEADERS = [
+  "Repricer Aktif mi",
+  "Strateji",
+  "Fiyat Kırma TL",
+  "Maks Artış TL",
+  "Maks Günlük Değişim %",
+  "Minimum Kâr TL",
+  "Not"
+];
 const GOOGLE_TOKEN_URLS = [
   "https://oauth2.googleapis.com/token",
   "https://www.googleapis.com/oauth2/v4/token"
@@ -328,11 +337,165 @@ async function getSheetsClient() {
   return sheetsClient;
 }
 
+async function ensureProductSettingsHeaders(sheets) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: "Urunler!U1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [PRODUCT_SETTING_HEADERS]
+    }
+  });
+}
+
 function getRequestBaseUrl(req) {
   const forwardedProto = String(req.get("x-forwarded-proto") || "").split(",")[0];
   const protocol = forwardedProto || req.protocol || "http";
 
   return `${protocol}://${req.get("host")}`;
+}
+
+function roundPrice(value) {
+  return Number(parseNumber(value).toFixed(2));
+}
+
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const text = String(value || "").trim().toUpperCase();
+  return text === "EVET" || text === "TRUE" || text === "1";
+}
+
+function getRepricerSettings(row) {
+  return {
+    autoUpdate: parseBoolean(row.auto_update),
+    priceCutTl: parseNumber(row.price_cut_tl, 0.10),
+    maxIncreaseTl: parseNumber(row.max_increase_tl, 10),
+    maxDailyChangePct: parseNumber(row.max_daily_change_pct, 15)
+  };
+}
+
+function calculateIncreasePrice(row, settings) {
+  const myPrice = parseNumber(row.my_price);
+  const secondPrice = parseNumber(row.second_price);
+  const upperDailyLimit = myPrice * (1 + settings.maxDailyChangePct / 100);
+
+  return roundPrice(
+    Math.max(
+      myPrice,
+      Math.min(
+        secondPrice - settings.priceCutTl,
+        myPrice + settings.maxIncreaseTl,
+        upperDailyLimit
+      )
+    )
+  );
+}
+
+function calculateDecreasePrice(row, settings) {
+  const myPrice = parseNumber(row.my_price);
+  const buyboxPrice = parseNumber(row.buybox_price);
+  const minPrice = parseNumber(row.min_price);
+  const lowerDailyLimit = myPrice * (1 - settings.maxDailyChangePct / 100);
+
+  return roundPrice(
+    Math.min(
+      myPrice,
+      Math.max(
+        buyboxPrice - settings.priceCutTl,
+        minPrice,
+        lowerDailyLimit
+      )
+    )
+  );
+}
+
+function getBuyboxSuggestion(row) {
+  const settings = getRepricerSettings(row);
+  const myPrice = parseNumber(row.my_price);
+  const buyboxPrice = parseNumber(row.buybox_price);
+  const secondPrice = parseNumber(row.second_price);
+  const minPrice = parseNumber(row.min_price);
+  const rank = row.rank === null || row.rank === undefined ? null : parseNumber(row.rank, null);
+
+  if (parseBoolean(row.needs_cost_mapping)) {
+    return { text: "İşlem Yok - Maliyet Eksik", suggestedPrice: myPrice };
+  }
+
+  if (row.commission_rate === null || row.commission_rate === undefined) {
+    return { text: "İşlem Yok - Komisyon Eksik", suggestedPrice: myPrice };
+  }
+
+  if (minPrice <= 0) {
+    return { text: "İşlem Yok - Min Fiyat Yok", suggestedPrice: myPrice };
+  }
+
+  if (rank === 1 && secondPrice > myPrice) {
+    return {
+      text: "Fiyat Artırılabilir",
+      suggestedPrice: calculateIncreasePrice(row, settings)
+    };
+  }
+
+  if (rank === 1) {
+    return { text: "Buybox Bizde - Koru", suggestedPrice: myPrice };
+  }
+
+  if (rank !== null && buyboxPrice > minPrice) {
+    return {
+      text: "Buybox İçin Fiyat Düşürülebilir",
+      suggestedPrice: calculateDecreasePrice(row, settings)
+    };
+  }
+
+  if (rank !== null && buyboxPrice > 0 && buyboxPrice <= minPrice) {
+    return { text: "Min Fiyat Altı - Girme", suggestedPrice: myPrice };
+  }
+
+  return { text: "Kontrol Et", suggestedPrice: myPrice };
+}
+
+function getPriceAction(row) {
+  const settings = getRepricerSettings(row);
+  const suggestion = getBuyboxSuggestion(row);
+  const myPrice = parseNumber(row.my_price);
+  const buyboxPrice = parseNumber(row.buybox_price);
+  const secondPrice = parseNumber(row.second_price);
+  const minPrice = parseNumber(row.min_price);
+  const rank = row.rank === null || row.rank === undefined ? null : parseNumber(row.rank, null);
+
+  if (!settings.autoUpdate) {
+    return { action: "PAS - Repricer Kapalı", suggestedPrice: myPrice };
+  }
+
+  if (parseBoolean(row.needs_cost_mapping)) {
+    return { action: "PAS - Maliyet Eksik", suggestedPrice: myPrice };
+  }
+
+  if (row.commission_rate === null || row.commission_rate === undefined) {
+    return { action: "PAS - Komisyon Eksik", suggestedPrice: myPrice };
+  }
+
+  if (minPrice <= 0) {
+    return { action: "PAS - Min Fiyat Yok", suggestedPrice: myPrice };
+  }
+
+  if (rank === 1 && secondPrice > myPrice) {
+    return { action: "FIYAT ARTIR", suggestedPrice: suggestion.suggestedPrice };
+  }
+
+  if (rank !== null && rank !== 1 && buyboxPrice > minPrice) {
+    return { action: "FIYAT DUSUR", suggestedPrice: suggestion.suggestedPrice };
+  }
+
+  if (rank !== null && rank !== 1 && buyboxPrice > 0 && buyboxPrice <= minPrice) {
+    return { action: "PAS - Min Altı", suggestedPrice: myPrice };
+  }
+
+  if (rank === 1) {
+    return { action: "KORU", suggestedPrice: myPrice };
+  }
+
+  return { action: "KONTROL", suggestedPrice: myPrice };
 }
 
 app.get("/", (req, res) => {
@@ -1764,10 +1927,12 @@ app.get("/export-products-to-sheet", async (req, res) => {
       }
     });
 
+    await ensureProductSettingsHeaders(sheets);
+
     res.json({
       status: "ok",
       exported: rows.length,
-      message: "Urunler sheet updated with packaging and service fee"
+      message: "Urunler sheet updated with repricer control headers"
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
@@ -2282,75 +2447,39 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
     const result = await pool.query(
       `
       SELECT
-        barcode,
-        product_name,
-        my_price,
-        buybox_price,
-        second_price,
-        third_price,
-        rank,
-        min_price,
-        calculated_net_profit,
-        calculated_net_margin,
-        needs_cost_mapping,
-        commission_rate,
+        p.barcode,
+        p.product_name,
+        p.my_price,
+        p.buybox_price,
+        p.second_price,
+        p.third_price,
+        p.rank,
+        p.min_price,
+        p.calculated_net_profit,
+        p.calculated_net_margin,
+        p.needs_cost_mapping,
+        p.commission_rate,
+        p.auto_update,
+        COALESCE(ps.price_cut_tl, 0.10) AS price_cut_tl,
+        COALESCE(ps.max_increase_tl, 10) AS max_increase_tl,
+        COALESCE(ps.max_daily_change_pct, 15) AS max_daily_change_pct
 
-        CASE
-          WHEN needs_cost_mapping = true THEN 'İşlem Yok - Maliyet Eksik'
-          WHEN commission_rate IS NULL THEN 'İşlem Yok - Komisyon Eksik'
-          WHEN COALESCE(min_price,0) <= 0 THEN 'İşlem Yok - Min Fiyat Yok'
-
-          WHEN rank = 1
-            AND second_price IS NOT NULL
-            AND second_price > my_price
-          THEN 'Fiyat Artırılabilir'
-
-          WHEN rank = 1
-          THEN 'Buybox Bizde - Koru'
-
-          WHEN rank <> 1
-            AND buybox_price IS NOT NULL
-            AND buybox_price > min_price
-          THEN 'Buybox İçin Fiyat Düşürülebilir'
-
-          WHEN rank <> 1
-            AND buybox_price IS NOT NULL
-            AND buybox_price <= min_price
-          THEN 'Min Fiyat Altı - Girme'
-
-          ELSE 'Kontrol Et'
-        END AS suggestion,
-
-        CASE
-          WHEN needs_cost_mapping = true OR commission_rate IS NULL OR COALESCE(min_price,0) <= 0
-          THEN my_price
-
-          WHEN rank = 1
-            AND second_price IS NOT NULL
-            AND second_price > my_price
-          THEN LEAST(second_price - 0.10, my_price + 10)
-
-          WHEN rank <> 1
-            AND buybox_price IS NOT NULL
-            AND buybox_price > min_price
-          THEN GREATEST(buybox_price - 0.10, min_price)
-
-          ELSE my_price
-        END AS suggested_price
-
-      FROM products
-      WHERE marketplace = $1
-        AND on_sale = true
+      FROM products p
+      LEFT JOIN product_settings ps
+        ON ps.marketplace = p.marketplace
+       AND ps.barcode = p.barcode
+      WHERE p.marketplace = $1
+        AND p.on_sale = true
       ORDER BY
         CASE
-          WHEN needs_cost_mapping = true OR commission_rate IS NULL THEN 5
-          WHEN rank <> 1 AND buybox_price <= min_price THEN 4
-          WHEN rank <> 1 THEN 1
-          WHEN rank = 1 THEN 2
+          WHEN p.needs_cost_mapping = true OR p.commission_rate IS NULL THEN 5
+          WHEN p.rank <> 1 AND p.buybox_price <= p.min_price THEN 4
+          WHEN p.rank <> 1 THEN 1
+          WHEN p.rank = 1 THEN 2
           ELSE 3
         END,
-        calculated_net_margin ASC,
-        product_name ASC
+        p.calculated_net_margin ASC,
+        p.product_name ASC
       `,
       [MARKETPLACE]
     );
@@ -2373,7 +2502,8 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
 
     const values = result.rows.map(r => {
       const myPrice = parseNumber(r.my_price);
-      const suggestedPrice = parseNumber(r.suggested_price);
+      const suggestion = getBuyboxSuggestion(r);
+      const suggestedPrice = parseNumber(suggestion.suggestedPrice);
 
       return [
         r.barcode,
@@ -2386,7 +2516,7 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
         parseNumber(r.min_price),
         parseNumber(r.calculated_net_profit),
         parseNumber(r.calculated_net_margin),
-        r.suggestion,
+        suggestion.text,
         suggestedPrice,
         Number((suggestedPrice - myPrice).toFixed(2))
       ];
@@ -2427,72 +2557,39 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
     const result = await pool.query(
       `
       SELECT
-        barcode,
-        product_name,
-        my_price,
-        buybox_price,
-        second_price,
-        rank,
-        min_price,
-        calculated_net_profit,
-        calculated_net_margin,
-        needs_cost_mapping,
-        commission_rate,
+        p.barcode,
+        p.product_name,
+        p.my_price,
+        p.buybox_price,
+        p.second_price,
+        p.rank,
+        p.min_price,
+        p.calculated_net_profit,
+        p.calculated_net_margin,
+        p.needs_cost_mapping,
+        p.commission_rate,
+        p.auto_update,
+        COALESCE(ps.price_cut_tl, 0.10) AS price_cut_tl,
+        COALESCE(ps.max_increase_tl, 10) AS max_increase_tl,
+        COALESCE(ps.max_daily_change_pct, 15) AS max_daily_change_pct
 
-        CASE
-          WHEN needs_cost_mapping = true THEN 'PAS - Maliyet Eksik'
-          WHEN commission_rate IS NULL THEN 'PAS - Komisyon Eksik'
-          WHEN COALESCE(min_price,0) <= 0 THEN 'PAS - Min Fiyat Yok'
-
-          WHEN rank = 1
-            AND second_price IS NOT NULL
-            AND second_price > my_price
-          THEN 'FIYAT ARTIR'
-
-          WHEN rank <> 1
-            AND buybox_price IS NOT NULL
-            AND buybox_price > min_price
-          THEN 'FIYAT DUSUR'
-
-          WHEN rank <> 1
-            AND buybox_price IS NOT NULL
-            AND buybox_price <= min_price
-          THEN 'PAS - Min Altı'
-
-          WHEN rank = 1 THEN 'KORU'
-          ELSE 'KONTROL'
-        END AS action,
-
-        CASE
-          WHEN needs_cost_mapping = true OR commission_rate IS NULL OR COALESCE(min_price,0) <= 0
-          THEN my_price
-
-          WHEN rank = 1
-            AND second_price IS NOT NULL
-            AND second_price > my_price
-          THEN LEAST(second_price - 0.10, my_price + 10)
-
-          WHEN rank <> 1
-            AND buybox_price IS NOT NULL
-            AND buybox_price > min_price
-          THEN GREATEST(buybox_price - 0.10, min_price)
-
-          ELSE my_price
-        END AS suggested_price
-
-      FROM products
-      WHERE marketplace = $1
-        AND on_sale = true
+      FROM products p
+      LEFT JOIN product_settings ps
+        ON ps.marketplace = p.marketplace
+       AND ps.barcode = p.barcode
+      WHERE p.marketplace = $1
+        AND p.on_sale = true
       ORDER BY
         CASE
-          WHEN needs_cost_mapping = true OR commission_rate IS NULL THEN 5
-          WHEN rank <> 1 AND buybox_price <= min_price THEN 4
-          WHEN rank <> 1 THEN 1
-          WHEN rank = 1 THEN 2
+          WHEN p.auto_update = false THEN 6
+          WHEN p.needs_cost_mapping = true OR p.commission_rate IS NULL THEN 5
+          WHEN p.rank <> 1 AND p.buybox_price <= p.min_price THEN 4
+          WHEN p.rank <> 1 THEN 1
+          WHEN p.rank = 1 THEN 2
           ELSE 3
         END,
-        calculated_net_margin ASC,
-        product_name ASC
+        p.calculated_net_margin ASC,
+        p.product_name ASC
       `,
       [MARKETPLACE]
     );
@@ -2516,7 +2613,8 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
 
     const values = result.rows.map(r => {
       const myPrice = parseNumber(r.my_price);
-      const suggestedPrice = parseNumber(r.suggested_price);
+      const priceAction = getPriceAction(r);
+      const suggestedPrice = parseNumber(priceAction.suggestedPrice);
 
       return [
         r.barcode,
@@ -2524,7 +2622,7 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
         myPrice,
         suggestedPrice,
         Number((suggestedPrice - myPrice).toFixed(2)),
-        r.action,
+        priceAction.action,
         parseNumber(r.buybox_price),
         r.second_price === null ? "" : parseNumber(r.second_price),
         r.rank === null ? "" : parseNumber(r.rank),
@@ -2594,6 +2692,19 @@ app.get("/apply-approved-prices", async (req, res) => {
 
       const diffRate = Math.abs(suggestedPrice - currentPrice) / currentPrice;
       if (diffRate > 0.15) continue;
+
+      const safetyResult = await pool.query(
+        `
+        SELECT auto_update
+        FROM products
+        WHERE marketplace = $1
+          AND barcode = $2
+        LIMIT 1
+        `,
+        [MARKETPLACE, barcode]
+      );
+
+      if (!parseBoolean(safetyResult.rows[0]?.auto_update)) continue;
 
       approved.push({
         barcode,
@@ -2739,38 +2850,55 @@ app.get("/refresh-after-price-update", async (req, res) => {
 app.get("/import-product-settings", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
+    await ensureProductSettingsHeaders(sheets);
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "UrunAyar!A2:J"
+      range: "Urunler!A2:AA"
     });
 
     const rows = result.data.values || [];
     let importedRows = 0;
     let updatedProducts = 0;
 
+    await pool.query(
+      `
+      DELETE FROM product_settings
+      WHERE marketplace = $1
+      `,
+      [MARKETPLACE]
+    );
+
+    await pool.query(
+      `
+      UPDATE products
+      SET auto_update = false,
+          updated_at = NOW()
+      WHERE marketplace = $1
+      `,
+      [MARKETPLACE]
+    );
+
     for (const row of rows) {
       const barcode = String(row[0] || "").trim();
-      const categoryId = String(row[1] || "").trim();
-      const strategy = String(row[2] || "Normal").trim();
-      const priceCutTl = parseNumber(row[3], 1);
-      const maxIncreaseTl = parseNumber(row[4], 10);
-      const maxDailyChangePct = parseNumber(row[5], 15);
-      const autoUpdateText = String(row[6] || "HAYIR").trim().toUpperCase();
+      const categoryId = String(row[4] || "").trim();
 
-      const minProfitTlRaw = String(row[7] || "").trim();
-      const minProfitPctRaw = String(row[8] || "").trim();
-      const note = String(row[9] || "").trim();
+      const settingCells = row.slice(20, 27).map(v => String(v || "").trim());
+      const hasAnySetting = settingCells.some(Boolean);
+      if (!barcode || !hasAnySetting) continue;
+
+      const autoUpdateText = String(row[20] || "HAYIR").trim().toUpperCase();
+      const strategy = String(row[21] || "Normal").trim();
+      const priceCutTl = parseNumber(row[22], 0.10);
+      const maxIncreaseTl = parseNumber(row[23], 10);
+      const maxDailyChangePct = parseNumber(row[24], 15);
+      const minProfitTlRaw = String(row[25] || "").trim();
+      const note = String(row[26] || "").trim();
 
       const minProfitTl =
         minProfitTlRaw === "" ? 40 : parseNumber(minProfitTlRaw, 40);
 
-      const minProfitPct =
-        minProfitPctRaw === "" ? null : parseNumber(minProfitPctRaw, null);
-
       const autoUpdate = autoUpdateText === "EVET";
-
-      if (!barcode && !categoryId) continue;
 
       await pool.query(
         `
@@ -2799,7 +2927,7 @@ app.get("/import-product-settings", async (req, res) => {
         `,
         [
           MARKETPLACE,
-          barcode || null,
+          barcode,
           categoryId || null,
           strategy,
           priceCutTl,
@@ -2810,35 +2938,18 @@ app.get("/import-product-settings", async (req, res) => {
         ]
       );
 
-      let update;
-
-      if (barcode) {
-        update = await pool.query(
-          `
-          UPDATE products
-          SET
-            auto_update = $1,
-            target_profit = $2,
-            updated_at = NOW()
-          WHERE marketplace = $3
-            AND barcode = $4
-          `,
-          [autoUpdate, minProfitTl, MARKETPLACE, barcode]
-        );
-      } else {
-        update = await pool.query(
-          `
-          UPDATE products
-          SET
-            auto_update = $1,
-            target_profit = $2,
-            updated_at = NOW()
-          WHERE marketplace = $3
-            AND category_id = $4
-          `,
-          [autoUpdate, minProfitTl, MARKETPLACE, categoryId]
-        );
-      }
+      const update = await pool.query(
+        `
+        UPDATE products
+        SET
+          auto_update = $1,
+          target_profit = $2,
+          updated_at = NOW()
+        WHERE marketplace = $3
+          AND barcode = $4
+        `,
+        [autoUpdate, minProfitTl, MARKETPLACE, barcode]
+      );
 
       importedRows++;
       updatedProducts += update.rowCount;
@@ -2848,7 +2959,7 @@ app.get("/import-product-settings", async (req, res) => {
       status: "ok",
       imported_rows: importedRows,
       updated_products: updatedProducts,
-      message: "UrunAyar imported with minimum profit rules"
+      message: "Urunler repricer controls imported"
     });
 
   } catch (error) {
