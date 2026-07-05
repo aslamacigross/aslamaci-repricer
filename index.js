@@ -20,6 +20,7 @@ const GOOGLE_TOKEN_URLS = [
   "https://www.googleapis.com/oauth2/v4/token"
 ];
 const GOOGLE_TOKEN_TIMEOUT_MS = 10000;
+const GOOGLE_API_TIMEOUT_MS = 15000;
 
 let googleAuthClient = null;
 let sheetsClient = null;
@@ -200,7 +201,15 @@ async function withRetry(fn, label, maxAttempts = 5) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await fn();
+      return await Promise.race([
+        fn(),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`${label} timed out after ${GOOGLE_API_TIMEOUT_MS}ms`)),
+            GOOGLE_API_TIMEOUT_MS
+          )
+        )
+      ]);
     } catch (error) {
       lastError = error;
 
