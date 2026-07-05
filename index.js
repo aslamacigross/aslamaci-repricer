@@ -549,6 +549,57 @@ app.get("/test-sheet", async (req, res) => {
   }
 });
 
+app.get("/debug-google-auth", async (req, res) => {
+  try {
+    const startedAt = Date.now();
+    const auth = await getGoogleAuth();
+
+    res.json({
+      status: "ok",
+      has_auth: Boolean(auth),
+      token_expires_at: googleTokenExpiresAt
+        ? new Date(googleTokenExpiresAt).toISOString()
+        : null,
+      duration_ms: Date.now() - startedAt
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
+app.get("/debug-sheet-metadata", async (req, res) => {
+  try {
+    const startedAt = Date.now();
+    const auth = await getGoogleAuth();
+    const sheets = google.sheets({ version: "v4", auth });
+
+    const result = await withRetry(
+      () =>
+        sheets.spreadsheets.get({
+          spreadsheetId: process.env.GOOGLE_SHEET_ID,
+          fields: "properties(title),sheets(properties(title))"
+        }),
+      "Google Sheets debug metadata",
+      2
+    );
+
+    res.json({
+      status: "ok",
+      duration_ms: Date.now() - startedAt,
+      title: result.data.properties.title,
+      sheets: result.data.sheets.map(s => s.properties.title)
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
 app.get("/sync-products", async (req, res) => {
   try {
     const supplierId = process.env.TY_SUPPLIER_ID;
