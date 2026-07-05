@@ -99,10 +99,6 @@ function signServiceAccountJwt(credentials) {
 async function fetchGoogleAccessToken() {
   const credentials = getGoogleCredentials();
   const assertion = signServiceAccountJwt(credentials);
-  const body = new URLSearchParams({
-    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-    assertion
-  });
   let lastError;
 
   for (const tokenUrl of GOOGLE_TOKEN_URLS) {
@@ -110,14 +106,27 @@ async function fetchGoogleAccessToken() {
     const timeout = setTimeout(() => controller.abort(), GOOGLE_TOKEN_TIMEOUT_MS);
 
     try {
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body,
-        signal: controller.signal
+      const body = new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion
       });
+
+      const response = await Promise.race([
+        fetch(tokenUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body,
+          signal: controller.signal
+        }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Google token request timeout for ${tokenUrl}`)),
+            GOOGLE_TOKEN_TIMEOUT_MS
+          )
+        )
+      ]);
 
       const text = await response.text();
 
