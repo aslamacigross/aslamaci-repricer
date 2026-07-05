@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 3000;
 const MARKETPLACE = "TRENDYOL";
 const DEFAULT_CARRIER = "TEX";
 const DEFAULT_SERVICE_FEE = 13.19;
+const APP_VERSION = "2026-07-05-google-token-timeout";
 const SHIPPING_VAT_RATE = 0.20;
 const GOOGLE_TOKEN_URLS = [
   "https://oauth2.googleapis.com/token",
@@ -267,6 +268,14 @@ function getRequestBaseUrl(req) {
 
 app.get("/", (req, res) => {
   res.send("Aşlamacı ERP / Repricer çalışıyor 🚀");
+});
+
+app.get("/version", (req, res) => {
+  res.json({
+    status: "ok",
+    app: "aslamaci-repricer",
+    version: APP_VERSION
+  });
 });
 
 app.get("/health", async (req, res) => {
