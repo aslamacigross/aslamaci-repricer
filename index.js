@@ -377,10 +377,16 @@ function getRepricerSettings(row) {
 function calculateIncreasePrice(row, settings) {
   const myPrice = parseNumber(row.my_price);
   const secondPrice = parseNumber(row.second_price);
+  const minPrice = parseNumber(row.min_price);
   const upperDailyLimit = myPrice * (1 + settings.maxDailyChangePct / 100);
+
+  if (minPrice > 0 && myPrice < minPrice) {
+    return roundPrice(minPrice);
+  }
 
   return roundPrice(
     Math.max(
+      minPrice,
       myPrice,
       Math.min(
         secondPrice - settings.priceCutTl,
