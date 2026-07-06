@@ -486,11 +486,19 @@ function getPriceAction(row) {
   }
 
   if (rank === 1 && secondPrice > myPrice) {
-    return { action: "FIYAT ARTIR", suggestedPrice: suggestion.suggestedPrice };
+    if (parseNumber(suggestion.suggestedPrice) > myPrice) {
+      return { action: "FIYAT ARTIR", suggestedPrice: suggestion.suggestedPrice };
+    }
+
+    return { action: "KORU", suggestedPrice: myPrice };
   }
 
   if (rank !== null && rank !== 1 && buyboxPrice > minPrice) {
-    return { action: "FIYAT DUSUR", suggestedPrice: suggestion.suggestedPrice };
+    if (parseNumber(suggestion.suggestedPrice) < myPrice) {
+      return { action: "FIYAT DUSUR", suggestedPrice: suggestion.suggestedPrice };
+    }
+
+    return { action: "PAS - Limit", suggestedPrice: myPrice };
   }
 
   if (rank !== null && rank !== 1 && buyboxPrice > 0 && buyboxPrice <= minPrice) {
