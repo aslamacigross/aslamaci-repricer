@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 const MARKETPLACE = "TRENDYOL";
 const DEFAULT_CARRIER = "TEX";
 const DEFAULT_SERVICE_FEE = 13.19;
-const APP_VERSION = "2026-07-05-urunler-repricer-settings";
+const APP_VERSION = "2026-07-10-rank-profit-optimizer";
 const SHIPPING_VAT_RATE = 0.20;
 const PRODUCT_SETTING_HEADERS = [
   "Repricer Aktif mi",
@@ -374,52 +374,110 @@ function getRepricerSettings(row) {
   };
 }
 
-function calculateIncreasePrice(row, settings) {
-  const myPrice = parseNumber(row.my_price);
-  const secondPrice = parseNumber(row.second_price);
-  const minPrice = parseNumber(row.min_price);
-  const upperDailyLimit = myPrice * (1 + settings.maxDailyChangePct / 100);
-
-  if (minPrice > 0 && myPrice < minPrice) {
-    return roundPrice(minPrice);
-  }
-
-  return roundPrice(
-    Math.max(
-      minPrice,
-      myPrice,
-      Math.min(
-        secondPrice - settings.priceCutTl,
-        myPrice + settings.maxIncreaseTl,
-        upperDailyLimit
-      )
-    )
-  );
+function getVisibleRankPrice(row, rank) {
+  if (rank === 1) return parseNumber(row.buybox_price);
+  if (rank === 2) return parseNumber(row.second_price);
+  if (rank === 3) return parseNumber(row.third_price);
+  return 0;
 }
 
-function calculateDecreasePrice(row, settings) {
+function calculatePriceBelow(visiblePrice, settings) {
+  if (visiblePrice <= 0) return 0;
+  return roundPrice(visiblePrice - Math.max(settings.priceCutTl, 0));
+}
+
+function applyDecreaseGuard(row, targetPrice, settings) {
   const myPrice = parseNumber(row.my_price);
-  const buyboxPrice = parseNumber(row.buybox_price);
   const minPrice = parseNumber(row.min_price);
   const lowerDailyLimit = myPrice * (1 - settings.maxDailyChangePct / 100);
 
-  return roundPrice(
-    Math.min(
-      myPrice,
-      Math.max(
-        buyboxPrice - settings.priceCutTl,
-        minPrice,
-        lowerDailyLimit
-      )
-    )
-  );
+  if (targetPrice >= myPrice) return roundPrice(targetPrice);
+
+  return roundPrice(Math.max(targetPrice, minPrice, lowerDailyLimit));
+}
+
+function calculateCurrentRankMaxPrice(row, settings, rank) {
+  const myPrice = parseNumber(row.my_price);
+  const nextRankPrice = getVisibleRankPrice(row, rank + 1);
+  const nextRankTarget = calculatePriceBelow(nextRankPrice, settings);
+
+  if (nextRankTarget > myPrice) {
+    return roundPrice(nextRankTarget);
+  }
+
+  return roundPrice(myPrice);
+}
+
+function calculateOptimalRankPrice(row, settings) {
+  const myPrice = parseNumber(row.my_price);
+  const minPrice = parseNumber(row.min_price);
+  const rank = row.rank === null || row.rank === undefined ? null : parseNumber(row.rank, null);
+
+  if (minPrice > 0 && myPrice < minPrice) {
+    return {
+      suggestedPrice: roundPrice(minPrice),
+      targetRank: rank,
+      reason: "MIN_FIYATA_CIK"
+    };
+  }
+
+  if (rank === null || rank <= 0) {
+    return {
+      suggestedPrice: roundPrice(myPrice),
+      targetRank: null,
+      reason: "SIRA_YOK"
+    };
+  }
+
+  const bestKnownRank = Math.min(rank, 3);
+  let upperRankBlockedByMinPrice = false;
+
+  for (let targetRank = 1; targetRank <= bestKnownRank; targetRank++) {
+    if (targetRank === rank) {
+      const currentRankMaxPrice = calculateCurrentRankMaxPrice(
+        row,
+        settings,
+        targetRank
+      );
+
+      return {
+        suggestedPrice: currentRankMaxPrice,
+        targetRank,
+        reason:
+          upperRankBlockedByMinPrice && currentRankMaxPrice <= myPrice
+            ? "UST_SIRA_MIN_ALTINDA"
+            : "MEVCUT_SIRADA_MAKS_KAR"
+      };
+    }
+
+    const targetPrice = calculatePriceBelow(
+      getVisibleRankPrice(row, targetRank),
+      settings
+    );
+
+    if (targetPrice <= 0) continue;
+    if (minPrice > 0 && targetPrice < minPrice) {
+      upperRankBlockedByMinPrice = true;
+      continue;
+    }
+
+    return {
+      suggestedPrice: applyDecreaseGuard(row, targetPrice, settings),
+      targetRank,
+      reason: "UST_SIRAYA_CIK"
+    };
+  }
+
+  return {
+    suggestedPrice: roundPrice(myPrice),
+    targetRank: rank,
+    reason: "UST_SIRA_MIN_ALTINDA"
+  };
 }
 
 function getBuyboxSuggestion(row) {
   const settings = getRepricerSettings(row);
   const myPrice = parseNumber(row.my_price);
-  const buyboxPrice = parseNumber(row.buybox_price);
-  const secondPrice = parseNumber(row.second_price);
   const minPrice = parseNumber(row.min_price);
   const rank = row.rank === null || row.rank === undefined ? null : parseNumber(row.rank, null);
 
@@ -435,37 +493,38 @@ function getBuyboxSuggestion(row) {
     return { text: "İşlem Yok - Min Fiyat Yok", suggestedPrice: myPrice };
   }
 
-  if (rank === 1 && secondPrice > myPrice) {
+  const optimization = calculateOptimalRankPrice(row, settings);
+  const suggestedPrice = parseNumber(optimization.suggestedPrice);
+
+  if (suggestedPrice > myPrice) {
     return {
-      text: "Fiyat Artırılabilir",
-      suggestedPrice: calculateIncreasePrice(row, settings)
+      text: `${optimization.targetRank}. Sırada Maks Kâr`,
+      suggestedPrice
     };
+  }
+
+  if (suggestedPrice < myPrice) {
+    return {
+      text: `${optimization.targetRank}. Sıraya Fiyat Düşürülebilir`,
+      suggestedPrice
+    };
+  }
+
+  if (optimization.reason === "UST_SIRA_MIN_ALTINDA") {
+    return { text: "Üst Sıra Min Fiyat Altı - Koru", suggestedPrice: myPrice };
   }
 
   if (rank === 1) {
     return { text: "Buybox Bizde - Koru", suggestedPrice: myPrice };
   }
 
-  if (rank !== null && buyboxPrice > minPrice) {
-    return {
-      text: "Buybox İçin Fiyat Düşürülebilir",
-      suggestedPrice: calculateDecreasePrice(row, settings)
-    };
-  }
-
-  if (rank !== null && buyboxPrice > 0 && buyboxPrice <= minPrice) {
-    return { text: "Min Fiyat Altı - Girme", suggestedPrice: myPrice };
-  }
-
-  return { text: "Kontrol Et", suggestedPrice: myPrice };
+  return { text: "Mevcut Sırayı Koru", suggestedPrice: myPrice };
 }
 
 function getPriceAction(row) {
   const settings = getRepricerSettings(row);
   const suggestion = getBuyboxSuggestion(row);
   const myPrice = parseNumber(row.my_price);
-  const buyboxPrice = parseNumber(row.buybox_price);
-  const secondPrice = parseNumber(row.second_price);
   const minPrice = parseNumber(row.min_price);
   const rank = row.rank === null || row.rank === undefined ? null : parseNumber(row.rank, null);
 
@@ -485,27 +544,23 @@ function getPriceAction(row) {
     return { action: "PAS - Min Fiyat Yok", suggestedPrice: myPrice };
   }
 
-  if (rank === 1 && secondPrice > myPrice) {
-    if (parseNumber(suggestion.suggestedPrice) > myPrice) {
-      return { action: "FIYAT ARTIR", suggestedPrice: suggestion.suggestedPrice };
-    }
-
-    return { action: "KORU", suggestedPrice: myPrice };
+  if (parseNumber(suggestion.suggestedPrice) > myPrice) {
+    return { action: "FIYAT ARTIR", suggestedPrice: suggestion.suggestedPrice };
   }
 
-  if (rank !== null && rank !== 1 && buyboxPrice > minPrice) {
-    if (parseNumber(suggestion.suggestedPrice) < myPrice) {
-      return { action: "FIYAT DUSUR", suggestedPrice: suggestion.suggestedPrice };
-    }
-
-    return { action: "PAS - Limit", suggestedPrice: myPrice };
+  if (parseNumber(suggestion.suggestedPrice) < myPrice) {
+    return { action: "FIYAT DUSUR", suggestedPrice: suggestion.suggestedPrice };
   }
 
-  if (rank !== null && rank !== 1 && buyboxPrice > 0 && buyboxPrice <= minPrice) {
+  if (rank !== null && rank !== 1 && suggestion.text.includes("Min Fiyat Altı")) {
     return { action: "PAS - Min Altı", suggestedPrice: myPrice };
   }
 
   if (rank === 1) {
+    return { action: "KORU", suggestedPrice: myPrice };
+  }
+
+  if (rank !== null) {
     return { action: "KORU", suggestedPrice: myPrice };
   }
 
@@ -2576,6 +2631,7 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
         p.my_price,
         p.buybox_price,
         p.second_price,
+        p.third_price,
         p.rank,
         p.min_price,
         p.calculated_net_profit,
@@ -2704,8 +2760,12 @@ app.get("/apply-approved-prices", async (req, res) => {
       if (suggestedPrice <= 0) continue;
       if (minPrice > 0 && suggestedPrice < minPrice) continue;
 
-      const diffRate = Math.abs(suggestedPrice - currentPrice) / currentPrice;
-      if (diffRate > 0.15) continue;
+      const diffRate =
+        currentPrice > 0
+          ? Math.abs(suggestedPrice - currentPrice) / currentPrice
+          : 0;
+
+      if (action === "FIYAT DUSUR" && diffRate > 0.15) continue;
 
       const safetyResult = await pool.query(
         `
