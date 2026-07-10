@@ -13,8 +13,11 @@ const PORT = process.env.PORT || 3000;
 const MARKETPLACE = "TRENDYOL";
 const DEFAULT_CARRIER = "TEX";
 const DEFAULT_SERVICE_FEE = 13.19;
-const APP_VERSION = "2026-07-10-rank-profit-optimizer";
+const APP_VERSION = "2026-07-10-learning-buybox-pilot";
 const SHIPPING_VAT_RATE = 0.20;
+const BUYBOX_LEARNING_MIN_STEP_TL = 5;
+const BUYBOX_LEARNING_STEP_RATE = 0.005;
+const BUYBOX_LEARNING_MAX_CUT_TL = 75;
 const PRODUCT_SETTING_HEADERS = [
   "Repricer Aktif mi",
   "Strateji",
@@ -43,6 +46,29 @@ const pool = new Pool({
       ? { rejectUnauthorized: false }
       : false
 });
+
+async function ensureRepricerLearningTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS repricer_learning (
+      id SERIAL PRIMARY KEY,
+      marketplace TEXT NOT NULL,
+      barcode TEXT NOT NULL,
+      learned_price_cut_tl NUMERIC DEFAULT 0,
+      failed_attempts INTEGER DEFAULT 0,
+      success_attempts INTEGER DEFAULT 0,
+      last_outcome TEXT,
+      last_rank INTEGER,
+      last_my_price NUMERIC,
+      last_buybox_price NUMERIC,
+      last_second_price NUMERIC,
+      last_required_gap_tl NUMERIC,
+      last_action TEXT,
+      last_note TEXT,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(marketplace, barcode)
+    );
+  `);
+}
 
 function parseNumber(value, fallback = 0) {
   if (value === null || value === undefined || value === "") return fallback;
@@ -366,9 +392,14 @@ function parseBoolean(value) {
 }
 
 function getRepricerSettings(row) {
+  const manualPriceCutTl = parseNumber(row.price_cut_tl, 0.10);
+  const learnedPriceCutTl = parseNumber(row.learned_price_cut_tl);
+
   return {
     autoUpdate: parseBoolean(row.auto_update),
-    priceCutTl: parseNumber(row.price_cut_tl, 0.10),
+    priceCutTl: Math.max(manualPriceCutTl, learnedPriceCutTl),
+    manualPriceCutTl,
+    learnedPriceCutTl,
     maxIncreaseTl: parseNumber(row.max_increase_tl, 10),
     maxDailyChangePct: parseNumber(row.max_daily_change_pct, 15)
   };
@@ -473,6 +504,28 @@ function calculateOptimalRankPrice(row, settings) {
     targetRank: rank,
     reason: "UST_SIRA_MIN_ALTINDA"
   };
+}
+
+function nearlyEqualMoney(a, b) {
+  return Math.abs(parseNumber(a) - parseNumber(b)) < 0.01;
+}
+
+function calculateLearningStep(price) {
+  return roundPrice(
+    Math.max(
+      BUYBOX_LEARNING_MIN_STEP_TL,
+      parseNumber(price) * BUYBOX_LEARNING_STEP_RATE
+    )
+  );
+}
+
+function capLearnedPriceCut(value) {
+  return roundPrice(
+    Math.min(
+      Math.max(parseNumber(value), 0),
+      BUYBOX_LEARNING_MAX_CUT_TL
+    )
+  );
 }
 
 function getBuyboxSuggestion(row) {
@@ -789,6 +842,8 @@ app.get("/setup-db", async (req, res) => {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+
+    await ensureRepricerLearningTable();
 
     res.json({
       status: "ok",
@@ -2415,6 +2470,259 @@ app.get("/sync-buybox", async (req, res) => {
     });
   }
 });
+
+app.get("/learn-buybox-outcomes", async (req, res) => {
+  try {
+    await ensureRepricerLearningTable();
+
+    const result = await pool.query(
+      `
+      WITH latest_log AS (
+        SELECT DISTINCT ON (marketplace, barcode)
+          marketplace,
+          barcode,
+          action,
+          old_price,
+          new_price,
+          created_at
+        FROM price_war_log
+        WHERE marketplace = $1
+          AND created_at >= NOW() - INTERVAL '7 days'
+        ORDER BY marketplace, barcode, created_at DESC
+      )
+      SELECT
+        p.barcode,
+        p.product_name,
+        p.my_price,
+        p.buybox_price,
+        p.second_price,
+        p.third_price,
+        p.rank,
+        p.min_price,
+        p.auto_update,
+        COALESCE(rl.learned_price_cut_tl, 0) AS learned_price_cut_tl,
+        rl.last_outcome,
+        rl.last_rank,
+        rl.last_my_price,
+        rl.last_buybox_price,
+        rl.last_second_price,
+        l.action AS last_action,
+        l.old_price AS last_old_price,
+        l.new_price AS last_new_price,
+        l.created_at AS last_action_at
+      FROM products p
+      JOIN latest_log l
+        ON l.marketplace = p.marketplace
+       AND l.barcode = p.barcode
+      LEFT JOIN repricer_learning rl
+        ON rl.marketplace = p.marketplace
+       AND rl.barcode = p.barcode
+      WHERE p.marketplace = $1
+        AND p.on_sale = true
+        AND p.auto_update = true
+        AND p.rank IS NOT NULL
+      ORDER BY l.created_at DESC
+      `,
+      [MARKETPLACE]
+    );
+
+    const learned = [];
+    const successes = [];
+    const skipped = [];
+
+    for (const row of result.rows) {
+      const rank = parseNumber(row.rank, null);
+      const myPrice = parseNumber(row.my_price);
+      const buyboxPrice = parseNumber(row.buybox_price);
+      const secondPrice = parseNumber(row.second_price);
+      const currentLearnedCut = parseNumber(row.learned_price_cut_tl);
+      const lastKnownRank = parseNumber(row.last_rank, null);
+      const sameKnownState =
+        lastKnownRank === rank &&
+        nearlyEqualMoney(row.last_my_price, myPrice) &&
+        nearlyEqualMoney(row.last_buybox_price, buyboxPrice) &&
+        nearlyEqualMoney(row.last_second_price, secondPrice);
+
+      if (rank === 1) {
+        if (sameKnownState && row.last_outcome === "BUYBOX_WON") {
+          skipped.push({
+            barcode: row.barcode,
+            reason: "success_already_recorded"
+          });
+          continue;
+        }
+
+        await pool.query(
+          `
+          INSERT INTO repricer_learning (
+            marketplace,
+            barcode,
+            learned_price_cut_tl,
+            failed_attempts,
+            success_attempts,
+            last_outcome,
+            last_rank,
+            last_my_price,
+            last_buybox_price,
+            last_second_price,
+            last_required_gap_tl,
+            last_action,
+            last_note,
+            updated_at
+          )
+          VALUES ($1,$2,$3,0,1,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+          ON CONFLICT (marketplace, barcode)
+          DO UPDATE SET
+            success_attempts = repricer_learning.success_attempts + 1,
+            last_outcome = EXCLUDED.last_outcome,
+            last_rank = EXCLUDED.last_rank,
+            last_my_price = EXCLUDED.last_my_price,
+            last_buybox_price = EXCLUDED.last_buybox_price,
+            last_second_price = EXCLUDED.last_second_price,
+            last_required_gap_tl = EXCLUDED.last_required_gap_tl,
+            last_action = EXCLUDED.last_action,
+            last_note = EXCLUDED.last_note,
+            updated_at = NOW()
+          `,
+          [
+            MARKETPLACE,
+            row.barcode,
+            currentLearnedCut,
+            "BUYBOX_WON",
+            rank,
+            myPrice,
+            buyboxPrice,
+            secondPrice,
+            currentLearnedCut,
+            row.last_action,
+            "Buybox korundu; öğrenilmiş fiyat farkı aynen bırakıldı"
+          ]
+        );
+
+        successes.push({
+          barcode: row.barcode,
+          rank,
+          learned_price_cut_tl: currentLearnedCut
+        });
+        continue;
+      }
+
+      const hasPriceAdvantage = buyboxPrice > 0 && myPrice <= buyboxPrice + 0.01;
+
+      if (!hasPriceAdvantage) {
+        skipped.push({
+          barcode: row.barcode,
+          reason: "price_not_below_buybox",
+          rank,
+          my_price: myPrice,
+          buybox_price: buyboxPrice
+        });
+        continue;
+      }
+
+      const currentAdvantage = Math.max(buyboxPrice - myPrice, 0);
+      const learningStep = calculateLearningStep(buyboxPrice || myPrice);
+      const requiredGap = capLearnedPriceCut(currentAdvantage + learningStep);
+      const newLearnedCut = capLearnedPriceCut(
+        Math.max(currentLearnedCut, requiredGap)
+      );
+
+      if (
+        sameKnownState &&
+        row.last_outcome === "PRICE_ADVANTAGE_NOT_ENOUGH" &&
+        nearlyEqualMoney(currentLearnedCut, newLearnedCut)
+      ) {
+        skipped.push({
+          barcode: row.barcode,
+          reason: "failure_already_learned",
+          rank,
+          learned_price_cut_tl: currentLearnedCut
+        });
+        continue;
+      }
+
+      await pool.query(
+        `
+        INSERT INTO repricer_learning (
+          marketplace,
+          barcode,
+          learned_price_cut_tl,
+          failed_attempts,
+          success_attempts,
+          last_outcome,
+          last_rank,
+          last_my_price,
+          last_buybox_price,
+          last_second_price,
+          last_required_gap_tl,
+          last_action,
+          last_note,
+          updated_at
+        )
+        VALUES ($1,$2,$3,1,0,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+        ON CONFLICT (marketplace, barcode)
+        DO UPDATE SET
+          learned_price_cut_tl = GREATEST(
+            repricer_learning.learned_price_cut_tl,
+            EXCLUDED.learned_price_cut_tl
+          ),
+          failed_attempts = repricer_learning.failed_attempts + 1,
+          last_outcome = EXCLUDED.last_outcome,
+          last_rank = EXCLUDED.last_rank,
+          last_my_price = EXCLUDED.last_my_price,
+          last_buybox_price = EXCLUDED.last_buybox_price,
+          last_second_price = EXCLUDED.last_second_price,
+          last_required_gap_tl = EXCLUDED.last_required_gap_tl,
+          last_action = EXCLUDED.last_action,
+          last_note = EXCLUDED.last_note,
+          updated_at = NOW()
+        `,
+        [
+          MARKETPLACE,
+          row.barcode,
+          newLearnedCut,
+          "PRICE_ADVANTAGE_NOT_ENOUGH",
+          rank,
+          myPrice,
+          buyboxPrice,
+          secondPrice,
+          newLearnedCut,
+          row.last_action,
+          `Rakipten ${currentAdvantage.toFixed(2)} TL ucuzken buybox alınamadı; sonraki deneme farkı ${newLearnedCut} TL`
+        ]
+      );
+
+      learned.push({
+        barcode: row.barcode,
+        rank,
+        my_price: myPrice,
+        buybox_price: buyboxPrice,
+        current_advantage_tl: Number(currentAdvantage.toFixed(2)),
+        previous_learned_cut_tl: currentLearnedCut,
+        new_learned_cut_tl: newLearnedCut,
+        next_target_price:
+          buyboxPrice > 0 ? roundPrice(buyboxPrice - newLearnedCut) : myPrice
+      });
+    }
+
+    res.json({
+      status: "ok",
+      checked: result.rows.length,
+      learned_count: learned.length,
+      success_count: successes.length,
+      skipped_count: skipped.length,
+      learned,
+      successes,
+      skipped
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
 app.get("/export-buybox-to-sheet", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
@@ -2512,6 +2820,7 @@ app.get("/export-buybox-to-sheet", async (req, res) => {
 app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
+    await ensureRepricerLearningTable();
 
     const result = await pool.query(
       `
@@ -2530,6 +2839,7 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
         p.commission_rate,
         p.auto_update,
         COALESCE(ps.price_cut_tl, 0.10) AS price_cut_tl,
+        COALESCE(rl.learned_price_cut_tl, 0) AS learned_price_cut_tl,
         COALESCE(ps.max_increase_tl, 10) AS max_increase_tl,
         COALESCE(ps.max_daily_change_pct, 15) AS max_daily_change_pct
 
@@ -2537,6 +2847,9 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
       LEFT JOIN product_settings ps
         ON ps.marketplace = p.marketplace
        AND ps.barcode = p.barcode
+      LEFT JOIN repricer_learning rl
+        ON rl.marketplace = p.marketplace
+       AND rl.barcode = p.barcode
       WHERE p.marketplace = $1
         AND p.on_sale = true
       ORDER BY
@@ -2622,6 +2935,7 @@ app.get("/export-buybox-suggestions-to-sheet", async (req, res) => {
 app.get("/export-price-actions-to-sheet", async (req, res) => {
   try {
     const sheets = await getSheetsClient();
+    await ensureRepricerLearningTable();
 
     const result = await pool.query(
       `
@@ -2640,6 +2954,8 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
         p.commission_rate,
         p.auto_update,
         COALESCE(ps.price_cut_tl, 0.10) AS price_cut_tl,
+        COALESCE(rl.learned_price_cut_tl, 0) AS learned_price_cut_tl,
+        COALESCE(rl.failed_attempts, 0) AS learning_failed_attempts,
         COALESCE(ps.max_increase_tl, 10) AS max_increase_tl,
         COALESCE(ps.max_daily_change_pct, 15) AS max_daily_change_pct
 
@@ -2647,6 +2963,9 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
       LEFT JOIN product_settings ps
         ON ps.marketplace = p.marketplace
        AND ps.barcode = p.barcode
+      LEFT JOIN repricer_learning rl
+        ON rl.marketplace = p.marketplace
+       AND rl.barcode = p.barcode
       WHERE p.marketplace = $1
         AND p.on_sale = true
       ORDER BY
@@ -2685,6 +3004,11 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
       const myPrice = parseNumber(r.my_price);
       const priceAction = getPriceAction(r);
       const suggestedPrice = parseNumber(priceAction.suggestedPrice);
+      const learnedPriceCutTl = parseNumber(r.learned_price_cut_tl);
+      const learningNote =
+        learnedPriceCutTl > 0
+          ? `Öğrenen fark: ${learnedPriceCutTl} TL (${parseNumber(r.learning_failed_attempts)} başarısız deneme)`
+          : "";
 
       return [
         r.barcode,
@@ -2700,7 +3024,7 @@ app.get("/export-price-actions-to-sheet", async (req, res) => {
         parseNumber(r.calculated_net_profit),
         parseNumber(r.calculated_net_margin),
         "",
-        ""
+        learningNote
       ];
     });
 
@@ -2887,6 +3211,7 @@ app.get("/refresh-after-price-update", async (req, res) => {
     const steps = [
       "/sync-products",
       "/sync-buybox",
+      "/learn-buybox-outcomes",
       "/calculate-costs",
       "/export-products-to-sheet",
       "/export-buybox-to-sheet",
@@ -3109,6 +3434,7 @@ app.get("/run-full-refresh", async (req, res) => {
       "/calculate-costs",
       "/refresh-cost-mapping-status",
       "/sync-buybox",
+      "/learn-buybox-outcomes",
       "/export-products-to-sheet",
       "/export-new-products-to-sheet",
       "/export-buybox-to-sheet",
