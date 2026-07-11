@@ -1,5 +1,36 @@
-.filters>input{height:36px;border:1px solid #cfd9d3;border-radius:6px;background:#fff;padding:0 10px;font-size:12px;outline:0}
-.filters>input:focus{border-color:#419176;box-shadow:0 0 0 3px #e5f3ed}
-.manual-price{grid-column:1/-1;display:flex;align-items:flex-end;gap:8px;background:#f5f8f6;border:1px solid var(--line);border-radius:6px;padding:10px}
-.manual-price .field{flex:1}
-@media(max-width:760px){.filters>input{flex:1;min-width:140px}.manual-price{align-items:stretch;flex-direction:column}}
+.filters > input {
+  height: 36px;
+  border: 1px solid #cfd9d3;
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 10px;
+  font-size: 12px;
+  outline: 0;
+}
+.filters > input:focus {
+  border-color: #419176;
+  box-shadow: 0 0 0 3px #e5f3ed;
+}
+.manual-price {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: #f5f8f6;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+}
+.manual-price .field {
+  flex: 1;
+}
+@media (max-width: 760px) {
+  .filters > input {
+    flex: 1;
+    min-width: 140px;
+  }
+  .manual-price {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

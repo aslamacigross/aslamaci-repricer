@@ -1,7 +1,627 @@
-import React,{useEffect,useMemo,useState}from"react";import{Plus,RefreshCw,Save,Trash2,Upload,Calculator}from"lucide-react";import{get,post,patch,del}from"../lib/api";import DataTable,{money}from"../components/DataTable";import{PageHeader,SearchInput,IconButton,Button,Loading,ErrorState,Modal,Field,Badge,toneFor}from"../components/ui";
-const titles={costs:["Maliyet Kalemleri","Birim maliyet ve desi bilgisini yönetin"],mappings:["Ürün Mapping","Barkodların hangi maliyet kalemlerinden oluştuğunu yönetin"],commissions:["Komisyonlar","Kategori bazlı Trendyol komisyon kuralları"],shipping:["Kargo & Ambalaj","KDV hariç tarifeler, sepet baremleri ve ambalaj kuralları"]};
-export default function Costs({mode,notify}){const[items,setItems]=useState(null),[search,setSearch]=useState(""),[error,setError]=useState(null),[editing,setEditing]=useState(null);async function load(){setError(null);try{if(mode==="shipping")setItems((await get("/api/shipping")).data);else setItems((await get(`/api/${mode==="costs"?"cost-items":mode}`)).items)}catch(e){setError(e)}}useEffect(()=>{load()},[mode]);if(!items&&!error)return <Loading/>;const[t,d]=titles[mode];return <><PageHeader title={t}description={d}actions={<><Button icon={Plus}onClick={()=>setEditing({})}>Yeni ekle</Button><IconButton icon={RefreshCw}label="Yenile"onClick={load}/></>}/>{error?<ErrorState error={error}retry={load}/>:mode==="shipping"?<Shipping data={items}notify={notify}reload={load}editing={editing}setEditing={setEditing}/>:<ResourceTable mode={mode}items={items}search={search}setSearch={setSearch}editing={editing}setEditing={setEditing}notify={notify}reload={load}/>}</>}
-function ResourceTable({mode,items,search,setSearch,editing,setEditing,notify,reload}){const columns=mode==="costs"?[{key:"item_code",label:"Cost Code"},{key:"item_name",label:"Maliyet kalemi"},{key:"unit_cost",label:"Birim maliyet",render:r=>money(r.unit_cost)},{key:"unit_desi",label:"Birim desi"},{key:"unit",label:"Birim"},{key:"product_count",label:"Kullanım"}]:mode==="mappings"?[{key:"barcode",label:"Barkod"},{key:"product_name",label:"Ürün"},{key:"cost_item_code",label:"Cost Code"},{key:"item_name",label:"Maliyet kalemi"},{key:"quantity",label:"Adet"},{key:"line_cost",label:"Satır maliyeti",render:r=>money(r.line_cost)},{key:"orphan",label:"Durum",render:r=><Badge tone={r.orphan?"danger":"success"}>{r.orphan?"Orphan":"Geçerli"}</Badge>}]:[{key:"category_id",label:"Kategori ID"},{key:"category_name",label:"Kategori"},{key:"commission_rate",label:"Komisyon",render:r=>`%${r.commission_rate}`},{key:"product_count",label:"Etkilenen ürün"},{key:"note",label:"Not"}];const filtered=useMemo(()=>items.filter(x=>JSON.stringify(x).toLowerCase().includes(search.toLowerCase())),[items,search]);return <><div className="filters"><SearchInput value={search}onChange={setSearch}placeholder="Listede ara"/>{mode==="mappings"&&<Button variant="secondary"icon={Upload}onClick={()=>setEditing({bulk:true})}>Toplu mapping</Button>}</div><div className="panel table-panel"><DataTable columns={columns}rows={filtered}onRowClick={row=>setEditing(row)}/></div><ResourceModal mode={mode}value={editing}onClose={()=>setEditing(null)}onSaved={()=>{setEditing(null);reload()}}notify={notify}/></>}
-function ResourceModal({mode,value,onClose,onSaved,notify}){const[form,setForm]=useState(value||{}),[saving,setSaving]=useState(false);useEffect(()=>setForm(value||{}),[value]);if(!value)return null;async function save(){setSaving(true);try{if(value.bulk){const rows=form.text.split("\n").filter(Boolean).map(line=>{const[barcode,cost_item_code,quantity]=line.split(/[\t;]/);return{barcode,cost_item_code,quantity:Number(quantity)}});const validation=await post("/api/mappings/validate",{rows});if(!validation.data.valid)throw new Error(`Doğrulama hatası: ${validation.data.errors.length} satır`);await post("/api/mappings/bulk",{rows});}else if(mode==="costs"){const path=value.id?`/api/cost-items/${value.id}`:"/api/cost-items";await(value.id?patch(path,form):post(path,form));}else if(mode==="mappings"){await post("/api/mappings",form);}else{const path=value.category_id?`/api/commissions/${value.category_id}`:"/api/commissions";await(value.category_id?patch(path,form):post(path,form));}notify("Kayıt başarıyla kaydedildi");onSaved()}catch(e){notify(e.message,"error")}finally{setSaving(false)}}async function remove(){try{const path=mode==="costs"?`/api/cost-items/${value.id}`:mode==="mappings"?`/api/mappings/${value.id}`:null;if(path)await del(path);notify("Kayıt silindi");onSaved()}catch(e){notify(e.message,"error")}}const set=(k,v)=>setForm({...form,[k]:v});return <Modal open onClose={onClose}title={value.bulk?"Toplu mapping":"Kayıt düzenle"}>{value.bulk?<div className="modal-body"><Field label="Barkod, Cost Code, Adet"hint="Her satırı tab veya noktalı virgülle ayırın"><textarea rows="14"value={form.text||""}onChange={e=>set("text",e.target.value)}placeholder={'8690609598109\tYUMUSATICI_ACTISOFT_1500ML\t1'}/></Field></div>:<div className="modal-body form-grid">{mode==="costs"&&<><Field label="Cost Code"><input value={form.item_code||""}onChange={e=>set("item_code",e.target.value)}/></Field><Field label="Maliyet kalemi"><input value={form.item_name||""}onChange={e=>set("item_name",e.target.value)}/></Field><Field label="Birim maliyet"><input type="number"step="0.01"value={form.unit_cost||""}onChange={e=>set("unit_cost",Number(e.target.value))}/></Field><Field label="Birim desi"><input type="number"step="0.01"value={form.unit_desi||""}onChange={e=>set("unit_desi",Number(e.target.value))}/></Field><Field label="Birim"><input value={form.unit||"adet"}onChange={e=>set("unit",e.target.value)}/></Field><Field label="Not"><input value={form.note||""}onChange={e=>set("note",e.target.value)}/></Field></>}{mode==="mappings"&&<><Field label="Barkod"><input value={form.barcode||""}onChange={e=>set("barcode",e.target.value)}/></Field><Field label="Cost Code"><input value={form.cost_item_code||""}onChange={e=>set("cost_item_code",e.target.value)}/></Field><Field label="Adet"><input type="number"step="0.01"value={form.quantity||1}onChange={e=>set("quantity",Number(e.target.value))}/></Field></>}{mode==="commissions"&&<><Field label="Kategori ID"><input value={form.category_id||""}onChange={e=>set("category_id",e.target.value)}/></Field><Field label="Kategori adı"><input value={form.category_name||""}onChange={e=>set("category_name",e.target.value)}/></Field><Field label="Komisyon %"><input type="number"step="0.01"value={form.commission_rate||""}onChange={e=>set("commission_rate",Number(e.target.value))}/></Field><Field label="Not"><input value={form.note||""}onChange={e=>set("note",e.target.value)}/></Field></>}</div>}<footer className="modal-actions">{value.id&&mode!=="commissions"&&<Button variant="danger"icon={Trash2}onClick={remove}>Sil</Button>}<span/><Button variant="secondary"onClick={onClose}>Vazgeç</Button><Button icon={Save}onClick={save}disabled={saving}>{saving?"Kaydediliyor":"Kaydet"}</Button></footer></Modal>}
-function Shipping({data,notify,reload,editing,setEditing}){const[type,setType]=useState("rates");const sets={rates:["Desi tarifeleri",[{key:"carrier",label:"Kargo"},{key:"desi_kg",label:"Desi/KG"},{key:"cost_ex_vat",label:"KDV hariç",render:r=>money(r.cost_ex_vat)},{key:"cost_inc_vat",label:"KDV dahil",render:r=>money(r.cost_inc_vat)}]],barems:["Sepet baremleri",[{key:"carrier",label:"Kargo"},{key:"barem_name",label:"Barem"},{key:"min_basket",label:"Min sepet",render:r=>money(r.min_basket)},{key:"max_basket",label:"Maks sepet",render:r=>money(r.max_basket)},{key:"cost_ex_vat",label:"KDV hariç",render:r=>money(r.cost_ex_vat)},{key:"cost_inc_vat",label:"KDV dahil",render:r=>money(r.cost_inc_vat)}]],packaging:["Ambalaj kuralları",[{key:"min_desi",label:"Min desi"},{key:"max_desi",label:"Maks desi"},{key:"packaging_cost",label:"Ambalaj",render:r=>money(r.packaging_cost)},{key:"note",label:"Not"}]]};const[label,cols]=sets[type];return <><div className="tabs page-tabs">{Object.entries(sets).map(([key,[name]])=><button key={key}className={type===key?"active":""}onClick={()=>setType(key)}>{name}</button>)}</div><div className="info-banner"><Calculator/><div><strong>Sistemin kullandığı maliyet</strong><p>Sheet ve paneldeki kargo tutarı KDV hariçtir. Hesap motoru yüzde 20 KDV eklenmiş gerçek ödeme tutarını kullanır.</p></div></div><div className="panel table-panel"><DataTable columns={cols}rows={data[type]}onRowClick={row=>setEditing({...row,type})}/></div><ShippingModal value={editing}type={type}onClose={()=>setEditing(null)}notify={notify}onSaved={()=>{setEditing(null);reload()}}/></>}
-function ShippingModal({value,type,onClose,notify,onSaved}){const[form,setForm]=useState(value||{});useEffect(()=>setForm(value||{}),[value]);if(!value)return null;const actual=value.type||type;const set=(k,v)=>setForm({...form,[k]:v});async function save(){try{if(actual==="rates")await post("/api/shipping/rates",form);else if(actual==="barems")await post("/api/shipping/barems",form);else await(value.id?patch(`/api/packaging-rules/${value.id}`,form):post("/api/packaging-rules",form));notify("Kural kaydedildi");onSaved()}catch(e){notify(e.message,"error")}}return <Modal open onClose={onClose}title="Kargo / ambalaj kuralı"><div className="modal-body form-grid">{actual==="rates"&&<><Field label="Kargo firması"><input value={form.carrier||"TEX"}onChange={e=>set("carrier",e.target.value)}/></Field><Field label="Desi / KG"><input type="number"value={form.desi_kg||0}onChange={e=>set("desi_kg",Number(e.target.value))}/></Field><Field label="KDV hariç maliyet"><input type="number"step="0.01"value={form.cost_ex_vat||0}onChange={e=>set("cost_ex_vat",Number(e.target.value))}/></Field></>}{actual==="barems"&&<><Field label="Kargo firması"><input value={form.carrier||"TEX"}onChange={e=>set("carrier",e.target.value)}/></Field><Field label="Barem adı"><input value={form.barem_name||""}onChange={e=>set("barem_name",e.target.value)}/></Field><Field label="Min sepet"><input type="number"value={form.min_basket||0}onChange={e=>set("min_basket",Number(e.target.value))}/></Field><Field label="Maks sepet"><input type="number"value={form.max_basket||0}onChange={e=>set("max_basket",Number(e.target.value))}/></Field><Field label="KDV hariç maliyet"><input type="number"step="0.01"value={form.cost_ex_vat||0}onChange={e=>set("cost_ex_vat",Number(e.target.value))}/></Field></>}{actual==="packaging"&&<><Field label="Min desi"><input type="number"value={form.min_desi||0}onChange={e=>set("min_desi",Number(e.target.value))}/></Field><Field label="Maks desi"><input type="number"value={form.max_desi||0}onChange={e=>set("max_desi",Number(e.target.value))}/></Field><Field label="Maliyet"><input type="number"step="0.01"value={form.packaging_cost||0}onChange={e=>set("packaging_cost",Number(e.target.value))}/></Field></>}</div><footer className="modal-actions"><Button variant="secondary"onClick={onClose}>Vazgeç</Button><Button icon={Save}onClick={save}>Kaydet</Button></footer></Modal>}
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+  Upload,
+  Calculator,
+} from "lucide-react";
+import { get, post, patch, del } from "../lib/api";
+import DataTable, { money } from "../components/DataTable";
+import {
+  PageHeader,
+  SearchInput,
+  IconButton,
+  Button,
+  Loading,
+  ErrorState,
+  Modal,
+  Field,
+  Badge,
+  toneFor,
+} from "../components/ui";
+const titles = {
+  costs: ["Maliyet Kalemleri", "Birim maliyet ve desi bilgisini yönetin"],
+  mappings: [
+    "Ürün Mapping",
+    "Barkodların hangi maliyet kalemlerinden oluştuğunu yönetin",
+  ],
+  commissions: ["Komisyonlar", "Kategori bazlı Trendyol komisyon kuralları"],
+  shipping: [
+    "Kargo & Ambalaj",
+    "KDV hariç tarifeler, sepet baremleri ve ambalaj kuralları",
+  ],
+};
+export default function Costs({ mode, notify }) {
+  const [items, setItems] = useState(null),
+    [search, setSearch] = useState(""),
+    [error, setError] = useState(null),
+    [editing, setEditing] = useState(null);
+  async function load() {
+    setError(null);
+    try {
+      if (mode === "shipping") setItems((await get("/api/shipping")).data);
+      else
+        setItems(
+          (await get(`/api/${mode === "costs" ? "cost-items" : mode}`)).items,
+        );
+    } catch (e) {
+      setError(e);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, [mode]);
+  if (!items && !error) return <Loading />;
+  const [t, d] = titles[mode];
+  return (
+    <>
+      <PageHeader
+        title={t}
+        description={d}
+        actions={
+          <>
+            <Button icon={Plus} onClick={() => setEditing({})}>
+              Yeni ekle
+            </Button>
+            <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
+          </>
+        }
+      />
+      {error ? (
+        <ErrorState error={error} retry={load} />
+      ) : mode === "shipping" ? (
+        <Shipping
+          data={items}
+          notify={notify}
+          reload={load}
+          editing={editing}
+          setEditing={setEditing}
+        />
+      ) : (
+        <ResourceTable
+          mode={mode}
+          items={items}
+          search={search}
+          setSearch={setSearch}
+          editing={editing}
+          setEditing={setEditing}
+          notify={notify}
+          reload={load}
+        />
+      )}
+    </>
+  );
+}
+function ResourceTable({
+  mode,
+  items,
+  search,
+  setSearch,
+  editing,
+  setEditing,
+  notify,
+  reload,
+}) {
+  const columns =
+    mode === "costs"
+      ? [
+          { key: "item_code", label: "Cost Code" },
+          { key: "item_name", label: "Maliyet kalemi" },
+          {
+            key: "unit_cost",
+            label: "Birim maliyet",
+            render: (r) => money(r.unit_cost),
+          },
+          { key: "unit_desi", label: "Birim desi" },
+          { key: "unit", label: "Birim" },
+          { key: "product_count", label: "Kullanım" },
+        ]
+      : mode === "mappings"
+        ? [
+            { key: "barcode", label: "Barkod" },
+            { key: "product_name", label: "Ürün" },
+            { key: "cost_item_code", label: "Cost Code" },
+            { key: "item_name", label: "Maliyet kalemi" },
+            { key: "quantity", label: "Adet" },
+            {
+              key: "line_cost",
+              label: "Satır maliyeti",
+              render: (r) => money(r.line_cost),
+            },
+            {
+              key: "orphan",
+              label: "Durum",
+              render: (r) => (
+                <Badge tone={r.orphan ? "danger" : "success"}>
+                  {r.orphan ? "Orphan" : "Geçerli"}
+                </Badge>
+              ),
+            },
+          ]
+        : [
+            { key: "category_id", label: "Kategori ID" },
+            { key: "category_name", label: "Kategori" },
+            {
+              key: "commission_rate",
+              label: "Komisyon",
+              render: (r) => `%${r.commission_rate}`,
+            },
+            { key: "product_count", label: "Etkilenen ürün" },
+            { key: "note", label: "Not" },
+          ];
+  const filtered = useMemo(
+    () =>
+      items.filter((x) =>
+        JSON.stringify(x).toLowerCase().includes(search.toLowerCase()),
+      ),
+    [items, search],
+  );
+  return (
+    <>
+      <div className="filters">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Listede ara"
+        />
+        {mode === "mappings" && (
+          <Button
+            variant="secondary"
+            icon={Upload}
+            onClick={() => setEditing({ bulk: true })}
+          >
+            Toplu mapping
+          </Button>
+        )}
+      </div>
+      <div className="panel table-panel">
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          onRowClick={(row) => setEditing(row)}
+        />
+      </div>
+      <ResourceModal
+        mode={mode}
+        value={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          reload();
+        }}
+        notify={notify}
+      />
+    </>
+  );
+}
+function ResourceModal({ mode, value, onClose, onSaved, notify }) {
+  const [form, setForm] = useState(value || {}),
+    [saving, setSaving] = useState(false);
+  useEffect(() => setForm(value || {}), [value]);
+  if (!value) return null;
+  async function save() {
+    setSaving(true);
+    try {
+      if (value.bulk) {
+        const rows = form.text
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => {
+            const [barcode, cost_item_code, quantity] = line.split(/[\t;]/);
+            return { barcode, cost_item_code, quantity: Number(quantity) };
+          });
+        const validation = await post("/api/mappings/validate", { rows });
+        if (!validation.data.valid)
+          throw new Error(
+            `Doğrulama hatası: ${validation.data.errors.length} satır`,
+          );
+        await post("/api/mappings/bulk", { rows });
+      } else if (mode === "costs") {
+        const path = value.id
+          ? `/api/cost-items/${value.id}`
+          : "/api/cost-items";
+        await (value.id ? patch(path, form) : post(path, form));
+      } else if (mode === "mappings") {
+        await post("/api/mappings", form);
+      } else {
+        const path = value.category_id
+          ? `/api/commissions/${value.category_id}`
+          : "/api/commissions";
+        await (value.category_id ? patch(path, form) : post(path, form));
+      }
+      notify("Kayıt başarıyla kaydedildi");
+      onSaved();
+    } catch (e) {
+      notify(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function remove() {
+    try {
+      const path =
+        mode === "costs"
+          ? `/api/cost-items/${value.id}`
+          : mode === "mappings"
+            ? `/api/mappings/${value.id}`
+            : null;
+      if (path) await del(path);
+      notify("Kayıt silindi");
+      onSaved();
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  }
+  const set = (k, v) => setForm({ ...form, [k]: v });
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={value.bulk ? "Toplu mapping" : "Kayıt düzenle"}
+    >
+      {value.bulk ? (
+        <div className="modal-body">
+          <Field
+            label="Barkod, Cost Code, Adet"
+            hint="Her satırı tab veya noktalı virgülle ayırın"
+          >
+            <textarea
+              rows="14"
+              value={form.text || ""}
+              onChange={(e) => set("text", e.target.value)}
+              placeholder={"8690609598109\tYUMUSATICI_ACTISOFT_1500ML\t1"}
+            />
+          </Field>
+        </div>
+      ) : (
+        <div className="modal-body form-grid">
+          {mode === "costs" && (
+            <>
+              <Field label="Cost Code">
+                <input
+                  value={form.item_code || ""}
+                  onChange={(e) => set("item_code", e.target.value)}
+                />
+              </Field>
+              <Field label="Maliyet kalemi">
+                <input
+                  value={form.item_name || ""}
+                  onChange={(e) => set("item_name", e.target.value)}
+                />
+              </Field>
+              <Field label="Birim maliyet">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.unit_cost || ""}
+                  onChange={(e) => set("unit_cost", Number(e.target.value))}
+                />
+              </Field>
+              <Field label="Birim desi">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.unit_desi || ""}
+                  onChange={(e) => set("unit_desi", Number(e.target.value))}
+                />
+              </Field>
+              <Field label="Birim">
+                <input
+                  value={form.unit || "adet"}
+                  onChange={(e) => set("unit", e.target.value)}
+                />
+              </Field>
+              <Field label="Not">
+                <input
+                  value={form.note || ""}
+                  onChange={(e) => set("note", e.target.value)}
+                />
+              </Field>
+            </>
+          )}
+          {mode === "mappings" && (
+            <>
+              <Field label="Barkod">
+                <input
+                  value={form.barcode || ""}
+                  onChange={(e) => set("barcode", e.target.value)}
+                />
+              </Field>
+              <Field label="Cost Code">
+                <input
+                  value={form.cost_item_code || ""}
+                  onChange={(e) => set("cost_item_code", e.target.value)}
+                />
+              </Field>
+              <Field label="Adet">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.quantity || 1}
+                  onChange={(e) => set("quantity", Number(e.target.value))}
+                />
+              </Field>
+            </>
+          )}
+          {mode === "commissions" && (
+            <>
+              <Field label="Kategori ID">
+                <input
+                  value={form.category_id || ""}
+                  onChange={(e) => set("category_id", e.target.value)}
+                />
+              </Field>
+              <Field label="Kategori adı">
+                <input
+                  value={form.category_name || ""}
+                  onChange={(e) => set("category_name", e.target.value)}
+                />
+              </Field>
+              <Field label="Komisyon %">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.commission_rate || ""}
+                  onChange={(e) =>
+                    set("commission_rate", Number(e.target.value))
+                  }
+                />
+              </Field>
+              <Field label="Not">
+                <input
+                  value={form.note || ""}
+                  onChange={(e) => set("note", e.target.value)}
+                />
+              </Field>
+            </>
+          )}
+        </div>
+      )}
+      <footer className="modal-actions">
+        {value.id && mode !== "commissions" && (
+          <Button variant="danger" icon={Trash2} onClick={remove}>
+            Sil
+          </Button>
+        )}
+        <span />
+        <Button variant="secondary" onClick={onClose}>
+          Vazgeç
+        </Button>
+        <Button icon={Save} onClick={save} disabled={saving}>
+          {saving ? "Kaydediliyor" : "Kaydet"}
+        </Button>
+      </footer>
+    </Modal>
+  );
+}
+function Shipping({ data, notify, reload, editing, setEditing }) {
+  const [type, setType] = useState("rates");
+  const sets = {
+    rates: [
+      "Desi tarifeleri",
+      [
+        { key: "carrier", label: "Kargo" },
+        { key: "desi_kg", label: "Desi/KG" },
+        {
+          key: "cost_ex_vat",
+          label: "KDV hariç",
+          render: (r) => money(r.cost_ex_vat),
+        },
+        {
+          key: "cost_inc_vat",
+          label: "KDV dahil",
+          render: (r) => money(r.cost_inc_vat),
+        },
+      ],
+    ],
+    barems: [
+      "Sepet baremleri",
+      [
+        { key: "carrier", label: "Kargo" },
+        { key: "barem_name", label: "Barem" },
+        {
+          key: "min_basket",
+          label: "Min sepet",
+          render: (r) => money(r.min_basket),
+        },
+        {
+          key: "max_basket",
+          label: "Maks sepet",
+          render: (r) => money(r.max_basket),
+        },
+        {
+          key: "cost_ex_vat",
+          label: "KDV hariç",
+          render: (r) => money(r.cost_ex_vat),
+        },
+        {
+          key: "cost_inc_vat",
+          label: "KDV dahil",
+          render: (r) => money(r.cost_inc_vat),
+        },
+      ],
+    ],
+    packaging: [
+      "Ambalaj kuralları",
+      [
+        { key: "min_desi", label: "Min desi" },
+        { key: "max_desi", label: "Maks desi" },
+        {
+          key: "packaging_cost",
+          label: "Ambalaj",
+          render: (r) => money(r.packaging_cost),
+        },
+        { key: "note", label: "Not" },
+      ],
+    ],
+  };
+  const [label, cols] = sets[type];
+  return (
+    <>
+      <div className="tabs page-tabs">
+        {Object.entries(sets).map(([key, [name]]) => (
+          <button
+            key={key}
+            className={type === key ? "active" : ""}
+            onClick={() => setType(key)}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <div className="info-banner">
+        <Calculator />
+        <div>
+          <strong>Sistemin kullandığı maliyet</strong>
+          <p>
+            Sheet ve paneldeki kargo tutarı KDV hariçtir. Hesap motoru yüzde 20
+            KDV eklenmiş gerçek ödeme tutarını kullanır.
+          </p>
+        </div>
+      </div>
+      <div className="panel table-panel">
+        <DataTable
+          columns={cols}
+          rows={data[type]}
+          onRowClick={(row) => setEditing({ ...row, type })}
+        />
+      </div>
+      <ShippingModal
+        value={editing}
+        type={type}
+        onClose={() => setEditing(null)}
+        notify={notify}
+        onSaved={() => {
+          setEditing(null);
+          reload();
+        }}
+      />
+    </>
+  );
+}
+function ShippingModal({ value, type, onClose, notify, onSaved }) {
+  const [form, setForm] = useState(value || {});
+  useEffect(() => setForm(value || {}), [value]);
+  if (!value) return null;
+  const actual = value.type || type;
+  const set = (k, v) => setForm({ ...form, [k]: v });
+  async function save() {
+    try {
+      if (actual === "rates") await post("/api/shipping/rates", form);
+      else if (actual === "barems") await post("/api/shipping/barems", form);
+      else
+        await (value.id
+          ? patch(`/api/packaging-rules/${value.id}`, form)
+          : post("/api/packaging-rules", form));
+      notify("Kural kaydedildi");
+      onSaved();
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title="Kargo / ambalaj kuralı">
+      <div className="modal-body form-grid">
+        {actual === "rates" && (
+          <>
+            <Field label="Kargo firması">
+              <input
+                value={form.carrier || "TEX"}
+                onChange={(e) => set("carrier", e.target.value)}
+              />
+            </Field>
+            <Field label="Desi / KG">
+              <input
+                type="number"
+                value={form.desi_kg || 0}
+                onChange={(e) => set("desi_kg", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="KDV hariç maliyet">
+              <input
+                type="number"
+                step="0.01"
+                value={form.cost_ex_vat || 0}
+                onChange={(e) => set("cost_ex_vat", Number(e.target.value))}
+              />
+            </Field>
+          </>
+        )}
+        {actual === "barems" && (
+          <>
+            <Field label="Kargo firması">
+              <input
+                value={form.carrier || "TEX"}
+                onChange={(e) => set("carrier", e.target.value)}
+              />
+            </Field>
+            <Field label="Barem adı">
+              <input
+                value={form.barem_name || ""}
+                onChange={(e) => set("barem_name", e.target.value)}
+              />
+            </Field>
+            <Field label="Min sepet">
+              <input
+                type="number"
+                value={form.min_basket || 0}
+                onChange={(e) => set("min_basket", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Maks sepet">
+              <input
+                type="number"
+                value={form.max_basket || 0}
+                onChange={(e) => set("max_basket", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="KDV hariç maliyet">
+              <input
+                type="number"
+                step="0.01"
+                value={form.cost_ex_vat || 0}
+                onChange={(e) => set("cost_ex_vat", Number(e.target.value))}
+              />
+            </Field>
+          </>
+        )}
+        {actual === "packaging" && (
+          <>
+            <Field label="Min desi">
+              <input
+                type="number"
+                value={form.min_desi || 0}
+                onChange={(e) => set("min_desi", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Maks desi">
+              <input
+                type="number"
+                value={form.max_desi || 0}
+                onChange={(e) => set("max_desi", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Maliyet">
+              <input
+                type="number"
+                step="0.01"
+                value={form.packaging_cost || 0}
+                onChange={(e) => set("packaging_cost", Number(e.target.value))}
+              />
+            </Field>
+          </>
+        )}
+      </div>
+      <footer className="modal-actions">
+        <Button variant="secondary" onClick={onClose}>
+          Vazgeç
+        </Button>
+        <Button icon={Save} onClick={save}>
+          Kaydet
+        </Button>
+      </footer>
+    </Modal>
+  );
+}

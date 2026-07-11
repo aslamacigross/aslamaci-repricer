@@ -1,6 +1,10 @@
 const SORT_COLUMNS = {
-  name: "p.product_name", price: "p.my_price", profit: "p.calculated_net_profit",
-  margin: "p.calculated_net_margin", updated: "p.updated_at", rank: "p.rank"
+  name: "p.product_name",
+  price: "p.my_price",
+  profit: "p.calculated_net_profit",
+  margin: "p.calculated_net_margin",
+  updated: "p.updated_at",
+  rank: "p.rank",
 };
 
 class ProductRepository {
@@ -11,26 +15,49 @@ class ProductRepository {
   async list(filters) {
     const params = [filters.marketplace || "TRENDYOL"];
     const where = ["p.marketplace = $1"];
-    const add = (sql, value) => { params.push(value); where.push(sql.replace("?", `$${params.length}`)); };
-    if (filters.search) add("(p.barcode ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)", `%${filters.search}%`);
-    if (filters.search) { const value = params.pop(); const start = params.length + 1; params.push(value, value, value); where[where.length - 1] = `(p.barcode ILIKE $${start} OR p.product_name ILIKE $${start + 1} OR p.brand ILIKE $${start + 2})`; }
+    const add = (sql, value) => {
+      params.push(value);
+      where.push(sql.replace("?", `$${params.length}`));
+    };
+    if (filters.search)
+      add(
+        "(p.barcode ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
+        `%${filters.search}%`,
+      );
+    if (filters.search) {
+      const value = params.pop();
+      const start = params.length + 1;
+      params.push(value, value, value);
+      where[where.length - 1] =
+        `(p.barcode ILIKE $${start} OR p.product_name ILIKE $${start + 1} OR p.brand ILIKE $${start + 2})`;
+    }
     if (filters.active !== undefined) add("p.is_active = ?", filters.active);
-    if (filters.stocked !== undefined) add(filters.stocked ? "p.stock_quantity > ?" : "p.stock_quantity <= ?", 0);
+    if (filters.stocked !== undefined)
+      add(
+        filters.stocked ? "p.stock_quantity > ?" : "p.stock_quantity <= ?",
+        0,
+      );
     if (filters.category) add("p.category_id = ?", filters.category);
     if (filters.brand) add("p.brand = ?", filters.brand);
     if (filters.status === "incomplete") where.push("p.data_complete = FALSE");
     if (filters.status === "loss") where.push("p.calculated_net_profit < 0");
     if (filters.status === "below_min") where.push("p.my_price < p.min_price");
     if (filters.status === "buybox") where.push("p.rank = 1");
-    if (filters.status === "outside_buybox") where.push("p.rank IS DISTINCT FROM 1");
-    if (filters.autoUpdate !== undefined) add("p.auto_update = ?", filters.autoUpdate);
+    if (filters.status === "outside_buybox")
+      where.push("p.rank IS DISTINCT FROM 1");
+    if (filters.autoUpdate !== undefined)
+      add("p.auto_update = ?", filters.autoUpdate);
 
     const page = Math.max(Number(filters.page) || 1, 1);
     const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200);
     const offset = (page - 1) * limit;
     const sort = SORT_COLUMNS[filters.sort] || "p.product_name";
-    const direction = String(filters.direction).toLowerCase() === "desc" ? "DESC" : "ASC";
-    const count = await this.db.query(`SELECT COUNT(*) FROM products p WHERE ${where.join(" AND ")}`, params);
+    const direction =
+      String(filters.direction).toLowerCase() === "desc" ? "DESC" : "ASC";
+    const count = await this.db.query(
+      `SELECT COUNT(*) FROM products p WHERE ${where.join(" AND ")}`,
+      params,
+    );
     params.push(limit, offset);
     const data = await this.db.query(
       `SELECT p.*, COALESCE(ps.strategy, 'Manuel') AS strategy, COALESCE(ps.mode, 'MANUAL') AS repricer_mode,
@@ -45,27 +72,50 @@ class ProductRepository {
        ) la ON TRUE
        WHERE ${where.join(" AND ")} ORDER BY ${sort} ${direction} NULLS LAST
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      params,
     );
-    return { items: data.rows, total: Number(count.rows[0].count), page, limit };
+    return {
+      items: data.rows,
+      total: Number(count.rows[0].count),
+      page,
+      limit,
+    };
   }
 
   async get(barcode, marketplace = "TRENDYOL") {
-    return (await this.db.query(
-      `SELECT p.*, row_to_json(ps) AS settings, row_to_json(rl) AS learning
+    return (
+      await this.db.query(
+        `SELECT p.*, row_to_json(ps) AS settings, row_to_json(rl) AS learning
        FROM products p
        LEFT JOIN product_settings ps ON ps.marketplace=p.marketplace AND ps.barcode=p.barcode
        LEFT JOIN repricer_learning rl ON rl.marketplace=p.marketplace AND rl.barcode=p.barcode
-       WHERE p.marketplace=$1 AND p.barcode=$2`, [marketplace, barcode]
-    )).rows[0];
+       WHERE p.marketplace=$1 AND p.barcode=$2`,
+        [marketplace, barcode],
+      )
+    ).rows[0];
   }
 
   async updateSettings(barcode, input, marketplace = "TRENDYOL") {
-    const values = [marketplace, barcode, input.strategy, input.price_cut_tl, input.max_increase_tl,
-      input.max_daily_change_pct, input.minimum_profit_tl, input.minimum_margin_pct, input.minimum_price,
-      input.maximum_price, input.min_change_interval_minutes, input.daily_action_limit,
-      input.buybox_max_age_minutes, Boolean(input.blacklisted), Boolean(input.learning_enabled), input.mode,
-      Boolean(input.auto_update), input.note || null];
+    const values = [
+      marketplace,
+      barcode,
+      input.strategy,
+      input.price_cut_tl,
+      input.max_increase_tl,
+      input.max_daily_change_pct,
+      input.minimum_profit_tl,
+      input.minimum_margin_pct,
+      input.minimum_price,
+      input.maximum_price,
+      input.min_change_interval_minutes,
+      input.daily_action_limit,
+      input.buybox_max_age_minutes,
+      Boolean(input.blacklisted),
+      Boolean(input.learning_enabled),
+      input.mode,
+      Boolean(input.auto_update),
+      input.note || null,
+    ];
     const result = await this.db.query(
       `INSERT INTO product_settings(
          marketplace, barcode, strategy, price_cut_tl, max_increase_tl, max_daily_change_pct,
@@ -79,11 +129,18 @@ class ProductRepository {
          maximum_price=EXCLUDED.maximum_price, min_change_interval_minutes=EXCLUDED.min_change_interval_minutes,
          daily_action_limit=EXCLUDED.daily_action_limit, buybox_max_age_minutes=EXCLUDED.buybox_max_age_minutes,
          blacklisted=EXCLUDED.blacklisted, learning_enabled=EXCLUDED.learning_enabled, mode=EXCLUDED.mode,
-         auto_update=EXCLUDED.auto_update, note=EXCLUDED.note, updated_at=NOW() RETURNING *`, values
+         auto_update=EXCLUDED.auto_update, note=EXCLUDED.note, updated_at=NOW() RETURNING *`,
+      values,
     );
     await this.db.query(
       `UPDATE products SET auto_update=$1, target_profit=COALESCE($2,target_profit), updated_at=NOW()
-       WHERE marketplace=$3 AND barcode=$4`, [Boolean(input.auto_update), input.minimum_profit_tl, marketplace, barcode]
+       WHERE marketplace=$3 AND barcode=$4`,
+      [
+        Boolean(input.auto_update),
+        input.minimum_profit_tl,
+        marketplace,
+        barcode,
+      ],
     );
     return result.rows[0];
   }
@@ -91,13 +148,16 @@ class ProductRepository {
   async breakdown(barcode, marketplace = "TRENDYOL") {
     const product = await this.get(barcode, marketplace);
     if (!product) return null;
-    const mappings = (await this.db.query(
-      `SELECT pcm.*, ci.item_name, ci.unit_cost, ci.unit_desi,
+    const mappings = (
+      await this.db.query(
+        `SELECT pcm.*, ci.item_name, ci.unit_cost, ci.unit_desi,
               pcm.quantity * ci.unit_cost AS line_cost, pcm.quantity * ci.unit_desi AS line_desi,
               (ci.item_code IS NULL) AS orphan
        FROM product_cost_mappings pcm LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-       WHERE pcm.marketplace=$1 AND pcm.barcode=$2 ORDER BY ci.item_name`, [marketplace, barcode]
-    )).rows;
+       WHERE pcm.marketplace=$1 AND pcm.barcode=$2 ORDER BY ci.item_name`,
+        [marketplace, barcode],
+      )
+    ).rows;
     return { product, mappings };
   }
 
@@ -105,7 +165,7 @@ class ProductRepository {
     const queries = {
       buybox: `SELECT * FROM repricer_observations WHERE barcode=$1 ORDER BY observed_at DESC LIMIT 250`,
       price: `SELECT * FROM price_war_log WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`,
-      repricer: `SELECT * FROM repricer_actions WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`
+      repricer: `SELECT * FROM repricer_actions WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`,
     };
     return (await this.db.query(queries[type], [barcode])).rows;
   }

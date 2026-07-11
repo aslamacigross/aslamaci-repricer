@@ -10,7 +10,11 @@ function roundMoney(value) {
 
 function parseBoolean(value) {
   if (typeof value === "boolean") return value;
-  return ["1", "true", "yes", "evet"].includes(String(value || "").trim().toLowerCase());
+  return ["1", "true", "yes", "evet"].includes(
+    String(value || "")
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 module.exports = { parseNumber, roundMoney, parseBoolean };

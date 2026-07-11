@@ -24,7 +24,8 @@ const env = {
   adminUsername: process.env.ADMIN_USERNAME || "admin",
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || "",
-  sessionSecret: process.env.SESSION_SECRET || "local-development-session-secret-only",
+  sessionSecret:
+    process.env.SESSION_SECRET || "local-development-session-secret-only",
   allowedOrigin: process.env.ALLOWED_ORIGIN || "",
   dryRun: bool(process.env.DRY_RUN, true),
   repricerEnabled: bool(process.env.REPRICER_ENABLED, false),
@@ -42,20 +43,29 @@ const env = {
   sheetsSyncMinutes: number(process.env.SHEETS_SYNC_CRON_MINUTES, 1440),
   logRetentionDays: number(process.env.LOG_RETENTION_DAYS, 90),
   skipMigrations: bool(process.env.SKIP_MIGRATIONS, false),
-  demoMode: bool(process.env.DEMO_MODE, false)
+  demoMode: bool(process.env.DEMO_MODE, false),
 };
 
 function validateEnv() {
   const errors = [];
   if (env.nodeEnv === "production") {
     if (!env.databaseUrl) errors.push("DATABASE_URL zorunlu");
-    if (!env.adminPasswordHash && (env.adminPassword === "change-me" || env.adminPassword.length < 12)) {
+    if (
+      !env.adminPasswordHash &&
+      (env.adminPassword === "change-me" || env.adminPassword.length < 12)
+    ) {
       errors.push("ADMIN_PASSWORD production icin en az 12 karakter olmali");
     }
-    if (env.adminPasswordHash && !/^[a-f0-9]+:[a-f0-9]+$/i.test(env.adminPasswordHash)) errors.push("ADMIN_PASSWORD_HASH formati gecersiz");
-    if (env.sessionSecret.length < 32) errors.push("SESSION_SECRET en az 32 karakter olmali");
+    if (
+      env.adminPasswordHash &&
+      !/^[a-f0-9]+:[a-f0-9]+$/i.test(env.adminPasswordHash)
+    )
+      errors.push("ADMIN_PASSWORD_HASH formati gecersiz");
+    if (env.sessionSecret.length < 32)
+      errors.push("SESSION_SECRET en az 32 karakter olmali");
   }
-  if (errors.length) throw new Error(`Environment validation failed: ${errors.join("; ")}`);
+  if (errors.length)
+    throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }
 
 module.exports = { env, validateEnv, bool, number };

@@ -4,22 +4,30 @@ class SettingsRepository {
   }
 
   async getAll() {
-    const result = await this.db.query("SELECT key, value, description, updated_by, updated_at FROM system_settings ORDER BY key");
-    return Object.fromEntries(result.rows.map(row => [row.key, row.value]));
+    const result = await this.db.query(
+      "SELECT key, value, description, updated_by, updated_at FROM system_settings ORDER BY key",
+    );
+    return Object.fromEntries(result.rows.map((row) => [row.key, row.value]));
   }
 
   async list() {
-    return (await this.db.query("SELECT key, value, description, updated_by, updated_at FROM system_settings ORDER BY key")).rows;
+    return (
+      await this.db.query(
+        "SELECT key, value, description, updated_by, updated_at FROM system_settings ORDER BY key",
+      )
+    ).rows;
   }
 
   async set(key, value, actor) {
-    return (await this.db.query(
-      `INSERT INTO system_settings(key, value, updated_by, updated_at)
+    return (
+      await this.db.query(
+        `INSERT INTO system_settings(key, value, updated_by, updated_at)
        VALUES ($1, $2::jsonb, $3, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
        RETURNING *`,
-      [key, JSON.stringify(value), actor]
-    )).rows[0];
+        [key, JSON.stringify(value), actor],
+      )
+    ).rows[0];
   }
 }
 

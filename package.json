@@ -17,7 +17,8 @@
     "test": "node --test --test-reporter=spec tests/**/*.test.js",
     "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js",
     "check": "node --check index.js && node --check src/server.js",
-    "lint": "eslint src scripts tests client/src --ext .js,.jsx"
+    "lint": "eslint src scripts tests client/src --ext .js,.jsx",
+    "format:check": "prettier --check src client scripts tests package.json .eslintrc.cjs"
   },
   "engines": {
     "node": ">=20"
@@ -38,6 +39,7 @@
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^5.2.0",
     "pg-mem": "^3.0.5",
+    "prettier": "^3.5.3",
     "supertest": "^7.0.0",
     "vite": "^6.0.7"
   }

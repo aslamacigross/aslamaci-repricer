@@ -1,4 +1,77 @@
-import React,{lazy,Suspense,useEffect,useState}from"react";import{get,post,setCsrf}from"./lib/api";import Shell from"./components/Shell";import{Loading,Toast}from"./components/ui";import Login from"./pages/Login";
-const Dashboard=lazy(()=>import("./pages/Dashboard"));const Products=lazy(()=>import("./pages/Products"));const Costs=lazy(()=>import("./pages/Costs"));const Operations=lazy(()=>import("./pages/Operations"));
-const pageMap={dashboard:Dashboard,products:Products,costs:Costs,mappings:Costs,commissions:Costs,shipping:Costs,buybox:Operations,repricer:Operations,actions:Operations,learning:Operations,jobs:Operations,logs:Operations,settings:Operations};
-export default function App(){const[user,setUser]=useState(null),[checking,setChecking]=useState(true),[route,setRoute]=useState(location.hash.slice(1)||"dashboard"),[toast,setToast]=useState(null),[dryRun,setDryRun]=useState(true);useEffect(()=>{const fn=()=>setRoute(location.hash.slice(1)||"dashboard");addEventListener("hashchange",fn);get("/api/auth/me").then(x=>{setCsrf(x.csrfToken);setUser(x.user);return get("/api/repricer/settings")}).then(x=>setDryRun(Boolean(x.data.dryRun))).catch(()=>setUser(null)).finally(()=>setChecking(false));return()=>removeEventListener("hashchange",fn)},[]);function navigate(next){location.hash=next;setRoute(next)}async function logout(){try{await post("/api/auth/logout")}finally{setCsrf("");setUser(null)}}if(checking)return <Loading/>;if(!user)return <Login onLogin={setUser}/>;const Page=pageMap[route]||Dashboard;return <Shell route={route}onNavigate={navigate}onLogout={logout}dryRun={dryRun}><Suspense fallback={<Loading/>}><Page mode={route}notify={(message,type="success")=>setToast({message,type})}setDryRun={setDryRun}/></Suspense><Toast toast={toast}onClose={()=>setToast(null)}/></Shell>}
+import React, { lazy, Suspense, useEffect, useState } from "react";
+import { get, post, setCsrf } from "./lib/api";
+import Shell from "./components/Shell";
+import { Loading, Toast } from "./components/ui";
+import Login from "./pages/Login";
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Products = lazy(() => import("./pages/Products"));
+const Costs = lazy(() => import("./pages/Costs"));
+const Operations = lazy(() => import("./pages/Operations"));
+const pageMap = {
+  dashboard: Dashboard,
+  products: Products,
+  costs: Costs,
+  mappings: Costs,
+  commissions: Costs,
+  shipping: Costs,
+  buybox: Operations,
+  repricer: Operations,
+  actions: Operations,
+  learning: Operations,
+  jobs: Operations,
+  logs: Operations,
+  settings: Operations,
+};
+export default function App() {
+  const [user, setUser] = useState(null),
+    [checking, setChecking] = useState(true),
+    [route, setRoute] = useState(location.hash.slice(1) || "dashboard"),
+    [toast, setToast] = useState(null),
+    [dryRun, setDryRun] = useState(true);
+  useEffect(() => {
+    const fn = () => setRoute(location.hash.slice(1) || "dashboard");
+    addEventListener("hashchange", fn);
+    get("/api/auth/me")
+      .then((x) => {
+        setCsrf(x.csrfToken);
+        setUser(x.user);
+        return get("/api/repricer/settings");
+      })
+      .then((x) => setDryRun(Boolean(x.data.dryRun)))
+      .catch(() => setUser(null))
+      .finally(() => setChecking(false));
+    return () => removeEventListener("hashchange", fn);
+  }, []);
+  function navigate(next) {
+    location.hash = next;
+    setRoute(next);
+  }
+  async function logout() {
+    try {
+      await post("/api/auth/logout");
+    } finally {
+      setCsrf("");
+      setUser(null);
+    }
+  }
+  if (checking) return <Loading />;
+  if (!user) return <Login onLogin={setUser} />;
+  const Page = pageMap[route] || Dashboard;
+  return (
+    <Shell
+      route={route}
+      onNavigate={navigate}
+      onLogout={logout}
+      dryRun={dryRun}
+    >
+      <Suspense fallback={<Loading />}>
+        <Page
+          mode={route}
+          notify={(message, type = "success") => setToast({ message, type })}
+          setDryRun={setDryRun}
+        />
+      </Suspense>
+      <Toast toast={toast} onClose={() => setToast(null)} />
+    </Shell>
+  );
+}

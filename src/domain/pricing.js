@@ -16,8 +16,12 @@ function calculateNetProfit(input) {
   const salePrice = parseNumber(input.salePrice);
   const commission = salePrice * (parseNumber(input.commissionRate) / 100);
   return roundMoney(
-    salePrice - commission - parseNumber(input.productCost) - parseNumber(input.shippingCost) -
-      parseNumber(input.packagingCost) - parseNumber(input.serviceFee)
+    salePrice -
+      commission -
+      parseNumber(input.productCost) -
+      parseNumber(input.shippingCost) -
+      parseNumber(input.packagingCost) -
+      parseNumber(input.serviceFee),
   );
 }
 
@@ -27,21 +31,35 @@ function calculateNetMargin(input) {
   return roundMoney((calculateNetProfit(input) / salePrice) * 100);
 }
 
-function selectShippingCost({ salePrice, desi, barems = [], costs = [], carrier }) {
+function selectShippingCost({
+  salePrice,
+  desi,
+  barems = [],
+  costs = [],
+  carrier,
+}) {
   const price = parseNumber(salePrice);
   const roundedDesi = Math.ceil(parseNumber(desi));
   const barem = barems.find(
-    item => item.carrier === carrier && price >= parseNumber(item.min_basket) && price <= parseNumber(item.max_basket)
+    (item) =>
+      item.carrier === carrier &&
+      price >= parseNumber(item.min_basket) &&
+      price <= parseNumber(item.max_basket),
   );
   if (barem) return parseNumber(barem.cost_inc_vat);
-  const cost = costs.find(item => item.carrier === carrier && parseNumber(item.desi_kg) === roundedDesi);
+  const cost = costs.find(
+    (item) =>
+      item.carrier === carrier && parseNumber(item.desi_kg) === roundedDesi,
+  );
   return cost ? parseNumber(cost.cost_inc_vat) : 0;
 }
 
 function selectPackagingCost(desi, rules = []) {
   const roundedDesi = Math.ceil(parseNumber(desi));
   const rule = rules.find(
-    item => roundedDesi >= parseNumber(item.min_desi) && roundedDesi <= parseNumber(item.max_desi)
+    (item) =>
+      roundedDesi >= parseNumber(item.min_desi) &&
+      roundedDesi <= parseNumber(item.max_desi),
   );
   return rule ? parseNumber(rule.packaging_cost) : 0;
 }
@@ -63,5 +81,5 @@ module.exports = {
   calculateNetMargin,
   selectShippingCost,
   selectPackagingCost,
-  isCostComplete
+  isCostComplete,
 };

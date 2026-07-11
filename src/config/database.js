@@ -6,7 +6,7 @@ const pool = new Pool({
   ssl: env.nodeEnv === "production" ? { rejectUnauthorized: false } : false,
   max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000
+  connectionTimeoutMillis: 10000,
 });
 
 async function withTransaction(work) {

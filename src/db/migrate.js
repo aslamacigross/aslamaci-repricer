@@ -12,12 +12,18 @@ async function migrate(direction = "up", database = pool) {
     )
   `);
 
-  let files = fs.readdirSync(directory).filter(file => file.endsWith(`.${direction}.sql`)).sort();
-  if (direction === "down") files = files.reverse().slice(0,1);
+  let files = fs
+    .readdirSync(directory)
+    .filter((file) => file.endsWith(`.${direction}.sql`))
+    .sort();
+  if (direction === "down") files = files.reverse().slice(0, 1);
 
   for (const file of files) {
     const version = file.split(".")[0];
-    const applied = await database.query("SELECT 1 FROM schema_migrations WHERE version = $1", [version]);
+    const applied = await database.query(
+      "SELECT 1 FROM schema_migrations WHERE version = $1",
+      [version],
+    );
     if (direction === "up" ? applied.rowCount : !applied.rowCount) continue;
 
     const client = await database.connect();
@@ -25,9 +31,14 @@ async function migrate(direction = "up", database = pool) {
       await client.query("BEGIN");
       await client.query(fs.readFileSync(path.join(directory, file), "utf8"));
       if (direction === "up") {
-        await client.query("INSERT INTO schema_migrations(version) VALUES ($1)", [version]);
+        await client.query(
+          "INSERT INTO schema_migrations(version) VALUES ($1)",
+          [version],
+        );
       } else {
-        await client.query("DELETE FROM schema_migrations WHERE version = $1", [version]);
+        await client.query("DELETE FROM schema_migrations WHERE version = $1", [
+          version,
+        ]);
       }
       await client.query("COMMIT");
     } catch (error) {
@@ -43,7 +54,7 @@ async function migrate(direction = "up", database = pool) {
 if (require.main === module) {
   migrate(process.argv[2] || "up")
     .then(() => pool.end())
-    .catch(async error => {
+    .catch(async (error) => {
       console.error(error.message);
       process.exitCode = 1;
       await pool.end();

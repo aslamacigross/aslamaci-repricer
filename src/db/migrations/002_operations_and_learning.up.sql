@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS repricer_actions (
   rank_before INTEGER,
   second_price NUMERIC(14,2),
   third_price NUMERIC(14,2),
+  net_profit_before NUMERIC(14,2),
   expected_profit NUMERIC(14,2),
   expected_margin NUMERIC(10,4),
   safety_checks JSONB DEFAULT '{}'::jsonb,

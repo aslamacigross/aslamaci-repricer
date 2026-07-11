@@ -1,13 +1,19 @@
-const {env}=require("../config/env");
+const { env } = require("../config/env");
 
-class CostEngineService{
-  constructor(db){this.db=db;}
+class CostEngineService {
+  constructor(db) {
+    this.db = db;
+  }
 
-  async recalculate(barcode){
-    const params=[env.defaultCarrier,env.defaultServiceFee];
-    let filter="";
-    if(barcode){params.push(barcode);filter=`AND p.barcode=$${params.length}`;}
-    const result=await this.db.query(`
+  async recalculate(barcode) {
+    const params = [env.defaultCarrier, env.defaultServiceFee];
+    let filter = "";
+    if (barcode) {
+      params.push(barcode);
+      filter = `AND p.barcode=$${params.length}`;
+    }
+    const result = await this.db.query(
+      `
       WITH mapping_totals AS (
         SELECT pcm.marketplace,pcm.barcode,
           SUM(pcm.quantity*ci.unit_cost) product_cost,
@@ -55,9 +61,11 @@ class CostEngineService{
           WHEN NOT c.packaging_rule_found THEN 'PACKAGING_MISSING' ELSE 'COMPLETE' END,
         updated_at=NOW()
       FROM calculated c WHERE p.marketplace=c.marketplace AND p.barcode=c.barcode RETURNING p.barcode,p.data_complete,p.min_price
-    `,params);
-    return {processed:result.rowCount,items:result.rows};
+    `,
+      params,
+    );
+    return { processed: result.rowCount, items: result.rows };
   }
 }
 
-module.exports={CostEngineService};
+module.exports = { CostEngineService };
