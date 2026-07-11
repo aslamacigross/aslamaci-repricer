@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS competitor_price_observations;
+DROP TABLE IF EXISTS repricer_outcomes;
+DROP TABLE IF EXISTS repricer_observations;
+DROP TABLE IF EXISTS repricer_decisions;
+DROP TABLE IF EXISTS repricer_actions;
+DROP TABLE IF EXISTS integration_logs;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS job_runs;
+DROP TABLE IF EXISTS jobs;
