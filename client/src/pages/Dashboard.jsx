@@ -49,6 +49,8 @@ const cards = [
   ["stale_buybox", "Eski buybox verisi", TriangleAlert, "danger"],
   ["auto_update_enabled", "Otomatik repricer", Activity, "info"],
   ["actions_24h", "24 saat aksiyon", RefreshCw, "info"],
+  ["successful_actions_24h", "Başarılı aksiyon", ShieldCheck, "success"],
+  ["failed_actions_24h", "Başarısız aksiyon", TriangleAlert, "danger"],
 ];
 export default function Dashboard() {
   const { data, loading, error, reload } = useRemote(
@@ -59,10 +61,10 @@ export default function Dashboard() {
   if (error) return <ErrorState error={error} retry={reload} />;
   const d = data.data,
     k = d.kpis || {};
-  const lastJob = [...(d.jobs || [])].sort(
-    (a, b) =>
-      new Date(b.last_started_at || 0) - new Date(a.last_started_at || 0),
-  )[0];
+  const productSync = d.jobs.find((job) => job.job_name === "sync-products"),
+    buyboxSync = d.jobs.find((job) => job.job_name === "sync-buybox"),
+    dryRun = d.settings?.global_dry_run !== false,
+    repricerEnabled = d.settings?.global_repricer_enabled === true;
   return (
     <>
       <PageHeader
@@ -265,12 +267,22 @@ export default function Dashboard() {
           <small>{date(d.lastError?.created_at)}</small>
         </div>
         <div>
-          <span>Job durumu</span>
-          <strong>
-            {d.jobs.filter((j) => j.last_status === "SUCCESS").length}/
-            {d.jobs.length} başarılı
-          </strong>
-          <small>Son sync: {date(lastJob?.last_started_at)}</small>
+          <span>Güvenlik modu</span>
+          <strong>{dryRun ? "DRY-RUN AÇIK" : "CANLI MOD"}</strong>
+          <small>
+            Repricer {repricerEnabled ? "açık" : "kapalı"} · Bakım modu{" "}
+            {d.settings?.maintenance_mode ? "açık" : "kapalı"}
+          </small>
+        </div>
+        <div>
+          <span>Son ürün sync</span>
+          <strong>{productSync?.last_status || "Henüz çalışmadı"}</strong>
+          <small>{date(productSync?.last_started_at)}</small>
+        </div>
+        <div>
+          <span>Son buybox sync</span>
+          <strong>{buyboxSync?.last_status || "Henüz çalışmadı"}</strong>
+          <small>{date(buyboxSync?.last_started_at)}</small>
         </div>
       </section>
     </>

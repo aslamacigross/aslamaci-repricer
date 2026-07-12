@@ -19,6 +19,11 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - Kolon görünürlüğü, güvenli toplu mapping önizlemesi ve mapping çoğaltma
 - Buybox geçmiş grafiği, kargo hesaplayıcı ve eksik tarife uyarıları
 - Bakım modu, migration-aware readiness ve fiyat aksiyonu düzenleyip onaylama
+- Tüm operasyon tablolarında CSV dışa aktarma ve kalıcı kolon görünürlüğü
+- Transaction içinde toplu maliyet kalemi upsert ve silme onayları
+- Mapping, Buybox ve fiyat aksiyonu listelerinde gerçek veri hacmine uygun sayfalama
+- Son fiyat denemeleri, strateji puanları ve açıklamalı sonraki adımla öğrenme detayı
+- Dashboard üzerinde dry-run, global repricer ve ayrı ürün/buybox sync durumu
 
 ## Gereksinimler
 
@@ -84,7 +89,7 @@ V2 ile eklenenler:
 - `DRY_RUN`: varsayılan `true`
 - `REPRICER_ENABLED`: varsayılan `false`
 - `JOBS_ENABLED`: varsayılan `true`
-- `GOOGLE_SHEETS_SYNC_ENABLED`: varsayılan `true`
+- `GOOGLE_SHEETS_SYNC_ENABLED`: varsayılan `false`; panel ayarıyla birlikte iki kapılı güvenlik
 - `DEFAULT_CARRIER`: varsayılan `TEX`
 - `DEFAULT_SERVICE_FEE`: varsayılan `13.19`
 - `DEFAULT_TARGET_PROFIT`: varsayılan `40`
@@ -92,11 +97,8 @@ V2 ile eklenenler:
 - `BUYBOX_MAX_AGE_MINUTES`: varsayılan `20`
 - `GLOBAL_MAX_PRICE_CHANGE_PCT`: varsayılan `15`
 - `MIN_PRICE_CHANGE_TL`: varsayılan `0.10`
-- `PRODUCT_SYNC_CRON_MINUTES`: varsayılan `360`
-- `BUYBOX_SYNC_CRON_MINUTES`: varsayılan `10`
-- `REPRICER_CRON_MINUTES`: varsayılan `10`
-- `SHEETS_SYNC_CRON_MINUTES`: varsayılan `1440`
 - `LOG_RETENTION_DAYS`: varsayılan `90`
+- `SKIP_MIGRATIONS`: yalnızca kontrollü bakımda migration başlangıcını atlar; varsayılan `false`
 
 Tam liste [.env.example](.env.example) dosyasındadır.
 
@@ -116,6 +118,11 @@ PostgreSQL ana veri kaynağıdır. Sheets yalnızca geçiş, toplu düzenleme ve
 
 Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister.
 Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz.
+Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebilir; tüm satırlar doğrulanmadan transaction başlamaz.
+
+Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından yönetilir. Böylece panelde yapılan değişiklikler servis yeniden başladığında korunur.
+
+Mapping ve Buybox ekranları bütün Trendyol ürün kümesini yükler, arama sonrası 100 satırlık sayfalara böler. Fiyat aksiyonları server-side sayfalanır. CSV aktarımı seçili kolonları ve filtrelenmiş kayıt kümesini kullanır.
 
 ## Railway
 

@@ -69,7 +69,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 ## Doğrulama Durumu
 
-- 69 backend unit/integration/regression, 2 React bileşen ve 2 Chrome uçtan uca testi geçiyor.
+- 78 backend unit/integration/regression, 4 React bileşen ve 3 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -81,7 +81,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Menekşe manuel aksiyonu `PENDING -> APPROVED -> DRY_RUN` oldu; Trendyol çağrısı yapılmadı ve ürün fiyatı 322,00 TL kaldı.
 - Login, dashboard, ürün detay/maliyet kırılımı, buybox, repricer, aksiyon, öğrenme, job, log ve ayar ekranları desktopta; dashboard ve ürün listesi 390x844 mobil viewportta görsel olarak doğrulandı.
 - Preview güvenlik durumu: dry-run açık; global repricer, scheduler ve otomatik Sheet sync kapalı.
-- Son kabul sürümü `6c4fe92`; `/version`, `/health` ve migration-aware `/ready` başarılıdır.
+- Son kabulde `/version` branch HEAD ile eşleşmiş; `/health` ve migration-aware `/ready` başarılıdır.
 - Panel kabuğu `Cache-Control: no-store`, içerik hash'li statik dosyalar `immutable` olarak sunulur; yeni deploy sonrası eski panel sürümünün tarayıcıda kalması engellenmiştir.
 - Production uygulaması, veritabanı ve öğrenen pilot geçmişi değiştirilmedi.
 - Para motoru kuruş/oran ölçekli tam sayı aritmetiği kullanıyor; mapping önizlemesi de aynı hassasiyeti koruyor.
@@ -89,3 +89,5 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Panelde kolon görünürlüğü, mapping önizleme/çoğaltma, maliyet kullanım/geçmişi, eksik komisyon ve kargo tarifesi uyarıları, kargo hesaplayıcı, buybox geçmiş grafiği ve fiyat düzenleyip onaylama akışları tamamlandı.
 - Cost code mevcut olsa bile birim maliyet veya desisi sıfır olan mapping panelde `Maliyet eksik` gösterilir ve yeni toplu mappinge alınmaz.
 - Gerçek preview verisinde 201 satırlık buybox tablosu ve geçmiş grafiği, fiyat aksiyonu listesi ve sistem ayarları son kez görsel olarak doğrulandı.
+- PR öncesi kapsam denetiminde toplu maliyet kalemi yönetimi, tüm tablolarda CSV, veri hacmine uygun Mapping/Buybox/aksiyon sayfalaması, öğrenme detayı ve silme onayları tamamlandı.
+- Yeni kurulumlarda otomatik Google Sheets sync hem environment hem panel kapısı açılana kadar kapalıdır.

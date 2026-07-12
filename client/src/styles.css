@@ -417,7 +417,7 @@ button:disabled {
 .integrations-strip {
   padding: 14px;
   display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
 }
 .integrations-strip > div {
@@ -506,17 +506,21 @@ button:disabled {
 .table-shell {
   position: relative;
 }
-.column-menu-wrap {
+.table-toolbar {
   height: 38px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
   background: #fff;
 }
+.table-tool-btn,
 .column-menu {
   position: relative;
 }
+.table-tool-btn,
 .column-menu summary {
   width: 30px;
   height: 30px;
@@ -527,6 +531,12 @@ button:disabled {
   cursor: pointer;
   color: var(--muted);
   list-style: none;
+  background: #fff;
+}
+.table-tool-btn:hover,
+.column-menu summary:hover {
+  color: var(--green);
+  border-color: #8db9a7;
 }
 .column-menu summary::-webkit-details-marker {
   display: none;
@@ -1134,6 +1144,30 @@ tbody tr.clickable:hover {
 .row-actions .icon-btn {
   width: 29px;
   height: 29px;
+}
+.detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.detail-stack section > h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.strategy-score-list {
+  border-top: 1px solid var(--line);
+}
+.strategy-score-list > div {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.strategy-score-list small {
+  color: var(--muted);
 }
 .settings-band {
   display: flex;

@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 69/69 başarılı
+- [x] Unit/integration/regression testleri: 78/78 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -53,13 +53,29 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
-- [x] React bileşen testleri: 2/2 başarılı
-- [x] Chrome masaüstü/mobil uçtan uca testleri: 2/2 başarılı
-- [x] Backend testleri: 69/69 başarılı
+- [x] React bileşen testleri: 4/4 başarılı
+- [x] Chrome masaüstü/mobil uçtan uca testleri: 3/3 başarılı
+- [x] Backend testleri: 78/78 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
-- [x] Railway preview son kabulü: release `6c4fe92`, `/health`, `/ready` ve `/version` başarılı
+- [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
 - [x] Gerçek preview verisinde buybox geçmiş grafiği, aksiyon listesi ve güvenli sistem ayarlarının son görsel kontrolü
+- [x] Tüm operasyon tablolarında filtrelenmiş CSV dışa aktarma
+- [x] Transaction'lı toplu maliyet kalemi upsert ve panel akışı
+- [x] Mapping, Buybox ve fiyat aksiyonlarında üretim hacmine uygun sayfalama
+- [x] Öğrenme Merkezi son denemeler, strateji puanı ve sonraki adım çekmecesi
+- [x] Ürünlerde manuel/sadece izle/otomatik mod ve ayrıntılı eksik veri filtreleri
+- [x] Dashboard dry-run, global repricer, ürün sync ve buybox sync görünürlüğü
+- [x] Maliyet, mapping, kargo, barem ve ambalaj silmelerinde onay penceresi
+- [x] Yeni kurulumlarda otomatik Google Sheets sync varsayılan kapalı
+
+## PR Öncesi Kapsam Denetimi
+
+- [x] Şartnamedeki backend, migration, job, güvenlik ve entegrasyon maddeleri kaynak kod ve testlerle eşleştirildi
+- [x] Şartnamedeki panel sayfaları, kolonlar, filtreler, durumlar ve günlük yönetim akışları yeniden denetlendi
+- [x] Menekşe 312,28 TL, mapping atomic replace, Google hata koruması ve repricer safety regresyonları yeniden geçti
+- [x] Desktop, mobil, CSV, toplu maliyet ve öğrenme detayı Chrome akışları geçti
+- [ ] Kullanıcı açık onayından sonra tek draft pull request oluşturulması
 
 ## Devam Eden
 

@@ -17,35 +17,36 @@ class ProductRepository {
     const where = ["p.marketplace = $1"];
     const add = (sql, value) => {
       params.push(value);
-      where.push(sql.replace("?", `$${params.length}`));
+      where.push(sql.replaceAll("?", `$${params.length}`));
     };
     if (filters.search)
       add(
         "(p.barcode ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
         `%${filters.search}%`,
       );
-    if (filters.search) {
-      const value = params.pop();
-      const start = params.length + 1;
-      params.push(value, value, value);
-      where[where.length - 1] =
-        `(p.barcode ILIKE $${start} OR p.product_name ILIKE $${start + 1} OR p.brand ILIKE $${start + 2})`;
-    }
     if (filters.active !== undefined) add("p.is_active = ?", filters.active);
     if (filters.stocked !== undefined)
       add(
         filters.stocked ? "p.stock_quantity > ?" : "p.stock_quantity <= ?",
         0,
       );
-    if (filters.category) add("p.category_id = ?", filters.category);
-    if (filters.brand) add("p.brand = ?", filters.brand);
+    if (filters.category)
+      add(
+        "(p.category_id ILIKE ? OR p.category_name ILIKE ?)",
+        `%${filters.category}%`,
+      );
+    if (filters.brand) add("p.brand ILIKE ?", `%${filters.brand}%`);
     if (filters.status === "incomplete") where.push("p.data_complete = FALSE");
+    if (filters.status === "mapping_missing")
+      where.push("p.needs_cost_mapping=TRUE");
     if (filters.status === "cost_missing")
       where.push(
         "(p.needs_cost_mapping=TRUE OR p.calculated_product_cost<=0 OR p.desi<=0 OR p.calculated_shipping_cost<=0)",
       );
     if (filters.status === "commission_missing")
       where.push("(p.commission_rate IS NULL OR p.commission_rate<=0)");
+    if (filters.status === "shipping_missing")
+      where.push("p.calculated_shipping_cost<=0");
     if (filters.status === "loss") where.push("p.calculated_net_profit < 0");
     if (filters.status === "below_min") where.push("p.my_price < p.min_price");
     if (filters.status === "buybox") where.push("p.rank = 1");
@@ -53,9 +54,15 @@ class ProductRepository {
       where.push("p.rank IS DISTINCT FROM 1");
     if (filters.autoUpdate !== undefined)
       add("p.auto_update = ?", filters.autoUpdate);
+    if (["MANUAL", "MONITOR", "AUTOMATIC"].includes(filters.mode))
+      add(
+        `COALESCE((SELECT psf.mode FROM product_settings psf
+          WHERE psf.marketplace=p.marketplace AND psf.barcode=p.barcode),'MANUAL') = ?`,
+        filters.mode,
+      );
 
     const page = Math.max(Number(filters.page) || 1, 1);
-    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200);
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 1000);
     const offset = (page - 1) * limit;
     const sort = SORT_COLUMNS[filters.sort] || "p.product_name";
     const direction =

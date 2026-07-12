@@ -19,6 +19,7 @@ class DashboardRepository {
       risk,
       jobs,
       error,
+      settings,
     ] = await Promise.all([
       this.db.query(`SELECT
         COUNT(*)::int total_products,
@@ -85,6 +86,10 @@ class DashboardRepository {
       this.db.query(
         `SELECT message,created_at FROM integration_logs WHERE level='ERROR' ORDER BY created_at DESC LIMIT 1`,
       ),
+      this.db.query(
+        `SELECT key,value FROM system_settings
+         WHERE key IN('global_dry_run','global_repricer_enabled','maintenance_mode')`,
+      ),
     ]);
     const data = {
       kpis: kpis.rows[0],
@@ -99,6 +104,9 @@ class DashboardRepository {
       topRisk: risk.rows,
       jobs: jobs.rows,
       lastError: error.rows[0] || null,
+      settings: Object.fromEntries(
+        settings.rows.map((row) => [row.key, row.value]),
+      ),
     };
     this.cache = data;
     this.cacheExpiresAt = Date.now() + 60000;

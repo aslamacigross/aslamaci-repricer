@@ -16,7 +16,12 @@
 - Güvenli, bağlı ve yeniden onaylanan fiyat geri alma aksiyonları
 - Job history, advisory lock, audit ve integration logları
 - Railway build/health yapılandırması
-- 43 unit/integration/regression test
+- 78 backend unit/integration/regression, 4 React bileşen ve 3 Chrome uçtan uca test
+- Transaction'lı toplu maliyet kalemi yönetimi ve ortak CSV dışa aktarma
+- Öğrenme geçmişi çekmecesi, strateji puanları ve açıklamalı sonraki adım
+- Mapping, Buybox ve fiyat aksiyonlarında veri hacmine uygun sayfalama
+- Dashboard global güvenlik ve ayrı sync durumları
+- Maliyet, mapping, kargo ve ambalaj silmelerinde ikinci kullanıcı onayı
 
 ### Changed
 
@@ -27,6 +32,7 @@
 - Repricer ekonomik olarak mümkün olan en iyi 1/2/3. sırayı, aksi halde mevcut sıradaki en yüksek güvenli kârı hedefler.
 - Outcome ölçümü yalnızca taze ve barkod hedefli buybox yenilemesinden sonra yazılır.
 - Sistem logları arama, seviye filtresi ve sayfalama kazandı.
+- Otomatik Google Sheets senkronu yeni kurulumlarda varsayılan kapalıya alındı.
 
 ### Preserved
 

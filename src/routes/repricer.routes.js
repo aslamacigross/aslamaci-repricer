@@ -71,9 +71,22 @@ function repricerRoutes({
   );
   r.get(
     "/actions",
-    asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await actions.list(req.query) }),
-    ),
+    asyncRoute(async (req, res) => {
+      const page = Math.max(Number(req.query.page) || 1, 1);
+      const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+      const filters = { ...req.query, page, limit };
+      const [items, total] = await Promise.all([
+        actions.list(filters),
+        actions.count ? actions.count(filters) : null,
+      ]);
+      res.json({
+        status: "ok",
+        items,
+        total: total ?? items.length,
+        page,
+        limit,
+      });
+    }),
   );
   r.get(
     "/actions/:id",
@@ -170,7 +183,7 @@ function repricerRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: (await actions.learningList(req.params.barcode))[0] || null,
+        data: await actions.learningDetail(req.params.barcode),
       }),
     ),
   );

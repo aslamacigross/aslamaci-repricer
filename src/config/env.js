@@ -30,7 +30,7 @@ const env = {
   dryRun: bool(process.env.DRY_RUN, true),
   repricerEnabled: bool(process.env.REPRICER_ENABLED, false),
   jobsEnabled: bool(process.env.JOBS_ENABLED, true),
-  sheetsSyncEnabled: bool(process.env.GOOGLE_SHEETS_SYNC_ENABLED, true),
+  sheetsSyncEnabled: bool(process.env.GOOGLE_SHEETS_SYNC_ENABLED, false),
   defaultCarrier: process.env.DEFAULT_CARRIER || "TEX",
   defaultServiceFee: number(process.env.DEFAULT_SERVICE_FEE, 13.19),
   defaultTargetProfit: number(process.env.DEFAULT_TARGET_PROFIT, 40),
@@ -38,13 +38,8 @@ const env = {
   buyboxMaxAgeMinutes: number(process.env.BUYBOX_MAX_AGE_MINUTES, 20),
   globalMaxPriceChangePct: number(process.env.GLOBAL_MAX_PRICE_CHANGE_PCT, 15),
   minPriceChangeTl: number(process.env.MIN_PRICE_CHANGE_TL, 0.1),
-  productSyncMinutes: number(process.env.PRODUCT_SYNC_CRON_MINUTES, 360),
-  buyboxSyncMinutes: number(process.env.BUYBOX_SYNC_CRON_MINUTES, 10),
-  repricerMinutes: number(process.env.REPRICER_CRON_MINUTES, 10),
-  sheetsSyncMinutes: number(process.env.SHEETS_SYNC_CRON_MINUTES, 1440),
   logRetentionDays: number(process.env.LOG_RETENTION_DAYS, 90),
   skipMigrations: bool(process.env.SKIP_MIGRATIONS, false),
-  demoMode: bool(process.env.DEMO_MODE, false),
 };
 
 function validateEnv() {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, Columns3 } from "lucide-react";
+import { ArrowUpDown, Columns3, Download } from "lucide-react";
 import { Badge, Empty, toneFor } from "./ui";
 
 function savedHiddenColumns(key) {
@@ -14,6 +14,35 @@ function savedHiddenColumns(key) {
   }
 }
 
+function csvCell(value) {
+  const normalized =
+    value == null
+      ? ""
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
+  return `"${normalized.replaceAll('"', '""')}"`;
+}
+
+export function buildCsv(columns, rows) {
+  const exportColumns = columns.filter(
+    (column) =>
+      column.exportable !== false && !["ops", "run"].includes(column.key),
+  );
+  return [
+    exportColumns.map((column) => csvCell(column.label)).join(";"),
+    ...rows.map((row) =>
+      exportColumns
+        .map((column) =>
+          csvCell(
+            column.exportValue ? column.exportValue(row) : row[column.key],
+          ),
+        )
+        .join(";"),
+    ),
+  ].join("\n");
+}
+
 export default function DataTable({
   columns,
   rows = [],
@@ -25,6 +54,8 @@ export default function DataTable({
   rowKey,
   canSelectRow = () => true,
   columnVisibilityKey,
+  exportFileName = columnVisibilityKey || "tablo",
+  exportRows,
 }) {
   const [localSort, setLocalSort] = useState({ key: null, direction: "asc" });
   const [hiddenColumns, setHiddenColumns] = useState(() =>
@@ -88,11 +119,33 @@ export default function DataTable({
         JSON.stringify(next),
       );
   }
+  function exportCsv() {
+    const csv = buildCsv(visibleColumns, exportRows || sortedRows);
+    const url = URL.createObjectURL(
+      new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${String(exportFileName)
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
   if (!rows.length) return <Empty />;
   return (
     <div className="table-shell">
-      {columnVisibilityKey && (
-        <div className="column-menu-wrap">
+      <div className="table-toolbar">
+        <button
+          type="button"
+          className="table-tool-btn"
+          title="Görünen tabloyu CSV olarak indir"
+          aria-label="CSV dışa aktar"
+          onClick={exportCsv}
+        >
+          <Download size={17} />
+        </button>
+        {columnVisibilityKey && (
           <details className="column-menu">
             <summary title="Kolonları göster veya gizle" aria-label="Kolonlar">
               <Columns3 size={17} />
@@ -116,8 +169,8 @@ export default function DataTable({
                 ))}
             </div>
           </details>
-        </div>
-      )}
+        )}
+      </div>
       <div className="table-wrap">
         <table>
           <thead>

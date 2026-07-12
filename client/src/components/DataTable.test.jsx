@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test } from "vitest";
-import DataTable from "./DataTable";
+import DataTable, { buildCsv } from "./DataTable";
 
 const columns = [
   { key: "barcode", label: "Barkod", hideable: false },
@@ -30,5 +30,14 @@ describe("DataTable kolon görünürlüğü", () => {
       <DataTable columns={columns} rows={rows} columnVisibilityKey="buybox" />,
     );
     expect(screen.getByRole("columnheader", { name: /Ürün/ })).toBeVisible();
+  });
+
+  test("CSV verisini görünen kolonlarla ve Excel uyumlu kaçışla üretir", () => {
+    const csv = buildCsv(columns, [
+      { barcode: "1", name: 'Menekşe "Konsantre"', price: 312.28 },
+    ]);
+    expect(csv).toContain('"Barkod";"Ürün";"Fiyat"');
+    expect(csv).toContain('"Menekşe ""Konsantre"""');
+    expect(csv).toContain('"312.28"');
   });
 });

@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT INTO system_settings(key, value, description) VALUES
   ('global_dry_run', 'true', 'Gercek fiyat gonderimini engeller'),
   ('global_repricer_enabled', 'false', 'Otomatik repricer ana anahtari'),
-  ('google_sheets_sync_enabled', 'true', 'Sheets gecis donemi senkronizasyonu'),
+  ('google_sheets_sync_enabled', 'false', 'Sheets gecis donemi senkronizasyonu'),
   ('default_target_profit', '40', 'Varsayilan minimum kar TL'),
   ('default_price_cut_tl', '0.10', 'Varsayilan fiyat kirma TL'),
   ('global_max_price_change_pct', '15', 'Global fiyat degisim limiti'),

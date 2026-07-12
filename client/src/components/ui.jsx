@@ -34,12 +34,20 @@ export function Badge({ children, tone = "neutral" }) {
 }
 export function toneFor(value) {
   const t = String(value ?? "").toLowerCase();
-  if (/tamam|complete|success|buybox bizde|sent|approved|evet/.test(t))
+  if (
+    /tamam|complete|success|buybox bizde|sent|approved|evet|won|kept|achieved/.test(
+      t,
+    )
+  )
     return "success";
-  if (/hata|failed|zarar|risk|missing|eksik|blocked|reject/.test(t))
+  if (
+    /hata|failed|zarar|risk|missing|eksik|blocked|reject|lost|missed|expired/.test(
+      t,
+    )
+  )
     return "danger";
   if (/uyarı|pending|bekle|stale|dry|izle/.test(t)) return "warning";
-  if (/running|işlem|sync|info/.test(t)) return "info";
+  if (/running|işlem|sync|info|sending|awaiting/.test(t)) return "info";
   return "neutral";
 }
 export function PageHeader({ title, description, actions }) {

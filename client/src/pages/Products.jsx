@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import {
-  Download,
   RefreshCw,
   SlidersHorizontal,
   Save,
@@ -30,6 +29,15 @@ const columns = [
   { key: "category_name", label: "Kategori" },
   { key: "category_id", label: "Kategori ID" },
   { key: "stock_quantity", label: "Stok" },
+  {
+    key: "is_active",
+    label: "Aktif",
+    render: (r) => (
+      <Badge tone={r.is_active ? "success" : "neutral"}>
+        {r.is_active ? "Aktif" : "Pasif"}
+      </Badge>
+    ),
+  },
   { key: "my_price", label: "Fiyat", render: (r) => money(r.my_price) },
   {
     key: "commission_rate",
@@ -56,6 +64,11 @@ const columns = [
     key: "service_fee",
     label: "Hizmet",
     render: (r) => money(r.service_fee),
+  },
+  {
+    key: "target_profit",
+    label: "Minimum kâr",
+    render: (r) => money(r.target_profit),
   },
   {
     key: "calculated_net_profit",
@@ -92,8 +105,19 @@ const columns = [
     ),
   },
   { key: "strategy", label: "Strateji" },
+  {
+    key: "learned_price_cut_tl",
+    label: "Öğrenilen kırma",
+    render: (r) => money(r.learned_price_cut_tl),
+  },
   { key: "data_status", label: "Veri", badge: true },
   { key: "repricer_mode", label: "Mod", badge: true },
+  { key: "last_action", label: "Son aksiyon", badge: true },
+  {
+    key: "updated_at",
+    label: "Son güncelleme",
+    render: (r) => date(r.updated_at),
+  },
 ];
 const initialFilters = {
   search: "",
@@ -101,6 +125,7 @@ const initialFilters = {
   active: "",
   stocked: "",
   autoUpdate: "",
+  mode: "",
   category: "",
   brand: "",
   page: 1,
@@ -160,37 +185,12 @@ export default function Products({ notify }) {
       setSaving(false);
     }
   }
-  function exportCsv() {
-    if (!result?.items) return;
-    const keys = columns.map((c) => c.key);
-    const csv = [
-      keys.join(";"),
-      ...result.items.map((row) =>
-        keys
-          .map((k) => `"${String(row[k] ?? "").replaceAll('"', '""')}"`)
-          .join(";"),
-      ),
-    ].join("\n");
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(
-      new Blob(["\ufeff", csv], { type: "text/csv" }),
-    );
-    link.download = "urunler.csv";
-    link.click();
-  }
   return (
     <>
       <PageHeader
         title="Ürünler"
         description="Maliyet, kârlılık, buybox ve repricer durumunu tek listede yönetin"
-        actions={
-          <>
-            <Button variant="secondary" icon={Download} onClick={exportCsv}>
-              CSV
-            </Button>
-            <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
-          </>
-        }
+        actions={<IconButton icon={RefreshCw} label="Yenile" onClick={load} />}
       />
       <div className="filters">
         <SearchInput
@@ -210,7 +210,7 @@ export default function Products({ notify }) {
           onChange={(e) =>
             setFilters({ ...filters, category: e.target.value, page: 1 })
           }
-          placeholder="Kategori ID"
+          placeholder="Kategori adı veya ID"
         />
         <select
           value={filters.status}
@@ -220,8 +220,10 @@ export default function Products({ notify }) {
         >
           <option value="">Tüm durumlar</option>
           <option value="incomplete">Veri eksik</option>
+          <option value="mapping_missing">Mapping eksik</option>
           <option value="cost_missing">Maliyet eksik</option>
           <option value="commission_missing">Komisyon eksik</option>
+          <option value="shipping_missing">Kargo eksik</option>
           <option value="loss">Zararda</option>
           <option value="below_min">Minimum fiyat altı</option>
           <option value="buybox">Buybox bizde</option>
@@ -257,6 +259,17 @@ export default function Products({ notify }) {
           <option value="true">Auto update açık</option>
           <option value="false">Auto update kapalı</option>
         </select>
+        <select
+          value={filters.mode}
+          onChange={(e) =>
+            setFilters({ ...filters, mode: e.target.value, page: 1 })
+          }
+        >
+          <option value="">Tüm çalışma modları</option>
+          <option value="MANUAL">Manuel</option>
+          <option value="MONITOR">Sadece izle</option>
+          <option value="AUTOMATIC">Otomatik</option>
+        </select>
       </div>
       <div className="panel table-panel">
         {loading ? (
@@ -269,6 +282,7 @@ export default function Products({ notify }) {
               columns={columns}
               rows={result.items}
               columnVisibilityKey="products"
+              exportFileName="urunler"
               onRowClick={open}
             />
             <Pagination

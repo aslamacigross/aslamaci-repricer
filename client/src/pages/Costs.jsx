@@ -23,6 +23,8 @@ import {
   Field,
   Badge,
   toneFor,
+  Confirm,
+  Pagination,
 } from "../components/ui";
 const titles = {
   costs: ["Maliyet Kalemleri", "Birim maliyet ve desi bilgisini yönetin"],
@@ -50,6 +52,15 @@ function parseBulkRows(text, mode) {
           category_name: cells[1],
           commission_rate: Number(cells[2]),
           note: cells[3] || "",
+        };
+      if (mode === "costs")
+        return {
+          item_code: cells[0],
+          item_name: cells[1],
+          unit_cost: Number(cells[2]),
+          unit_desi: Number(cells[3] || 0),
+          unit: cells[4] || "adet",
+          note: cells[5] || "",
         };
       return {
         barcode: cells[0],
@@ -129,7 +140,8 @@ function ResourceTable({
   notify,
   reload,
 }) {
-  const [missingCommissions, setMissingCommissions] = useState([]);
+  const [missingCommissions, setMissingCommissions] = useState([]),
+    [page, setPage] = useState(1);
   useEffect(() => {
     if (mode !== "commissions") {
       setMissingCommissions([]);
@@ -139,6 +151,7 @@ function ResourceTable({
       .then((result) => setMissingCommissions(result.items || []))
       .catch(() => setMissingCommissions([]));
   }, [mode, items]);
+  useEffect(() => setPage(1), [mode, search]);
   const columns =
     mode === "costs"
       ? [
@@ -197,6 +210,8 @@ function ResourceTable({
       ),
     [items, search],
   );
+  const limit = 100;
+  const paged = filtered.slice((page - 1) * limit, page * limit);
   return (
     <>
       <div className="filters">
@@ -222,6 +237,15 @@ function ResourceTable({
               Toplu mapping
             </Button>
           </>
+        )}
+        {mode === "costs" && (
+          <Button
+            variant="secondary"
+            icon={Upload}
+            onClick={() => setEditing({ bulk: true })}
+          >
+            Toplu maliyet
+          </Button>
         )}
         {mode === "commissions" && (
           <Button
@@ -253,9 +277,16 @@ function ResourceTable({
       <div className="panel table-panel">
         <DataTable
           columns={columns}
-          rows={filtered}
+          rows={paged}
+          exportRows={filtered}
           columnVisibilityKey={`costs-${mode}`}
           onRowClick={(row) => setEditing(row)}
+        />
+        <Pagination
+          page={page}
+          total={filtered.length}
+          limit={limit}
+          onChange={setPage}
         />
       </div>
       <ResourceModal
@@ -276,7 +307,8 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
     [saving, setSaving] = useState(false),
     [preview, setPreview] = useState(null),
     [previewText, setPreviewText] = useState(""),
-    [context, setContext] = useState(null);
+    [context, setContext] = useState(null),
+    [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => {
     setForm(value || {});
     setPreview(null);
@@ -318,7 +350,8 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
     try {
       if (value.bulk) {
         const rows = parseBulkRows(form.text, mode);
-        if (mode === "commissions")
+        if (mode === "costs") await post("/api/cost-items/bulk", { rows });
+        else if (mode === "commissions")
           await post("/api/commissions/bulk", { rows });
         else {
           if (!preview || previewText !== (form.text || ""))
@@ -367,6 +400,7 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
             : null;
       if (path) await del(path);
       notify("Kayıt silindi");
+      setConfirmDelete(false);
       onSaved();
     } catch (e) {
       notify(e.message, "error");
@@ -376,9 +410,11 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
   const modalTitle = value.clone
     ? "Mapping çoğalt"
     : value.bulk
-      ? mode === "commissions"
-        ? "Toplu komisyon"
-        : "Toplu mapping"
+      ? mode === "costs"
+        ? "Toplu maliyet kalemi"
+        : mode === "commissions"
+          ? "Toplu komisyon"
+          : "Toplu mapping"
       : "Kayıt düzenle";
   return (
     <Modal open onClose={onClose} title={modalTitle}>
@@ -402,9 +438,11 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
         <div className="modal-body">
           <Field
             label={
-              mode === "commissions"
-                ? "Kategori ID, Kategori, Komisyon %, Not"
-                : "Barkod, Cost Code, Adet"
+              mode === "costs"
+                ? "Cost Code, Kalem, Birim maliyet, Birim desi, Birim, Not"
+                : mode === "commissions"
+                  ? "Kategori ID, Kategori, Komisyon %, Not"
+                  : "Barkod, Cost Code, Adet"
             }
             hint="Her satırı tab veya noktalı virgülle ayırın"
           >
@@ -416,9 +454,11 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
                 setPreview(null);
               }}
               placeholder={
-                mode === "commissions"
-                  ? "2354\tYumuşatıcı\t17\t"
-                  : "8690609598109\tYUMUSATICI_ACTISOFT_1500ML\t1"
+                mode === "costs"
+                  ? "YUMUSATICI_ACTISOFT_1500ML\tActisoft Yumuşatıcı 1500 ml\t112\t1.5\tadet\t"
+                  : mode === "commissions"
+                    ? "2354\tYumuşatıcı\t17\t"
+                    : "8690609598109\tYUMUSATICI_ACTISOFT_1500ML\t1"
               }
             />
           </Field>
@@ -613,7 +653,11 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
       )}
       <footer className="modal-actions">
         {value.id && mode !== "commissions" && (
-          <Button variant="danger" icon={Trash2} onClick={remove}>
+          <Button
+            variant="danger"
+            icon={Trash2}
+            onClick={() => setConfirmDelete(true)}
+          >
             Sil
           </Button>
         )}
@@ -635,6 +679,14 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
           {saving ? "Kaydediliyor" : "Kaydet"}
         </Button>
       </footer>
+      <Confirm
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={remove}
+        title="Kaydı sil"
+        message="Bu kayıt kalıcı olarak silinecek. Kullanılan maliyet kalemleri güvenlik nedeniyle yine silinemez."
+        confirmLabel="Kaydı sil"
+      />
     </Modal>
   );
 }
@@ -857,7 +909,8 @@ function Shipping({ data, notify, reload, editing, setEditing }) {
   );
 }
 function ShippingModal({ value, type, onClose, notify, onSaved }) {
-  const [form, setForm] = useState(value || {});
+  const [form, setForm] = useState(value || {}),
+    [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => setForm(value || {}), [value]);
   if (!value) return null;
   const actual = value.type || type;
@@ -892,6 +945,7 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
             : `/api/packaging-rules/${value.id}`;
       await del(path);
       notify("Kural silindi");
+      setConfirmDelete(false);
       onSaved();
     } catch (e) {
       notify(e.message, "error");
@@ -992,7 +1046,11 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
       </div>
       <footer className="modal-actions">
         {value.id && (
-          <Button variant="danger" icon={Trash2} onClick={remove}>
+          <Button
+            variant="danger"
+            icon={Trash2}
+            onClick={() => setConfirmDelete(true)}
+          >
             Sil
           </Button>
         )}
@@ -1004,6 +1062,14 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
           Kaydet
         </Button>
       </footer>
+      <Confirm
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={remove}
+        title="Kuralı sil"
+        message="Bu kargo veya ambalaj kuralı kalıcı olarak silinecek ve ürün maliyetleri yeniden hesaplanacak."
+        confirmLabel="Kuralı sil"
+      />
     </Modal>
   );
 }

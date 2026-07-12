@@ -19,7 +19,7 @@ function systemRoutes({
         ...(await products.list({
           ...req.query,
           status: req.query.status || undefined,
-          limit: req.query.limit || 100,
+          limit: req.query.limit || 1000,
           sort: "rank",
         })),
       }),

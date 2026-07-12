@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   calculateMinimumPrice,
+  calculateCommissionAmount,
   calculateNetProfit,
   calculateNetMargin,
   selectShippingCost,
@@ -21,6 +22,12 @@ test("Menekşe minimum fiyat fixture 312.28 TL", () => {
       commissionRate: 17,
     }),
     312.28,
+  );
+});
+test("komisyon tutarini kurus hassasiyetinde hesaplar", () => {
+  assert.equal(
+    calculateCommissionAmount({ salePrice: 312.28, commissionRate: 17 }),
+    53.09,
   );
 });
 test("net kar komisyon ve tum maliyetleri dusurur", () => {

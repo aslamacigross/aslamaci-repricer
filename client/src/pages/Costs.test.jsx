@@ -62,4 +62,35 @@ describe("Toplu mapping paneli", () => {
       }),
     );
   });
+
+  test("maliyet kalemlerini panelden toplu yükler", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    render(<Costs mode="costs" notify={notify} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Toplu maliyet" }),
+    );
+    const textarea = screen
+      .getAllByRole("textbox")
+      .find((element) => element.tagName === "TEXTAREA");
+    await user.type(
+      textarea,
+      "YUMUSATICI;Actisoft Yumuşatıcı;112;1.5;adet;Haftalık maliyet",
+    );
+    await user.click(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-items/bulk", {
+        rows: [
+          {
+            item_code: "YUMUSATICI",
+            item_name: "Actisoft Yumuşatıcı",
+            unit_cost: 112,
+            unit_desi: 1.5,
+            unit: "adet",
+            note: "Haftalık maliyet",
+          },
+        ],
+      }),
+    );
+  });
 });

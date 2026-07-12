@@ -1,3 +1,41 @@
+function nextLearningRecommendation(item) {
+  if (!item) return "Henüz öğrenme verisi yok; sonuç kontrolleri bekleniyor.";
+  if (item.paused)
+    return "Öğrenme duraklatıldı; ürün Kâr Koru yaklaşımıyla manuel incelenmeli.";
+  const learned = Number(item.learned_price_cut_tl || 0);
+  const successful = Number(item.last_successful_undercut || 0);
+  const confidence = Number(item.confidence_score || 0);
+  const attempts = Number(item.outcome_count || 0);
+  const format = (value) => Number(value).toFixed(2).replace(".", ",");
+  if (successful > 0)
+    return `${format(successful)} TL başarılı en küçük fiyat kırmasını koru.`;
+  if (Number(item.consecutive_failures || 0) >= 2 && learned > 0)
+    return `${format(learned)} TL kontrollü adımı manuel onayla; başarısızlık sürerse agresifleşme.`;
+  if (attempts === 0)
+    return "Henüz ölçülmüş sonuç yok; önce dry-run ve manuel onayla veri topla.";
+  if (confidence < 0.4)
+    return "Güven skoru düşük; sonraki öneriyi otomatik değil manuel onayla.";
+  return learned > 0
+    ? `${format(learned)} TL öğrenilmiş fiyat adımını güvenlik sınırları içinde kullan.`
+    : "Mevcut fiyatı koru ve yeni buybox sonucu topla.";
+}
+
+function actionFilter({ status, barcode } = {}) {
+  const params = [];
+  const where = ["1=1"];
+  if (status === "EXPIRED")
+    where.push("ra.status IN('PENDING','APPROVED') AND ra.expires_at<NOW()");
+  else if (status) {
+    params.push(status);
+    where.push(`ra.status=$${params.length}`);
+  }
+  if (barcode) {
+    params.push(barcode);
+    where.push(`ra.barcode=$${params.length}`);
+  }
+  return { params, where };
+}
+
 class ActionRepository {
   constructor(db, withTransaction) {
     this.db = db;
@@ -20,26 +58,39 @@ class ActionRepository {
   }
 
   async list({ status, barcode, page = 1, limit = 50 }) {
-    const params = [];
-    const where = ["1=1"];
-    if (status) {
-      params.push(status);
-      where.push(`status=$${params.length}`);
-    }
-    if (barcode) {
-      params.push(barcode);
-      where.push(`barcode=$${params.length}`);
-    }
+    const { params, where } = actionFilter({ status, barcode });
     params.push(
       Math.min(Number(limit) || 50, 200),
       (Math.max(Number(page) || 1, 1) - 1) * Math.min(Number(limit) || 50, 200),
     );
     return (
       await this.db.query(
-        `SELECT * FROM repricer_actions WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        `SELECT ra.*,
+          CASE WHEN ra.status IN('PENDING','APPROVED') AND ra.expires_at<NOW()
+            THEN 'EXPIRED' ELSE ra.status END display_status,
+          outcome.result outcome_result,outcome.elapsed_minutes outcome_elapsed_minutes
+         FROM repricer_actions ra
+         LEFT JOIN LATERAL(
+           SELECT result,elapsed_minutes FROM price_change_outcomes pco
+           WHERE pco.action_id=ra.id ORDER BY checked_at DESC LIMIT 1
+         ) outcome ON TRUE
+         WHERE ${where.join(" AND ")} ORDER BY ra.created_at DESC
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params,
       )
     ).rows;
+  }
+
+  async count(filters = {}) {
+    const { params, where } = actionFilter(filters);
+    return Number(
+      (
+        await this.db.query(
+          `SELECT COUNT(*) FROM repricer_actions ra WHERE ${where.join(" AND ")}`,
+          params,
+        )
+      ).rows[0].count,
+    );
   }
 
   async get(id, client = this.db) {
@@ -432,6 +483,36 @@ class ActionRepository {
     ).rows;
   }
 
+  async learningDetail(barcode) {
+    const learning = (await this.learningList(barcode))[0] || null;
+    const attempts = (
+      await this.db.query(
+        `SELECT ra.id,ra.action,ra.strategy,ra.reason,ra.old_price,
+                ra.proposed_price,ra.applied_price,ra.buybox_before,
+                ra.rank_before,ra.target_rank,ra.status,ra.created_at,
+                GREATEST(COALESCE(ra.buybox_before,0)-
+                  COALESCE(ra.applied_price,ra.proposed_price),0) attempted_undercut,
+                outcome.result,outcome.elapsed_minutes,outcome.rank_after,
+                outcome.buybox_after,outcome.target_achieved,outcome.checked_at
+         FROM repricer_actions ra
+         LEFT JOIN LATERAL(
+           SELECT result,elapsed_minutes,rank_after,buybox_after,
+                  target_achieved,checked_at
+           FROM price_change_outcomes pco WHERE pco.action_id=ra.id
+           ORDER BY checked_at DESC LIMIT 1
+         ) outcome ON TRUE
+         WHERE ra.marketplace='TRENDYOL' AND ra.barcode=$1
+         ORDER BY ra.created_at DESC LIMIT 20`,
+        [barcode],
+      )
+    ).rows;
+    return {
+      learning,
+      attempts,
+      nextRecommendation: nextLearningRecommendation(learning),
+    };
+  }
+
   async updateLearning(barcode, input) {
     return (
       await this.db.query(
@@ -570,4 +651,4 @@ class ActionRepository {
   }
 }
 
-module.exports = { ActionRepository };
+module.exports = { ActionRepository, nextLearningRecommendation };

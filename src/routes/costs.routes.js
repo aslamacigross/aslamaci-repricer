@@ -14,6 +14,49 @@ function positive(input, fields, { allowZero = false } = {}) {
   }
   return input;
 }
+
+function normalizeCostItemRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0)
+    throw new AppError("Maliyet kalemi listesi boş", 400, "EMPTY_COST_ITEMS");
+  if (rows.length > 1000)
+    throw new AppError(
+      "Tek işlemde en fazla 1000 maliyet kalemi yüklenebilir",
+      400,
+      "TOO_MANY_COST_ITEMS",
+    );
+  const seen = new Set();
+  return rows.map((row, index) => {
+    const item = {
+      item_code: String(row.item_code || "").trim(),
+      item_name: String(row.item_name || "").trim(),
+      unit_cost: Number(row.unit_cost),
+      unit_desi: Number(row.unit_desi || 0),
+      unit: String(row.unit || "adet").trim() || "adet",
+      note: String(row.note || "").trim(),
+    };
+    if (
+      !item.item_code ||
+      !item.item_name ||
+      !Number.isFinite(item.unit_cost) ||
+      item.unit_cost <= 0 ||
+      !Number.isFinite(item.unit_desi) ||
+      item.unit_desi < 0
+    )
+      throw new AppError(
+        `${index + 1}. maliyet kalemi satırı geçersiz`,
+        400,
+        "INVALID_COST_ITEM_ROW",
+      );
+    if (seen.has(item.item_code))
+      throw new AppError(
+        `${item.item_code} aynı yüklemede birden fazla kez kullanılmış`,
+        400,
+        "DUPLICATE_COST_ITEM_CODE",
+      );
+    seen.add(item.item_code);
+    return item;
+  });
+}
 function costsRoutes({ costs, costEngine, audit, shippingService }) {
   const r = express.Router();
   const logged = async (req, action, type, id, before, after) =>
@@ -47,6 +90,19 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
       await costEngine.recalculate();
       await logged(req, "COST_ITEM_CREATED", "cost_item", data.id, null, data);
       res.status(201).json({ status: "ok", data });
+    }),
+  );
+  r.post(
+    "/cost-items/bulk",
+    asyncRoute(async (req, res) => {
+      const rows = normalizeCostItemRows(req.body.rows);
+      const data = await costs.saveCostItems(rows);
+      await costEngine.recalculate();
+      await logged(req, "COST_ITEMS_BULK_UPSERTED", "cost_item", "bulk", null, {
+        processed: data.processed,
+        itemCodes: rows.map((row) => row.item_code),
+      });
+      res.json({ status: "ok", data });
     }),
   );
   r.get(
@@ -575,4 +631,4 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
   );
   return r;
 }
-module.exports = { costsRoutes };
+module.exports = { costsRoutes, normalizeCostItemRows };

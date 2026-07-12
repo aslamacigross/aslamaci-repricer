@@ -103,7 +103,7 @@ function Remote({ url, children }) {
 }
 function Buybox() {
   return (
-    <Remote url="/api/buybox?limit=200">
+    <Remote url="/api/buybox?limit=1000">
       {(payload) => <BuyboxTable payload={payload} />}
     </Remote>
   );
@@ -112,11 +112,15 @@ function Buybox() {
 function BuyboxTable({ payload }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(1);
   const rows = payload.items.filter((r) =>
     `${r.barcode} ${r.product_name}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
+  useEffect(() => setPage(1), [search]);
+  const limit = 100;
+  const paged = rows.slice((page - 1) * limit, page * limit);
   const cols = [
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
@@ -190,9 +194,16 @@ function BuyboxTable({ payload }) {
       <div className="panel table-panel">
         <DataTable
           columns={cols}
-          rows={rows}
+          rows={paged}
+          exportRows={rows}
           onRowClick={setSelected}
           columnVisibilityKey="buybox"
+        />
+        <Pagination
+          page={page}
+          total={rows.length}
+          limit={limit}
+          onChange={setPage}
         />
       </div>
       <BuyboxHistory product={selected} onClose={() => setSelected(null)} />
@@ -403,11 +414,14 @@ function Repricer({ notify }) {
 function Actions({ notify }) {
   const [data, setData] = useState(null),
     [status, setStatus] = useState(""),
+    [page, setPage] = useState(1),
     [confirm, setConfirm] = useState(null),
     [selected, setSelected] = useState([]),
     [editing, setEditing] = useState(null);
   async function load() {
-    setData(await get(`/api/actions${status ? `?status=${status}` : ""}`));
+    const query = new URLSearchParams({ page, limit: 50 });
+    if (status) query.set("status", status);
+    setData(await get(`/api/actions?${query}`));
     setSelected([]);
   }
   async function bulkApprove() {
@@ -422,7 +436,7 @@ function Actions({ notify }) {
   }
   useEffect(() => {
     load().catch((e) => notify(e.message, "error"));
-  }, [status]);
+  }, [status, page]);
   async function act(action, row) {
     try {
       await post(
@@ -473,7 +487,17 @@ function Actions({ notify }) {
     { key: "target_rank", label: "Hedef sıra" },
     { key: "rank_after", label: "Son sıra" },
     { key: "source", label: "Kaynak", badge: true },
-    { key: "status", label: "Durum", badge: true },
+    {
+      key: "display_status",
+      label: "Durum",
+      render: (r) => (
+        <Badge tone={toneFor(r.display_status || r.status)}>
+          {r.display_status || r.status}
+        </Badge>
+      ),
+    },
+    { key: "outcome_result", label: "Sonuç", badge: true },
+    { key: "outcome_elapsed_minutes", label: "Sonuç kontrolü (dk)" },
     { key: "reason", label: "Sebep" },
     {
       key: "ops",
@@ -527,16 +551,24 @@ function Actions({ notify }) {
   return (
     <>
       <div className="filters">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}
+        >
           <option value="">Tüm durumlar</option>
           {[
             "PENDING",
             "APPROVED",
             "DRY_RUN",
+            "SENDING",
             "AWAITING_RESULT",
             "SUCCESS",
             "FAILED",
             "REJECTED",
+            "EXPIRED",
             "REVERTED",
           ].map((x) => (
             <option key={x}>{x}</option>
@@ -559,6 +591,12 @@ function Actions({ notify }) {
           onSelectionChange={setSelected}
           canSelectRow={(row) => row.status === "PENDING"}
           columnVisibilityKey="actions"
+        />
+        <Pagination
+          page={data.page || page}
+          total={data.total ?? data.items.length}
+          limit={data.limit || 50}
+          onChange={setPage}
         />
       </div>
       <Modal
@@ -642,7 +680,18 @@ function Learning({ notify }) {
   );
 }
 function LearningTable({ data, notify }) {
-  const [rows, setRows] = useState(data.items);
+  const [rows, setRows] = useState(data.items),
+    [selected, setSelected] = useState(null),
+    [detail, setDetail] = useState(null);
+  async function open(row) {
+    setSelected(row);
+    setDetail(null);
+    try {
+      setDetail((await get(`/api/learning/${row.barcode}`)).data);
+    } catch (error) {
+      notify(error.message, "error");
+    }
+  }
   async function action(barcode, type) {
     try {
       await post(`/api/learning/${barcode}/${type}`);
@@ -669,6 +718,13 @@ function LearningTable({ data, notify }) {
     { key: "failed_attempts", label: "Başarısız" },
     { key: "success_attempts", label: "Başarılı" },
     { key: "last_outcome", label: "Son sonuç", badge: true },
+    { key: "strategy", label: "Strateji" },
+    {
+      key: "last_required_gap_tl",
+      label: "Son denenen kırma",
+      render: (r) => money(r.last_required_gap_tl),
+    },
+    { key: "outcome_count", label: "Ölçülen sonuç" },
     { key: "consecutive_failures", label: "Seri hata" },
     {
       key: "confidence_score",
@@ -688,7 +744,10 @@ function LearningTable({ data, notify }) {
       key: "ops",
       label: "İşlem",
       render: (r) => (
-        <div className="row-actions">
+        <div
+          className="row-actions"
+          onClick={(event) => event.stopPropagation()}
+        >
           <IconButton
             icon={RotateCcw}
             label="Sıfırla"
@@ -704,8 +763,116 @@ function LearningTable({ data, notify }) {
     },
   ];
   return (
-    <div className="panel table-panel">
-      <DataTable columns={cols} rows={rows} columnVisibilityKey="learning" />
+    <>
+      <div className="panel table-panel">
+        <DataTable
+          columns={cols}
+          rows={rows}
+          columnVisibilityKey="learning"
+          onRowClick={open}
+        />
+      </div>
+      <Drawer
+        open={Boolean(selected)}
+        onClose={() => {
+          setSelected(null);
+          setDetail(null);
+        }}
+        title={selected ? `${selected.barcode} öğrenme geçmişi` : "Öğrenme"}
+        wide
+      >
+        {!detail ? <Loading /> : <LearningDetail data={detail} />}
+      </Drawer>
+    </>
+  );
+}
+
+function LearningDetail({ data }) {
+  const learning = data.learning || {};
+  const scores = Object.entries(learning.strategy_scores || {}).sort(
+    ([, left], [, right]) => Number(right.score) - Number(left.score),
+  );
+  return (
+    <div className="detail-stack">
+      <div className="metric-row">
+        <div>
+          <span>Öğrenilen kırma</span>
+          <b>{money(learning.learned_price_cut_tl)}</b>
+        </div>
+        <div>
+          <span>Güven skoru</span>
+          <b>{percent(Number(learning.confidence_score || 0) * 100)}</b>
+        </div>
+        <div>
+          <span>Başarılı / başarısız</span>
+          <b>
+            {learning.success_attempts || 0} / {learning.failed_attempts || 0}
+          </b>
+        </div>
+        <div>
+          <span>Buybox kazanma süresi</span>
+          <b>
+            {data.attempts.find((item) => item.result === "BUYBOX_WON")
+              ?.elapsed_minutes || "-"}{" "}
+            dk
+          </b>
+        </div>
+      </div>
+      <div className="info-banner">
+        <Activity />
+        <div>
+          <strong>Önerilen sonraki adım</strong>
+          <p>{data.nextRecommendation}</p>
+        </div>
+      </div>
+      {scores.length > 0 && (
+        <section>
+          <h3>Strateji başarı puanları</h3>
+          <div className="strategy-score-list">
+            {scores.map(([name, score]) => (
+              <div key={name}>
+                <span>{name}</span>
+                <b>{percent(Number(score.score || 0) * 100)}</b>
+                <small>{score.attempts || 0} deneme</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      <section>
+        <h3>Son fiyat denemeleri</h3>
+        <DataTable
+          columns={[
+            {
+              key: "created_at",
+              label: "Tarih",
+              render: (r) => date(r.created_at),
+            },
+            { key: "action", label: "Aksiyon", badge: true },
+            {
+              key: "old_price",
+              label: "Eski",
+              render: (r) => money(r.old_price),
+            },
+            {
+              key: "proposed_price",
+              label: "Önerilen",
+              render: (r) => money(r.proposed_price),
+            },
+            {
+              key: "attempted_undercut",
+              label: "Denenen kırma",
+              render: (r) => money(r.attempted_undercut),
+            },
+            { key: "result", label: "Sonuç", badge: true },
+            { key: "elapsed_minutes", label: "Kontrol (dk)" },
+            { key: "reason", label: "Neden" },
+          ]}
+          rows={data.attempts || []}
+          columnVisibilityKey="learning-attempts"
+          exportFileName={`ogrenme-${learning.barcode || "urun"}`}
+        />
+      </section>
     </div>
   );
 }

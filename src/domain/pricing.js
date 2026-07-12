@@ -24,12 +24,18 @@ function calculateMinimumPrice(input) {
   return money(divideRounded(base * PERCENT_SCALE, denominator));
 }
 
+function calculateCommissionAmount(input) {
+  return money(
+    divideRounded(
+      cents(input.salePrice) * rateUnits(input.commissionRate),
+      PERCENT_SCALE,
+    ),
+  );
+}
+
 function calculateNetProfit(input) {
   const salePrice = cents(input.salePrice);
-  const commission = divideRounded(
-    salePrice * rateUnits(input.commissionRate),
-    PERCENT_SCALE,
-  );
+  const commission = cents(calculateCommissionAmount(input));
   return money(
     salePrice -
       commission -
@@ -93,6 +99,7 @@ function isCostComplete(product) {
 
 module.exports = {
   calculateMinimumPrice,
+  calculateCommissionAmount,
   calculateNetProfit,
   calculateNetMargin,
   selectShippingCost,

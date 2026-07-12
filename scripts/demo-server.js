@@ -336,6 +336,9 @@ const dashboard = {
       stale_buybox: 3,
       auto_update_enabled: 7,
       average_margin: 17.8,
+      actions_24h: 7,
+      successful_actions_24h: 5,
+      failed_actions_24h: 2,
     },
     charts: {
       categories: [
@@ -368,8 +371,20 @@ const dashboard = {
         reason: "Minimum fiyat altı",
       },
     ],
-    jobs: [{ last_status: "SUCCESS" }, { last_status: "SUCCESS" }],
+    jobs: [
+      {
+        job_name: "sync-products",
+        last_status: "SUCCESS",
+        last_started_at: now,
+      },
+      { job_name: "sync-buybox", last_status: "SUCCESS", last_started_at: now },
+    ],
     lastError: null,
+    settings: {
+      global_dry_run: true,
+      global_repricer_enabled: false,
+      maintenance_mode: false,
+    },
   }),
 };
 const costs = {
@@ -454,6 +469,7 @@ const costs = {
     packaging: [{ id: 1, min_desi: 1, max_desi: 3, packaging_cost: 15 }],
   }),
   saveCostItem: async (x) => x,
+  saveCostItems: async (rows) => ({ processed: rows.length, items: rows }),
   upsertMapping: async (x) => x,
   updateMapping: async (id, x) => ({ id, ...x }),
   saveCommission: async (x) => x,
@@ -593,6 +609,7 @@ const container = {
   repricer,
   actions: {
     list: async () => actionRows,
+    count: async () => actionRows.length,
     get: async (id) => actionRows.find((x) => x.id == id),
     learningList: async () =>
       products
@@ -610,6 +627,28 @@ const container = {
           last_outcome: x.rank === 1 ? "BUYBOX_KEPT" : "TARGET_RANK_MISSED",
           paused: false,
         })),
+    learningDetail: async (barcode) => {
+      const learning = (await container.actions.learningList()).find(
+        (item) => item.barcode === barcode,
+      );
+      return {
+        learning,
+        nextRecommendation:
+          "Öğrenilmiş fiyat adımını güvenlik sınırları içinde manuel onayla.",
+        attempts: actionRows
+          .filter((item) => item.barcode === barcode)
+          .map((item) => ({
+            ...item,
+            attempted_undercut: Math.max(
+              Number(item.buybox_before || item.old_price) -
+                Number(item.applied_price || item.proposed_price),
+              0,
+            ),
+            result: item.status === "SUCCESS" ? "BUYBOX_KEPT" : null,
+            elapsed_minutes: item.status === "SUCCESS" ? 60 : null,
+          })),
+      };
+    },
     updateLearning: async () => ({}),
   },
   actionService: {

@@ -34,6 +34,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT value FROM system_settings WHERE key='global_dry_run'",
   );
   assert.equal(safety.rows[0].value, true);
+  const sheets = await db.query(
+    "SELECT value FROM system_settings WHERE key='google_sheets_sync_enabled'",
+  );
+  assert.equal(sheets.rows[0].value, false);
   const contracts = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('buybox_history','price_change_outcomes','repricer_results')

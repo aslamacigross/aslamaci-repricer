@@ -54,6 +54,35 @@ class CostRepository {
     ).rows[0];
   }
 
+  async saveCostItems(rows) {
+    return this.withTransaction(async (client) => {
+      const items = [];
+      for (const row of rows) {
+        const saved = (
+          await client.query(
+            `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,unit,note)
+             VALUES($1,$2,$3,$4,$5,$6)
+             ON CONFLICT(item_code)DO UPDATE SET
+               item_name=EXCLUDED.item_name,unit_cost=EXCLUDED.unit_cost,
+               unit_desi=EXCLUDED.unit_desi,unit=EXCLUDED.unit,note=EXCLUDED.note,
+               updated_at=NOW()
+             RETURNING *`,
+            [
+              row.item_code,
+              row.item_name,
+              row.unit_cost,
+              row.unit_desi,
+              row.unit,
+              row.note,
+            ],
+          )
+        ).rows[0];
+        items.push(saved);
+      }
+      return { processed: items.length, items };
+    });
+  }
+
   async deleteCostItem(id) {
     const usage = await this.db.query(
       "SELECT COUNT(*)::int AS count FROM product_cost_mappings pcm JOIN cost_items ci ON ci.item_code=pcm.cost_item_code WHERE ci.id=$1",
@@ -89,7 +118,7 @@ class CostRepository {
     ).rows;
   }
 
-  async listMappings({ barcode, search, limit = 200 }) {
+  async listMappings({ barcode, search, limit = 10000 }) {
     const params = [];
     const where = ["1=1"];
     if (barcode) {
@@ -102,7 +131,7 @@ class CostRepository {
         `(pcm.barcode ILIKE $${params.length} OR ci.item_name ILIKE $${params.length})`,
       );
     }
-    params.push(Math.min(Number(limit) || 200, 1000));
+    params.push(Math.min(Number(limit) || 10000, 10000));
     return (
       await this.db.query(
         `SELECT pcm.*, p.product_name, ci.item_name, ci.unit_cost, ci.unit_desi,

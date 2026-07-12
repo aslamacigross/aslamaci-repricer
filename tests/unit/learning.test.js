@@ -1,5 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const {
+  ActionRepository,
+  nextLearningRecommendation,
+} = require("../../src/repositories/action.repository");
 const { LearningService } = require("../../src/services/learning.service");
 
 test("sonuc jobu taze buybox verisiyle hedef sirayi degerlendirir", async () => {
@@ -100,4 +104,60 @@ test("batch ve pazar fiyati dogrulanmadan aksiyon uygulanmis sayilmaz", async ()
   assert.equal(result.verification.verified, 1);
   assert.equal(confirmed.id, action.id);
   assert.equal(confirmed.result.marketProduct.salePrice, 312.28);
+});
+
+test("ogrenme merkezi basarili en kucuk adimi aciklar", () => {
+  assert.match(
+    nextLearningRecommendation({
+      last_successful_undercut: 6,
+      learned_price_cut_tl: 8,
+      outcome_count: 3,
+      confidence_score: 0.6,
+    }),
+    /6,00 TL başarılı en küçük/,
+  );
+});
+
+test("seri basarisizlikta korumali manuel adim onerir", () => {
+  assert.match(
+    nextLearningRecommendation({
+      learned_price_cut_tl: 11,
+      consecutive_failures: 2,
+      outcome_count: 2,
+      confidence_score: 0.2,
+    }),
+    /manuel onayla; başarısızlık sürerse agresifleşme/,
+  );
+});
+
+test("ogrenme detayi son fiyat denemelerini sonucuyla getirir", async () => {
+  const db = {
+    query: async (sql) => {
+      if (sql.includes("FROM repricer_learning"))
+        return {
+          rows: [
+            {
+              barcode: "8690609598109",
+              outcome_count: 1,
+              learned_price_cut_tl: 0.1,
+              confidence_score: 0.5,
+            },
+          ],
+        };
+      return {
+        rows: [
+          {
+            id: 1,
+            barcode: "8690609598109",
+            result: "BUYBOX_WON",
+            elapsed_minutes: 15,
+          },
+        ],
+      };
+    },
+  };
+  const detail = await new ActionRepository(db).learningDetail("8690609598109");
+  assert.equal(detail.learning.barcode, "8690609598109");
+  assert.equal(detail.attempts[0].result, "BUYBOX_WON");
+  assert.match(detail.nextRecommendation, /öğrenilmiş fiyat adımını/i);
 });

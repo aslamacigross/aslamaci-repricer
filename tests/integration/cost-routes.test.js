@@ -7,6 +7,7 @@ const { errorHandler } = require("../../src/middleware/error-handler");
 
 function appFixture() {
   let fullReplaceCalls = 0;
+  const bulkCostCalls = [];
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
@@ -26,6 +27,10 @@ function appFixture() {
           valid: true,
           products: [{ barcode: "1", product_cost: 112, desi: 1.5 }],
         }),
+        saveCostItems: async (rows) => {
+          bulkCostCalls.push(rows);
+          return { processed: rows.length, items: rows };
+        },
       },
       costEngine: { recalculate: async () => ({ processed: 0 }) },
       shippingService: {},
@@ -36,7 +41,11 @@ function appFixture() {
     }),
   );
   app.use(errorHandler);
-  return { app, fullReplaceCalls: () => fullReplaceCalls };
+  return {
+    app,
+    fullReplaceCalls: () => fullReplaceCalls,
+    bulkCostCalls,
+  };
 }
 
 test("tam mapping replace acik onay olmadan calismaz", async () => {
@@ -59,4 +68,49 @@ test("mapping onizleme kaydetmeden maliyet ve desi dondurur", async () => {
   assert.equal(response.status, 200);
   assert.equal(response.body.data.products[0].product_cost, 112);
   assert.equal(response.body.data.products[0].desi, 1.5);
+});
+
+test("toplu maliyet satirlarini once tamamen dogrular", async () => {
+  const fixture = appFixture();
+  await request(fixture.app)
+    .post("/api/cost-items/bulk")
+    .send({
+      rows: [
+        {
+          item_code: "A",
+          item_name: "Geçerli",
+          unit_cost: 10,
+          unit_desi: 1,
+        },
+        {
+          item_code: "B",
+          item_name: "Hatalı",
+          unit_cost: 0,
+          unit_desi: 1,
+        },
+      ],
+    })
+    .expect(400);
+  assert.equal(fixture.bulkCostCalls.length, 0);
+});
+
+test("gecerli toplu maliyet satirlarini tek repository cagrisi ile kaydeder", async () => {
+  const fixture = appFixture();
+  const response = await request(fixture.app)
+    .post("/api/cost-items/bulk")
+    .send({
+      rows: [
+        {
+          item_code: "A",
+          item_name: "Kalem A",
+          unit_cost: 10.25,
+          unit_desi: 1.5,
+          unit: "adet",
+        },
+      ],
+    })
+    .expect(200);
+  assert.equal(response.body.data.processed, 1);
+  assert.equal(fixture.bulkCostCalls.length, 1);
+  assert.equal(fixture.bulkCostCalls[0][0].item_code, "A");
 });
