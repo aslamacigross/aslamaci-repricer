@@ -15,6 +15,18 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 7. Login, dashboard, ürün detayı, Menekşe kırılımı, buybox sync, repricer preview ve dry-run aksiyonu test edilir.
 8. `003_learning_contracts_and_operations` migrationının eski pilot aksiyonlarını koruduğu ve rollback ilişkilerini eklediği doğrulanır.
 
+## Doğrulanmış V2 Preview
+
+- URL: `https://aslamaci-repricer-preview-v2.up.railway.app`
+- Railway environment: `preview-v2`
+- Ayrı PostgreSQL servisi kullanılır; production DB'ye migration veya write yapılmamıştır.
+- Güvenlik: `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`, `GOOGLE_SHEETS_SYNC_ENABLED=false`.
+- 764 Trendyol ürünü ve 717 buybox kaydı read-only API çağrılarıyla senkronize edildi.
+- Google Sheet importu 4.230 kaydı transaction içinde işledi; import sonrası otomatik Sheet kapısı yeniden kapatıldı.
+- Menekşe (`8690609598109`) panelde 312,28 TL minimum fiyat ve `COMPLETE` durumuyla doğrulandı.
+- Manuel aksiyon `PENDING -> APPROVED -> DRY_RUN` akışını tamamladı; Trendyol fiyatı ve ürünün 322,00 TL mevcut fiyatı değişmedi.
+- Desktop ile 390x844 mobil dashboard/ürün ekranları görsel olarak doğrulandı.
+
 ## Production Öncesi Yedek
 
 Railway PostgreSQL backup/snapshot özelliği kullanılır. CLI erişimi varsa standart PostgreSQL yedeği de alınabilir:
@@ -52,7 +64,7 @@ NODE_ENV=production
 DRY_RUN=true
 REPRICER_ENABLED=false
 JOBS_ENABLED=true
-GOOGLE_SHEETS_SYNC_ENABLED=true
+GOOGLE_SHEETS_SYNC_ENABLED=false
 DEFAULT_MAX_INCREASE_TL=10
 ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 ```
@@ -84,4 +96,6 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 
 ## Production'a Geçiş
 
-İlk production deploy da dry-run olarak yapılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır; otomatik gönderim için ayrıca global repricer ve ürün bazında `AUTOMATIC + auto_update` gerekir.
+İlk production deploy da dry-run olarak yapılır. Sheet otomatik senkronu, ilk yedek ve manuel import kabulünden sonra ayrıca açılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır; otomatik gönderim için ayrıca global repricer ve ürün bazında `AUTOMATIC + auto_update` gerekir.
+
+Preview ortamı Railway deneme planındadır. Deneme süresi/credit bitmeden preview kalıcı bir plana taşınmalı veya production geçişi tamamlandıktan sonra kapatılmalıdır.

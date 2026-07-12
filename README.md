@@ -19,7 +19,7 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 ## Gereksinimler
 
 - Node.js 20+
-- pnpm 11+
+- pnpm 10.34.5 (repo `packageManager` alanıyla sabitlenmiştir)
 - PostgreSQL 14+
 
 ## Yerel Kurulum
@@ -106,7 +106,7 @@ Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canl
 
 ## Google Sheets
 
-PostgreSQL ana veri kaynağıdır. Sheets yalnızca geçiş, toplu düzenleme ve export katmanıdır. Import tüm sekmeleri önce okur ve doğrular; geçerli veri tamamlanmadan transaction veya silme başlamaz. `KargoMaliyetleri` ve `KargoBarem` tutarlarına yüzde 20 KDV eklenir.
+PostgreSQL ana veri kaynağıdır. Sheets yalnızca geçiş, toplu düzenleme ve export katmanıdır. Import tüm sekmeleri önce okur ve doğrular; geçerli veri tamamlanmadan transaction veya silme başlamaz. Aynı değerli tekrarlar uyarıyla tekilleştirilir, boş mapping adedi `1` kabul edilir, eksik maliyet tutarı `0` olarak içe alınıp ilgili ürün eksik işaretlenir. Çelişkili tekrarlar transaction başlamadan reddedilir. Mapping replace ve maliyet hesaplama aynı transaction içinde tamamlanır. `KargoMaliyetleri` ve `KargoBarem` tutarlarına yüzde 20 KDV eklenir.
 
 ## Railway
 
