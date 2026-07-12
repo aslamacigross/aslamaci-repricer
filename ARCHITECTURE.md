@@ -30,6 +30,8 @@ Frontend build'i Express tarafından sunulur; Railway'de tek servis yeterlidir.
 
 PostgreSQL ürün, ayar, maliyet, buybox, aksiyon, öğrenme ve audit verilerinin tek gerçek kaynağıdır. Google Sheets import/export adaptörüdür. Panel ayarları `product_settings` ve `system_settings` tablolarına yazılır.
 
+Para hesapları JavaScript kayan nokta aritmetiğiyle biriktirilmez; tutarlar kuruşa, oranlar ölçekli tam sayıya çevrilip yuvarlanarak hesaplanır. PostgreSQL tarafında parasal alanlar `NUMERIC` olarak saklanır.
+
 ## Fiyat Akışı
 
 ```mermaid
@@ -72,6 +74,12 @@ Başarılı bir aksiyon geri alınırken doğrudan API çağrısı yapılmaz. Es
 ## Google Dayanıklılığı
 
 Tek token cache, exponential backoff, jitter, AbortController timeout ve circuit breaker kullanılır. Sheet okuma/validation bitmeden DB transactionı başlamaz. Mapping ve kural değişimleri temp tablolar üzerinden atomic replace edilir.
+
+Panel mapping önizlemesi cost code ve barkod referanslarını doğrular. Kaydetme yalnızca gönderilen barkodları transaction içinde yeniler; benzer ürün mappingi kaynak barkoddan en fazla 100 hedefe kontrollü çoğaltılır.
+
+## Operasyon Kontrolleri
+
+`/health` servis ve DB bağlantısını, `/ready` gerekli migration sürümünü denetler. Bakım modu açıkken ayarlar dışında veri değiştiren yönetim istekleri `503` ile durur; okuma ekranları erişilebilir kalır.
 
 ## Geriye Uyumluluk
 

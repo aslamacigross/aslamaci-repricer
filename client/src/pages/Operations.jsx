@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from "react";
 import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   RefreshCw,
   Play,
   Eye,
@@ -13,6 +23,7 @@ import {
   CloudDownload,
   CloudUpload,
   Activity,
+  Pencil,
 } from "lucide-react";
 import { get, post, patch } from "../lib/api";
 import DataTable, { money, percent, date } from "../components/DataTable";
@@ -28,6 +39,8 @@ import {
   Confirm,
   Field,
   Pagination,
+  Modal,
+  Drawer,
 } from "../components/ui";
 const info = {
   buybox: [
@@ -98,6 +111,7 @@ function Buybox() {
 // Kept separate so hooks remain stable while Remote supplies the payload.
 function BuyboxTable({ payload }) {
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
   const rows = payload.items.filter((r) =>
     `${r.barcode} ${r.product_name}`
       .toLowerCase()
@@ -174,9 +188,104 @@ function BuyboxTable({ payload }) {
         />
       </div>
       <div className="panel table-panel">
-        <DataTable columns={cols} rows={rows} />
+        <DataTable
+          columns={cols}
+          rows={rows}
+          onRowClick={setSelected}
+          columnVisibilityKey="buybox"
+        />
       </div>
+      <BuyboxHistory product={selected} onClose={() => setSelected(null)} />
     </>
+  );
+}
+function BuyboxHistory({ product, onClose }) {
+  const [items, setItems] = useState(null);
+  useEffect(() => {
+    setItems(null);
+    if (!product) return;
+    get(`/api/products/${product.barcode}/buybox-history`)
+      .then((result) => setItems(result.items || []))
+      .catch(() => setItems([]));
+  }, [product]);
+  const chartData = [...(items || [])].reverse().map((item) => ({
+    ...item,
+    label: new Date(item.observed_at).toLocaleString("tr-TR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
+  return (
+    <Drawer
+      open={Boolean(product)}
+      onClose={onClose}
+      title={product ? `${product.barcode} buybox geçmişi` : "Buybox geçmişi"}
+      wide
+    >
+      {!items ? (
+        <Loading />
+      ) : items.length ? (
+        <>
+          <div className="drawer-chart">
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 9 }} minTickGap={36} />
+                <YAxis domain={["auto", "auto"]} />
+                <Tooltip formatter={(value) => money(value)} />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="observed_price"
+                  name="Bizim fiyat"
+                  stroke="#146c94"
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="buybox_price"
+                  name="Buybox"
+                  stroke="#21845f"
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="second_price"
+                  name="2. fiyat"
+                  stroke="#b98418"
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <DataTable
+            columns={[
+              {
+                key: "observed_at",
+                label: "Tarih",
+                render: (row) => date(row.observed_at),
+              },
+              {
+                key: "observed_price",
+                label: "Bizim fiyat",
+                render: (row) => money(row.observed_price),
+              },
+              {
+                key: "buybox_price",
+                label: "Buybox",
+                render: (row) => money(row.buybox_price),
+              },
+              { key: "rank", label: "Sıra" },
+            ]}
+            rows={items.slice(0, 100)}
+          />
+        </>
+      ) : (
+        <div className="state">Bu ürün için buybox geçmişi bulunmuyor.</div>
+      )}
+    </Drawer>
   );
 }
 function Repricer({ notify }) {
@@ -280,7 +389,11 @@ function Repricer({ notify }) {
       ) : (
         items && (
           <div className="panel table-panel">
-            <DataTable columns={cols} rows={items} />
+            <DataTable
+              columns={cols}
+              rows={items}
+              columnVisibilityKey="repricer-preview"
+            />
           </div>
         )
       )}
@@ -291,7 +404,8 @@ function Actions({ notify }) {
   const [data, setData] = useState(null),
     [status, setStatus] = useState(""),
     [confirm, setConfirm] = useState(null),
-    [selected, setSelected] = useState([]);
+    [selected, setSelected] = useState([]),
+    [editing, setEditing] = useState(null);
   async function load() {
     setData(await get(`/api/actions${status ? `?status=${status}` : ""}`));
     setSelected([]);
@@ -311,18 +425,36 @@ function Actions({ notify }) {
   }, [status]);
   async function act(action, row) {
     try {
-      await post(`/api/actions/${row.id}/${action}`);
+      await post(
+        `/api/actions/${row.id}/${action}`,
+        action === "recheck" ? { elapsedMinutes: 5 } : {},
+      );
       notify(
         action === "apply"
           ? "Aksiyon dry-run güvenliğiyle işlendi"
-          : action === "revert"
-            ? "Geri alma aksiyonu oluşturuldu; ayrıca onaylanması gerekir"
-            : "Aksiyon güncellendi",
+          : action === "recheck"
+            ? "Aksiyon sonucu yeniden kontrol edildi"
+            : action === "revert"
+              ? "Geri alma aksiyonu oluşturuldu; ayrıca onaylanması gerekir"
+              : "Aksiyon güncellendi",
       );
       setConfirm(null);
       load();
     } catch (e) {
       notify(e.message, "error");
+    }
+  }
+  async function editAndApprove() {
+    try {
+      await post(`/api/actions/${editing.id}/edit-and-approve`, {
+        proposedPrice: Number(editing.proposed_price),
+        reason: editing.reason,
+      });
+      notify("Fiyat düzenlendi ve aksiyon onaylandı");
+      setEditing(null);
+      load();
+    } catch (error) {
+      notify(error.message, "error");
     }
   }
   if (!data) return <Loading />;
@@ -356,6 +488,11 @@ function Actions({ notify }) {
                 onClick={() => act("approve", r)}
               />
               <IconButton
+                icon={Pencil}
+                label="Fiyatı düzenle ve onayla"
+                onClick={() => setEditing({ ...r })}
+              />
+              <IconButton
                 icon={X}
                 label="Reddet"
                 onClick={() => act("reject", r)}
@@ -367,6 +504,13 @@ function Actions({ notify }) {
               icon={Send}
               label="Uygula"
               onClick={() => setConfirm({ type: "apply", row: r })}
+            />
+          )}
+          {r.status === "AWAITING_RESULT" && (
+            <IconButton
+              icon={RefreshCw}
+              label="Sonucu tekrar kontrol et"
+              onClick={() => act("recheck", r)}
             />
           )}
           {r.status === "SUCCESS" && !r.reverted_by_action_id && (
@@ -414,8 +558,58 @@ function Actions({ notify }) {
           selectedIds={selected}
           onSelectionChange={setSelected}
           canSelectRow={(row) => row.status === "PENDING"}
+          columnVisibilityKey="actions"
         />
       </div>
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title="Fiyatı düzenle ve onayla"
+      >
+        {editing && (
+          <>
+            <div className="modal-body form-grid">
+              <Field label="Barkod">
+                <input value={editing.barcode} disabled />
+              </Field>
+              <Field label="Minimum fiyat">
+                <input value={money(editing.min_price)} disabled />
+              </Field>
+              <Field label="Yeni fiyat">
+                <input
+                  type="number"
+                  step="0.01"
+                  min={editing.min_price}
+                  value={editing.proposed_price}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      proposed_price: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Aksiyon sebebi">
+                <input
+                  value={editing.reason || ""}
+                  onChange={(event) =>
+                    setEditing({ ...editing, reason: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+            <footer className="modal-actions">
+              <span />
+              <Button variant="secondary" onClick={() => setEditing(null)}>
+                Vazgeç
+              </Button>
+              <Button icon={Check} onClick={editAndApprove}>
+                Düzenle ve onayla
+              </Button>
+            </footer>
+          </>
+        )}
+      </Modal>
       <Confirm
         open={Boolean(confirm)}
         onClose={() => setConfirm(null)}
@@ -511,7 +705,7 @@ function LearningTable({ data, notify }) {
   ];
   return (
     <div className="panel table-panel">
-      <DataTable columns={cols} rows={rows} />
+      <DataTable columns={cols} rows={rows} columnVisibilityKey="learning" />
     </div>
   );
 }
@@ -620,7 +814,11 @@ function Jobs({ notify }) {
   return (
     <>
       <div className="panel table-panel">
-        <DataTable columns={cols} rows={data.items} />
+        <DataTable
+          columns={cols}
+          rows={data.items}
+          columnVisibilityKey="jobs"
+        />
       </div>
       <div className="section-heading">
         <div>
@@ -649,6 +847,7 @@ function Jobs({ notify }) {
             { key: "error", label: "Hata" },
           ]}
           rows={data.runs}
+          columnVisibilityKey="job-runs"
         />
       </div>
     </>
@@ -727,6 +926,7 @@ function Logs() {
                 { key: "message", label: "Mesaj" },
               ]}
               rows={data.items}
+              columnVisibilityKey={`logs-${type}`}
             />
           </div>
           <Pagination
@@ -781,6 +981,7 @@ function Settings({ notify, setDryRun }) {
     ["global_dry_run", "Global dry-run"],
     ["global_repricer_enabled", "Global repricer"],
     ["google_sheets_sync_enabled", "Google Sheets sync"],
+    ["maintenance_mode", "Bakım modu"],
   ];
   return (
     <>

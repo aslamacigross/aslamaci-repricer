@@ -15,6 +15,7 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 7. Login, dashboard, ürün detayı, Menekşe kırılımı, buybox sync, repricer preview ve dry-run aksiyonu test edilir.
 8. `003_learning_contracts_and_operations` migrationının eski pilot aksiyonlarını koruduğu ve rollback ilişkilerini eklediği doğrulanır.
 9. `004_market_price_verification` migrationının tek işlem limitini mevcut günlük limitten taşıdığı ve bekleyen aksiyonları değiştirmediği doğrulanır.
+10. `005_operational_controls` migrationı ve `/ready` yanıtı doğrulanır; bakım modu kapalı bırakılır.
 
 ## Doğrulanmış V2 Preview
 
@@ -84,6 +85,7 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 ## Deploy Sonrası Smoke Test
 
 - `GET /health`: DB connected
+- `GET /ready`: `005_operational_controls` uygulanmış ve durum `ready`
 - Login ve logout
 - Dashboard KPI ve grafikler
 - Ürün arama, filtre ve detay drawer
@@ -99,6 +101,7 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Job geçmişi ve audit log
 - Google metadata test
 - Mobil sidebar ve tablolar
+- `pnpm test:ui` ve `pnpm test:e2e`
 
 ## Production'a Geçiş
 

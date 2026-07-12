@@ -16,6 +16,9 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - Atomic Google Sheets importu ve geriye uyumlu export
 - Audit, entegrasyon ve job logları
 - Mobil uyumlu Türkçe React paneli
+- Kolon görünürlüğü, güvenli toplu mapping önizlemesi ve mapping çoğaltma
+- Buybox geçmiş grafiği, kargo hesaplayıcı ve eksik tarife uyarıları
+- Bakım modu, migration-aware readiness ve fiyat aksiyonu düzenleyip onaylama
 
 ## Gereksinimler
 
@@ -45,16 +48,18 @@ Demo girişi yalnızca yerel fixture sunucusunda `admin / demo12345678` şeklind
 
 ## Komutlar
 
-| Komut | Açıklama |
-|---|---|
-| `pnpm dev` | Backend ve frontend geliştirme modu |
-| `pnpm build` | Production React build |
-| `pnpm start` | Migration + tek servis production başlangıcı |
-| `pnpm migrate` | Bekleyen migrationları uygular |
-| `pnpm migrate:down` | Son migration setlerini geri alır; önce yedek zorunludur |
-| `pnpm test` | Unit, integration ve regression testleri |
-| `pnpm lint` | Backend ve frontend statik kontrolü |
-| `pnpm hash-password "..."` | Production parola hash'i üretir |
+| Komut                      | Açıklama                                                 |
+| -------------------------- | -------------------------------------------------------- |
+| `pnpm dev`                 | Backend ve frontend geliştirme modu                      |
+| `pnpm build`               | Production React build                                   |
+| `pnpm start`               | Migration + tek servis production başlangıcı             |
+| `pnpm migrate`             | Bekleyen migrationları uygular                           |
+| `pnpm migrate:down`        | Son migration setlerini geri alır; önce yedek zorunludur |
+| `pnpm test`                | Unit, integration ve regression testleri                 |
+| `pnpm test:ui`             | React bileşen testleri                                   |
+| `pnpm test:e2e`            | Yerel dry-run fixture üzerinde Chrome uçtan uca testleri |
+| `pnpm lint`                | Backend ve frontend statik kontrolü                      |
+| `pnpm hash-password "..."` | Production parola hash'i üretir                          |
 
 ## Environment Variables
 
@@ -98,7 +103,7 @@ Tam liste [.env.example](.env.example) dosyasındadır.
 ## Güvenli İlk Çalıştırma
 
 1. `DRY_RUN=true` ve `REPRICER_ENABLED=false` bırakılır.
-2. Migration uygulanır ve `/health` kontrol edilir.
+2. Migration uygulanır; `/health` ve `/ready` kontrol edilir.
 3. Panelden ürün, Menekşe maliyet kırılımı ve buybox sync doğrulanır.
 4. Repricer yalnızca pilot ürünlerde önizlenir.
 5. Gerçek fiyat modu ayrı kullanıcı onayıyla daha sonra açılır.
@@ -108,6 +113,8 @@ Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canl
 ## Google Sheets
 
 PostgreSQL ana veri kaynağıdır. Sheets yalnızca geçiş, toplu düzenleme ve export katmanıdır. Import tüm sekmeleri önce okur ve doğrular; geçerli veri tamamlanmadan transaction veya silme başlamaz. Aynı değerli tekrarlar uyarıyla tekilleştirilir, boş mapping adedi `1` kabul edilir, eksik maliyet tutarı `0` olarak içe alınıp ilgili ürün eksik işaretlenir. Çelişkili tekrarlar transaction başlamadan reddedilir. Mapping replace ve maliyet hesaplama aynı transaction içinde tamamlanır. `KargoMaliyetleri` ve `KargoBarem` tutarlarına yüzde 20 KDV eklenir.
+
+Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister.
 
 ## Railway
 

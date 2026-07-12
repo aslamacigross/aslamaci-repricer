@@ -105,6 +105,64 @@ test("ayni aksiyon ikinci kez uygulanamaz", async () => {
     (error) => error.code === "DUPLICATE_APPLY",
   );
 });
+test("bekleyen aksiyon fiyati minimum ustunde duzenlenip onaylanir", async () => {
+  const { action, product } = fixture("PENDING");
+  let auditEntry;
+  const client = {
+    query: async (sql, params) => {
+      if (sql.includes("SELECT * FROM repricer_actions"))
+        return { rows: [action] };
+      if (sql.includes("SELECT * FROM products")) return { rows: [product] };
+      if (sql.includes("UPDATE repricer_actions"))
+        return {
+          rows: [
+            {
+              ...action,
+              proposed_price: params[1],
+              expected_profit: params[3],
+              expected_margin: params[4],
+              status: "APPROVED",
+              source: "MANUAL_EDIT",
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const service = new ActionService({
+    withTransaction: async (work) => work(client),
+    audit: {
+      record: async (entry) => {
+        auditEntry = entry;
+      },
+    },
+  });
+  const result = await service.editAndApprove(
+    action.id,
+    { proposedPrice: 900, reason: "Panel karari" },
+    "admin",
+  );
+  assert.equal(result.status, "APPROVED");
+  assert.equal(result.proposed_price, 900);
+  assert.equal(result.source, "MANUAL_EDIT");
+  assert.equal(auditEntry.action, "REPRICER_ACTION_EDITED_AND_APPROVED");
+});
+test("aksiyon duzenleme minimum fiyat altina izin vermez", async () => {
+  const { action, product } = fixture("PENDING");
+  const service = new ActionService({
+    withTransaction: async (work) =>
+      work({
+        query: async (sql) => ({
+          rows: sql.includes("repricer_actions") ? [action] : [product],
+        }),
+      }),
+    audit: { record: async () => {} },
+  });
+  await assert.rejects(
+    service.editAndApprove(action.id, { proposedPrice: 804.99 }, "admin"),
+    (error) => error.code === "BELOW_MINIMUM_PRICE",
+  );
+});
 test("Trendyol kabul yaniti urun fiyatini dogrulama olmadan kesinlestirmez", async () => {
   const { action, product } = fixture();
   const queries = [];

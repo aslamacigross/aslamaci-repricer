@@ -1,34 +1,50 @@
-const { parseNumber, roundMoney } = require("../utils/numbers");
+const {
+  parseNumber,
+  decimalToInteger,
+  integerToDecimal,
+  divideRounded,
+} = require("../utils/numbers");
+
+const RATE_SCALE = 10000n;
+const PERCENT_SCALE = 100n * RATE_SCALE;
+const cents = (value) => decimalToInteger(value, 2);
+const rateUnits = (value) => decimalToInteger(value, 4);
+const money = (value) => integerToDecimal(value, 2);
 
 function calculateMinimumPrice(input) {
-  const commissionRate = parseNumber(input.commissionRate);
+  const commissionRate = rateUnits(input.commissionRate);
   const base =
-    parseNumber(input.productCost) +
-    parseNumber(input.shippingCost) +
-    parseNumber(input.packagingCost) +
-    parseNumber(input.serviceFee) +
-    parseNumber(input.targetProfit);
-  if (commissionRate <= 0 || commissionRate >= 100 || base <= 0) return 0;
-  return roundMoney(base / (1 - commissionRate / 100));
+    cents(input.productCost) +
+    cents(input.shippingCost) +
+    cents(input.packagingCost) +
+    cents(input.serviceFee) +
+    cents(input.targetProfit);
+  const denominator = PERCENT_SCALE - commissionRate;
+  if (commissionRate <= 0n || denominator <= 0n || base <= 0n) return 0;
+  return money(divideRounded(base * PERCENT_SCALE, denominator));
 }
 
 function calculateNetProfit(input) {
-  const salePrice = parseNumber(input.salePrice);
-  const commission = salePrice * (parseNumber(input.commissionRate) / 100);
-  return roundMoney(
+  const salePrice = cents(input.salePrice);
+  const commission = divideRounded(
+    salePrice * rateUnits(input.commissionRate),
+    PERCENT_SCALE,
+  );
+  return money(
     salePrice -
       commission -
-      parseNumber(input.productCost) -
-      parseNumber(input.shippingCost) -
-      parseNumber(input.packagingCost) -
-      parseNumber(input.serviceFee),
+      cents(input.productCost) -
+      cents(input.shippingCost) -
+      cents(input.packagingCost) -
+      cents(input.serviceFee),
   );
 }
 
 function calculateNetMargin(input) {
-  const salePrice = parseNumber(input.salePrice);
-  if (salePrice <= 0) return 0;
-  return roundMoney((calculateNetProfit(input) / salePrice) * 100);
+  const salePrice = cents(input.salePrice);
+  if (salePrice <= 0n) return 0;
+  const profit = cents(calculateNetProfit(input));
+  return integerToDecimal(divideRounded(profit * 100n * 100n, salePrice), 2);
 }
 
 function selectShippingCost({

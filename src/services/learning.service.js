@@ -5,14 +5,14 @@ class LearningService {
     this.audit = audit;
   }
 
-  async verifyPendingActions() {
+  async verifyPendingActions(actionId = null) {
     if (
       !this.actions.pendingVerifications ||
       !this.sync?.verifyPriceAction ||
       !this.actions.confirmApplied
     )
       return { processed: 0, verified: 0, failed: 0, pending: 0, errors: 0 };
-    const actions = await this.actions.pendingVerifications();
+    const actions = await this.actions.pendingVerifications(200, actionId);
     const summary = {
       processed: actions.length,
       verified: 0,
@@ -80,9 +80,9 @@ class LearningService {
     return summary;
   }
 
-  async checkOutcomes(elapsedMinutes) {
-    const verification = await this.verifyPendingActions();
-    let pending = await this.actions.pendingOutcomes(elapsedMinutes);
+  async checkOutcomes(elapsedMinutes, actionId = null) {
+    const verification = await this.verifyPendingActions(actionId);
+    let pending = await this.actions.pendingOutcomes(elapsedMinutes, actionId);
     let refreshFailures = 0;
     if (pending.length && this.sync) {
       const refresh = await this.sync.buybox(
@@ -90,9 +90,9 @@ class LearningService {
       );
       const updated = new Set(refresh.updatedBarcodes || []);
       refreshFailures = Number(refresh.failed || 0);
-      pending = (await this.actions.pendingOutcomes(elapsedMinutes)).filter(
-        (action) => updated.has(action.barcode),
-      );
+      pending = (
+        await this.actions.pendingOutcomes(elapsedMinutes, actionId)
+      ).filter((action) => updated.has(action.barcode));
     }
     let successful = 0,
       failed = 0;

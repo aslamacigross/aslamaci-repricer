@@ -503,6 +503,59 @@ button:disabled {
 .table-panel {
   overflow: hidden;
 }
+.table-shell {
+  position: relative;
+}
+.column-menu-wrap {
+  height: 38px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  background: #fff;
+}
+.column-menu {
+  position: relative;
+}
+.column-menu summary {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+}
+.column-menu summary::-webkit-details-marker {
+  display: none;
+}
+.column-menu > div {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: 34px;
+  width: 220px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(16, 29, 24, 0.14);
+}
+.column-menu label {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+.column-menu input {
+  accent-color: var(--green);
+}
 .table-wrap {
   width: 100%;
   overflow: auto;
@@ -783,6 +836,85 @@ tbody tr.clickable:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+.mapping-preview {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.mapping-preview > strong {
+  display: block;
+  padding: 10px;
+  font-size: 11px;
+  background: #f5f8f6;
+}
+.compact-table {
+  max-height: 260px;
+}
+.compact-table td {
+  height: 36px;
+}
+.resource-context {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 18px;
+}
+.resource-context h3 {
+  font-size: 11px;
+  margin: 0 0 8px;
+}
+.resource-context p {
+  color: var(--muted);
+  font-size: 10px;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid #edf1ef;
+  font-size: 10px;
+}
+.history-list small {
+  color: var(--muted);
+}
+.shipping-calculator {
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.panel-header h2 {
+  font-size: 12px;
+  margin: 0 0 4px;
+}
+.panel-header p {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0;
+}
+.action-field {
+  justify-content: flex-end;
+}
+.action-field .btn {
+  width: 100%;
+}
+.calculation-result {
+  margin: 14px 0 0;
+}
+.drawer-chart {
+  min-height: 320px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
 }
 .field {
   display: flex;

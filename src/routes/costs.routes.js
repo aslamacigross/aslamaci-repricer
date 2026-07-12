@@ -14,7 +14,7 @@ function positive(input, fields, { allowZero = false } = {}) {
   }
   return input;
 }
-function costsRoutes({ costs, costEngine, audit }) {
+function costsRoutes({ costs, costEngine, audit, shippingService }) {
   const r = express.Router();
   const logged = async (req, action, type, id, before, after) =>
     audit.record({
@@ -48,6 +48,24 @@ function costsRoutes({ costs, costEngine, audit }) {
       await logged(req, "COST_ITEM_CREATED", "cost_item", data.id, null, data);
       res.status(201).json({ status: "ok", data });
     }),
+  );
+  r.get(
+    "/cost-items/:id/usage",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        items: await costs.costItemUsage(req.params.id),
+      }),
+    ),
+  );
+  r.get(
+    "/cost-items/:id/history",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        items: await audit.entityHistory("cost_item", req.params.id),
+      }),
+    ),
   );
   r.patch(
     "/cost-items/:id",
@@ -92,8 +110,60 @@ function costsRoutes({ costs, costEngine, audit }) {
     ),
   );
   r.post(
+    "/mappings/preview",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costs.previewMappings(req.body.rows),
+      }),
+    ),
+  );
+  r.post(
+    "/mappings/clone",
+    asyncRoute(async (req, res) => {
+      const data = await costs.cloneMappings(
+        req.body.sourceBarcode,
+        req.body.targetBarcodes,
+      );
+      for (const barcode of data.barcodes)
+        await costEngine.recalculate(barcode);
+      await logged(
+        req,
+        "MAPPINGS_CLONED",
+        "mapping",
+        req.body.sourceBarcode,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.post(
+    "/mappings/bulk-upsert",
+    asyncRoute(async (req, res) => {
+      const data = await costs.replaceMappingsForBarcodes(req.body.rows);
+      for (const barcode of data.barcodes)
+        await costEngine.recalculate(barcode);
+      await logged(
+        req,
+        "MAPPINGS_BARCODE_SCOPED_REPLACE",
+        "mapping",
+        "TRENDYOL",
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.post(
     "/mappings/bulk",
     asyncRoute(async (req, res) => {
+      if (req.body.confirmation !== "MAPPING_TAM_YENILE")
+        throw new AppError(
+          "Tüm mapping tablosunu yenilemek için açık onay gerekli",
+          409,
+          "FULL_MAPPING_REPLACE_CONFIRMATION_REQUIRED",
+        );
       const data = await costs.replaceMappings(req.body.rows);
       await costEngine.recalculate();
       await logged(
@@ -160,6 +230,24 @@ function costsRoutes({ costs, costEngine, audit }) {
       res.json({ status: "ok", items: await costs.listCommissions() }),
     ),
   );
+  r.get(
+    "/commissions/missing/categories",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        items: await costs.missingCommissionCategories(),
+      }),
+    ),
+  );
+  r.get(
+    "/commissions/:categoryId/history",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        items: await audit.entityHistory("commission", req.params.categoryId),
+      }),
+    ),
+  );
   r.post(
     "/commissions",
     asyncRoute(async (req, res) => {
@@ -223,6 +311,26 @@ function costsRoutes({ costs, costEngine, audit }) {
     "/shipping",
     asyncRoute(async (req, res) =>
       res.json({ status: "ok", data: await costs.shipping() }),
+    ),
+  );
+  r.post(
+    "/shipping/preview",
+    asyncRoute(async (req, res) => {
+      numeric(requireFields(req.body, ["sale_price", "desi", "carrier"]), [
+        "sale_price",
+        "desi",
+      ]);
+      positive(req.body, ["sale_price", "desi"]);
+      res.json({
+        status: "ok",
+        data: await shippingService.preview(req.body),
+      });
+    }),
+  );
+  r.get(
+    "/shipping/coverage",
+    asyncRoute(async (req, res) =>
+      res.json({ status: "ok", data: await shippingService.coverage() }),
     ),
   );
   r.get(

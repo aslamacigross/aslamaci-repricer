@@ -268,6 +268,7 @@ export default function Products({ notify }) {
             <DataTable
               columns={columns}
               rows={result.items}
+              columnVisibilityKey="products"
               onRowClick={open}
             />
             <Pagination

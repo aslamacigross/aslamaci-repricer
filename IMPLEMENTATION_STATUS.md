@@ -44,9 +44,22 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Product V2 Railway preview sync kabulü: 768 başarılı, 0 hatalı kayıt
 - [x] `004` migration alanlarının preview ürün detayında görsel doğrulaması
 - [x] Preview panel ayarlarında dry-run açık, repricer ve Sheets otomasyonu kapalı son kontrolü
+- [x] Kuruş ve oran ölçekli tam sayı para motoru
+- [x] `005_operational_controls`, bakım modu ve migration-aware `/ready`
+- [x] Barkod kapsamlı güvenli toplu mapping önizleme ve benzer mapping çoğaltma
+- [x] Maliyet kalemi kullanım/geçmişi ve komisyon değişiklik geçmişi
+- [x] Eksik komisyon/kargo tarifesi uyarıları ve kargo maliyeti hesaplayıcı
+- [x] Kalıcı tablo kolon görünürlüğü
+- [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
+- [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
+- [x] Seçili aksiyona özel sonuç tekrar kontrolü
+- [x] React bileşen testleri: 2/2 başarılı
+- [x] Chrome masaüstü/mobil uçtan uca testleri: 2/2 başarılı
+- [x] Backend testleri: 68/68 başarılı
 
 ## Devam Eden
 
+- [ ] Son dokümantasyon, commit, branch push ve Railway preview doğrulaması
 - [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
 
 ## Dış Ortamda Bekleyen

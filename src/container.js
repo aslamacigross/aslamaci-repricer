@@ -6,6 +6,7 @@ const { TrendyolService } = require("./services/trendyol.service");
 const { CostEngineService } = require("./services/cost-engine.service");
 const { SyncService } = require("./services/sync.service");
 const { SheetsSyncService } = require("./services/sheets-sync.service");
+const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
 const { ActionService } = require("./services/action.service");
 const { LearningService } = require("./services/learning.service");
@@ -51,6 +52,8 @@ function createContainer(overrides = {}) {
   const actions = overrides.actions || new ActionRepository(db, transaction);
   const jobs = overrides.jobs || new JobRepository(db);
   const costEngine = overrides.costEngine || new CostEngineService(db);
+  const shippingService =
+    overrides.shippingService || new ShippingService(costs);
   const sync = overrides.sync || new SyncService({ db, trendyol, audit });
   const sheetsSync =
     overrides.sheetsSync ||
@@ -168,6 +171,7 @@ function createContainer(overrides = {}) {
     actions,
     jobs,
     costEngine,
+    shippingService,
     sync,
     sheetsSync,
     repricer,

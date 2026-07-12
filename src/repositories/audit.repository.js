@@ -100,6 +100,17 @@ class AuditRepository {
       ],
     );
   }
+
+  async entityHistory(entityType, entityId, limit = 100) {
+    return (
+      await this.db.query(
+        `SELECT id,actor,action,before_data,after_data,created_at
+         FROM audit_logs WHERE entity_type=$1 AND entity_id=$2
+         ORDER BY created_at DESC LIMIT $3`,
+        [entityType, String(entityId), Math.min(Number(limit) || 100, 250)],
+      )
+    ).rows;
+  }
 }
 
 module.exports = { AuditRepository };

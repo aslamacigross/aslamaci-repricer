@@ -19,7 +19,7 @@ test("aksiyon, outcome ve rollback iliskileri gercek semada atomik calisir", asy
   });
   const adapter = memory.adapters.createPg();
   const db = new adapter.Pool();
-  await migrate("up", db);
+  await migrate("up", db, { compatibility: "pg-mem" });
   const transaction = async (work) => {
     const client = await db.connect();
     try {

@@ -393,6 +393,15 @@ const costs = {
       product_count: 6,
     },
   ],
+  costItemUsage: async () => [
+    {
+      barcode: products[0].barcode,
+      product_name: products[0].product_name,
+      quantity: 1,
+      item_code: "YUMUSATICI_ACTISOFT_1500ML",
+      line_cost: 112,
+    },
+  ],
   listMappings: async () => [
     {
       id: 1,
@@ -412,6 +421,13 @@ const costs = {
       category_name: "Yumuşatıcı",
       commission_rate: 17,
       product_count: 146,
+    },
+  ],
+  missingCommissionCategories: async () => [
+    {
+      category_id: products[3].category_id,
+      category_name: products[3].category_name,
+      product_count: 1,
     },
   ],
   shipping: async () => ({
@@ -446,6 +462,28 @@ const costs = {
   saveBarem: async (x) => x,
   savePackaging: async (x) => x,
   validateMappings: async () => ({ valid: true, errors: [] }),
+  previewMappings: async (rows) => ({
+    valid: true,
+    errors: [],
+    rows,
+    products: [...new Set(rows.map((row) => row.barcode))].map((barcode) => ({
+      barcode,
+      mapping_count: rows.filter((row) => row.barcode === barcode).length,
+      product_cost: 112,
+      desi: 1.5,
+    })),
+  }),
+  replaceMappingsForBarcodes: async (rows) => ({
+    replacedBarcodes: new Set(rows.map((row) => row.barcode)).size,
+    insertedMappings: rows.length,
+    barcodes: [...new Set(rows.map((row) => row.barcode))],
+  }),
+  cloneMappings: async (source, targets) => ({
+    source,
+    replacedBarcodes: targets.length,
+    insertedMappings: targets.length,
+    barcodes: targets,
+  }),
   replaceMappings: async (rows) => ({ replaced: rows.length }),
   deleteCostItem: async () => ({}),
   deleteMapping: async () => ({}),
@@ -512,6 +550,7 @@ const container = {
   db: { query: async () => ({ rows: [{}] }) },
   audit: {
     record: async () => {},
+    entityHistory: async () => [],
     list: async () => [
       {
         id: 1,
@@ -533,6 +572,24 @@ const container = {
   products: productRepo,
   costEngine: { recalculate: async () => ({ processed: 1 }) },
   costs,
+  shippingService: {
+    preview: async ({ sale_price, desi, carrier }) => ({
+      salePrice: sale_price,
+      desi,
+      carrier,
+      roundedDesi: Math.ceil(desi),
+      shippingSource: "BAREM",
+      shippingCost: 79,
+      packagingCost: 15,
+      totalFulfillmentCost: 94,
+      warnings: [],
+    }),
+    coverage: async () => ({
+      carriers: [{ carrier: "TEX", maximumDesi: 2, missingDesi: [1] }],
+      packagingRuleCount: 1,
+      warnings: [{ code: "MISSING_DESI_RATE", carrier: "TEX", desi: 1 }],
+    }),
+  },
   repricer,
   actions: {
     list: async () => actionRows,
@@ -569,6 +626,14 @@ const container = {
     apply: async (id) => {
       const x = actionRows.find((a) => a.id == id);
       x.status = "DRY_RUN";
+      return x;
+    },
+    editAndApprove: async (id, input) => {
+      const x = actionRows.find((a) => a.id == id);
+      x.proposed_price = input.proposedPrice;
+      x.reason = input.reason || x.reason;
+      x.status = "APPROVED";
+      x.source = "MANUAL_EDIT";
       return x;
     },
     approveMany: async (ids) =>

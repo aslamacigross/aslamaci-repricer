@@ -15,8 +15,8 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   });
   const adapter = memory.adapters.createPg();
   const db = new adapter.Pool();
-  await migrate("up", db);
-  await migrate("up", db);
+  await migrate("up", db, { compatibility: "pg-mem" });
+  await migrate("up", db, { compatibility: "pg-mem" });
   const tables = await db.query(
     "SELECT version FROM schema_migrations ORDER BY version",
   );
@@ -27,6 +27,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "002_operations_and_learning",
       "003_learning_contracts_and_operations",
       "004_market_price_verification",
+      "005_operational_controls",
     ],
   );
   const safety = await db.query(
@@ -55,7 +56,18 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
      WHERE table_name='product_settings' AND column_name='max_single_change_pct'`,
   );
   assert.equal(productSettingColumns.rowCount, 1);
-  await migrate("down", db);
+  const maintenance = await db.query(
+    "SELECT value FROM system_settings WHERE key='maintenance_mode'",
+  );
+  assert.equal(maintenance.rows[0].value, false);
+  await assert.rejects(
+    db.query(
+      `INSERT INTO commission_rules(
+        marketplace,category_id,commission_rate
+      )VALUES('TRENDYOL','INVALID',100)`,
+    ),
+  );
+  await migrate("down", db, { compatibility: "pg-mem" });
   const afterDown = await db.query(
     "SELECT version FROM schema_migrations ORDER BY version",
   );
@@ -65,8 +77,14 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "001_core_schema",
       "002_operations_and_learning",
       "003_learning_contracts_and_operations",
+      "004_market_price_verification",
     ],
   );
+  const removedMaintenance = await db.query(
+    "SELECT value FROM system_settings WHERE key='maintenance_mode'",
+  );
+  assert.equal(removedMaintenance.rowCount, 0);
+  await migrate("down", db, { compatibility: "pg-mem" });
   const removedColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE (table_name='repricer_actions' AND column_name='market_price_before')

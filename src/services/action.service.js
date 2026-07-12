@@ -92,6 +92,106 @@ class ActionService {
     return updated;
   }
 
+  async editAndApprove(id, input, actor) {
+    const proposedPrice = roundMoney(input.proposedPrice);
+    if (!Number.isFinite(proposedPrice) || proposedPrice <= 0)
+      throw new AppError(
+        "Önerilen fiyat pozitif olmalı",
+        400,
+        "INVALID_PROPOSED_PRICE",
+      );
+    const { before, after } = await this.withTransaction(async (client) => {
+      const action = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!action)
+        throw new AppError("Aksiyon bulunamadı", 404, "ACTION_NOT_FOUND");
+      if (action.status !== "PENDING")
+        throw new AppError(
+          "Yalnızca bekleyen aksiyon düzenlenebilir",
+          409,
+          "INVALID_ACTION_STATE",
+        );
+      const product = (
+        await client.query(
+          `SELECT * FROM products WHERE marketplace=$1 AND barcode=$2`,
+          [action.marketplace, action.barcode],
+        )
+      ).rows[0];
+      if (!product)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const minimumPrice = Math.max(
+        Number(action.min_price || 0),
+        Number(product.min_price || 0),
+      );
+      if (proposedPrice < minimumPrice)
+        throw new AppError(
+          "Düzenlenen fiyat minimum fiyatın altında olamaz",
+          409,
+          "BELOW_MINIMUM_PRICE",
+          { proposedPrice, minimumPrice },
+        );
+      if (proposedPrice === roundMoney(action.old_price))
+        throw new AppError(
+          "Yeni fiyat mevcut fiyatla aynı olamaz",
+          409,
+          "MEANINGLESS_PRICE_CHANGE",
+        );
+      const moneyInput = {
+        salePrice: proposedPrice,
+        commissionRate: product.commission_rate,
+        productCost: product.calculated_product_cost,
+        shippingCost: product.calculated_shipping_cost,
+        packagingCost: product.packaging_cost,
+        serviceFee: product.service_fee,
+      };
+      const expectedProfit = calculateNetProfit(moneyInput);
+      const expectedMargin = calculateNetMargin(moneyInput);
+      const actionType =
+        proposedPrice > Number(action.old_price)
+          ? "FIYAT_ARTIR"
+          : "FIYAT_DUSUR";
+      const reason = String(input.reason || "").trim() || action.reason;
+      const updated = (
+        await client.query(
+          `UPDATE repricer_actions SET proposed_price=$2,action=$3,
+           expected_profit=$4,expected_margin=$5,reason=$6,source='MANUAL_EDIT',
+           status='APPROVED',approved_by=$7,approved_at=NOW(),
+           expires_at=NOW()+INTERVAL '30 minutes',
+           safety_checks=COALESCE(safety_checks,'{}'::jsonb)||$8::jsonb,
+           updated_at=NOW() WHERE id=$1 RETURNING *`,
+          [
+            id,
+            proposedPrice,
+            actionType,
+            expectedProfit,
+            expectedMargin,
+            reason,
+            actor,
+            JSON.stringify({
+              manuallyEdited: true,
+              previousProposedPrice: Number(action.proposed_price),
+              editedBy: actor,
+            }),
+          ],
+        )
+      ).rows[0];
+      return { before: action, after: updated };
+    });
+    await this.audit.record({
+      actor,
+      action: "REPRICER_ACTION_EDITED_AND_APPROVED",
+      entityType: "repricer_action",
+      entityId: String(id),
+      before,
+      after,
+    });
+    return after;
+  }
+
   async reject(id, actor) {
     const action = await this.actions.get(id);
     if (!action)
@@ -237,7 +337,7 @@ class ActionService {
         },
         global,
         proposal,
-        manual: ["MANUAL", "ROLLBACK"].includes(locked.source),
+        manual: ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(locked.source),
         today: {
           actionCount: today.action_count,
           dayStartPrice: today.day_start_price,

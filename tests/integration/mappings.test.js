@@ -56,3 +56,26 @@ test("orphan cost code varsa mapping replace transactiona girmez", async () => {
   );
   assert.equal(transactions, 0);
 });
+test("panel toplu mapping islemi yalnizca gonderilen barkodlari yeniler", async () => {
+  const rows = [
+    { barcode: "1", cost_item_code: "A", quantity: 1 },
+    { barcode: "1", cost_item_code: "B", quantity: 2 },
+    { barcode: "2", cost_item_code: "A", quantity: 3 },
+  ];
+  const calls = [];
+  const db = { query: async (sql) => queryResult(sql, rows) };
+  const repo = new CostRepository(db, async (work) =>
+    work({
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [], rowCount: 1 };
+      },
+    }),
+  );
+  const result = await repo.replaceMappingsForBarcodes(rows);
+  assert.equal(result.replacedBarcodes, 2);
+  assert.equal(result.insertedMappings, 3);
+  const deletion = calls.find((call) => call.sql.includes("DELETE FROM"));
+  assert.deepEqual(deletion.params[0], ["1", "2"]);
+  assert.match(deletion.sql, /barcode=ANY/);
+});

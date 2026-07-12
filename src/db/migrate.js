@@ -4,7 +4,7 @@ const { pool } = require("../config/database");
 
 const directory = path.join(__dirname, "migrations");
 
-async function migrate(direction = "up", database = pool) {
+async function migrate(direction = "up", database = pool, options = {}) {
   await database.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
@@ -16,7 +16,7 @@ async function migrate(direction = "up", database = pool) {
     .readdirSync(directory)
     .filter((file) => file.endsWith(`.${direction}.sql`))
     .sort();
-  if (direction === "down") files = files.reverse().slice(0, 1);
+  if (direction === "down") files = files.reverse();
 
   for (const file of files) {
     const version = file.split(".")[0];
@@ -29,7 +29,10 @@ async function migrate(direction = "up", database = pool) {
     const client = await database.connect();
     try {
       await client.query("BEGIN");
-      await client.query(fs.readFileSync(path.join(directory, file), "utf8"));
+      let sql = fs.readFileSync(path.join(directory, file), "utf8");
+      if (options.compatibility === "pg-mem")
+        sql = sql.replaceAll(" NOT VALID", "");
+      await client.query(sql);
       if (direction === "up") {
         await client.query(
           "INSERT INTO schema_migrations(version) VALUES ($1)",
@@ -41,6 +44,7 @@ async function migrate(direction = "up", database = pool) {
         ]);
       }
       await client.query("COMMIT");
+      if (direction === "down") break;
     } catch (error) {
       await client.query("ROLLBACK");
       error.message = `Migration ${file} failed: ${error.message}`;

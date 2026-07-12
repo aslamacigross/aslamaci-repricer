@@ -123,27 +123,29 @@ class ActionRepository {
     );
   }
 
-  async pendingOutcomes(elapsedMinutes) {
+  async pendingOutcomes(elapsedMinutes, actionId = null) {
     return (
       await this.db.query(
         `SELECT ra.*,p.buybox_price buybox_after,p.rank rank_after,p.calculated_net_profit profit_after
       FROM repricer_actions ra JOIN products p ON p.marketplace=ra.marketplace AND p.barcode=ra.barcode
       WHERE ra.status IN('SENT','AWAITING_RESULT','SUCCESS')
+      AND ($2::bigint IS NULL OR ra.id=$2)
       AND ra.verified_at IS NOT NULL
       AND ra.sent_at<=NOW()-($1||' minutes')::interval
       AND NOT EXISTS(SELECT 1 FROM price_change_outcomes pco WHERE pco.action_id=ra.id AND pco.elapsed_minutes=$1)`,
-        [elapsedMinutes],
+        [elapsedMinutes, actionId],
       )
     ).rows;
   }
 
-  async pendingVerifications(limit = 200) {
+  async pendingVerifications(limit = 200, actionId = null) {
     return (
       await this.db.query(
         `SELECT * FROM repricer_actions
          WHERE status='AWAITING_RESULT' AND verified_at IS NULL
+           AND ($2::bigint IS NULL OR id=$2)
          ORDER BY sent_at ASC LIMIT $1`,
-        [Math.min(Math.max(Number(limit) || 200, 1), 500)],
+        [Math.min(Math.max(Number(limit) || 200, 1), 500), actionId],
       )
     ).rows;
   }

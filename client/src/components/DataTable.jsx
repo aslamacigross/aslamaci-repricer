@@ -1,6 +1,19 @@
-import React, { useMemo, useState } from "react";
-import { ArrowUpDown } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowUpDown, Columns3 } from "lucide-react";
 import { Badge, Empty, toneFor } from "./ui";
+
+function savedHiddenColumns(key) {
+  if (!key) return [];
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(`table-columns:${key}`) || "[]",
+    );
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function DataTable({
   columns,
   rows = [],
@@ -11,9 +24,19 @@ export default function DataTable({
   onSelectionChange,
   rowKey,
   canSelectRow = () => true,
+  columnVisibilityKey,
 }) {
   const [localSort, setLocalSort] = useState({ key: null, direction: "asc" });
+  const [hiddenColumns, setHiddenColumns] = useState(() =>
+    savedHiddenColumns(columnVisibilityKey),
+  );
+  useEffect(() => {
+    setHiddenColumns(savedHiddenColumns(columnVisibilityKey));
+  }, [columnVisibilityKey]);
   const activeSort = sort || localSort;
+  const visibleColumns = columns.filter(
+    (column) => !hiddenColumns.includes(column.key),
+  );
   const getRowKey = (row, index) =>
     rowKey?.(row) ?? row.id ?? row.barcode ?? index;
   const sortedRows = useMemo(() => {
@@ -53,85 +76,126 @@ export default function DataTable({
     else next.add(id);
     onSelectionChange([...next]);
   }
+  function toggleColumn(key) {
+    if (!hiddenColumns.includes(key) && visibleColumns.length === 1) return;
+    const next = hiddenColumns.includes(key)
+      ? hiddenColumns.filter((item) => item !== key)
+      : [...hiddenColumns, key];
+    setHiddenColumns(next);
+    if (columnVisibilityKey)
+      localStorage.setItem(
+        `table-columns:${columnVisibilityKey}`,
+        JSON.stringify(next),
+      );
+  }
   if (!rows.length) return <Empty />;
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {selectable && (
-              <th className="select-column">
-                <input
-                  type="checkbox"
-                  aria-label="Tüm satırları seç"
-                  checked={allSelected}
-                  onChange={() =>
-                    onSelectionChange(
-                      allSelected
-                        ? []
-                        : selectionRows.map((row) => getRowKey(row)),
-                    )
-                  }
-                />
-              </th>
-            )}
-            {columns.map((c) => (
-              <th key={c.key} style={{ width: c.width }}>
-                {c.sortable !== false && !["ops", "run"].includes(c.key) ? (
-                  <button
-                    className="sort-btn"
-                    onClick={() => changeSort(c.key)}
-                  >
-                    {c.label}
-                    <ArrowUpDown size={14} />
-                  </button>
-                ) : (
-                  c.label
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sortedRows.map((row, index) => (
-            <tr
-              key={getRowKey(row, index)}
-              onClick={() => onRowClick?.(row)}
-              className={onRowClick ? "clickable" : ""}
-            >
+    <div className="table-shell">
+      {columnVisibilityKey && (
+        <div className="column-menu-wrap">
+          <details className="column-menu">
+            <summary title="Kolonları göster veya gizle" aria-label="Kolonlar">
+              <Columns3 size={17} />
+            </summary>
+            <div>
+              {columns
+                .filter((column) => column.hideable !== false)
+                .map((column) => (
+                  <label key={column.key}>
+                    <input
+                      type="checkbox"
+                      checked={!hiddenColumns.includes(column.key)}
+                      disabled={
+                        !hiddenColumns.includes(column.key) &&
+                        visibleColumns.length === 1
+                      }
+                      onChange={() => toggleColumn(column.key)}
+                    />
+                    <span>{column.label}</span>
+                  </label>
+                ))}
+            </div>
+          </details>
+        </div>
+      )}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
               {selectable && (
-                <td
-                  className="select-column"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <th className="select-column">
                   <input
                     type="checkbox"
-                    aria-label="Satırı seç"
-                    checked={selected.has(getRowKey(row, index))}
-                    disabled={!canSelectRow(row)}
-                    onChange={() => toggle(getRowKey(row, index))}
+                    aria-label="Tüm satırları seç"
+                    checked={allSelected}
+                    onChange={() =>
+                      onSelectionChange(
+                        allSelected
+                          ? []
+                          : selectionRows.map((row) => getRowKey(row)),
+                      )
+                    }
                   />
-                </td>
+                </th>
               )}
-              {columns.map((c) => {
-                const value = c.render ? c.render(row) : row[c.key];
-                return (
-                  <td
-                    key={c.key}
-                    title={typeof value === "string" ? value : undefined}
-                  >
-                    {c.badge ? (
-                      <Badge tone={toneFor(value)}>{value ?? "-"}</Badge>
-                    ) : (
-                      (value ?? "-")
-                    )}
-                  </td>
-                );
-              })}
+              {visibleColumns.map((c) => (
+                <th key={c.key} style={{ width: c.width }}>
+                  {c.sortable !== false && !["ops", "run"].includes(c.key) ? (
+                    <button
+                      className="sort-btn"
+                      onClick={() => changeSort(c.key)}
+                    >
+                      {c.label}
+                      <ArrowUpDown size={14} />
+                    </button>
+                  ) : (
+                    c.label
+                  )}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sortedRows.map((row, index) => (
+              <tr
+                key={getRowKey(row, index)}
+                onClick={() => onRowClick?.(row)}
+                className={onRowClick ? "clickable" : ""}
+              >
+                {selectable && (
+                  <td
+                    className="select-column"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label="Satırı seç"
+                      checked={selected.has(getRowKey(row, index))}
+                      disabled={!canSelectRow(row)}
+                      onChange={() => toggle(getRowKey(row, index))}
+                    />
+                  </td>
+                )}
+                {visibleColumns.map((c) => {
+                  const value = c.render ? c.render(row) : row[c.key];
+                  return (
+                    <td
+                      key={c.key}
+                      title={typeof value === "string" ? value : undefined}
+                    >
+                      {c.badge ? (
+                        <Badge tone={toneFor(value)}>{value ?? "-"}</Badge>
+                      ) : (
+                        (value ?? "-")
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ const {
   selectPackagingCost,
   isCostComplete,
 } = require("../../src/domain/pricing");
+const { multiplyDecimals } = require("../../src/utils/numbers");
 
 test("Menekşe minimum fiyat fixture 312.28 TL", () => {
   assert.equal(
@@ -45,6 +46,34 @@ test("net kar komisyon ve tum maliyetleri dusurur", () => {
     }),
     12.81,
   );
+});
+test("para motoru floating point yerine kurus hassasiyeti kullanir", () => {
+  assert.equal(
+    calculateMinimumPrice({
+      productCost: 0.1,
+      shippingCost: 0.2,
+      packagingCost: 0,
+      serviceFee: 0,
+      targetProfit: 0,
+      commissionRate: 17,
+    }),
+    0.36,
+  );
+  assert.equal(
+    calculateNetProfit({
+      salePrice: 1,
+      commissionRate: 17,
+      productCost: 0.1,
+      shippingCost: 0.2,
+      packagingCost: 0,
+      serviceFee: 0,
+    }),
+    0.53,
+  );
+});
+test("adet ve birim maliyet carpimi kurus hassasiyetinde yuvarlanir", () => {
+  assert.equal(multiplyDecimals(3, 0.1), 0.3);
+  assert.equal(multiplyDecimals(1.5, 79.05), 118.58);
 });
 test("sepet baremi desi tarifesinden once gelir", () => {
   const result = selectShippingCost({

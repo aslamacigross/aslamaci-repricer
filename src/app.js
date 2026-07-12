@@ -22,6 +22,7 @@ const { systemRoutes } = require("./routes/system.routes");
 const { legacyRoutes } = require("./routes/legacy.routes");
 
 const APP_VERSION = "2.0.0";
+const REQUIRED_MIGRATION = "005_operational_controls";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);
@@ -51,6 +52,22 @@ function createApp(container = createContainer()) {
       app: "aslamaci-erp",
       version: APP_VERSION,
       dryRun: env.dryRun,
+      release: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || "local",
+    }),
+  );
+  app.get(
+    ["/ready", "/api/ready"],
+    asyncRoute(async (req, res) => {
+      const result = await container.db.query(
+        "SELECT version FROM schema_migrations WHERE version=$1",
+        [REQUIRED_MIGRATION],
+      );
+      const ready = result.rowCount === 1;
+      res.status(ready ? 200 : 503).json({
+        status: ready ? "ready" : "not_ready",
+        database: "connected",
+        requiredMigration: REQUIRED_MIGRATION,
+      });
     }),
   );
   app.get(
@@ -82,6 +99,23 @@ function createApp(container = createContainer()) {
     }),
   );
   app.use("/api", requireAuth, csrfRequired);
+  app.use(
+    "/api",
+    asyncRoute(async (req, res, next) => {
+      if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+      if (req.path === "/settings" || !container.settings?.getAll)
+        return next();
+      const current = await container.settings.getAll();
+      if (current.maintenance_mode === true)
+        return res.status(503).json({
+          status: "error",
+          code: "MAINTENANCE_MODE",
+          message:
+            "Sistem bakım modunda. Ayarlar dışında veri değiştiren işlemler geçici olarak durduruldu.",
+        });
+      return next();
+    }),
+  );
   app.use("/api/dashboard", dashboardRoutes(container));
   app.use("/api/products", productsRoutes(container));
   app.use("/api", costsRoutes(container));
@@ -125,4 +159,4 @@ function createApp(container = createContainer()) {
   app.use(notFound, errorHandler);
   return app;
 }
-module.exports = { createApp, APP_VERSION };
+module.exports = { createApp, APP_VERSION, REQUIRED_MIGRATION };

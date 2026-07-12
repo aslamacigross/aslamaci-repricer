@@ -131,6 +131,7 @@ function systemRoutes({
         "global_dry_run",
         "global_repricer_enabled",
         "google_sheets_sync_enabled",
+        "maintenance_mode",
         "default_target_profit",
         "default_price_cut_tl",
         "default_max_increase_tl",
@@ -163,6 +164,7 @@ function systemRoutes({
         "global_dry_run",
         "global_repricer_enabled",
         "google_sheets_sync_enabled",
+        "maintenance_mode",
       ]);
       const jobForSetting = {
         product_sync_cron_minutes: "sync-products",

@@ -137,6 +137,48 @@ export default function Dashboard() {
       <section className="dashboard-grid">
         <div className="panel chart-panel">
           <header>
+            <h2>Strateji başarısı</h2>
+            <span>Son 90 gün hedef sıra başarısı</span>
+          </header>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={d.charts.strategies || []}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+              <YAxis unit="%" />
+              <Tooltip />
+              <Bar
+                dataKey="success_rate"
+                name="Başarı %"
+                fill="#21845f"
+                radius={[3, 3, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="panel chart-panel">
+          <header>
+            <h2>Öğrenilen fiyat kırma</h2>
+            <span>Ürünlerin fiyat adımı dağılımı</span>
+          </header>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={d.charts.learnedSteps || []}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Bar
+                dataKey="count"
+                name="Ürün"
+                fill="#146c94"
+                radius={[3, 3, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+      <section className="dashboard-grid">
+        <div className="panel chart-panel">
+          <header>
             <h2>Fiyat aksiyonları</h2>
             <span>Son 14 gün</span>
           </header>

@@ -1,4 +1,9 @@
 const { AppError } = require("../utils/errors");
+const {
+  decimalToInteger,
+  integerToDecimal,
+  multiplyDecimals,
+} = require("../utils/numbers");
 
 class CostRepository {
   constructor(db, withTransaction) {
@@ -65,6 +70,23 @@ class CostRepository {
         id,
       ])
     ).rows[0];
+  }
+
+  async costItemUsage(id) {
+    return (
+      await this.db.query(
+        `SELECT p.barcode,p.product_name,p.brand,p.category_name,
+                pcm.quantity,ci.item_code,ci.item_name,
+                pcm.quantity*ci.unit_cost AS line_cost,
+                pcm.quantity*ci.unit_desi AS line_desi
+         FROM cost_items ci
+         JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+         LEFT JOIN products p ON p.marketplace=pcm.marketplace
+           AND p.barcode=pcm.barcode
+         WHERE ci.id=$1 ORDER BY p.product_name,pcm.barcode`,
+        [id],
+      )
+    ).rows;
   }
 
   async listMappings({ barcode, search, limit = 200 }) {
@@ -184,6 +206,120 @@ class CostRepository {
     });
   }
 
+  async previewMappings(rows) {
+    const validation = await this.validateMappings(rows);
+    if (!validation.valid) return validation;
+    const codes = [
+      ...new Set(validation.rows.map((row) => row.cost_item_code)),
+    ];
+    const costItems = (
+      await this.db.query(
+        `SELECT item_code,item_name,unit_cost,unit_desi
+         FROM cost_items WHERE item_code=ANY($1::text[])`,
+        [codes],
+      )
+    ).rows;
+    const byCode = new Map(costItems.map((item) => [item.item_code, item]));
+    const totals = new Map();
+    const previewRows = validation.rows.map((row) => {
+      const item = byCode.get(row.cost_item_code);
+      const lineCost = multiplyDecimals(row.quantity, item.unit_cost);
+      const lineDesi = multiplyDecimals(row.quantity, item.unit_desi, {
+        resultDecimals: 3,
+      });
+      const total = totals.get(row.barcode) || { cost: 0n, desi: 0n, rows: 0 };
+      total.cost += decimalToInteger(lineCost, 2);
+      total.desi += decimalToInteger(lineDesi, 3);
+      total.rows++;
+      totals.set(row.barcode, total);
+      return {
+        ...row,
+        item_name: item.item_name,
+        unit_cost: item.unit_cost,
+        unit_desi: item.unit_desi,
+        line_cost: lineCost,
+        line_desi: lineDesi,
+      };
+    });
+    return {
+      valid: true,
+      errors: [],
+      rows: previewRows,
+      products: [...totals.entries()].map(([barcode, total]) => ({
+        barcode,
+        mapping_count: total.rows,
+        product_cost: integerToDecimal(total.cost, 2),
+        desi: integerToDecimal(total.desi, 3),
+      })),
+    };
+  }
+
+  async replaceMappingsForBarcodes(rows) {
+    const validation = await this.validateMappings(rows);
+    if (!validation.valid)
+      throw new AppError(
+        "Mapping doğrulaması başarısız",
+        422,
+        "MAPPING_VALIDATION_FAILED",
+        validation.errors,
+      );
+    const barcodes = [...new Set(validation.rows.map((row) => row.barcode))];
+    return this.withTransaction(async (client) => {
+      await client.query(
+        `DELETE FROM product_cost_mappings
+         WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])`,
+        [barcodes],
+      );
+      for (const row of validation.rows)
+        await client.query(
+          `INSERT INTO product_cost_mappings(
+            marketplace,barcode,cost_item_code,quantity,updated_at
+          )VALUES($1,$2,$3,$4,NOW())`,
+          [row.marketplace, row.barcode, row.cost_item_code, row.quantity],
+        );
+      return {
+        replacedBarcodes: barcodes.length,
+        insertedMappings: validation.rows.length,
+        barcodes,
+      };
+    });
+  }
+
+  async cloneMappings(sourceBarcode, targetBarcodes) {
+    const source = String(sourceBarcode || "").trim();
+    const targets = [
+      ...new Set(
+        (targetBarcodes || [])
+          .map((barcode) => String(barcode || "").trim())
+          .filter((barcode) => barcode && barcode !== source),
+      ),
+    ];
+    if (!source || !targets.length || targets.length > 100)
+      throw new AppError(
+        "Kaynak ve 1-100 hedef barkod gerekli",
+        400,
+        "INVALID_MAPPING_CLONE",
+      );
+    const sourceRows = (
+      await this.db.query(
+        `SELECT cost_item_code,quantity FROM product_cost_mappings
+         WHERE marketplace='TRENDYOL' AND barcode=$1 ORDER BY id`,
+        [source],
+      )
+    ).rows;
+    if (!sourceRows.length)
+      throw new AppError(
+        "Kaynak barkodda çoğaltılacak mapping yok",
+        404,
+        "SOURCE_MAPPING_NOT_FOUND",
+      );
+    return this.replaceMappingsForBarcodes(
+      targets.flatMap((barcode) =>
+        sourceRows.map((row) => ({ ...row, barcode })),
+      ),
+    );
+  }
+
   async upsertMapping(input) {
     const validation = await this.validateMappings([input]);
     if (!validation.valid)
@@ -249,6 +385,19 @@ class CostRepository {
         `SELECT cr.*, COUNT(p.id)::int AS product_count
        FROM commission_rules cr LEFT JOIN products p ON p.marketplace=cr.marketplace AND p.category_id=cr.category_id
        GROUP BY cr.id ORDER BY cr.category_name, cr.category_id`,
+      )
+    ).rows;
+  }
+
+  async missingCommissionCategories() {
+    return (
+      await this.db.query(
+        `SELECT category_id,MAX(category_name) AS category_name,
+                COUNT(*)::int AS product_count
+         FROM products WHERE marketplace='TRENDYOL'
+           AND category_id IS NOT NULL
+           AND (commission_rate IS NULL OR commission_rate<=0)
+         GROUP BY category_id ORDER BY product_count DESC,category_id`,
       )
     ).rows;
   }

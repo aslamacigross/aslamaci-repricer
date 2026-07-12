@@ -33,6 +33,13 @@
 - Doğrulama bekleyen aksiyonlar için partial index ekler.
 - Mevcut ürün, aksiyon ve öğrenme kayıtlarını silmez.
 
+### `005_operational_controls`
+
+- `maintenance_mode=false` sistem ayarını idempotent olarak ekler.
+- Yeni yazımlarda negatif maliyet/desi, sıfır mapping adedi, geçersiz komisyon, bozuk barem/ambalaj aralığı ve geçersiz aksiyon fiyatını engelleyen `NOT VALID` check constraintleri ekler; mevcut satırları migration sırasında reddetmez.
+- Mevcut ürün, mapping, aksiyon ve öğrenme kayıtlarına dokunmaz.
+- Uygulama readiness kontrolünün beklediği son migration sürümüdür.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`
@@ -68,6 +75,8 @@
 7. Maliyetler tekrar hesaplanır.
 
 Okuma veya doğrulama hatasında mevcut mapping verisi değişmez.
+
+Panelden yapılan barkod kapsamlı toplu işlemde aynı doğrulama uygulanır; yalnızca gönderilen barkodların mappingleri transaction içinde silinip yeniden eklenir. Global replace endpointi ayrıca açık onay metni olmadan çalışmaz.
 
 ## Geri Alma
 

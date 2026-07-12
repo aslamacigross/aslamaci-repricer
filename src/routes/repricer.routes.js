@@ -93,6 +93,19 @@ function repricerRoutes({
     ),
   );
   r.post(
+    "/actions/:id/edit-and-approve",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await actionService.editAndApprove(
+          req.params.id,
+          req.body,
+          req.user.username,
+        ),
+      }),
+    ),
+  );
+  r.post(
     "/actions/:id/reject",
     asyncRoute(async (req, res) =>
       res.json({
@@ -124,14 +137,17 @@ function repricerRoutes({
   );
   r.post(
     "/actions/:id/recheck",
-    asyncRoute(async (req, res) =>
+    asyncRoute(async (req, res) => {
+      const action = await actions.get(req.params.id);
+      if (!action) throw new AppError("Aksiyon bulunamadı", 404);
       res.json({
         status: "ok",
         data: await learning.checkOutcomes(
           Number(req.body.elapsedMinutes) || 5,
+          req.params.id,
         ),
-      }),
-    ),
+      });
+    }),
   );
   r.post(
     "/actions/bulk-approve",

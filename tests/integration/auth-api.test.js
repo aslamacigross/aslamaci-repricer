@@ -6,7 +6,7 @@ const {
   AuthService,
   hashPassword,
 } = require("../../src/services/auth.service");
-function container() {
+function container(options = {}) {
   const auth = new AuthService({
     username: "admin",
     passwordHash: hashPassword("password-12345"),
@@ -22,7 +22,18 @@ function container() {
   const action = { id: 1, status: "PENDING", barcode: product.barcode };
   return {
     auth,
-    db: { query: async () => ({ rows: [{}] }) },
+    db: {
+      query: async (sql) =>
+        String(sql).includes("schema_migrations")
+          ? {
+              rows:
+                options.migration === false
+                  ? []
+                  : [{ version: "005_operational_controls" }],
+              rowCount: options.migration === false ? 0 : 1,
+            }
+          : { rows: [{}], rowCount: 1 },
+    },
     audit: {
       record: async () => {},
       list: async () => [{ action: "LOGIN_SUCCESS" }],
@@ -52,12 +63,21 @@ function container() {
     },
     actionService: {
       approve: async () => ({ ...action, status: "APPROVED" }),
+      editAndApprove: async (id, input) => ({
+        ...action,
+        id,
+        proposed_price: input.proposedPrice,
+        status: "APPROVED",
+      }),
       reject: async () => ({ ...action, status: "REJECTED" }),
       apply: async () => ({ ...action, status: "DRY_RUN" }),
     },
     jobs: {},
     jobService: { run: async () => ({ status: "SUCCESS" }) },
-    settings: { list: no },
+    settings: {
+      list: no,
+      getAll: async () => ({ maintenance_mode: Boolean(options.maintenance) }),
+    },
     sync: { health: async () => ({}) },
     learning: { checkOutcomes: async () => ({ processed: 1 }) },
   };
@@ -78,6 +98,18 @@ test("login HttpOnly session verir ve me endpointi calisir", async () => {
 test("korumali endpoint oturumsuz 401 verir", async () => {
   await request(createApp(container())).get("/api/dashboard").expect(401);
 });
+test("readiness gerekli migration uygulandiginda hazir doner", async () => {
+  await request(createApp(container()))
+    .get("/ready")
+    .expect(200)
+    .expect((res) => assert.equal(res.body.status, "ready"));
+});
+test("readiness eksik migrationda trafige hazir olmadigini bildirir", async () => {
+  await request(createApp(container({ migration: false })))
+    .get("/ready")
+    .expect(503)
+    .expect((res) => assert.equal(res.body.status, "not_ready"));
+});
 test(
   "panel root istegi legacy koruma katmaninda beklemez",
   { timeout: 1000 },
@@ -95,6 +127,43 @@ test("mutasyon CSRF olmadan engellenir", async () => {
     .set("Cookie", login.headers["set-cookie"])
     .send({})
     .expect(403);
+});
+test("bakim modu ayarlar disindaki mutasyonlari durdurur", async () => {
+  const app = createApp(container({ maintenance: true }));
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "password-12345" });
+  await request(app)
+    .post("/api/repricer/preview")
+    .set({
+      Cookie: login.headers["set-cookie"],
+      "X-CSRF-Token": login.body.csrfToken,
+    })
+    .send({})
+    .expect(503)
+    .expect((res) => assert.equal(res.body.code, "MAINTENANCE_MODE"));
+  await request(app)
+    .get("/api/dashboard")
+    .set("Cookie", login.headers["set-cookie"])
+    .expect(200);
+});
+test("bekleyen fiyat aksiyonu panelden duzenlenip onaylanabilir", async () => {
+  const app = createApp(container());
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "password-12345" });
+  await request(app)
+    .post("/api/actions/1/edit-and-approve")
+    .set({
+      Cookie: login.headers["set-cookie"],
+      "X-CSRF-Token": login.body.csrfToken,
+    })
+    .send({ proposedPrice: 320 })
+    .expect(200)
+    .expect((res) => {
+      assert.equal(res.body.data.status, "APPROVED");
+      assert.equal(res.body.data.proposed_price, 320);
+    });
 });
 test("login-dashboard-urun-maliyet-repricer-dry-run-log akisi", async () => {
   const app = createApp(container());

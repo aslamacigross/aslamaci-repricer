@@ -15,4 +15,10 @@ module.exports = defineConfig({
       "/version": "http://localhost:3000",
     },
   },
+  test: {
+    environment: "jsdom",
+    setupFiles: [path.resolve(__dirname, "src/test/setup.js")],
+    include: [path.resolve(__dirname, "src/**/*.test.{js,jsx}")],
+    css: true,
+  },
 });

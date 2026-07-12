@@ -54,6 +54,8 @@ Safety gate uygulama anında yeniden çalışır. Preview sonucu fiyat gönderme
 
 Manuel ve geri alma aksiyonları insan onayı nedeniyle `auto_update`, global repricer ve learning-pause kapılarını kullanmaz. Dry-run, aktif/stok, maliyet, minimum/maksimum fiyat, buybox güncelliği, kâr/marj, günlük limit, cooldown ve açık aksiyon kontrollerinin tamamı yine zorunludur.
 
+Bekleyen aksiyonun fiyatı panelde değiştirilebilir. Düzenleme minimum fiyatın altına veya mevcut fiyatla aynı değere izin vermez; beklenen kâr/marjı yeniden hesaplar, kaynağı `MANUAL_EDIT` olarak audit kaydına yazar ve aksiyonu onaylar. Trendyol'a gönderim yine ayrı “Uygula” adımı ve tüm safety kontrolleri sonrasında mümkündür.
+
 ## Geri Alma
 
 - Yalnızca sonucu doğrulanmış `SUCCESS` aksiyon geri alınabilir.

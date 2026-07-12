@@ -6,6 +6,9 @@ import {
   Trash2,
   Upload,
   Calculator,
+  Copy,
+  Eye,
+  TriangleAlert,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
 import DataTable, { money } from "../components/DataTable";
@@ -33,6 +36,28 @@ const titles = {
     "KDV hariç tarifeler, sepet baremleri ve ambalaj kuralları",
   ],
 };
+
+function parseBulkRows(text, mode) {
+  return String(text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const cells = line.split(/[\t;]/).map((cell) => cell.trim());
+      if (mode === "commissions")
+        return {
+          category_id: cells[0],
+          category_name: cells[1],
+          commission_rate: Number(cells[2]),
+          note: cells[3] || "",
+        };
+      return {
+        barcode: cells[0],
+        cost_item_code: cells[1],
+        quantity: Number(cells[2]),
+      };
+    });
+}
 export default function Costs({ mode, notify }) {
   const [items, setItems] = useState(null),
     [search, setSearch] = useState(""),
@@ -104,6 +129,16 @@ function ResourceTable({
   notify,
   reload,
 }) {
+  const [missingCommissions, setMissingCommissions] = useState([]);
+  useEffect(() => {
+    if (mode !== "commissions") {
+      setMissingCommissions([]);
+      return;
+    }
+    get("/api/commissions/missing/categories")
+      .then((result) => setMissingCommissions(result.items || []))
+      .catch(() => setMissingCommissions([]));
+  }, [mode, items]);
   const columns =
     mode === "costs"
       ? [
@@ -167,13 +202,22 @@ function ResourceTable({
           placeholder="Listede ara"
         />
         {mode === "mappings" && (
-          <Button
-            variant="secondary"
-            icon={Upload}
-            onClick={() => setEditing({ bulk: true })}
-          >
-            Toplu mapping
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              icon={Copy}
+              onClick={() => setEditing({ clone: true })}
+            >
+              Mapping çoğalt
+            </Button>
+            <Button
+              variant="secondary"
+              icon={Upload}
+              onClick={() => setEditing({ bulk: true })}
+            >
+              Toplu mapping
+            </Button>
+          </>
         )}
         {mode === "commissions" && (
           <Button
@@ -185,10 +229,28 @@ function ResourceTable({
           </Button>
         )}
       </div>
+      {mode === "commissions" && missingCommissions.length > 0 && (
+        <div className="info-banner warning">
+          <TriangleAlert />
+          <div>
+            <strong>
+              {missingCommissions.length} kategoride komisyon eksik
+            </strong>
+            <p>
+              {missingCommissions
+                .slice(0, 5)
+                .map((item) => item.category_name || item.category_id)
+                .join(", ")}
+              {missingCommissions.length > 5 ? " ve diğerleri" : ""}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="panel table-panel">
         <DataTable
           columns={columns}
           rows={filtered}
+          columnVisibilityKey={`costs-${mode}`}
           onRowClick={(row) => setEditing(row)}
         />
       </div>
@@ -207,41 +269,67 @@ function ResourceTable({
 }
 function ResourceModal({ mode, value, onClose, onSaved, notify }) {
   const [form, setForm] = useState(value || {}),
-    [saving, setSaving] = useState(false);
-  useEffect(() => setForm(value || {}), [value]);
+    [saving, setSaving] = useState(false),
+    [preview, setPreview] = useState(null),
+    [previewText, setPreviewText] = useState(""),
+    [context, setContext] = useState(null);
+  useEffect(() => {
+    setForm(value || {});
+    setPreview(null);
+    setPreviewText("");
+    setContext(null);
+    if (mode === "costs" && value?.id)
+      Promise.all([
+        get(`/api/cost-items/${value.id}/usage`),
+        get(`/api/cost-items/${value.id}/history`),
+      ])
+        .then(([usage, history]) =>
+          setContext({ usage: usage.items, history: history.items }),
+        )
+        .catch(() => setContext({ usage: [], history: [] }));
+    if (mode === "commissions" && value?.category_id)
+      get(`/api/commissions/${value.category_id}/history`)
+        .then((history) => setContext({ history: history.items }))
+        .catch(() => setContext({ history: [] }));
+  }, [mode, value]);
   if (!value) return null;
+  async function runPreview() {
+    try {
+      const result = await post("/api/mappings/preview", {
+        rows: parseBulkRows(form.text, mode),
+      });
+      if (!result.data.valid)
+        throw new Error(
+          `Doğrulama hatası: ${result.data.errors.length} sorun bulundu`,
+        );
+      setPreview(result.data);
+      setPreviewText(form.text || "");
+    } catch (error) {
+      setPreview(null);
+      notify(error.message, "error");
+    }
+  }
   async function save() {
     setSaving(true);
     try {
       if (value.bulk) {
-        const rows = form.text
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => {
-            const cells = line.split(/[\t;]/).map((cell) => cell.trim());
-            if (mode === "commissions")
-              return {
-                category_id: cells[0],
-                category_name: cells[1],
-                commission_rate: Number(cells[2]),
-                note: cells[3] || "",
-              };
-            return {
-              barcode: cells[0],
-              cost_item_code: cells[1],
-              quantity: Number(cells[2]),
-            };
-          });
+        const rows = parseBulkRows(form.text, mode);
         if (mode === "commissions")
           await post("/api/commissions/bulk", { rows });
         else {
-          const validation = await post("/api/mappings/validate", { rows });
-          if (!validation.data.valid)
-            throw new Error(
-              `Doğrulama hatası: ${validation.data.errors.length} satır`,
-            );
-          await post("/api/mappings/bulk", { rows });
+          if (!preview || previewText !== (form.text || ""))
+            throw new Error("Güncel satırları önce önizleyin");
+          await post("/api/mappings/bulk-upsert", { rows });
         }
+      } else if (value.clone) {
+        const targetBarcodes = String(form.targetBarcodes || "")
+          .split(/[\n,;\s]+/)
+          .map((barcode) => barcode.trim())
+          .filter(Boolean);
+        await post("/api/mappings/clone", {
+          sourceBarcode: form.sourceBarcode,
+          targetBarcodes,
+        });
       } else if (mode === "costs") {
         const path = value.id
           ? `/api/cost-items/${value.id}`
@@ -281,13 +369,32 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
     }
   }
   const set = (k, v) => setForm({ ...form, [k]: v });
+  const modalTitle = value.clone
+    ? "Mapping çoğalt"
+    : value.bulk
+      ? mode === "commissions"
+        ? "Toplu komisyon"
+        : "Toplu mapping"
+      : "Kayıt düzenle";
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={value.bulk ? "Toplu mapping" : "Kayıt düzenle"}
-    >
-      {value.bulk ? (
+    <Modal open onClose={onClose} title={modalTitle}>
+      {value.clone ? (
+        <div className="modal-body form-grid">
+          <Field label="Kaynak barkod">
+            <input
+              value={form.sourceBarcode || ""}
+              onChange={(event) => set("sourceBarcode", event.target.value)}
+            />
+          </Field>
+          <Field label="Hedef barkodlar" hint="Her satıra bir barkod yazın">
+            <textarea
+              rows="10"
+              value={form.targetBarcodes || ""}
+              onChange={(event) => set("targetBarcodes", event.target.value)}
+            />
+          </Field>
+        </div>
+      ) : value.bulk ? (
         <div className="modal-body">
           <Field
             label={
@@ -300,7 +407,10 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
             <textarea
               rows="14"
               value={form.text || ""}
-              onChange={(e) => set("text", e.target.value)}
+              onChange={(e) => {
+                set("text", e.target.value);
+                setPreview(null);
+              }}
               placeholder={
                 mode === "commissions"
                   ? "2354\tYumuşatıcı\t17\t"
@@ -308,6 +418,35 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
               }
             />
           </Field>
+          {preview && mode === "mappings" && (
+            <div className="mapping-preview">
+              <strong>
+                {preview.products.length} barkod, {preview.rows.length} mapping
+              </strong>
+              <div className="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Barkod</th>
+                      <th>Kalem</th>
+                      <th>Ürün maliyeti</th>
+                      <th>Desi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.products.map((product) => (
+                      <tr key={product.barcode}>
+                        <td>{product.barcode}</td>
+                        <td>{product.mapping_count}</td>
+                        <td>{money(product.product_cost)}</td>
+                        <td>{product.desi}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="modal-body form-grid">
@@ -413,6 +552,61 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
           )}
         </div>
       )}
+      {!value.bulk && !value.clone && context && (
+        <div className="modal-body resource-context">
+          {context.usage && (
+            <section>
+              <h3>Kullanıldığı ürünler ({context.usage.length})</h3>
+              {context.usage.length ? (
+                <div className="table-wrap compact-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Barkod</th>
+                        <th>Ürün</th>
+                        <th>Adet</th>
+                        <th>Satır maliyeti</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {context.usage.slice(0, 50).map((item) => (
+                        <tr key={`${item.barcode}:${item.item_code}`}>
+                          <td>{item.barcode}</td>
+                          <td>{item.product_name || "-"}</td>
+                          <td>{item.quantity}</td>
+                          <td>{money(item.line_cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p>Bu kalem henüz bir üründe kullanılmıyor.</p>
+              )}
+            </section>
+          )}
+          {context.history && (
+            <section>
+              <h3>Değişiklik geçmişi</h3>
+              {context.history.length ? (
+                <ul className="history-list">
+                  {context.history.slice(0, 20).map((entry) => (
+                    <li key={entry.id}>
+                      <span>{entry.action}</span>
+                      <small>
+                        {entry.actor} ·{" "}
+                        {new Date(entry.created_at).toLocaleString("tr-TR")}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Henüz kayıtlı değişiklik yok.</p>
+              )}
+            </section>
+          )}
+        </div>
+      )}
       <footer className="modal-actions">
         {value.id && mode !== "commissions" && (
           <Button variant="danger" icon={Trash2} onClick={remove}>
@@ -423,6 +617,16 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
         <Button variant="secondary" onClick={onClose}>
           Vazgeç
         </Button>
+        {value.bulk && mode === "mappings" && (
+          <Button
+            variant="secondary"
+            icon={Eye}
+            onClick={runPreview}
+            disabled={saving}
+          >
+            Önizle
+          </Button>
+        )}
         <Button icon={Save} onClick={save} disabled={saving}>
           {saving ? "Kaydediliyor" : "Kaydet"}
         </Button>
@@ -432,6 +636,26 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
 }
 function Shipping({ data, notify, reload, editing, setEditing }) {
   const [type, setType] = useState("rates");
+  const [calculator, setCalculator] = useState({
+    sale_price: 300,
+    desi: 1,
+    carrier: data.rates[0]?.carrier || "TEX",
+  });
+  const [calculation, setCalculation] = useState(null);
+  const [coverage, setCoverage] = useState(null);
+  useEffect(() => {
+    get("/api/shipping/coverage")
+      .then((result) => setCoverage(result.data))
+      .catch(() => setCoverage(null));
+  }, [data]);
+  async function calculate() {
+    try {
+      const result = await post("/api/shipping/preview", calculator);
+      setCalculation(result.data);
+    } catch (error) {
+      notify(error.message, "error");
+    }
+  }
   const sets = {
     rates: [
       "Desi tarifeleri",
@@ -515,10 +739,103 @@ function Shipping({ data, notify, reload, editing, setEditing }) {
           </p>
         </div>
       </div>
+      {coverage?.warnings.length > 0 && (
+        <div className="info-banner warning">
+          <TriangleAlert />
+          <div>
+            <strong>{coverage.warnings.length} eksik desi tarifesi</strong>
+            <p>
+              {coverage.warnings
+                .slice(0, 8)
+                .map((warning) => `${warning.carrier} ${warning.desi} desi`)
+                .join(", ")}
+              {coverage.warnings.length > 8 ? " ve diğerleri" : ""}
+            </p>
+          </div>
+        </div>
+      )}
+      <section className="panel shipping-calculator">
+        <div className="panel-header">
+          <div>
+            <h2>Kargo maliyeti hesapla</h2>
+            <p>
+              Sepet baremi, desi tarifesi ve ambalaj kuralı birlikte uygulanır.
+            </p>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field label="Satış fiyatı">
+            <input
+              type="number"
+              step="0.01"
+              value={calculator.sale_price}
+              onChange={(event) =>
+                setCalculator({
+                  ...calculator,
+                  sale_price: Number(event.target.value),
+                })
+              }
+            />
+          </Field>
+          <Field label="Desi">
+            <input
+              type="number"
+              step="0.01"
+              value={calculator.desi}
+              onChange={(event) =>
+                setCalculator({
+                  ...calculator,
+                  desi: Number(event.target.value),
+                })
+              }
+            />
+          </Field>
+          <Field label="Kargo firması">
+            <select
+              value={calculator.carrier}
+              onChange={(event) =>
+                setCalculator({ ...calculator, carrier: event.target.value })
+              }
+            >
+              {[...new Set(data.rates.map((item) => item.carrier))].map(
+                (carrier) => (
+                  <option key={carrier}>{carrier}</option>
+                ),
+              )}
+            </select>
+          </Field>
+          <div className="field action-field">
+            <Button icon={Calculator} onClick={calculate}>
+              Hesapla
+            </Button>
+          </div>
+        </div>
+        {calculation && (
+          <div className="metric-row calculation-result">
+            <div>
+              <span>Kargo kaynağı</span>
+              <b>{calculation.shippingSource}</b>
+            </div>
+            <div>
+              <span>Kargo</span>
+              <b>{money(calculation.shippingCost)}</b>
+            </div>
+            <div>
+              <span>Ambalaj</span>
+              <b>{money(calculation.packagingCost)}</b>
+            </div>
+            <div>
+              <span>Toplam</span>
+              <b>{money(calculation.totalFulfillmentCost)}</b>
+            </div>
+          </div>
+        )}
+      </section>
       <div className="panel table-panel">
         <DataTable
           columns={cols}
           rows={data[type]}
+          columnVisibilityKey={`shipping-${type}`}
           onRowClick={(row) => setEditing({ ...row, type })}
         />
       </div>
