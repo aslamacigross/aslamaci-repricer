@@ -5,9 +5,9 @@ class CostEngineService {
     this.db = db;
   }
 
-  async recalculate(barcode) {
+  async recalculate(barcode, queryable = this.db) {
     const stored = (
-      await this.db.query(
+      await queryable.query(
         `SELECT key,value FROM system_settings
          WHERE key IN('default_carrier','service_fee')`,
       )
@@ -24,13 +24,14 @@ class CostEngineService {
       params.push(barcode);
       filter = `AND p.barcode=$${params.length}`;
     }
-    const result = await this.db.query(
+    const result = await queryable.query(
       `
       WITH mapping_totals AS (
         SELECT pcm.marketplace,pcm.barcode,
           SUM(pcm.quantity*ci.unit_cost) product_cost,
           SUM(pcm.quantity*COALESCE(ci.unit_desi,0)) total_desi,
           COUNT(*) FILTER(WHERE ci.item_code IS NULL OR pcm.quantity<=0) orphan_count,
+          COUNT(*) FILTER(WHERE ci.item_code IS NOT NULL AND (ci.unit_cost<=0 OR COALESCE(ci.unit_desi,0)<=0)) incomplete_cost_count,
           COUNT(*) mapping_count
         FROM product_cost_mappings pcm LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
         WHERE pcm.marketplace='TRENDYOL' GROUP BY pcm.marketplace,pcm.barcode
@@ -39,6 +40,7 @@ class CostEngineService {
           COALESCE(sb.cost_inc_vat,sc.cost_inc_vat,0) shipping_cost,
           COALESCE(pr.packaging_cost,0) packaging_cost,
           COALESCE(mt.orphan_count,0) orphan_count,COALESCE(mt.mapping_count,0) mapping_count,
+          COALESCE(mt.incomplete_cost_count,0) incomplete_cost_count,
           (pr.id IS NOT NULL) packaging_rule_found
         FROM products p LEFT JOIN mapping_totals mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
         LEFT JOIN LATERAL(
@@ -64,10 +66,11 @@ class CostEngineService {
           ROUND((c.product_cost+c.shipping_cost+c.packaging_cost+COALESCE(p.service_fee,$2)+COALESCE(p.target_profit,0))/(1-p.commission_rate/100),2) ELSE 0 END,
         calculated_net_profit=CASE WHEN p.commission_rate>0 THEN ROUND(p.my_price-(p.my_price*p.commission_rate/100)-c.product_cost-c.shipping_cost-c.packaging_cost-COALESCE(p.service_fee,$2),2) ELSE 0 END,
         calculated_net_margin=CASE WHEN p.my_price>0 AND p.commission_rate>0 THEN ROUND(((p.my_price-(p.my_price*p.commission_rate/100)-c.product_cost-c.shipping_cost-c.packaging_cost-COALESCE(p.service_fee,$2))/p.my_price)*100,2) ELSE 0 END,
-        needs_cost_mapping=(c.mapping_count=0 OR c.product_cost<=0 OR c.orphan_count>0),
-        data_complete=(c.product_cost>0 AND c.total_desi>0 AND c.shipping_cost>0 AND c.packaging_rule_found AND COALESCE(p.service_fee,$2)>=0 AND p.commission_rate>0 AND c.orphan_count=0 AND c.mapping_count>0),
+        needs_cost_mapping=(c.mapping_count=0 OR c.product_cost<=0 OR c.orphan_count>0 OR c.incomplete_cost_count>0),
+        data_complete=(c.product_cost>0 AND c.total_desi>0 AND c.shipping_cost>0 AND c.packaging_rule_found AND COALESCE(p.service_fee,$2)>=0 AND p.commission_rate>0 AND c.orphan_count=0 AND c.incomplete_cost_count=0 AND c.mapping_count>0),
         data_status=CASE
           WHEN c.mapping_count=0 THEN 'MAPPING_MISSING' WHEN c.orphan_count>0 THEN 'ORPHAN_MAPPING'
+          WHEN c.incomplete_cost_count>0 THEN 'COST_ITEM_INCOMPLETE'
           WHEN p.commission_rate IS NULL OR p.commission_rate<=0 THEN 'COMMISSION_MISSING'
           WHEN c.total_desi<=0 THEN 'DESI_MISSING' WHEN c.shipping_cost<=0 THEN 'SHIPPING_MISSING'
           WHEN NOT c.packaging_rule_found THEN 'PACKAGING_MISSING' ELSE 'COMPLETE' END,

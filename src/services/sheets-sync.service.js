@@ -3,6 +3,11 @@ const { parseNumber } = require("../utils/numbers");
 
 const VAT = 1.2;
 const text = (value) => String(value ?? "").trim();
+const isBlank = (value) =>
+  value === null || value === undefined || text(value) === "";
+const comparableText = (value) => text(value).toLocaleLowerCase("tr-TR");
+const optionalNumber = (value) =>
+  isBlank(value) ? 0 : parseNumber(value, Number.NaN);
 
 class SheetsSyncService {
   constructor({ db, withTransaction, sheets, costEngine, audit }) {
@@ -20,10 +25,12 @@ class SheetsSyncService {
         row: index + 2,
         item_code: text(row[0]),
         item_name: text(row[1]),
-        unit_cost: parseNumber(row[2], NaN),
-        unit_desi: parseNumber(row[3]),
+        unit_cost: optionalNumber(row[2]),
+        unit_desi: optionalNumber(row[3]),
         unit: text(row[4]) || "adet",
         note: text(row[5]),
+        unit_cost_missing: isBlank(row[2]),
+        unit_desi_missing: isBlank(row[3]),
       }))
       .filter((row) => row.item_code || row.item_name);
   }
@@ -35,7 +42,8 @@ class SheetsSyncService {
         marketplace: "TRENDYOL",
         barcode: text(row[0]),
         cost_item_code: text(row[1]),
-        quantity: parseNumber(row[2], NaN),
+        quantity: isBlank(row[2]) ? 1 : parseNumber(row[2], NaN),
+        quantity_defaulted: isBlank(row[2]),
       }))
       .filter((row) => row.barcode || row.cost_item_code);
   }
@@ -106,28 +114,120 @@ class SheetsSyncService {
       .filter((row) => Number.isFinite(row.packaging_cost));
   }
 
-  validate(data) {
+  normalize(data) {
+    const warnings = [];
     const errors = [];
-    const duplicate = (items, key, label) => {
-      const seen = new Set();
+    const dedupe = (items, key, equals, sheet) => {
+      const unique = new Map();
       for (const item of items) {
         const value = key(item);
-        if (seen.has(value))
+        const existing = unique.get(value);
+        if (!existing) {
+          unique.set(value, item);
+          continue;
+        }
+        if (!equals(existing, item)) {
           errors.push({
-            sheet: label,
+            sheet,
             row: item.row,
-            code: "DUPLICATE",
+            code: "CONFLICTING_DUPLICATE",
             value,
+            firstRow: existing.row,
           });
-        seen.add(value);
+          continue;
+        }
+        warnings.push({
+          sheet,
+          row: item.row,
+          code: "DUPLICATE_IGNORED",
+          value,
+          firstRow: existing.row,
+        });
       }
+      return [...unique.values()];
     };
+
+    for (const item of data.costItems) {
+      if (item.unit_cost_missing)
+        warnings.push({
+          sheet: "MaliyetIndex",
+          row: item.row,
+          code: "MISSING_UNIT_COST_IMPORTED_AS_ZERO",
+          value: item.item_code,
+        });
+      if (item.unit_desi_missing)
+        warnings.push({
+          sheet: "MaliyetIndex",
+          row: item.row,
+          code: "MISSING_UNIT_DESI_IMPORTED_AS_ZERO",
+          value: item.item_code,
+        });
+    }
+    for (const item of data.mappings)
+      if (item.quantity_defaulted)
+        warnings.push({
+          sheet: "UrunMaliyetMap",
+          row: item.row,
+          code: "MISSING_QUANTITY_DEFAULTED",
+          value: `${item.barcode}:${item.cost_item_code}`,
+          defaultValue: 1,
+        });
+
+    return {
+      data: {
+        ...data,
+        costItems: dedupe(
+          data.costItems,
+          (item) => item.item_code,
+          (a, b) =>
+            comparableText(a.item_name) === comparableText(b.item_name) &&
+            a.unit_cost === b.unit_cost &&
+            a.unit_desi === b.unit_desi &&
+            comparableText(a.unit) === comparableText(b.unit),
+          "MaliyetIndex",
+        ),
+        mappings: dedupe(
+          data.mappings,
+          (item) => `${item.barcode}:${item.cost_item_code}`,
+          (a, b) => a.quantity === b.quantity,
+          "UrunMaliyetMap",
+        ),
+        commissions: dedupe(
+          data.commissions,
+          (item) => item.category_id,
+          (a, b) =>
+            a.commission_rate === b.commission_rate &&
+            comparableText(a.category_name) === comparableText(b.category_name),
+          "KomisyonKurallari",
+        ),
+        shipping: dedupe(
+          data.shipping,
+          (item) => `${item.carrier}:${item.desi_kg}`,
+          (a, b) => a.cost_ex_vat === b.cost_ex_vat,
+          "KargoMaliyetleri",
+        ),
+        barems: dedupe(
+          data.barems,
+          (item) => `${item.carrier}:${item.min_basket}:${item.max_basket}`,
+          (a, b) => a.cost_ex_vat === b.cost_ex_vat,
+          "KargoBarem",
+        ),
+      },
+      warnings,
+      errors,
+    };
+  }
+
+  validate(data) {
+    const errors = [];
     for (const item of data.costItems)
       if (
         !item.item_code ||
         !item.item_name ||
         !Number.isFinite(item.unit_cost) ||
-        item.unit_cost <= 0
+        item.unit_cost < 0 ||
+        !Number.isFinite(item.unit_desi) ||
+        item.unit_desi < 0
       )
         errors.push({
           sheet: "MaliyetIndex",
@@ -173,7 +273,7 @@ class SheetsSyncService {
     for (const item of data.shipping)
       if (
         !Number.isFinite(item.desi_kg) ||
-        item.desi_kg <= 0 ||
+        item.desi_kg < 0 ||
         !Number.isFinite(item.cost_ex_vat) ||
         item.cost_ex_vat <= 0
       )
@@ -195,27 +295,6 @@ class SheetsSyncService {
           row: item.row,
           code: "INVALID_SHIPPING_BAREM",
         });
-    duplicate(data.costItems, (item) => item.item_code, "MaliyetIndex");
-    duplicate(
-      data.mappings,
-      (item) => `${item.barcode}:${item.cost_item_code}`,
-      "UrunMaliyetMap",
-    );
-    duplicate(
-      data.commissions,
-      (item) => item.category_id,
-      "KomisyonKurallari",
-    );
-    duplicate(
-      data.shipping,
-      (item) => `${item.carrier}:${item.desi_kg}`,
-      "KargoMaliyetleri",
-    );
-    duplicate(
-      data.barems,
-      (item) => `${item.carrier}:${item.min_basket}:${item.max_basket}`,
-      "KargoBarem",
-    );
     const sorted = [...data.packaging].sort((a, b) => a.min_desi - b.min_desi);
     for (let i = 1; i < sorted.length; i++)
       if (sorted[i].min_desi < sorted[i - 1].max_desi)
@@ -270,7 +349,7 @@ class SheetsSyncService {
       throw error;
     }
     const values = raw.map((result) => result.values || []);
-    const data = {
+    const parsed = {
       costItems: this.parseCostItems(values[0]),
       mappings: this.parseMappings(values[1]),
       commissions: this.parseCommissions(values[2]),
@@ -278,7 +357,9 @@ class SheetsSyncService {
       barems: this.parseBarems(values[4]),
       packaging: this.parsePackaging(values[5]),
     };
-    const errors = this.validate(data);
+    const normalized = this.normalize(parsed);
+    const data = normalized.data;
+    const errors = [...normalized.errors, ...this.validate(data)];
     if (errors.length)
       throw new AppError(
         "Google Sheets doğrulaması başarısız; mevcut DB verisi korunuyor",
@@ -316,20 +397,23 @@ class SheetsSyncService {
       ]);
       const knownCodes = new Set(costs.rows.map((row) => row.item_code));
       const knownProducts = new Set(products.rows.map((row) => row.barcode));
-      const refs = [];
-      for (const code of codes)
-        if (!knownCodes.has(code))
-          refs.push({ code: "ORPHAN_COST_CODE", value: code });
-      for (const barcode of barcodes)
-        if (!knownProducts.has(barcode))
-          refs.push({ code: "PRODUCT_NOT_FOUND", value: barcode });
-      if (refs.length)
-        throw new AppError(
-          "Mapping referans doğrulaması başarısız",
-          422,
-          "MAPPING_REFERENCE_FAILED",
-          refs,
-        );
+      const referenceWarnings = [];
+      for (const mapping of data.mappings) {
+        if (!knownCodes.has(mapping.cost_item_code))
+          referenceWarnings.push({
+            sheet: "UrunMaliyetMap",
+            row: mapping.row,
+            code: "ORPHAN_COST_CODE",
+            value: mapping.cost_item_code,
+          });
+        if (!knownProducts.has(mapping.barcode))
+          referenceWarnings.push({
+            sheet: "UrunMaliyetMap",
+            row: mapping.row,
+            code: "PRODUCT_NOT_FOUND",
+            value: mapping.barcode,
+          });
+      }
       await client.query(
         "CREATE TEMP TABLE mapping_stage(LIKE product_cost_mappings INCLUDING DEFAULTS)ON COMMIT DROP",
       );
@@ -402,25 +486,34 @@ class SheetsSyncService {
       await client.query(
         "INSERT INTO packaging_rules(min_desi,max_desi,packaging_cost,note,updated_at)SELECT min_desi,max_desi,packaging_cost,note,NOW()FROM packaging_stage",
       );
+      await this.costEngine.recalculate(undefined, client);
       return {
-        costItems: data.costItems.length,
-        mappings: data.mappings.length,
-        commissions: data.commissions.length,
-        shipping: data.shipping.length,
-        barems: data.barems.length,
-        packaging: data.packaging.length,
+        counts: {
+          costItems: data.costItems.length,
+          mappings: data.mappings.length,
+          commissions: data.commissions.length,
+          shipping: data.shipping.length,
+          barems: data.barems.length,
+          packaging: data.packaging.length,
+        },
+        referenceWarnings,
       };
     });
-    await this.costEngine.recalculate();
+    const warnings = [...normalized.warnings, ...result.referenceWarnings];
+    const metadata = {
+      ...result.counts,
+      warningCount: warnings.length,
+      warnings: warnings.slice(0, 250),
+    };
     await this.audit.integration({
       integration: "GOOGLE",
       operation: "SHEETS_IMPORT",
       message: "Sheets import tamamlandı",
-      details: result,
+      details: metadata,
     });
     return {
-      processed: Object.values(result).reduce((a, b) => a + b, 0),
-      metadata: result,
+      processed: Object.values(result.counts).reduce((a, b) => a + b, 0),
+      metadata,
     };
   }
 

@@ -74,6 +74,157 @@ test("Sheet okuma hatasinda transaction baslamaz ve DB korunur", async () => {
   await assert.rejects(service.importAll(), /Google unavailable/);
   assert.equal(transactionCount, 0);
 });
+test("Sheet uyumluluk katmani guvenli varsayimlari uygular", () => {
+  const service = new SheetsSyncService({});
+  const parsed = {
+    costItems: service.parseCostItems([
+      ["Cost Code", "Maliyet Kalemi", "Birim Maliyet", "Birim Desi"],
+      ["COST-1", "Eksik fiyatli kalem", "", 1],
+    ]),
+    mappings: service.parseMappings([
+      ["Barkod", "Cost Code", "Adet"],
+      ["8690609598109", "COST-1", ""],
+      ["8690609598109", "COST-1", 1],
+    ]),
+    commissions: service.parseCommissions([
+      ["Kategori ID", "Komisyon Orani", "Kategori"],
+      [2354, 17, "Yumuşatıcı"],
+      [2354, 17, "yumuşatıcı"],
+    ]),
+    shipping: service.parseShipping([
+      ["Desi/KG", "TEX"],
+      [0, 77.54],
+    ]),
+    barems: service.parseBarems([
+      ["Min Sepet", "Max Sepet", "Barem", "TEX"],
+      [0, 199.99, "BAREM", 34.16],
+    ]),
+    packaging: service.parsePackaging([
+      ["Min Desi", "Max Desi", "Ambalaj"],
+      [0, 1, 5],
+    ]),
+  };
+
+  const normalized = service.normalize(parsed);
+
+  assert.deepEqual(normalized.errors, []);
+  assert.deepEqual(service.validate(normalized.data), []);
+  assert.equal(normalized.data.costItems[0].unit_cost, 0);
+  assert.equal(normalized.data.mappings[0].quantity, 1);
+  assert.equal(normalized.data.mappings.length, 1);
+  assert.equal(normalized.data.commissions.length, 1);
+  assert.equal(normalized.data.shipping[0].desi_kg, 0);
+  assert.deepEqual(
+    new Set(normalized.warnings.map((warning) => warning.code)),
+    new Set([
+      "MISSING_UNIT_COST_IMPORTED_AS_ZERO",
+      "MISSING_QUANTITY_DEFAULTED",
+      "DUPLICATE_IGNORED",
+    ]),
+  );
+});
+test("Sheet celiskili tekrarinda transaction baslamaz", async () => {
+  let transactionCount = 0;
+  const ranges = {
+    "MaliyetIndex!A1:F": [
+      ["Cost Code", "Maliyet Kalemi", "Birim Maliyet", "Birim Desi"],
+      ["COST-1", "Kalem", 10, 1],
+    ],
+    "UrunMaliyetMap!A1:D": [
+      ["Barkod", "Cost Code", "Adet"],
+      ["8690609598109", "COST-1", 1],
+      ["8690609598109", "COST-1", 2],
+    ],
+    "KomisyonKurallari!A1:D": [
+      ["Kategori ID", "Komisyon Orani", "Kategori"],
+      [2354, 17, "Yumuşatıcı"],
+    ],
+    "KargoMaliyetleri!A1:K": [
+      ["Desi/KG", "TEX"],
+      [1, 77.54],
+    ],
+    "KargoBarem!A1:J": [
+      ["Min Sepet", "Max Sepet", "Barem", "TEX"],
+      [0, 199.99, "BAREM", 34.16],
+    ],
+    "AmbalajKurallari!A1:D": [
+      ["Min Desi", "Max Desi", "Ambalaj"],
+      [0, 1, 5],
+    ],
+  };
+  const service = new SheetsSyncService({
+    withTransaction: async () => {
+      transactionCount++;
+    },
+    sheets: { values: async (range) => ({ values: ranges[range] }) },
+    audit: { integration: async () => {} },
+  });
+
+  await assert.rejects(
+    service.importAll(),
+    (error) =>
+      error.code === "SHEETS_VALIDATION_FAILED" &&
+      error.details.some((detail) => detail.code === "CONFLICTING_DUPLICATE"),
+  );
+  assert.equal(transactionCount, 0);
+});
+test("Sheet import ve maliyet hesabi ayni transaction icinde tamamlanir", async () => {
+  let recalculateCount = 0;
+  const values = {
+    "MaliyetIndex!A1:F": [
+      ["Cost Code", "Maliyet Kalemi", "Birim Maliyet", "Birim Desi"],
+      ["COST-1", "Kalem", 10, 1],
+    ],
+    "UrunMaliyetMap!A1:D": [
+      ["Barkod", "Cost Code", "Adet"],
+      ["8690609598109", "COST-1", 1],
+    ],
+    "KomisyonKurallari!A1:D": [
+      ["Kategori ID", "Komisyon Orani", "Kategori"],
+      [2354, 17, "Yumuşatıcı"],
+    ],
+    "KargoMaliyetleri!A1:K": [
+      ["Desi/KG", "TEX"],
+      [0, 77.54],
+      [1, 77.54],
+    ],
+    "KargoBarem!A1:J": [
+      ["Min Sepet", "Max Sepet", "Barem", "TEX"],
+      [0, 199.99, "BAREM", 34.16],
+    ],
+    "AmbalajKurallari!A1:D": [
+      ["Min Desi", "Max Desi", "Ambalaj"],
+      [0, 1, 5],
+    ],
+  };
+  const client = {
+    query: async (sql) => {
+      if (sql.includes("SELECT item_code FROM cost_items"))
+        return { rows: [{ item_code: "COST-1" }] };
+      if (sql.includes("SELECT barcode FROM products"))
+        return { rows: [{ barcode: "8690609598109" }] };
+      return { rows: [], rowCount: 1 };
+    },
+  };
+  const service = new SheetsSyncService({
+    withTransaction: async (work) => work(client),
+    sheets: { values: async (range) => ({ values: values[range] }) },
+    costEngine: {
+      recalculate: async (barcode, queryable) => {
+        assert.equal(barcode, undefined);
+        assert.equal(queryable, client);
+        recalculateCount++;
+      },
+    },
+    audit: { integration: async () => {} },
+  });
+
+  const result = await service.importAll();
+
+  assert.equal(recalculateCount, 1);
+  assert.equal(result.processed, 7);
+  assert.equal(result.metadata.warningCount, 0);
+});
 test("Trendyol dry-run hic HTTP cagrisi yapmaz", async () => {
   let calls = 0;
   const service = new TrendyolService({
