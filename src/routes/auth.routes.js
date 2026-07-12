@@ -39,10 +39,21 @@ function authRoutes({ auth, audit, requireAuth, requireCsrf }) {
       res.json({ status: "ok", user: result.user, csrfToken: result.csrf });
     }),
   );
-  router.post("/logout", requireAuth, requireCsrf, (req, res) => {
-    res.setHeader("Set-Cookie", clearSessionCookie());
-    res.json({ status: "ok" });
-  });
+  router.post(
+    "/logout",
+    requireAuth,
+    requireCsrf,
+    asyncRoute(async (req, res) => {
+      await audit.record({
+        actor: req.user.username,
+        action: "LOGOUT",
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.setHeader("Set-Cookie", clearSessionCookie());
+      res.json({ status: "ok" });
+    }),
+  );
   router.get("/me", requireAuth, (req, res) =>
     res.json({ status: "ok", user: req.user, csrfToken: req.session.csrf }),
   );

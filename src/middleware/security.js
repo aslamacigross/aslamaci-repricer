@@ -49,6 +49,11 @@ function cors(req, res, next) {
     res.set("Access-Control-Allow-Origin", origin);
     res.set("Vary", "Origin");
     res.set("Access-Control-Allow-Credentials", "true");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token");
+    res.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
   } else if (origin && env.nodeEnv === "production")
     return next(new AppError("Origin izinli değil", 403, "ORIGIN_DENIED"));
   if (req.method === "OPTIONS") return res.status(204).end();

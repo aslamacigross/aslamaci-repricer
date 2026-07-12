@@ -18,6 +18,14 @@
 - Mevcut `repricer_learning` tablosunu veri kaybetmeden genişletir.
 - `buybox_snapshots` geçmişini idempotent biçimde yeni observation tablosuna taşır.
 
+### `003_learning_contracts_and_operations`
+
+- `buybox_history`, `price_change_outcomes`, `repricer_results` ve `dashboard_cache` tablolarını ekler.
+- Aksiyonlara hedef/son sıra, buybox sonucu, geri alma ilişkisi ve sonuç kontrol alanlarını ekler.
+- Öğrenme tablosuna öğrenilmiş maksimum artış, son sonuç ve strateji bağlamı ekler.
+- Eski `price_war_log`, observation ve outcome kayıtlarını idempotent olarak yeni sözleşmelere backfill eder.
+- Dashboard cache jobunu, cron ve güvenlik ayarlarını ekler.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`
@@ -26,6 +34,8 @@
 - Ürün ayarı: barkod bazlı partial unique index
 - Repricer action: unique `idempotency_key`
 - Outcome: `(action_id, elapsed_minutes)` unique
+- Repricer sonucu: `action_id` unique
+- Geri alma: `reverts_action_id` ve `reverted_by_action_id` self-reference
 
 ## Önemli Indexler
 
@@ -34,6 +44,9 @@
 - `product_cost_mappings(marketplace, barcode)`
 - `repricer_actions(barcode, status, created_at)`
 - `repricer_observations(barcode, observed_at)`
+- `buybox_history(marketplace, barcode, observed_at)`
+- `price_change_outcomes(marketplace, barcode, checked_at)`
+- `competitor_price_observations(marketplace, barcode, observed_at)`
 - `job_runs(job_name, started_at)`
 
 ## Atomic Mapping Replace
@@ -50,4 +63,4 @@ Okuma veya doğrulama hatasında mevcut mapping verisi değişmez.
 
 ## Geri Alma
 
-Down migration yalnızca V2 tablolarını ve ek kolonları kaldırır. Geçmiş V2 aksiyon verisini sileceği için production'da `pnpm migrate:down` komutu ancak doğrulanmış DB yedeği ve bakım penceresiyle kullanılmalıdır.
+Down migrationlar ters sırada yalnızca ilgili V2 tablolarını, backfill kayıtlarını ve ek kolonları kaldırır. Geçmiş V2 aksiyon verisini sileceği için production'da `pnpm migrate:down` komutu ancak doğrulanmış DB yedeği ve bakım penceresiyle kullanılmalıdır.

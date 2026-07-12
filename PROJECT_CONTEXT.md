@@ -53,14 +53,18 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Railway'de Express API ve build edilmiş React panel tek serviste çalışır.
 - `index.js` yalnızca `src/server.js` bootstrap dosyasını çağırır.
 - Aksiyon uygulaması önce DB'de `SENDING` durumuna alınır; Trendyol çağrısı transaction dışında yapılır ve batch sonucu ayrıca kaydedilir.
-- DB fiyatı gönderim anında kesin gerçek kabul edilmez; ürün/buybox sync ile doğrulanır.
+- API kabulünden sonra beklenen ürün fiyatı ve `price_war_log` transaction içinde güncellenir; bu değer pazar sonucu sayılmaz ve outcome joblarıyla doğrulanır.
+- Repricer mümkün olan en iyi 1/2/3. sırayı, mümkün değilse mevcut sıradaki en yüksek güvenli kârı hedefler.
 - Öğrenme anlık refresh içinde çalışmaz; 5/15/60 dakika outcome jobları kullanılır.
+- Outcome jobu ilgili barkodların buybox verisini yenileyemezse eski veriyle sonuç yazmaz.
 - Beş ardışık başarısızlıkta ürün öğrenmesi duraklatılır.
+- Başarılı fiyat aksiyonları doğrudan değiştirilmeyip bağlı ve yeniden onaylanan rollback aksiyonuyla geri alınır.
+- Manuel aksiyon otomasyon kapılarından bağımsızdır; dry-run ve mali güvenlik kurallarını geçemez.
 - Sheet importu başarısızsa DB transactionı başlamaz.
 
 ## Doğrulama Durumu
 
-- 28 unit/integration/regression testi geçiyor.
+- 43 unit/integration/regression testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
-- Yerel demo server health/version üzerinden çalıştı; in-app Browser localhost navigasyonu bağlantı katmanında zaman aşımına uğradı.
+- Yerel demo server ve auth/CSRF API smoke akışı çalıştı. Görsel tarayıcı turunda in-app localhost navigasyonu zaman aşımına uğradı; Chrome fallback sırasında Mac kilitliydi.

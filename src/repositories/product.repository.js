@@ -40,6 +40,12 @@ class ProductRepository {
     if (filters.category) add("p.category_id = ?", filters.category);
     if (filters.brand) add("p.brand = ?", filters.brand);
     if (filters.status === "incomplete") where.push("p.data_complete = FALSE");
+    if (filters.status === "cost_missing")
+      where.push(
+        "(p.needs_cost_mapping=TRUE OR p.calculated_product_cost<=0 OR p.desi<=0 OR p.calculated_shipping_cost<=0)",
+      );
+    if (filters.status === "commission_missing")
+      where.push("(p.commission_rate IS NULL OR p.commission_rate<=0)");
     if (filters.status === "loss") where.push("p.calculated_net_profit < 0");
     if (filters.status === "below_min") where.push("p.my_price < p.min_price");
     if (filters.status === "buybox") where.push("p.rank = 1");
@@ -62,12 +68,14 @@ class ProductRepository {
     const data = await this.db.query(
       `SELECT p.*, COALESCE(ps.strategy, 'Manuel') AS strategy, COALESCE(ps.mode, 'MANUAL') AS repricer_mode,
               COALESCE(rl.learned_price_cut_tl, 0) AS learned_price_cut_tl,
-              la.action AS last_action, la.status AS last_action_status
+              la.action AS last_action,la.status AS last_action_status,
+              la.proposed_price AS last_proposed_price,la.reason AS last_action_reason
        FROM products p
        LEFT JOIN product_settings ps ON ps.marketplace = p.marketplace AND ps.barcode = p.barcode
        LEFT JOIN repricer_learning rl ON rl.marketplace = p.marketplace AND rl.barcode = p.barcode
        LEFT JOIN LATERAL (
-         SELECT action, status FROM repricer_actions ra WHERE ra.marketplace=p.marketplace AND ra.barcode=p.barcode
+         SELECT action,status,proposed_price,reason FROM repricer_actions ra
+         WHERE ra.marketplace=p.marketplace AND ra.barcode=p.barcode
          ORDER BY created_at DESC LIMIT 1
        ) la ON TRUE
        WHERE ${where.join(" AND ")} ORDER BY ${sort} ${direction} NULLS LAST
@@ -96,37 +104,74 @@ class ProductRepository {
   }
 
   async updateSettings(barcode, input, marketplace = "TRENDYOL") {
+    const existing = (
+      await this.db.query(
+        `SELECT * FROM product_settings
+         WHERE marketplace=$1 AND barcode=$2`,
+        [marketplace, barcode],
+      )
+    ).rows[0];
+    const merged = {
+      strategy: "Manuel",
+      price_cut_tl: 0.1,
+      max_increase_tl: 10,
+      max_daily_change_pct: 15,
+      minimum_profit_tl: 40,
+      minimum_profit_pct: null,
+      minimum_margin_pct: null,
+      minimum_price: null,
+      maximum_price: null,
+      min_undercut_tl: 0.1,
+      max_undercut_tl: 75,
+      min_change_interval_minutes: 30,
+      daily_action_limit: 3,
+      buybox_max_age_minutes: 20,
+      blacklisted: false,
+      learning_enabled: true,
+      mode: "MANUAL",
+      auto_update: false,
+      note: null,
+      ...(existing || {}),
+      ...input,
+    };
     const values = [
       marketplace,
       barcode,
-      input.strategy,
-      input.price_cut_tl,
-      input.max_increase_tl,
-      input.max_daily_change_pct,
-      input.minimum_profit_tl,
-      input.minimum_margin_pct,
-      input.minimum_price,
-      input.maximum_price,
-      input.min_change_interval_minutes,
-      input.daily_action_limit,
-      input.buybox_max_age_minutes,
-      Boolean(input.blacklisted),
-      Boolean(input.learning_enabled),
-      input.mode,
-      Boolean(input.auto_update),
-      input.note || null,
+      merged.strategy,
+      merged.price_cut_tl,
+      merged.max_increase_tl,
+      merged.max_daily_change_pct,
+      merged.minimum_profit_tl,
+      merged.minimum_profit_pct,
+      merged.minimum_margin_pct,
+      merged.minimum_price,
+      merged.maximum_price,
+      merged.min_undercut_tl,
+      merged.max_undercut_tl,
+      merged.min_change_interval_minutes,
+      merged.daily_action_limit,
+      merged.buybox_max_age_minutes,
+      Boolean(merged.blacklisted),
+      Boolean(merged.learning_enabled),
+      merged.mode,
+      Boolean(merged.auto_update),
+      merged.note || null,
     ];
     const result = await this.db.query(
       `INSERT INTO product_settings(
          marketplace, barcode, strategy, price_cut_tl, max_increase_tl, max_daily_change_pct,
-         minimum_profit_tl, minimum_margin_pct, minimum_price, maximum_price, min_change_interval_minutes,
-         daily_action_limit, buybox_max_age_minutes, blacklisted, learning_enabled, mode, auto_update, note, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+         minimum_profit_tl, minimum_profit_pct, minimum_margin_pct, minimum_price,
+         maximum_price, min_undercut_tl, max_undercut_tl, min_change_interval_minutes,
+         daily_action_limit, buybox_max_age_minutes, blacklisted, learning_enabled,
+         mode, auto_update, note, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())
        ON CONFLICT (marketplace, barcode) WHERE barcode IS NOT NULL DO UPDATE SET
          strategy=EXCLUDED.strategy, price_cut_tl=EXCLUDED.price_cut_tl, max_increase_tl=EXCLUDED.max_increase_tl,
          max_daily_change_pct=EXCLUDED.max_daily_change_pct, minimum_profit_tl=EXCLUDED.minimum_profit_tl,
-         minimum_margin_pct=EXCLUDED.minimum_margin_pct, minimum_price=EXCLUDED.minimum_price,
-         maximum_price=EXCLUDED.maximum_price, min_change_interval_minutes=EXCLUDED.min_change_interval_minutes,
+         minimum_profit_pct=EXCLUDED.minimum_profit_pct,minimum_margin_pct=EXCLUDED.minimum_margin_pct,
+         minimum_price=EXCLUDED.minimum_price,maximum_price=EXCLUDED.maximum_price,
+         min_undercut_tl=EXCLUDED.min_undercut_tl,max_undercut_tl=EXCLUDED.max_undercut_tl,
+         min_change_interval_minutes=EXCLUDED.min_change_interval_minutes,
          daily_action_limit=EXCLUDED.daily_action_limit, buybox_max_age_minutes=EXCLUDED.buybox_max_age_minutes,
          blacklisted=EXCLUDED.blacklisted, learning_enabled=EXCLUDED.learning_enabled, mode=EXCLUDED.mode,
          auto_update=EXCLUDED.auto_update, note=EXCLUDED.note, updated_at=NOW() RETURNING *`,
@@ -136,8 +181,8 @@ class ProductRepository {
       `UPDATE products SET auto_update=$1, target_profit=COALESCE($2,target_profit), updated_at=NOW()
        WHERE marketplace=$3 AND barcode=$4`,
       [
-        Boolean(input.auto_update),
-        input.minimum_profit_tl,
+        Boolean(merged.auto_update),
+        merged.minimum_profit_tl,
         marketplace,
         barcode,
       ],
@@ -163,7 +208,7 @@ class ProductRepository {
 
   async history(barcode, type) {
     const queries = {
-      buybox: `SELECT * FROM repricer_observations WHERE barcode=$1 ORDER BY observed_at DESC LIMIT 250`,
+      buybox: `SELECT * FROM buybox_history WHERE marketplace='TRENDYOL' AND barcode=$1 ORDER BY observed_at DESC LIMIT 250`,
       price: `SELECT * FROM price_war_log WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`,
       repricer: `SELECT * FROM repricer_actions WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`,
     };

@@ -16,11 +16,15 @@ Son güncelleme: 2026-07-12
 - [x] Repository/service katmanı
 - [x] Google Sheets retry, timeout, circuit breaker ve atomic import
 - [x] Trendyol entegrasyonu ve dry-run action servisi
-- [x] REST API, admin auth, CSRF, rate limit, audit ve error handling
+- [x] Rank bazlı 1/2/3. sıra optimizasyonu ve kademeli artış/düşüş
+- [x] Taze buybox verisiyle 5/15/60 dakika hedef sıra sonucu
+- [x] Güvenli ve yeniden onaylanan fiyat geri alma akışı
+- [x] REST API, admin auth, Helmet, CSRF, rate limit, audit ve error handling
+- [x] Dry-run/global repricer değişiminde API seviyesinde canlı-mod onayı
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 28/28 başarılı
+- [x] Unit/integration/regression testleri: 43/43 başarılı
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
 - [x] ESLint kontrolü
@@ -29,12 +33,12 @@ Son güncelleme: 2026-07-12
 
 ## Devam Eden
 
-- [ ] Mantıksal commitler, remote push ve tek pull request
+- [ ] Son lint/build/diff kontrolü, hardening commit'i, remote push ve tek draft pull request
 
 ## Dış Ortamda Bekleyen
 
 - [ ] Railway preview deployment (branch push ve Railway preview environment gerekir)
-- [ ] In-app Browser görsel E2E (yerel browser bağlantısı localhost navigasyonunda zaman aşımına uğradı)
+- [ ] Görsel E2E (in-app localhost navigasyonu zaman aşımına uğradı; Chrome fallback sırasında Mac kilitliydi)
 - [ ] Production şeması üzerinde read-only dry-run migration planı (DATABASE_URL yerel ortamda mevcut değil)
 
 ## Güvenlik Durumu
@@ -42,5 +46,5 @@ Son güncelleme: 2026-07-12
 - Gerçek Trendyol fiyat çağrısı yapılmadı.
 - Production veritabanına migration veya write yapılmadı.
 - Canlı sistem yalnızca read-only health/version/summary endpointlerinden gözlemlendi.
-- Global migration varsayılanı dry-run açık, repricer kapalıdır.
+- Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.

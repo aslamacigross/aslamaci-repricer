@@ -8,8 +8,9 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - Ürün, maliyet kalemi, mapping, komisyon, kargo ve ambalaj yönetimi
 - Açıklamalı minimum fiyat ve net kâr kırılımı
 - Buybox takibi ve ürün bazlı repricer ayarları
-- Onaylı fiyat aksiyonları, global dry-run ve çok katmanlı safety gate
-- 5/15/60 dakika sonuç ölçümü ve açıklanabilir öğrenme
+- Sıra bazlı kâr optimizasyonu, onaylı fiyat aksiyonları ve çok katmanlı safety gate
+- 5/15/60 dakika taze buybox sonuç ölçümü ve açıklanabilir öğrenme
+- Yeniden onay gerektiren izlenebilir fiyat geri alma akışı
 - PostgreSQL advisory lock kullanan job sistemi
 - Atomic Google Sheets importu ve geriye uyumlu export
 - Audit, entegrasyon ve job logları
@@ -81,9 +82,14 @@ V2 ile eklenenler:
 - `DEFAULT_CARRIER`: varsayılan `TEX`
 - `DEFAULT_SERVICE_FEE`: varsayılan `13.19`
 - `DEFAULT_TARGET_PROFIT`: varsayılan `40`
+- `DEFAULT_MAX_INCREASE_TL`: varsayılan `10`
 - `BUYBOX_MAX_AGE_MINUTES`: varsayılan `20`
 - `GLOBAL_MAX_PRICE_CHANGE_PCT`: varsayılan `15`
 - `MIN_PRICE_CHANGE_TL`: varsayılan `0.10`
+- `PRODUCT_SYNC_CRON_MINUTES`: varsayılan `360`
+- `BUYBOX_SYNC_CRON_MINUTES`: varsayılan `10`
+- `REPRICER_CRON_MINUTES`: varsayılan `10`
+- `SHEETS_SYNC_CRON_MINUTES`: varsayılan `1440`
 - `LOG_RETENTION_DAYS`: varsayılan `90`
 
 Tam liste [.env.example](.env.example) dosyasındadır.
@@ -95,6 +101,8 @@ Tam liste [.env.example](.env.example) dosyasındadır.
 3. Panelden ürün, Menekşe maliyet kırılımı ve buybox sync doğrulanır.
 4. Repricer yalnızca pilot ürünlerde önizlenir.
 5. Gerçek fiyat modu ayrı kullanıcı onayıyla daha sonra açılır.
+
+Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canlı-mod onayı gerekir. Manuel aksiyonlar otomasyon kapalıyken kullanılabilir; yine de dry-run, minimum fiyat, maliyet, kâr, buybox güncelliği, günlük limit ve cooldown kontrollerini geçmek zorundadır.
 
 ## Google Sheets
 

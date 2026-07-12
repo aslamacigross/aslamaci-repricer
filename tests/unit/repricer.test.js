@@ -25,6 +25,7 @@ const base = {
 const settings = {
   strategy: "Normal",
   price_cut_tl: 11,
+  max_increase_tl: 100,
   max_daily_change_pct: 15,
   daily_action_limit: 3,
   min_change_interval_minutes: 0,
@@ -51,6 +52,53 @@ test("minimum fiyat altina onermez", () => {
   );
   assert.ok(result.proposedPrice >= 940);
 });
+test("birinci sira minimum altindaysa mevcut sirada maksimum kari arar", () => {
+  const result = proposePrice(
+    {
+      ...base,
+      my_price: 944,
+      min_price: 940,
+      buybox_price: 930,
+      second_price: 944,
+      third_price: 1000,
+      rank: 2,
+    },
+    { ...settings, price_cut_tl: 1 },
+  );
+  assert.equal(result.targetRank, 2);
+  assert.equal(result.proposedPrice, 999);
+  assert.equal(result.action, "FIYAT_ARTIR");
+});
+test("ucuncu siradan ekonomik olan en iyi bilinen siraya cikar", () => {
+  const result = proposePrice(
+    {
+      ...base,
+      my_price: 950,
+      min_price: 940,
+      buybox_price: 930,
+      second_price: 970,
+      third_price: 980,
+      rank: 3,
+    },
+    { ...settings, price_cut_tl: 1 },
+  );
+  assert.equal(result.targetRank, 2);
+  assert.equal(result.proposedPrice, 969);
+});
+test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
+  const increase = proposePrice(
+    { ...base, my_price: 900, rank: 1, second_price: 1000 },
+    { ...settings, price_cut_tl: 1, max_increase_tl: 10 },
+  );
+  assert.equal(increase.proposedPrice, 910);
+  assert.equal(increase.limitedBy, "KADEMELI_ARTIS");
+  const decrease = proposePrice(
+    { ...base, my_price: 1000, min_price: 500, rank: 2, buybox_price: 700 },
+    { ...settings, price_cut_tl: 1, max_daily_change_pct: 15 },
+  );
+  assert.equal(decrease.proposedPrice, 850);
+  assert.equal(decrease.limitedBy, "KADEMELI_DUSUS");
+});
 test("auto update kapali urun safety gate gecemez", () => {
   const proposal = proposePrice(base, settings);
   const result = safetyCheck({
@@ -68,6 +116,31 @@ test("auto update kapali urun safety gate gecemez", () => {
   });
   assert.equal(result.safe, false);
   assert.ok(result.failures.includes("AUTO_UPDATE_DISABLED"));
+});
+test("manuel onay otomasyon kapilarini asar ama dry-run korumasini asamaz", () => {
+  const proposal = proposePrice(base, settings);
+  const result = safetyCheck({
+    product: { ...base, auto_update: false },
+    settings: {
+      ...settings,
+      auto_update: false,
+      learning_paused: true,
+    },
+    global: {
+      repricerEnabled: false,
+      dryRun: true,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 0.1,
+    },
+    proposal,
+    manual: true,
+    today: { actionCount: 0 },
+  });
+  assert.ok(!result.failures.includes("AUTO_UPDATE_DISABLED"));
+  assert.ok(!result.failures.includes("GLOBAL_REPRICER_DISABLED"));
+  assert.ok(!result.failures.includes("LEARNING_PAUSED"));
+  assert.ok(result.failures.includes("DRY_RUN"));
 });
 test("dry-run ve eski buybox verisi gercek uygulamayi engeller", () => {
   const product = {
@@ -107,4 +180,28 @@ test("gunluk aksiyon limiti uygulanir", () => {
     today: { actionCount: 3 },
   });
   assert.ok(result.failures.includes("DAILY_ACTION_LIMIT"));
+});
+test("minimum kar ve ogrenme duraklatma guvenlik kapisidir", () => {
+  const proposal = proposePrice(base, settings);
+  const result = safetyCheck({
+    product: base,
+    settings: {
+      ...settings,
+      learning_paused: true,
+      minimum_profit_tl: proposal.expectedProfit + 1,
+      minimum_profit_pct: 99,
+    },
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 0.1,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: base.my_price },
+  });
+  assert.ok(result.failures.includes("LEARNING_PAUSED"));
+  assert.ok(result.failures.includes("MIN_PROFIT_TL_VIOLATION"));
+  assert.ok(result.failures.includes("MIN_PROFIT_PCT_VIOLATION"));
 });

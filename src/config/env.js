@@ -34,6 +34,7 @@ const env = {
   defaultCarrier: process.env.DEFAULT_CARRIER || "TEX",
   defaultServiceFee: number(process.env.DEFAULT_SERVICE_FEE, 13.19),
   defaultTargetProfit: number(process.env.DEFAULT_TARGET_PROFIT, 40),
+  defaultMaxIncrease: number(process.env.DEFAULT_MAX_INCREASE_TL, 10),
   buyboxMaxAgeMinutes: number(process.env.BUYBOX_MAX_AGE_MINUTES, 20),
   globalMaxPriceChangePct: number(process.env.GLOBAL_MAX_PRICE_CHANGE_PCT, 15),
   minPriceChangeTl: number(process.env.MIN_PRICE_CHANGE_TL, 0.1),

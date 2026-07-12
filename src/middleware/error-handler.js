@@ -11,15 +11,19 @@ function notFound(req, res) {
 }
 
 function errorHandler(error, req, res, next) {
-  logger.error("request_failed", {
+  const status = error.status || 500;
+  const details = {
     requestId: req.id,
     path: req.path,
     method: req.method,
     code: error.code,
     message: error.message,
-    stack: env.nodeEnv === "production" ? undefined : error.stack,
-  });
-  res.status(error.status || 500).json({
+    stack:
+      status >= 500 && env.nodeEnv !== "production" ? error.stack : undefined,
+  };
+  if (status >= 500) logger.error("request_failed", details);
+  else logger.warn("request_rejected", details);
+  res.status(status).json({
     status: "error",
     code: error.code || "INTERNAL_ERROR",
     message: error.status ? error.message : "Beklenmeyen bir hata oluştu",

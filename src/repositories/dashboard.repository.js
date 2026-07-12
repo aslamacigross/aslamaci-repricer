@@ -1,10 +1,14 @@
 class DashboardRepository {
   constructor(db) {
     this.db = db;
+    this.cache = null;
+    this.cacheExpiresAt = 0;
   }
 
-  async get() {
-    const [kpis, categories, actions, profit, risk, jobs, error] =
+  async get({ fresh = false } = {}) {
+    if (!fresh && this.cache && Date.now() < this.cacheExpiresAt)
+      return this.cache;
+    const [kpis, categories, actions, buybox, profit, risk, jobs, error] =
       await Promise.all([
         this.db.query(`SELECT
         COUNT(*)::int total_products,
@@ -18,6 +22,8 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE min_price>0 AND my_price<min_price)::int below_minimum,
         COUNT(*) FILTER(WHERE rank=1)::int buybox_owned,
         COUNT(*) FILTER(WHERE rank IS DISTINCT FROM 1)::int buybox_outside,
+        COUNT(*) FILTER(WHERE rank IS DISTINCT FROM 1 AND data_complete=TRUE
+          AND buybox_price>0 AND min_price<=buybox_price)::int buybox_available,
         COUNT(*) FILTER(WHERE buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes')::int stale_buybox,
         COUNT(*) FILTER(WHERE auto_update)::int auto_update_enabled,
         ROUND(AVG(calculated_net_margin)::numeric,2) average_margin,
@@ -33,6 +39,12 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE status IN('SUCCESS','SENT','DRY_RUN'))::int successful,
         COUNT(*) FILTER(WHERE status='FAILED')::int failed
         FROM repricer_actions WHERE created_at>NOW()-INTERVAL '14 days' GROUP BY DATE(created_at) ORDER BY day`),
+        this.db.query(`SELECT DATE(checked_at) day,
+        COUNT(*) FILTER(WHERE buybox_won=TRUE)::int won,
+        COUNT(*) FILTER(WHERE buybox_lost=TRUE)::int lost,
+        COUNT(*) FILTER(WHERE target_achieved=TRUE)::int target_achieved
+        FROM price_change_outcomes WHERE checked_at>NOW()-INTERVAL '14 days'
+        GROUP BY DATE(checked_at) ORDER BY day`),
         this.db
           .query(`SELECT barcode,product_name,calculated_net_profit value,calculated_net_margin margin
         FROM products WHERE calculated_net_profit IS NOT NULL ORDER BY calculated_net_profit DESC LIMIT 7`),
@@ -42,20 +54,40 @@ class DashboardRepository {
         FROM products WHERE my_price<min_price OR calculated_net_profit<0 OR calculated_net_margin<5
         ORDER BY calculated_net_margin ASC LIMIT 7`),
         this.db.query(
-          `SELECT DISTINCT ON(job_name) job_name,status,started_at,finished_at,error FROM job_runs ORDER BY job_name,started_at DESC`,
+          `SELECT DISTINCT ON(job_name) job_name,status AS last_status,
+           started_at AS last_started_at,finished_at AS last_finished_at,error
+           FROM job_runs ORDER BY job_name,started_at DESC`,
         ),
         this.db.query(
           `SELECT message,created_at FROM integration_logs WHERE level='ERROR' ORDER BY created_at DESC LIMIT 1`,
         ),
       ]);
-    return {
+    const data = {
       kpis: kpis.rows[0],
-      charts: { categories: categories.rows, actions: actions.rows },
+      charts: {
+        categories: categories.rows,
+        actions: actions.rows,
+        buybox: buybox.rows,
+      },
       topProfit: profit.rows,
       topRisk: risk.rows,
       jobs: jobs.rows,
       lastError: error.rows[0] || null,
     };
+    this.cache = data;
+    this.cacheExpiresAt = Date.now() + 60000;
+    return data;
+  }
+
+  async refresh() {
+    const data = await this.get({ fresh: true });
+    await this.db.query(
+      `INSERT INTO dashboard_cache(cache_key,payload,refreshed_at)
+       VALUES('main',$1::jsonb,NOW())
+       ON CONFLICT(cache_key)DO UPDATE SET payload=EXCLUDED.payload,refreshed_at=NOW()`,
+      [JSON.stringify(data)],
+    );
+    return { processed: 1, successful: 1, failed: 0 };
   }
 }
 

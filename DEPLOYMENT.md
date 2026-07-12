@@ -13,6 +13,7 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 5. `DRY_RUN=true` ve `REPRICER_ENABLED=false` doğrulanır.
 6. Deploy health check `/health` yeşil olana kadar beklenir.
 7. Login, dashboard, ürün detayı, Menekşe kırılımı, buybox sync, repricer preview ve dry-run aksiyonu test edilir.
+8. `003_learning_contracts_and_operations` migrationının eski pilot aksiyonlarını koruduğu ve rollback ilişkilerini eklediği doğrulanır.
 
 ## Production Öncesi Yedek
 
@@ -52,6 +53,7 @@ DRY_RUN=true
 REPRICER_ENABLED=false
 JOBS_ENABLED=true
 GOOGLE_SHEETS_SYNC_ENABLED=true
+DEFAULT_MAX_INCREASE_TL=10
 ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 ```
 
@@ -74,10 +76,12 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Buybox sync job
 - Repricer preview
 - Onay + apply: sonuç `DRY_RUN`, Trendyol çağrısı yok
+- Başarılı fixture aksiyonunda geri alma isteği: yeni `ROLLBACK/PENDING` kayıt, doğrudan API çağrısı yok
+- Dry-run kapatma denemesi: ikinci canlı-mod onayı olmadan `409`
 - Job geçmişi ve audit log
 - Google metadata test
 - Mobil sidebar ve tablolar
 
 ## Production'a Geçiş
 
-İlk production deploy da dry-run olarak yapılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde iki global güvenlik anahtarının bilinçli değişimiyle açılır.
+İlk production deploy da dry-run olarak yapılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır; otomatik gönderim için ayrıca global repricer ve ürün bazında `AUTOMATIC + auto_update` gerekir.

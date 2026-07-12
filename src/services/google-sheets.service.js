@@ -191,7 +191,9 @@ class GoogleSheetsService {
   }
   health() {
     return {
-      configured: Boolean(this.sheetId && env.googleServiceAccountJson),
+      configured: Boolean(
+        this.sheetId && (this.credentials || env.googleServiceAccountJson),
+      ),
       tokenCached: Boolean(this.token),
       circuitOpen: Date.now() < this.circuitOpenUntil,
       failures: this.failures,

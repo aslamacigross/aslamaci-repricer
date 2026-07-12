@@ -52,7 +52,7 @@ test("dry-run onayli aksiyonda Trendyol cagrisi yapmaz", async () => {
   const { action, product } = fixture();
   let calls = 0;
   const actions = {
-    findOpen: async () => action,
+    findOpen: async () => null,
     todayStats: async () => ({ action_count: 0 }),
     updateStatus: async (id, status, fields) => ({
       ...action,
@@ -104,4 +104,120 @@ test("ayni aksiyon ikinci kez uygulanamaz", async () => {
     service.apply(1, "admin"),
     (error) => error.code === "DUPLICATE_APPLY",
   );
+});
+test("basarili Trendyol yaniti urun fiyatini ve fiyat gecmisini atomik gunceller", async () => {
+  const { action, product } = fixture();
+  const queries = [];
+  let apiCalls = 0;
+  const client = {
+    query: async (sql) => {
+      queries.push(sql);
+      if (sql.includes("SELECT * FROM repricer_actions"))
+        return { rows: [action] };
+      return { rows: [] };
+    },
+  };
+  const actions = {
+    findOpen: async () => null,
+    todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+    updateStatus: async (id, status, fields) => ({
+      ...action,
+      status,
+      applied_price: fields.appliedPrice,
+    }),
+  };
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) => work(client),
+    actions,
+    products: { get: async () => product },
+    settings: {},
+    trendyol: {
+      updatePrices: async () => {
+        apiCalls++;
+        return { batchRequestId: "mock-batch" };
+      },
+    },
+    audit: { record: async () => {} },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: false,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+  });
+  const result = await service.apply(1, "admin");
+  assert.equal(result.status, "AWAITING_RESULT");
+  assert.equal(apiCalls, 1);
+  assert.ok(
+    queries.some((sql) => sql.includes("UPDATE products SET my_price")),
+  );
+  assert.ok(queries.some((sql) => sql.includes("INSERT INTO price_war_log")));
+});
+
+test("manuel aksiyon otomatik repricer kapaliyken dry-run olarak islenebilir", async () => {
+  const { action, product } = fixture();
+  action.source = "MANUAL";
+  product.auto_update = false;
+  product.settings.auto_update = false;
+  const actions = {
+    findOpen: async () => null,
+    todayStats: async () => ({ action_count: 0 }),
+    updateStatus: async (id, status) => ({ ...action, status }),
+  };
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions,
+    products: { get: async () => product },
+    settings: {},
+    trendyol: { updatePrices: async () => assert.fail("API cagrilmamali") },
+    audit: { record: async () => {} },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: true,
+        repricerEnabled: false,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+  });
+  const result = await service.apply(1, "admin");
+  assert.equal(result.status, "DRY_RUN");
+});
+
+test("geri alma istegi dogrudan fiyat gondermeden bagli aksiyon olusturur", async () => {
+  const { action, product } = fixture("SUCCESS");
+  action.applied_price = action.proposed_price;
+  product.my_price = action.applied_price;
+  let request;
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) => work({}),
+    actions: {
+      get: async () => action,
+      findReversal: async () => null,
+      findOpen: async () => null,
+    },
+    products: { get: async () => product },
+    settings: {},
+    trendyol: {},
+    audit: { record: async () => {} },
+    repricer: {
+      manualAction: async (barcode, price, actor, options) => {
+        request = { barcode, price, actor, options };
+        return { id: 9, barcode, proposed_price: price, status: "PENDING" };
+      },
+    },
+  });
+  const result = await service.requestRevert(action.id, "admin");
+  assert.equal(result.status, "PENDING");
+  assert.equal(request.price, action.old_price);
+  assert.equal(request.options.source, "ROLLBACK");
+  assert.equal(request.options.revertsActionId, action.id);
 });

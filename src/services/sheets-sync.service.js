@@ -65,6 +65,7 @@ class SheetsSyncService {
           Number.isFinite(desi)
         )
           rows.push({
+            row: r + 1,
             desi_kg: desi,
             carrier: headers[c],
             cost_ex_vat: amount,
@@ -81,6 +82,7 @@ class SheetsSyncService {
         const amount = parseNumber(values[r][c], NaN);
         if (headers[c] && Number.isFinite(amount) && amount > 0)
           rows.push({
+            row: r + 1,
             min_basket: parseNumber(values[r][0]),
             max_basket: parseNumber(values[r][1], 999999),
             barem_name: text(values[r][2]),
@@ -168,6 +170,31 @@ class SheetsSyncService {
           row: item.row,
           code: "INVALID_PACKAGING",
         });
+    for (const item of data.shipping)
+      if (
+        !Number.isFinite(item.desi_kg) ||
+        item.desi_kg <= 0 ||
+        !Number.isFinite(item.cost_ex_vat) ||
+        item.cost_ex_vat <= 0
+      )
+        errors.push({
+          sheet: "KargoMaliyetleri",
+          row: item.row,
+          code: "INVALID_SHIPPING_RATE",
+        });
+    for (const item of data.barems)
+      if (
+        !Number.isFinite(item.min_basket) ||
+        !Number.isFinite(item.max_basket) ||
+        item.max_basket <= item.min_basket ||
+        !Number.isFinite(item.cost_ex_vat) ||
+        item.cost_ex_vat <= 0
+      )
+        errors.push({
+          sheet: "KargoBarem",
+          row: item.row,
+          code: "INVALID_SHIPPING_BAREM",
+        });
     duplicate(data.costItems, (item) => item.item_code, "MaliyetIndex");
     duplicate(
       data.mappings,
@@ -179,12 +206,36 @@ class SheetsSyncService {
       (item) => item.category_id,
       "KomisyonKurallari",
     );
+    duplicate(
+      data.shipping,
+      (item) => `${item.carrier}:${item.desi_kg}`,
+      "KargoMaliyetleri",
+    );
+    duplicate(
+      data.barems,
+      (item) => `${item.carrier}:${item.min_basket}:${item.max_basket}`,
+      "KargoBarem",
+    );
     const sorted = [...data.packaging].sort((a, b) => a.min_desi - b.min_desi);
     for (let i = 1; i < sorted.length; i++)
       if (sorted[i].min_desi < sorted[i - 1].max_desi)
         errors.push({
           sheet: "AmbalajKurallari",
           row: sorted[i].row,
+          code: "OVERLAPPING_RULE",
+        });
+    const barems = [...data.barems].sort(
+      (a, b) =>
+        a.carrier.localeCompare(b.carrier) || a.min_basket - b.min_basket,
+    );
+    for (let i = 1; i < barems.length; i++)
+      if (
+        barems[i].carrier === barems[i - 1].carrier &&
+        barems[i].min_basket < barems[i - 1].max_basket
+      )
+        errors.push({
+          sheet: "KargoBarem",
+          row: barems[i].row,
           code: "OVERLAPPING_RULE",
         });
     if (
@@ -449,7 +500,7 @@ class SheetsSyncService {
     const oldRowCount = (existing.values || []).length;
     const newRowCount = rows.length + 1;
     if (oldRowCount > newRowCount) {
-      await this.sheets.clear(`Urunler!A${newRowCount + 1}:T${oldRowCount}`);
+      await this.sheets.clear(`Urunler!A${newRowCount + 1}:AA${oldRowCount}`);
     }
     return { processed: rows.length };
   }

@@ -40,7 +40,7 @@ sequenceDiagram
   participant Admin
   participant TY as Trendyol
   Job->>Engine: Preview üret
-  Engine->>DB: Karar + safety sonucu kaydet
+  Engine->>DB: Hedef sıra + karar + safety sonucu kaydet
   Admin->>DB: Aksiyonu onayla
   DB->>Engine: Uygulama anında yeniden doğrula
   alt Dry-run açık
@@ -48,12 +48,21 @@ sequenceDiagram
   else Tüm kontroller güvenli
     Engine->>TY: İdempotent fiyat isteği
     TY-->>Engine: Batch ID
-    Engine->>DB: AWAITING_RESULT
+    Engine->>DB: Beklenen fiyat + AWAITING_RESULT
   end
+  Job->>TY: İlgili barkodlarda taze buybox sorgusu
   Job->>DB: 5/15/60 dk sonucu ölç
 ```
 
-DB fiyatı gönderim anında kesin gerçek kabul edilmez; sonraki ürün/buybox sync ile doğrulanır.
+API kabulünden sonra beklenen fiyat ve geçmiş atomik kaydedilir. Bu değer kesin pazar sonucu sayılmaz; 5/15/60 dakika jobları ilgili barkodların buybox verisini yeniden çekmeden outcome yazmaz.
+
+## Sıra Bazlı Optimizasyon
+
+Repricer önce ekonomik olarak mümkün olan en iyi sırayı arar. Birinci sıra minimum fiyatın altındaysa ikinci, ikinci de mümkün değilse üçüncü sıra hedeflenir. Üst sıraya çıkılamadığında mevcut sıra korunarak bilinen bir sonraki fiyatın hemen altında mümkün olan en yüksek kâr aranır. Tüm artış ve düşüşler ürün/global günlük değişim, maksimum artış ve minimum fiyat sınırlarıyla kademelenir.
+
+## Güvenli Geri Alma
+
+Başarılı bir aksiyon geri alınırken doğrudan API çağrısı yapılmaz. Eski fiyata bağlı `ROLLBACK` aksiyonu oluşturulur; bu kayıt yeniden onaylanır ve uygulama anında tüm safety kontrollerinden geçer. Başarılı gönderimden sonra asıl aksiyon `REVERTED` olarak ilişkilendirilir.
 
 ## Google Dayanıklılığı
 

@@ -124,6 +124,7 @@ export function Confirm({
   onConfirm,
   title = "İşlemi onayla",
   message,
+  confirmLabel = "Onayla",
 }) {
   return (
     <Modal open={open} onClose={onClose} title={title}>
@@ -135,7 +136,7 @@ export function Confirm({
             Vazgeç
           </Button>
           <Button variant="danger" onClick={onConfirm}>
-            Onayla
+            {confirmLabel}
           </Button>
         </div>
       </div>

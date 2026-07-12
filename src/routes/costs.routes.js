@@ -1,6 +1,19 @@
 const express = require("express");
 const { asyncRoute, AppError } = require("../utils/errors");
 const { requireFields, numeric } = require("../validators/common");
+
+function positive(input, fields, { allowZero = false } = {}) {
+  for (const field of fields) {
+    const value = Number(input[field]);
+    if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0))
+      throw new AppError(
+        `${field} ${allowZero ? "negatif olmayan" : "pozitif"} sayı olmalı`,
+        400,
+        "VALIDATION_ERROR",
+      );
+  }
+  return input;
+}
 function costsRoutes({ costs, costEngine, audit }) {
   const r = express.Router();
   const logged = async (req, action, type, id, before, after) =>
@@ -27,7 +40,11 @@ function costsRoutes({ costs, costEngine, audit }) {
         requireFields(req.body, ["item_code", "item_name", "unit_cost"]),
         ["unit_cost", "unit_desi"],
       );
+      positive(req.body, ["unit_cost"]);
+      if (req.body.unit_desi !== undefined)
+        positive(req.body, ["unit_desi"], { allowZero: true });
       const data = await costs.saveCostItem(req.body);
+      await costEngine.recalculate();
       await logged(req, "COST_ITEM_CREATED", "cost_item", data.id, null, data);
       res.status(201).json({ status: "ok", data });
     }),
@@ -39,8 +56,12 @@ function costsRoutes({ costs, costEngine, audit }) {
         requireFields(req.body, ["item_code", "item_name", "unit_cost"]),
         ["unit_cost", "unit_desi"],
       );
+      positive(req.body, ["unit_cost"]);
+      if (req.body.unit_desi !== undefined)
+        positive(req.body, ["unit_desi"], { allowZero: true });
       const data = await costs.saveCostItem(req.body, req.params.id);
       if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await costEngine.recalculate();
       await logged(req, "COST_ITEM_UPDATED", "cost_item", data.id, null, data);
       res.json({ status: "ok", data });
     }),
@@ -50,6 +71,7 @@ function costsRoutes({ costs, costEngine, audit }) {
     asyncRoute(async (req, res) => {
       const data = await costs.deleteCostItem(req.params.id);
       if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await costEngine.recalculate();
       await logged(req, "COST_ITEM_DELETED", "cost_item", data.id, data, null);
       res.json({ status: "ok" });
     }),
@@ -99,8 +121,26 @@ function costsRoutes({ costs, costEngine, audit }) {
     asyncRoute(async (req, res) => {
       const data = await costs.updateMapping(req.params.id, req.body);
       if (!data) throw new AppError("Mapping bulunamadı", 404);
-      await costEngine.recalculate(req.body.barcode);
+      await costEngine.recalculate(data.barcode);
+      if (data.old_barcode && data.old_barcode !== data.barcode)
+        await costEngine.recalculate(data.old_barcode);
       await logged(req, "MAPPING_UPDATED", "mapping", data.id, null, data);
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.post(
+    "/commissions/bulk",
+    asyncRoute(async (req, res) => {
+      const data = await costs.saveCommissions(req.body.rows);
+      await costEngine.recalculate();
+      await logged(
+        req,
+        "COMMISSIONS_BULK_UPDATED",
+        "commission",
+        "TRENDYOL",
+        null,
+        data,
+      );
       res.json({ status: "ok", data });
     }),
   );
@@ -126,6 +166,15 @@ function costsRoutes({ costs, costEngine, audit }) {
       numeric(requireFields(req.body, ["category_id", "commission_rate"]), [
         "commission_rate",
       ]);
+      if (
+        Number(req.body.commission_rate) <= 0 ||
+        Number(req.body.commission_rate) >= 100
+      )
+        throw new AppError(
+          "Komisyon oranı 0 ile 100 arasında olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
       const data = await costs.saveCommission(req.body);
       await costEngine.recalculate();
       await logged(
@@ -142,6 +191,18 @@ function costsRoutes({ costs, costEngine, audit }) {
   r.patch(
     "/commissions/:categoryId",
     asyncRoute(async (req, res) => {
+      numeric(requireFields(req.body, ["commission_rate"]), [
+        "commission_rate",
+      ]);
+      if (
+        Number(req.body.commission_rate) <= 0 ||
+        Number(req.body.commission_rate) >= 100
+      )
+        throw new AppError(
+          "Komisyon oranı 0 ile 100 arasında olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
       const data = await costs.saveCommission({
         ...req.body,
         category_id: req.params.categoryId,
@@ -185,7 +246,14 @@ function costsRoutes({ costs, costEngine, audit }) {
   r.post(
     "/shipping/rates",
     asyncRoute(async (req, res) => {
+      numeric(requireFields(req.body, ["desi_kg", "carrier", "cost_ex_vat"]), [
+        "desi_kg",
+        "cost_ex_vat",
+        "vat_rate",
+      ]);
+      positive(req.body, ["desi_kg", "cost_ex_vat"]);
       const data = await costs.saveShippingRate(req.body);
+      await costEngine.recalculate();
       await logged(
         req,
         "SHIPPING_RATE_SAVED",
@@ -197,10 +265,68 @@ function costsRoutes({ costs, costEngine, audit }) {
       res.json({ status: "ok", data });
     }),
   );
+  r.patch(
+    "/shipping/rates/:id",
+    asyncRoute(async (req, res) => {
+      numeric(requireFields(req.body, ["desi_kg", "carrier", "cost_ex_vat"]), [
+        "desi_kg",
+        "cost_ex_vat",
+        "vat_rate",
+      ]);
+      positive(req.body, ["desi_kg", "cost_ex_vat"]);
+      const data = await costs.saveShippingRate(req.body, req.params.id);
+      if (!data) throw new AppError("Kargo tarifesi bulunamadı", 404);
+      await costEngine.recalculate();
+      await logged(
+        req,
+        "SHIPPING_RATE_UPDATED",
+        "shipping_rate",
+        data.id,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.delete(
+    "/shipping/rates/:id",
+    asyncRoute(async (req, res) => {
+      const data = await costs.deleteShippingRate(req.params.id);
+      if (!data) throw new AppError("Kargo tarifesi bulunamadı", 404);
+      await costEngine.recalculate();
+      await logged(
+        req,
+        "SHIPPING_RATE_DELETED",
+        "shipping_rate",
+        data.id,
+        data,
+        null,
+      );
+      res.json({ status: "ok" });
+    }),
+  );
   r.post(
     "/shipping/barems",
     asyncRoute(async (req, res) => {
+      numeric(
+        requireFields(req.body, [
+          "min_basket",
+          "max_basket",
+          "carrier",
+          "cost_ex_vat",
+        ]),
+        ["min_basket", "max_basket", "cost_ex_vat", "vat_rate"],
+      );
+      if (Number(req.body.max_basket) <= Number(req.body.min_basket))
+        throw new AppError(
+          "Maksimum sepet minimumdan büyük olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
+      positive(req.body, ["min_basket"], { allowZero: true });
+      positive(req.body, ["max_basket", "cost_ex_vat"]);
       const data = await costs.saveBarem(req.body);
+      await costEngine.recalculate();
       await logged(
         req,
         "SHIPPING_BAREM_SAVED",
@@ -212,10 +338,74 @@ function costsRoutes({ costs, costEngine, audit }) {
       res.json({ status: "ok", data });
     }),
   );
+  r.patch(
+    "/shipping/barems/:id",
+    asyncRoute(async (req, res) => {
+      numeric(
+        requireFields(req.body, [
+          "min_basket",
+          "max_basket",
+          "carrier",
+          "cost_ex_vat",
+        ]),
+        ["min_basket", "max_basket", "cost_ex_vat", "vat_rate"],
+      );
+      if (Number(req.body.max_basket) <= Number(req.body.min_basket))
+        throw new AppError(
+          "Maksimum sepet minimumdan büyük olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
+      positive(req.body, ["min_basket"], { allowZero: true });
+      positive(req.body, ["max_basket", "cost_ex_vat"]);
+      const data = await costs.saveBarem(req.body, req.params.id);
+      if (!data) throw new AppError("Kargo baremi bulunamadı", 404);
+      await costEngine.recalculate();
+      await logged(
+        req,
+        "SHIPPING_BAREM_UPDATED",
+        "shipping_barem",
+        data.id,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.delete(
+    "/shipping/barems/:id",
+    asyncRoute(async (req, res) => {
+      const data = await costs.deleteBarem(req.params.id);
+      if (!data) throw new AppError("Kargo baremi bulunamadı", 404);
+      await costEngine.recalculate();
+      await logged(
+        req,
+        "SHIPPING_BAREM_DELETED",
+        "shipping_barem",
+        data.id,
+        data,
+        null,
+      );
+      res.json({ status: "ok" });
+    }),
+  );
   r.post(
     "/packaging-rules",
     asyncRoute(async (req, res) => {
+      numeric(
+        requireFields(req.body, ["min_desi", "max_desi", "packaging_cost"]),
+        ["min_desi", "max_desi", "packaging_cost"],
+      );
+      positive(req.body, ["min_desi", "packaging_cost"], { allowZero: true });
+      positive(req.body, ["max_desi"]);
+      if (Number(req.body.max_desi) <= Number(req.body.min_desi))
+        throw new AppError(
+          "Maksimum desi minimumdan büyük olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
       const data = await costs.savePackaging(req.body);
+      await costEngine.recalculate();
       await logged(
         req,
         "PACKAGING_RULE_SAVED",
@@ -230,7 +420,21 @@ function costsRoutes({ costs, costEngine, audit }) {
   r.patch(
     "/packaging-rules/:id",
     asyncRoute(async (req, res) => {
+      numeric(
+        requireFields(req.body, ["min_desi", "max_desi", "packaging_cost"]),
+        ["min_desi", "max_desi", "packaging_cost"],
+      );
+      positive(req.body, ["min_desi", "packaging_cost"], { allowZero: true });
+      positive(req.body, ["max_desi"]);
+      if (Number(req.body.max_desi) <= Number(req.body.min_desi))
+        throw new AppError(
+          "Maksimum desi minimumdan büyük olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
       const data = await costs.savePackaging(req.body, req.params.id);
+      if (!data) throw new AppError("Ambalaj kuralı bulunamadı", 404);
+      await costEngine.recalculate();
       await logged(
         req,
         "PACKAGING_RULE_UPDATED",
@@ -246,6 +450,8 @@ function costsRoutes({ costs, costEngine, audit }) {
     "/packaging-rules/:id",
     asyncRoute(async (req, res) => {
       const data = await costs.deletePackaging(req.params.id);
+      if (!data) throw new AppError("Ambalaj kuralı bulunamadı", 404);
+      await costEngine.recalculate();
       await logged(
         req,
         "PACKAGING_RULE_DELETED",

@@ -3,6 +3,7 @@ const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
 const { roundMoney } = require("../utils/numbers");
 const { env } = require("../config/env");
+const { AppError } = require("../utils/errors");
 
 class RepricerService {
   constructor({ db, actions, settings }) {
@@ -19,7 +20,13 @@ class RepricerService {
       maxChangePct:
         stored.global_max_price_change_pct ?? env.globalMaxPriceChangePct,
       minChangeTl: env.minPriceChangeTl,
-      buyboxMaxAgeMinutes: env.buyboxMaxAgeMinutes,
+      buyboxMaxAgeMinutes:
+        stored.buybox_max_age_minutes ?? env.buyboxMaxAgeMinutes,
+      defaultMaxIncrease:
+        stored.default_max_increase_tl ?? env.defaultMaxIncrease,
+      defaultPriceCut: stored.default_price_cut_tl ?? 0.1,
+      defaultTargetProfit:
+        stored.default_target_profit ?? env.defaultTargetProfit,
     };
   }
 
@@ -32,13 +39,19 @@ class RepricerService {
     }
     return (
       await this.db.query(
-        `SELECT p.*,COALESCE(ps.strategy,'Manuel')strategy,COALESCE(ps.price_cut_tl,0.1)price_cut_tl,
-      COALESCE(ps.max_increase_tl,10)max_increase_tl,COALESCE(ps.max_daily_change_pct,15)max_daily_change_pct,
+        `SELECT p.*,
+      CASE WHEN COALESCE(rl.paused,FALSE) THEN 'Kâr Koru' ELSE COALESCE(ps.strategy,'Manuel') END strategy,
+      ps.price_cut_tl,ps.max_increase_tl,ps.max_daily_change_pct,
+      ps.minimum_profit_tl,
+      COALESCE(ps.minimum_profit_pct,0)minimum_profit_pct,
       COALESCE(ps.minimum_margin_pct,0)minimum_margin_pct,ps.minimum_price,ps.maximum_price,
+      COALESCE(ps.min_undercut_tl,0.1)min_undercut_tl,COALESCE(ps.max_undercut_tl,75)max_undercut_tl,
       COALESCE(ps.min_change_interval_minutes,30)min_change_interval_minutes,COALESCE(ps.daily_action_limit,3)daily_action_limit,
       COALESCE(ps.buybox_max_age_minutes,20)buybox_max_age_minutes,COALESCE(ps.blacklisted,FALSE)blacklisted,
       COALESCE(ps.auto_update,p.auto_update,FALSE)setting_auto_update,COALESCE(ps.mode,'MANUAL')mode,
-      COALESCE(rl.learned_price_cut_tl,0)learned_price_cut_tl,COALESCE(rl.confidence_score,0)confidence_score
+      COALESCE(rl.learned_price_cut_tl,0)learned_price_cut_tl,
+      rl.learned_max_increase_tl,COALESCE(rl.confidence_score,0)confidence_score,
+      COALESCE(rl.paused,FALSE)learning_paused
       FROM products p LEFT JOIN product_settings ps ON ps.marketplace=p.marketplace AND ps.barcode=p.barcode
       LEFT JOIN repricer_learning rl ON rl.marketplace=p.marketplace AND rl.barcode=p.barcode
       WHERE p.marketplace='TRENDYOL' ${filter} ORDER BY p.product_name`,
@@ -52,7 +65,18 @@ class RepricerService {
     const products = await this.candidates(barcode);
     const results = [];
     for (const product of products) {
-      const settings = { ...product, auto_update: product.setting_auto_update };
+      const settings = {
+        ...product,
+        price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
+        max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
+        max_daily_change_pct:
+          product.max_daily_change_pct ?? global.maxChangePct,
+        minimum_profit_tl:
+          product.minimum_profit_tl ??
+          product.target_profit ??
+          global.defaultTargetProfit,
+        auto_update: product.setting_auto_update,
+      };
       const proposal = proposePrice(product, settings);
       const today = await this.actions.todayStats(product.barcode);
       const safety = safetyCheck({
@@ -60,7 +84,10 @@ class RepricerService {
         settings,
         global,
         proposal,
-        today: { actionCount: today.action_count },
+        today: {
+          actionCount: today.action_count,
+          dayStartPrice: today.day_start_price,
+        },
       });
       results.push({
         ...proposal,
@@ -100,6 +127,7 @@ class RepricerService {
         min_price: preview.minPrice,
         buybox_before: preview.buyboxPrice,
         rank_before: preview.rank,
+        target_rank: preview.targetRank,
         second_price: preview.secondPrice,
         third_price: preview.thirdPrice,
         expected_profit: preview.expectedProfit,
@@ -122,10 +150,11 @@ class RepricerService {
     };
   }
 
-  async manualAction(barcode, proposedPrice, actor) {
+  async manualAction(barcode, proposedPrice, actor, options = {}) {
     const products = await this.candidates(barcode);
     const product = products[0];
-    if (!product) throw new Error("Ürün bulunamadı");
+    if (!product)
+      throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
     const price = roundMoney(proposedPrice);
     const current = roundMoney(product.my_price);
     const action =
@@ -152,18 +181,44 @@ class RepricerService {
     };
     const global = await this.globalSettings();
     const today = await this.actions.todayStats(barcode);
-    const settings = { ...product, auto_update: product.setting_auto_update };
+    const settings = {
+      ...product,
+      price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
+      max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
+      max_daily_change_pct: product.max_daily_change_pct ?? global.maxChangePct,
+      minimum_profit_tl:
+        product.minimum_profit_tl ??
+        product.target_profit ??
+        global.defaultTargetProfit,
+      auto_update: product.setting_auto_update,
+    };
     const safety = safetyCheck({
       product,
       settings,
       global,
       proposal,
-      today: { actionCount: today.action_count },
+      manual: true,
+      today: {
+        actionCount: today.action_count,
+        dayStartPrice: today.day_start_price,
+      },
     });
-    const key = crypto
-      .createHash("sha256")
-      .update(`manual:${barcode}:${current}:${price}:${product.updated_at}`)
-      .digest("hex");
+    const hardFailures = safety.failures.filter((code) => code !== "DRY_RUN");
+    if (hardFailures.length)
+      throw new AppError(
+        "Manuel fiyat aksiyonu güvenlik kontrollerinden geçmedi",
+        409,
+        "SAFETY_BLOCKED",
+        hardFailures,
+      );
+    const key =
+      options.idempotencyKey ||
+      crypto
+        .createHash("sha256")
+        .update(`manual:${barcode}:${current}:${price}:${product.updated_at}`)
+        .digest("hex");
+    const source = options.source || "MANUAL";
+    const strategy = options.strategy || "Manuel";
     const created = await this.actions.create({
       marketplace: "TRENDYOL",
       barcode,
@@ -171,14 +226,15 @@ class RepricerService {
       old_price: current,
       proposed_price: price,
       action,
-      strategy: "Manuel",
-      reason: `${actor} tarafından manuel fiyat aksiyonu`,
+      strategy,
+      reason: options.reason || `${actor} tarafından manuel fiyat aksiyonu`,
       status: "PENDING",
-      source: "MANUAL",
+      source,
       idempotency_key: key,
       min_price: product.min_price,
       buybox_before: product.buybox_price,
       rank_before: product.rank,
+      target_rank: product.rank,
       second_price: product.second_price,
       third_price: product.third_price,
       expected_profit: proposal.expectedProfit,
@@ -186,10 +242,11 @@ class RepricerService {
       net_profit_before: product.calculated_net_profit,
       safety_checks: safety,
       expires_at: new Date(Date.now() + 15 * 60000),
+      reverts_action_id: options.revertsActionId || null,
     });
     await this.actions.recordDecision(
       created.id,
-      { barcode, strategy: "Manuel", actor },
+      { barcode, strategy, actor, source },
       { ...proposal, safety },
     );
     return created;

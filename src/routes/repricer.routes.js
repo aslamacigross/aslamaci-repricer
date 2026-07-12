@@ -4,11 +4,22 @@ function repricerRoutes({
   repricer,
   actions,
   actionService,
-  audit,
   jobService,
   learning,
+  audit,
 }) {
   const r = express.Router();
+  async function updateLearning(barcode, input, actor, action) {
+    const data = await actions.updateLearning(barcode, input);
+    await audit.record({
+      actor,
+      action,
+      entityType: "repricer_learning",
+      entityId: barcode,
+      after: data,
+    });
+    return data;
+  }
   r.get(
     "/repricer/settings",
     asyncRoute(async (req, res) =>
@@ -100,6 +111,18 @@ function repricerRoutes({
     ),
   );
   r.post(
+    "/actions/:id/revert",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await actionService.requestRevert(
+          req.params.id,
+          req.user.username,
+        ),
+      }),
+    ),
+  );
+  r.post(
     "/actions/:id/recheck",
     asyncRoute(async (req, res) =>
       res.json({
@@ -113,15 +136,10 @@ function repricerRoutes({
   r.post(
     "/actions/bulk-approve",
     asyncRoute(async (req, res) => {
-      const items = [];
-      for (const id of req.body.ids || [])
-        items.push(await actionService.approve(id, req.user.username));
-      await audit.record({
-        actor: req.user.username,
-        action: "ACTIONS_BULK_APPROVED",
-        entityType: "repricer_action",
-        after: { ids: req.body.ids },
-      });
+      const items = await actionService.approveMany(
+        req.body.ids,
+        req.user.username,
+      );
       res.json({ status: "ok", items });
     }),
   );
@@ -145,7 +163,12 @@ function repricerRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await actions.updateLearning(req.params.barcode, req.body),
+        data: await updateLearning(
+          req.params.barcode,
+          req.body,
+          req.user.username,
+          "REPRICER_LEARNING_UPDATED",
+        ),
       }),
     ),
   );
@@ -154,10 +177,18 @@ function repricerRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await actions.updateLearning(req.params.barcode, {
-          learned_price_cut_tl: 0,
-          paused: false,
-        }),
+        data: await updateLearning(
+          req.params.barcode,
+          {
+            learned_price_cut_tl: 0,
+            learned_max_increase_tl: 0,
+            consecutive_failures: 0,
+            strategy: "Öğrenen Pilot",
+            paused: false,
+          },
+          req.user.username,
+          "REPRICER_LEARNING_RESET",
+        ),
       }),
     ),
   );
@@ -166,9 +197,30 @@ function repricerRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await actions.updateLearning(req.params.barcode, {
-          paused: true,
-        }),
+        data: await updateLearning(
+          req.params.barcode,
+          { paused: true },
+          req.user.username,
+          "REPRICER_LEARNING_PAUSED",
+        ),
+      }),
+    ),
+  );
+  r.post(
+    "/learning/:barcode/resume",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await updateLearning(
+          req.params.barcode,
+          {
+            paused: false,
+            consecutive_failures: 0,
+            strategy: "Öğrenen Pilot",
+          },
+          req.user.username,
+          "REPRICER_LEARNING_RESUMED",
+        ),
       }),
     ),
   );

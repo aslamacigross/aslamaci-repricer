@@ -12,9 +12,11 @@
 - Atomic Google Sheets import ve korumalı export
 - Repricer action/decision/outcome tabloları
 - 5/15/60 dakika öğrenme outcome jobları
+- Hedef sıra, buybox geçmişi, rakip gözlemi ve fiyat sonucu veri sözleşmeleri
+- Güvenli, bağlı ve yeniden onaylanan fiyat geri alma aksiyonları
 - Job history, advisory lock, audit ve integration logları
 - Railway build/health yapılandırması
-- 28 unit/integration/regression test
+- 43 unit/integration/regression test
 
 ### Changed
 
@@ -22,6 +24,9 @@
 - Google Sheets ana kontrol paneli olmaktan çıkarılıp geçiş/import/export katmanına alındı.
 - Öğrenme sonucu anlık kontrol yerine gecikmeli outcome ölçümüne taşındı.
 - Fiyat yönü etiketi merkezi matematiksel kurala bağlandı.
+- Repricer ekonomik olarak mümkün olan en iyi 1/2/3. sırayı, aksi halde mevcut sıradaki en yüksek güvenli kârı hedefler.
+- Outcome ölçümü yalnızca taze ve barkod hedefli buybox yenilemesinden sonra yazılır.
+- Sistem logları arama, seviye filtresi ve sayfalama kazandı.
 
 ### Preserved
 
@@ -33,4 +38,5 @@
 
 - Varsayılan dry-run açık, global repricer kapalıdır.
 - Eski korumasız fiyat uygulama GET endpointi devre dışıdır.
+- Dry-run kapatma ve global repricer açma ikinci canlı-mod onayı gerektirir.
 - Gerçek Trendyol fiyat gönderimi bu sürüm geliştirme ve test sürecinde çalıştırılmamıştır.

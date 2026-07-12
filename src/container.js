@@ -48,7 +48,7 @@ function createContainer(overrides = {}) {
   const products = overrides.products || new ProductRepository(db);
   const costs = overrides.costs || new CostRepository(db, transaction);
   const dashboard = overrides.dashboard || new DashboardRepository(db);
-  const actions = overrides.actions || new ActionRepository(db);
+  const actions = overrides.actions || new ActionRepository(db, transaction);
   const jobs = overrides.jobs || new JobRepository(db);
   const costEngine = overrides.costEngine || new CostEngineService(db);
   const sync = overrides.sync || new SyncService({ db, trendyol, audit });
@@ -75,7 +75,7 @@ function createContainer(overrides = {}) {
       audit,
       repricer,
     });
-  const learning = overrides.learning || new LearningService({ actions });
+  const learning = overrides.learning || new LearningService({ actions, sync });
   const maintenance = new MaintenanceService(db, env.logRetentionDays);
   const jobService =
     overrides.jobService || new JobService({ db, repository: jobs });
@@ -149,7 +149,11 @@ function createContainer(overrides = {}) {
   jobService.register("sheets-export", () =>
     runSheets(() => sheetsSync.exportProducts()),
   );
-  jobService.register("cleanup-old-logs", () => maintenance.cleanup());
+  jobService.register("cleanup-old-logs", async () => {
+    const current = await settings.getAll();
+    return maintenance.cleanup(current.log_retention_days);
+  });
+  jobService.register("dashboard-cache-refresh", () => dashboard.refresh());
   return {
     db,
     auth,

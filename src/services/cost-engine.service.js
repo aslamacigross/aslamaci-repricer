@@ -6,7 +6,19 @@ class CostEngineService {
   }
 
   async recalculate(barcode) {
-    const params = [env.defaultCarrier, env.defaultServiceFee];
+    const stored = (
+      await this.db.query(
+        `SELECT key,value FROM system_settings
+         WHERE key IN('default_carrier','service_fee')`,
+      )
+    ).rows;
+    const settings = Object.fromEntries(
+      stored.map((row) => [row.key, row.value]),
+    );
+    const params = [
+      settings.default_carrier || env.defaultCarrier,
+      Number(settings.service_fee ?? env.defaultServiceFee),
+    ];
     let filter = "";
     if (barcode) {
       params.push(barcode);

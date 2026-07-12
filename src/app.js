@@ -1,10 +1,10 @@
 const express = require("express");
+const helmet = require("helmet");
 const path = require("path");
 const fs = require("fs");
 const { env } = require("./config/env");
 const { createContainer } = require("./container");
 const {
-  securityHeaders,
   requestContext,
   cors,
   createRateLimiter,
@@ -27,8 +27,20 @@ function createApp(container = createContainer()) {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          imgSrc: ["'self'", "data:"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'"],
+          connectSrc: ["'self'"],
+        },
+      },
+    }),
+  );
+  app.use(
     requestContext,
-    securityHeaders,
     cors,
     express.json({ limit: "2mb" }),
     createRateLimiter({ max: 180 }),

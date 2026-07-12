@@ -32,8 +32,17 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 2. İlgili barkod `Kara liste` yapılır.
 3. `Fiyat Aksiyonları`, audit log ve Trendyol batch ID kaydedilir.
 4. Trendyol panelindeki gerçek fiyat doğrulanır.
-5. Gerekli düzeltme yeni, açıkça onaylanan bir aksiyonla yapılır.
-6. Eski DB fiyatını doğrudan değiştirerek geçmiş gizlenmez.
+5. Asıl aksiyon `SUCCESS` durumundaysa `Güvenli geri al` kullanılır; sistem eski fiyata bağlı yeni bir aksiyon oluşturur.
+6. Ters aksiyon ayrıca onaylanır. Dry-run kapalı olsa dahi uygulama anında minimum fiyat ve diğer safety kontrolleri yeniden çalışır.
+7. Geri alma uygun değilse gerekli düzeltme yeni, açıkça onaylanan manuel aksiyonla yapılır.
+8. Eski DB fiyatını doğrudan değiştirerek geçmiş gizlenmez.
+
+## Canlı Modu Açma
+
+- Panelde dry-run kapatmak veya global repricer'ı açmak ayrı canlı-mod onayı ister.
+- İlk canlı deneme yalnızca seçilmiş pilot barkodlarda ve ürün modu `AUTOMATIC` iken yapılır.
+- `auto_update` kapalı ürün otomatik job tarafından uygulanmaz.
+- Canlı moda geçiş bu V2 teslimatının parçası değildir; kullanıcı açık onayı ve ayrı pilot kontrolü gerekir.
 
 ## Job Durdurma
 

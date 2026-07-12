@@ -49,24 +49,44 @@ class SyncService {
     return { processed, successful: processed, failed: 0 };
   }
 
-  async buybox() {
+  async buybox(barcodes) {
+    const requested = Array.isArray(barcodes)
+      ? [...new Set(barcodes.map((value) => String(value)).filter(Boolean))]
+      : null;
+    if (requested && !requested.length)
+      return {
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        updatedBarcodes: [],
+        failedBarcodes: [],
+      };
     const products = (
       await this.db.query(
-        `SELECT barcode,my_price FROM products WHERE marketplace='TRENDYOL' AND on_sale=TRUE ORDER BY barcode`,
+        `SELECT barcode,my_price,product_name,min_price,calculated_net_profit
+         FROM products WHERE marketplace='TRENDYOL' AND on_sale=TRUE
+           ${requested ? "AND barcode=ANY($1::text[])" : ""}
+         ORDER BY barcode`,
+        requested ? [requested] : [],
       )
     ).rows;
     let processed = 0,
       failed = 0;
+    const updatedBarcodes = [];
+    const failedBarcodes = [];
     for (let index = 0; index < products.length; index += 10) {
       const chunk = products.slice(index, index + 10);
       try {
         const data = await this.trendyol.buybox(
           chunk.map((row) => row.barcode),
         );
+        const responded = new Set();
         for (const info of data.buyboxInfo || []) {
           const barcode = String(info.barcode || "");
           const original = chunk.find((row) => row.barcode === barcode);
           if (!original) continue;
+          responded.add(barcode);
+          const observedAt = new Date();
           const values = [
             Number(info.buyboxPrice) || 0,
             info.secondBuyboxPrice == null
@@ -78,19 +98,63 @@ class SyncService {
             info.buyboxOrder == null ? null : Number(info.buyboxOrder),
             Boolean(info.hasMultipleSeller),
             barcode,
+            observedAt,
           ];
           await this.db.query(
-            `UPDATE products SET buybox_price=$1,second_price=$2,third_price=$3,rank=$4,has_multiple_seller=$5,buybox_updated_at=NOW(),updated_at=NOW() WHERE marketplace='TRENDYOL' AND barcode=$6`,
+            `UPDATE products SET buybox_price=$1,second_price=$2,third_price=$3,
+             rank=$4,has_multiple_seller=$5,buybox_updated_at=$7,updated_at=NOW()
+             WHERE marketplace='TRENDYOL' AND barcode=$6`,
             values,
           );
           await this.db.query(
-            `INSERT INTO repricer_observations(marketplace,barcode,observed_price,buybox_price,second_price,third_price,rank,has_multiple_seller)VALUES('TRENDYOL',$6,$7,$1,$2,$3,$4,$5)`,
+            `INSERT INTO repricer_observations(
+              marketplace,barcode,observed_price,buybox_price,second_price,
+              third_price,rank,has_multiple_seller,observed_at
+            )VALUES('TRENDYOL',$6,$8,$1,$2,$3,$4,$5,$7)`,
             [...values, original.my_price],
           );
+          await this.db.query(
+            `INSERT INTO buybox_history(
+              marketplace,barcode,product_name,observed_price,buybox_price,
+              second_price,third_price,rank,has_multiple_seller,min_price,
+              net_profit,observed_at
+            )VALUES('TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            ON CONFLICT(marketplace,barcode,observed_at)DO NOTHING`,
+            [
+              barcode,
+              original.product_name,
+              original.my_price,
+              values[0],
+              values[1],
+              values[2],
+              values[3],
+              values[4],
+              original.min_price,
+              original.calculated_net_profit,
+              observedAt,
+            ],
+          );
+          const visiblePrices = [values[0], values[1], values[2]];
+          for (let rank = 1; rank <= visiblePrices.length; rank++) {
+            if (!(visiblePrices[rank - 1] > 0)) continue;
+            await this.db.query(
+              `INSERT INTO competitor_price_observations(
+                marketplace,barcode,rank,price,observed_at
+              )VALUES('TRENDYOL',$1,$2,$3,$4)`,
+              [barcode, rank, visiblePrices[rank - 1], observedAt],
+            );
+          }
           processed++;
+          updatedBarcodes.push(barcode);
         }
+        for (const item of chunk)
+          if (!responded.has(item.barcode)) {
+            failed++;
+            failedBarcodes.push(item.barcode);
+          }
       } catch (error) {
         failed += chunk.length;
+        failedBarcodes.push(...chunk.map((row) => row.barcode));
         await this.audit.integration({
           integration: "TRENDYOL",
           level: "ERROR",
@@ -101,7 +165,13 @@ class SyncService {
       }
       if (index + 10 < products.length) await sleep(250);
     }
-    return { processed, successful: processed, failed };
+    return {
+      processed,
+      successful: processed,
+      failed,
+      updatedBarcodes,
+      failedBarcodes: [...new Set(failedBarcodes)],
+    };
   }
 
   async health() {

@@ -27,6 +27,7 @@ import {
   SearchInput,
   Confirm,
   Field,
+  Pagination,
 } from "../components/ui";
 const info = {
   buybox: [
@@ -105,11 +106,20 @@ function BuyboxTable({ payload }) {
   const cols = [
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
+    { key: "strategy", label: "Öğrenilen strateji" },
     { key: "my_price", label: "Mevcut", render: (r) => money(r.my_price) },
     {
       key: "buybox_price",
       label: "Buybox",
       render: (r) => money(r.buybox_price),
+    },
+    {
+      key: "learned_max_increase_tl",
+      label: "Öğrenilen maks. artış",
+      render: (r) =>
+        r.learned_max_increase_tl == null
+          ? "-"
+          : money(r.learned_max_increase_tl),
     },
     {
       key: "second_price",
@@ -130,6 +140,11 @@ function BuyboxTable({ payload }) {
         </Badge>
       ),
     },
+    {
+      key: "has_multiple_seller",
+      label: "Çoklu satıcı",
+      render: (r) => (r.has_multiple_seller ? "Evet" : "Hayır"),
+    },
     { key: "min_price", label: "Min fiyat", render: (r) => money(r.min_price) },
     {
       key: "calculated_net_profit",
@@ -140,6 +155,13 @@ function BuyboxTable({ payload }) {
       key: "buybox_updated_at",
       label: "Son kontrol",
       render: (r) => date(r.buybox_updated_at),
+    },
+    { key: "last_action", label: "Önerilen aksiyon", badge: true },
+    {
+      key: "last_proposed_price",
+      label: "Önerilen fiyat",
+      render: (r) =>
+        r.last_proposed_price == null ? "-" : money(r.last_proposed_price),
     },
   ];
   return (
@@ -205,6 +227,7 @@ function Repricer({ notify }) {
       render: (r) => money(r.expectedProfit),
     },
     { key: "rank", label: "Sıra" },
+    { key: "targetRank", label: "Hedef sıra" },
     {
       key: "effectiveUndercut",
       label: "Fiyat kırma",
@@ -267,9 +290,21 @@ function Repricer({ notify }) {
 function Actions({ notify }) {
   const [data, setData] = useState(null),
     [status, setStatus] = useState(""),
-    [confirm, setConfirm] = useState(null);
+    [confirm, setConfirm] = useState(null),
+    [selected, setSelected] = useState([]);
   async function load() {
     setData(await get(`/api/actions${status ? `?status=${status}` : ""}`));
+    setSelected([]);
+  }
+  async function bulkApprove() {
+    try {
+      await post("/api/actions/bulk-approve", { ids: selected });
+      notify(`${selected.length} aksiyon onaylandı`);
+      setConfirm(null);
+      load();
+    } catch (e) {
+      notify(e.message, "error");
+    }
   }
   useEffect(() => {
     load().catch((e) => notify(e.message, "error"));
@@ -280,7 +315,9 @@ function Actions({ notify }) {
       notify(
         action === "apply"
           ? "Aksiyon dry-run güvenliğiyle işlendi"
-          : "Aksiyon güncellendi",
+          : action === "revert"
+            ? "Geri alma aksiyonu oluşturuldu; ayrıca onaylanması gerekir"
+            : "Aksiyon güncellendi",
       );
       setConfirm(null);
       load();
@@ -301,6 +338,9 @@ function Actions({ notify }) {
       render: (r) => money(r.proposed_price),
     },
     { key: "min_price", label: "Min", render: (r) => money(r.min_price) },
+    { key: "target_rank", label: "Hedef sıra" },
+    { key: "rank_after", label: "Son sıra" },
+    { key: "source", label: "Kaynak", badge: true },
     { key: "status", label: "Durum", badge: true },
     { key: "reason", label: "Sebep" },
     {
@@ -326,7 +366,14 @@ function Actions({ notify }) {
             <IconButton
               icon={Send}
               label="Uygula"
-              onClick={() => setConfirm(r)}
+              onClick={() => setConfirm({ type: "apply", row: r })}
+            />
+          )}
+          {r.status === "SUCCESS" && !r.reverted_by_action_id && (
+            <IconButton
+              icon={RotateCcw}
+              label="Güvenli geri alma aksiyonu oluştur"
+              onClick={() => setConfirm({ type: "revert", row: r })}
             />
           )}
         </div>
@@ -346,20 +393,49 @@ function Actions({ notify }) {
             "SUCCESS",
             "FAILED",
             "REJECTED",
+            "REVERTED",
           ].map((x) => (
             <option key={x}>{x}</option>
           ))}
         </select>
+        <Button
+          variant="secondary"
+          icon={Check}
+          disabled={!selected.length}
+          onClick={() => setConfirm("bulk")}
+        >
+          Seçilenleri onayla ({selected.length})
+        </Button>
       </div>
       <div className="panel table-panel">
-        <DataTable columns={cols} rows={data.items} />
+        <DataTable
+          columns={cols}
+          rows={data.items}
+          selectedIds={selected}
+          onSelectionChange={setSelected}
+          canSelectRow={(row) => row.status === "PENDING"}
+        />
       </div>
       <Confirm
         open={Boolean(confirm)}
         onClose={() => setConfirm(null)}
-        onConfirm={() => act("apply", confirm)}
-        title="Fiyat aksiyonunu uygula"
-        message="Aksiyon tüm güvenlik kontrollerinden yeniden geçecek. Global dry-run açıksa Trendyol'a hiçbir fiyat gönderilmeyecek."
+        onConfirm={() =>
+          confirm === "bulk" ? bulkApprove() : act(confirm.type, confirm.row)
+        }
+        title={
+          confirm === "bulk"
+            ? "Seçili aksiyonları onayla"
+            : confirm?.type === "revert"
+              ? "Fiyat aksiyonunu geri al"
+              : "Fiyat aksiyonunu uygula"
+        }
+        message={
+          confirm === "bulk"
+            ? `${selected.length} bekleyen aksiyon onaylanacak; fiyatlar henüz gönderilmeyecek.`
+            : confirm?.type === "revert"
+              ? "Eski fiyata dönmek için yeni ve bağlı bir aksiyon oluşturulacak. Bu aksiyon ayrıca onaylanmadan ve güvenlik kontrollerinden geçmeden gönderilmeyecek."
+              : "Aksiyon tüm güvenlik kontrollerinden yeniden geçecek. Global dry-run açıksa Trendyol'a hiçbir fiyat gönderilmeyecek."
+        }
       />
     </>
   );
@@ -379,7 +455,9 @@ function LearningTable({ data, notify }) {
       notify(
         type === "reset"
           ? "Öğrenilen değer sıfırlandı"
-          : "Öğrenme duraklatıldı",
+          : type === "resume"
+            ? "Öğrenme devam ettirildi"
+            : "Öğrenme duraklatıldı",
       );
       setRows((await get("/api/learning")).items);
     } catch (e) {
@@ -396,6 +474,7 @@ function LearningTable({ data, notify }) {
     },
     { key: "failed_attempts", label: "Başarısız" },
     { key: "success_attempts", label: "Başarılı" },
+    { key: "last_outcome", label: "Son sonuç", badge: true },
     { key: "consecutive_failures", label: "Seri hata" },
     {
       key: "confidence_score",
@@ -422,9 +501,9 @@ function LearningTable({ data, notify }) {
             onClick={() => action(r.barcode, "reset")}
           />
           <IconButton
-            icon={Pause}
-            label="Duraklat"
-            onClick={() => action(r.barcode, "pause")}
+            icon={r.paused ? Play : Pause}
+            label={r.paused ? "Devam ettir" : "Duraklat"}
+            onClick={() => action(r.barcode, r.paused ? "resume" : "pause")}
           />
         </div>
       ),
@@ -439,7 +518,11 @@ function LearningTable({ data, notify }) {
 function Jobs({ notify }) {
   const [data, setData] = useState(null);
   async function load() {
-    setData(await get("/api/jobs"));
+    const [jobs, runs] = await Promise.all([
+      get("/api/jobs"),
+      get("/api/jobs/runs?limit=100"),
+    ]);
+    setData({ items: jobs.items, runs: runs.items });
   }
   useEffect(() => {
     load();
@@ -454,6 +537,15 @@ function Jobs({ notify }) {
       notify(e.message, "error");
     }
   }
+  async function updateJob(name, values) {
+    try {
+      await patch(`/api/jobs/${name}`, values);
+      notify("Job ayarı kaydedildi");
+      load();
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  }
   if (!data) return <Loading />;
   const cols = [
     { key: "name", label: "Job" },
@@ -461,7 +553,45 @@ function Jobs({ notify }) {
     {
       key: "schedule_minutes",
       label: "Sıklık",
-      render: (r) => `${r.schedule_minutes} dk`,
+      render: (r) => (
+        <input
+          className="table-number-input"
+          type="number"
+          min="1"
+          value={r.schedule_minutes}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            const value = Number(event.target.value);
+            setData((current) => ({
+              ...current,
+              items: current.items.map((item) =>
+                item.name === r.name
+                  ? { ...item, schedule_minutes: value }
+                  : item,
+              ),
+            }));
+          }}
+          onBlur={(event) =>
+            updateJob(r.name, { schedule_minutes: Number(event.target.value) })
+          }
+        />
+      ),
+    },
+    {
+      key: "enabled",
+      label: "Aktif",
+      render: (r) => (
+        <label className="toggle compact-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(r.enabled)}
+            onChange={(event) =>
+              updateJob(r.name, { enabled: event.target.checked })
+            }
+          />
+          <span />
+        </label>
+      ),
     },
     { key: "last_status", label: "Son durum", badge: true },
     {
@@ -488,30 +618,98 @@ function Jobs({ notify }) {
     },
   ];
   return (
-    <div className="panel table-panel">
-      <DataTable columns={cols} rows={data.items} />
-    </div>
+    <>
+      <div className="panel table-panel">
+        <DataTable columns={cols} rows={data.items} />
+      </div>
+      <div className="section-heading">
+        <div>
+          <h2>Çalışma geçmişi</h2>
+          <p>Son 100 job çalışması</p>
+        </div>
+      </div>
+      <div className="panel table-panel">
+        <DataTable
+          columns={[
+            { key: "job_name", label: "Job" },
+            { key: "status", label: "Durum", badge: true },
+            {
+              key: "started_at",
+              label: "Başlangıç",
+              render: (r) => date(r.started_at),
+            },
+            {
+              key: "duration_ms",
+              label: "Süre",
+              render: (r) => `${r.duration_ms || 0} ms`,
+            },
+            { key: "processed_count", label: "İşlenen" },
+            { key: "successful_count", label: "Başarılı" },
+            { key: "failed_count", label: "Hatalı" },
+            { key: "error", label: "Hata" },
+          ]}
+          rows={data.runs}
+        />
+      </div>
+    </>
   );
 }
 function Logs() {
-  const [type, setType] = useState("audit");
+  const [type, setType] = useState("audit"),
+    [level, setLevel] = useState(""),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1);
+  const params = new URLSearchParams({ type, page: String(page), limit: "50" });
+  if (level) params.set("level", level);
+  if (search) params.set("search", search);
   return (
-    <Remote url={`/api/logs?type=${type}`}>
+    <Remote url={`/api/logs?${params}`}>
       {(data) => (
         <>
           <div className="tabs page-tabs">
             <button
               className={type === "audit" ? "active" : ""}
-              onClick={() => setType("audit")}
+              onClick={() => {
+                setType("audit");
+                setLevel("");
+                setPage(1);
+              }}
             >
               Kullanıcı / Audit
             </button>
             <button
               className={type === "integration" ? "active" : ""}
-              onClick={() => setType("integration")}
+              onClick={() => {
+                setType("integration");
+                setPage(1);
+              }}
             >
               Entegrasyon
             </button>
+          </div>
+          <div className="filters">
+            <SearchInput
+              value={search}
+              onChange={(value) => {
+                setSearch(value);
+                setPage(1);
+              }}
+              placeholder="Kullanıcı, aksiyon, entegrasyon veya mesaj ara"
+            />
+            {type === "integration" && (
+              <select
+                value={level}
+                onChange={(event) => {
+                  setLevel(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">Tüm seviyeler</option>
+                <option value="INFO">Bilgi</option>
+                <option value="WARN">Uyarı</option>
+                <option value="ERROR">Hata</option>
+              </select>
+            )}
           </div>
           <div className="panel table-panel">
             <DataTable
@@ -531,6 +729,12 @@ function Logs() {
               rows={data.items}
             />
           </div>
+          <Pagination
+            page={page}
+            total={data.total || 0}
+            limit={50}
+            onChange={setPage}
+          />
         </>
       )}
     </Remote>
@@ -538,18 +742,36 @@ function Logs() {
 }
 function Settings({ notify, setDryRun }) {
   const [data, setData] = useState(null),
-    [form, setForm] = useState({});
+    [form, setForm] = useState({}),
+    [baseline, setBaseline] = useState({}),
+    [confirmLive, setConfirmLive] = useState(false);
   useEffect(() => {
     get("/api/settings").then((x) => {
+      const values = Object.fromEntries(x.items.map((i) => [i.key, i.value]));
       setData(x);
-      setForm(Object.fromEntries(x.items.map((i) => [i.key, i.value])));
+      setForm(values);
+      setBaseline(values);
     });
   }, []);
   if (!data) return <Loading />;
-  async function save() {
+  async function save(confirmed = false) {
+    const enablesLivePricing =
+      baseline.global_dry_run !== false && form.global_dry_run === false;
+    const enablesAutomaticRepricer =
+      baseline.global_repricer_enabled !== true &&
+      form.global_repricer_enabled === true;
+    if ((enablesLivePricing || enablesAutomaticRepricer) && !confirmed) {
+      setConfirmLive(true);
+      return;
+    }
     try {
-      await patch("/api/settings", form);
+      await patch("/api/settings", {
+        ...form,
+        ...(confirmed ? { confirmation: "CANLI_FIYAT_MODUNU_AC" } : {}),
+      });
       setDryRun(Boolean(form.global_dry_run));
+      setBaseline({ ...form });
+      setConfirmLive(false);
       notify("Sistem ayarları kaydedildi");
     } catch (e) {
       notify(e.message, "error");
@@ -591,8 +813,16 @@ function Settings({ notify, setDryRun }) {
           {[
             ["default_target_profit", "Varsayılan minimum kâr"],
             ["default_price_cut_tl", "Varsayılan fiyat kırma"],
+            ["default_max_increase_tl", "Varsayılan maksimum artış"],
             ["global_max_price_change_pct", "Maksimum değişim %"],
             ["service_fee", "Hizmet bedeli"],
+            ["buybox_max_age_minutes", "Buybox veri yaşı (dk)"],
+            ["product_sync_cron_minutes", "Ürün sync sıklığı (dk)"],
+            ["buybox_sync_cron_minutes", "Buybox sync sıklığı (dk)"],
+            ["cost_calculation_cron_minutes", "Maliyet hesabı sıklığı (dk)"],
+            ["repricer_cron_minutes", "Repricer sıklığı (dk)"],
+            ["sheets_sync_cron_minutes", "Sheets import sıklığı (dk)"],
+            ["log_retention_days", "Log saklama (gün)"],
           ].map(([key, label]) => (
             <Field key={key} label={label}>
               <input
@@ -615,7 +845,7 @@ function Settings({ notify, setDryRun }) {
           </Field>
         </div>
         <div className="form-actions">
-          <Button icon={Save} onClick={save}>
+          <Button icon={Save} onClick={() => save(false)}>
             Ayarları kaydet
           </Button>
         </div>
@@ -651,6 +881,14 @@ function Settings({ notify, setDryRun }) {
           </Button>
         </div>
       </div>
+      <Confirm
+        open={confirmLive}
+        onClose={() => setConfirmLive(false)}
+        onConfirm={() => save(true)}
+        title="Canlı fiyat güvenliğini değiştir"
+        message="Dry-run kapatılıyor veya otomatik repricer açılıyor. Bu değişiklikten sonra ayrıca onaylanan fiyat aksiyonları Trendyol'a gönderilebilir. Devam etmek istediğinizden emin misiniz?"
+        confirmLabel="Canlı modu onayla"
+      />
     </>
   );
 }

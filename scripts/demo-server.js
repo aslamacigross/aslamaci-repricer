@@ -187,6 +187,8 @@ const actionRows = [
     proposed_price: 939,
     min_price: 805,
     status: "PENDING",
+    source: "WEB",
+    target_rank: 1,
     reason: "Buybox fiyatının altına kontrollü iniş",
     created_at: now,
   },
@@ -199,6 +201,10 @@ const actionRows = [
     proposed_price: 973,
     min_price: 805,
     status: "SUCCESS",
+    source: "AUTO",
+    applied_price: 973,
+    target_rank: 1,
+    rank_after: 1,
     reason: "Buybox korunuyor",
     created_at: now,
   },
@@ -209,7 +215,15 @@ const settingsItems = [
   { key: "google_sheets_sync_enabled", value: true },
   { key: "default_target_profit", value: 40 },
   { key: "default_price_cut_tl", value: 0.1 },
+  { key: "default_max_increase_tl", value: 10 },
   { key: "global_max_price_change_pct", value: 15 },
+  { key: "buybox_max_age_minutes", value: 20 },
+  { key: "product_sync_cron_minutes", value: 360 },
+  { key: "buybox_sync_cron_minutes", value: 10 },
+  { key: "cost_calculation_cron_minutes", value: 30 },
+  { key: "repricer_cron_minutes", value: 10 },
+  { key: "sheets_sync_cron_minutes", value: 1440 },
+  { key: "log_retention_days", value: 90 },
   { key: "default_carrier", value: "TEX" },
   { key: "service_fee", value: 13.19 },
 ];
@@ -245,7 +259,10 @@ const productRepo = {
             max_increase_tl: 10,
             max_daily_change_pct: 15,
             minimum_profit_tl: 40,
+            minimum_profit_pct: 0,
             minimum_margin_pct: 0,
+            min_undercut_tl: 0.1,
+            max_undercut_tl: 75,
             min_change_interval_minutes: 30,
             daily_action_limit: 3,
             buybox_max_age_minutes: 20,
@@ -274,7 +291,34 @@ const productRepo = {
         : [],
     };
   },
-  history: async () => actionRows,
+  history: async (barcode, type) => {
+    if (type === "price")
+      return [
+        {
+          id: 1,
+          barcode,
+          old_price: 930,
+          new_price: 944,
+          buybox_price: 950,
+          action: "FIYAT ARTIR",
+          created_at: now,
+        },
+      ];
+    if (type === "buybox")
+      return [
+        {
+          id: 1,
+          barcode,
+          observed_price: 944,
+          buybox_price: 950,
+          second_price: 949,
+          third_price: 960,
+          rank: 2,
+          observed_at: now,
+        },
+      ];
+    return actionRows;
+  },
   updateSettings: async (barcode, input) => input,
 };
 const dashboard = {
@@ -288,6 +332,7 @@ const dashboard = {
       missing_commission: 399,
       loss_products: 12,
       buybox_owned: 1,
+      buybox_available: 4,
       stale_buybox: 3,
       auto_update_enabled: 7,
       average_margin: 17.8,
@@ -303,6 +348,10 @@ const dashboard = {
         { day: "08 Tem", count: 2, successful: 1 },
         { day: "09 Tem", count: 6, successful: 4 },
         { day: "10 Tem", count: 7, successful: 1 },
+      ],
+      buybox: [
+        { day: "08 Tem", won: 1, lost: 0, target_achieved: 2 },
+        { day: "09 Tem", won: 2, lost: 1, target_achieved: 4 },
       ],
     },
     topProfit: products.slice(0, 3).map((x) => ({
@@ -390,12 +439,19 @@ const costs = {
   }),
   saveCostItem: async (x) => x,
   upsertMapping: async (x) => x,
+  updateMapping: async (id, x) => ({ id, ...x }),
   saveCommission: async (x) => x,
+  saveCommissions: async (rows) => ({ updated: rows.length }),
   saveShippingRate: async (x) => x,
   saveBarem: async (x) => x,
   savePackaging: async (x) => x,
   validateMappings: async () => ({ valid: true, errors: [] }),
   replaceMappings: async (rows) => ({ replaced: rows.length }),
+  deleteCostItem: async () => ({}),
+  deleteMapping: async () => ({}),
+  deleteShippingRate: async () => ({}),
+  deleteBarem: async () => ({}),
+  deletePackaging: async () => ({}),
 };
 const repricer = {
   globalSettings: async () => ({ dryRun: true, repricerEnabled: false }),
@@ -411,6 +467,7 @@ const repricer = {
         difference: x.rank === 1 ? 5 : -5,
         expectedProfit: x.calculated_net_profit,
         rank: x.rank,
+        targetRank: x.rank === 1 ? 1 : 1,
         effectiveUndercut: x.learned_price_cut_tl,
         reason:
           x.rank === 1
@@ -448,6 +505,7 @@ const jobItems = [
   last_started_at: now,
   last_duration_ms: 420 + i * 30,
   last_processed_count: i === 1 ? 7 : 755,
+  enabled: true,
 }));
 const container = {
   auth,
@@ -490,6 +548,9 @@ const container = {
           success_attempts: x.rank === 1 ? 1 : 0,
           consecutive_failures: x.rank === 1 ? 0 : 2,
           confidence_score: 0.4,
+          strategy: "Öğrenen Pilot",
+          learned_max_increase_tl: 5,
+          last_outcome: x.rank === 1 ? "BUYBOX_KEPT" : "TARGET_RANK_MISSED",
           paused: false,
         })),
     updateLearning: async () => ({}),
@@ -510,8 +571,31 @@ const container = {
       x.status = "DRY_RUN";
       return x;
     },
+    approveMany: async (ids) =>
+      actionRows
+        .filter((row) => ids.includes(row.id))
+        .map((row) => ({ ...row, status: "APPROVED" })),
+    requestRevert: async (id) => {
+      const original = actionRows.find((row) => row.id == id);
+      const reversal = {
+        ...original,
+        id: actionRows.length + 1,
+        old_price: original.applied_price,
+        proposed_price: original.old_price,
+        status: "PENDING",
+        source: "ROLLBACK",
+        reverts_action_id: original.id,
+        reason: `#${original.id} fiyat aksiyonunu güvenli geri alma`,
+      };
+      actionRows.unshift(reversal);
+      return reversal;
+    },
   },
-  jobs: { list: async () => jobItems, runs: async () => [] },
+  jobs: {
+    list: async () => jobItems,
+    runs: async () => [],
+    update: async (name, input) => ({ name, ...input }),
+  },
   jobService: {
     run: async (name) => ({
       job_name: name,

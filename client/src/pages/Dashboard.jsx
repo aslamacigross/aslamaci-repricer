@@ -44,6 +44,7 @@ const cards = [
   ["loss_products", "Zarardaki ürün", TrendingDown, "danger"],
   ["below_minimum", "Min fiyat altı", TriangleAlert, "danger"],
   ["buybox_owned", "Buybox bizde", Trophy, "success"],
+  ["buybox_available", "Buybox alınabilir", Trophy, "info"],
   ["buybox_outside", "Buybox dışında", Package, "warning"],
   ["stale_buybox", "Eski buybox verisi", TriangleAlert, "danger"],
   ["auto_update_enabled", "Otomatik repricer", Activity, "info"],
@@ -58,6 +59,10 @@ export default function Dashboard() {
   if (error) return <ErrorState error={error} retry={reload} />;
   const d = data.data,
     k = d.kpis || {};
+  const lastJob = [...(d.jobs || [])].sort(
+    (a, b) =>
+      new Date(b.last_started_at || 0) - new Date(a.last_started_at || 0),
+  )[0];
   return (
     <>
       <PageHeader
@@ -108,6 +113,30 @@ export default function Dashboard() {
         </div>
         <div className="panel chart-panel">
           <header>
+            <h2>Kategori marjları</h2>
+            <span>Ortalama net marj</span>
+          </header>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={d.charts.categories}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 11 }}
+                interval={0}
+                angle={-20}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="margin" fill="#146c94" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+      <section className="dashboard-grid">
+        <div className="panel chart-panel">
+          <header>
             <h2>Fiyat aksiyonları</h2>
             <span>Son 14 gün</span>
           </header>
@@ -117,17 +146,29 @@ export default function Dashboard() {
               <XAxis dataKey="day" tick={{ fontSize: 11 }} />
               <YAxis />
               <Tooltip />
+              <Line type="monotone" dataKey="count" stroke="#146c94" />
+              <Line type="monotone" dataKey="successful" stroke="#21845f" />
+              <Line type="monotone" dataKey="failed" stroke="#b93838" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="panel chart-panel">
+          <header>
+            <h2>Buybox kazanma / kaybetme</h2>
+            <span>Ölçülmüş sonuçlar</span>
+          </header>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={d.charts.buybox}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Line type="monotone" dataKey="won" stroke="#21845f" />
+              <Line type="monotone" dataKey="lost" stroke="#b93838" />
               <Line
                 type="monotone"
-                dataKey="count"
-                stroke="#146c94"
-                strokeWidth={2}
-              />
-              <Line
-                type="monotone"
-                dataKey="successful"
-                stroke="#21845f"
-                strokeWidth={2}
+                dataKey="target_achieved"
+                stroke="#7a5c13"
               />
             </LineChart>
           </ResponsiveContainer>
@@ -187,6 +228,7 @@ export default function Dashboard() {
             {d.jobs.filter((j) => j.last_status === "SUCCESS").length}/
             {d.jobs.length} başarılı
           </strong>
+          <small>Son sync: {date(lastJob?.last_started_at)}</small>
         </div>
       </section>
     </>

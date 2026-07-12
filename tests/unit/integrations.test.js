@@ -88,6 +88,34 @@ test("Trendyol dry-run hic HTTP cagrisi yapmaz", async () => {
   assert.equal(result.dryRun, true);
   assert.equal(calls, 0);
 });
+test("Trendyol fiyat servisi canli modda dogru endpoint ve payload kullanir", async () => {
+  let request;
+  const service = new TrendyolService({
+    baseUrl: "https://trendyol.test/integration",
+    fetch: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        text: async () => JSON.stringify({ batchRequestId: "batch-1" }),
+      };
+    },
+  });
+  const result = await service.updatePrices(
+    [{ barcode: "8690609598109", salePrice: 312.28, listPrice: 312.28 }],
+    { dryRun: false },
+  );
+  assert.equal(result.batchRequestId, "batch-1");
+  assert.match(request.url, /products\/price-and-inventory$/);
+  assert.deepEqual(JSON.parse(request.options.body), {
+    items: [
+      {
+        barcode: "8690609598109",
+        salePrice: 312.28,
+        listPrice: 312.28,
+      },
+    ],
+  });
+});
 test("Sheet export yeni veriyi yazmadan eski satirlari temizlemez", async () => {
   const operations = [];
   const service = new SheetsSyncService({
@@ -106,5 +134,5 @@ test("Sheet export yeni veriyi yazmadan eski satirlari temizlemez", async () => 
     audit: {},
   });
   await service.exportProducts();
-  assert.deepEqual(operations, ["update", "clear:Urunler!A3:T3"]);
+  assert.deepEqual(operations, ["update", "clear:Urunler!A3:AA3"]);
 });

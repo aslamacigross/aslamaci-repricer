@@ -214,12 +214,24 @@ class CostRepository {
         validation.errors,
       );
     const row = validation.rows[0];
-    return (
-      await this.db.query(
-        `UPDATE product_cost_mappings SET marketplace=$1,barcode=$2,cost_item_code=$3,quantity=$4,updated_at=NOW()WHERE id=$5 RETURNING *`,
-        [row.marketplace, row.barcode, row.cost_item_code, row.quantity, id],
-      )
-    ).rows[0];
+    return this.withTransaction(async (client) => {
+      const previous = (
+        await client.query(
+          "SELECT barcode FROM product_cost_mappings WHERE id=$1 FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!previous) return null;
+      const updated = (
+        await client.query(
+          `UPDATE product_cost_mappings SET marketplace=$1,barcode=$2,
+           cost_item_code=$3,quantity=$4,updated_at=NOW()
+           WHERE id=$5 RETURNING *`,
+          [row.marketplace, row.barcode, row.cost_item_code, row.quantity, id],
+        )
+      ).rows[0];
+      return { ...updated, old_barcode: previous.barcode };
+    });
   }
 
   async deleteMapping(id) {
@@ -263,6 +275,55 @@ class CostRepository {
     return row;
   }
 
+  async saveCommissions(rows) {
+    if (!Array.isArray(rows) || !rows.length)
+      throw new AppError("Komisyon listesi boş", 400, "EMPTY_COMMISSION_LIST");
+    const seen = new Set();
+    for (const [index, row] of rows.entries()) {
+      const categoryId = String(row.category_id || "").trim();
+      const rate = Number(row.commission_rate);
+      if (!categoryId || !Number.isFinite(rate) || rate <= 0 || rate >= 100)
+        throw new AppError(
+          `Geçersiz komisyon satırı: ${index + 1}`,
+          422,
+          "INVALID_COMMISSION_ROW",
+        );
+      if (seen.has(categoryId))
+        throw new AppError(
+          `Tekrarlı kategori: ${categoryId}`,
+          422,
+          "DUPLICATE_COMMISSION_CATEGORY",
+        );
+      seen.add(categoryId);
+    }
+    return this.withTransaction(async (client) => {
+      for (const row of rows) {
+        const categoryId = String(row.category_id).trim();
+        await client.query(
+          `INSERT INTO commission_rules(
+            marketplace,category_id,category_name,commission_rate,note,updated_at
+          )VALUES('TRENDYOL',$1,$2,$3,$4,NOW())
+          ON CONFLICT(marketplace,category_id)DO UPDATE SET
+            category_name=EXCLUDED.category_name,
+            commission_rate=EXCLUDED.commission_rate,
+            note=EXCLUDED.note,updated_at=NOW()`,
+          [
+            categoryId,
+            row.category_name || "",
+            Number(row.commission_rate),
+            row.note || null,
+          ],
+        );
+        await client.query(
+          `UPDATE products SET commission_rate=$1,updated_at=NOW()
+           WHERE marketplace='TRENDYOL' AND category_id=$2`,
+          [Number(row.commission_rate), categoryId],
+        );
+      }
+      return { updated: rows.length };
+    });
+  }
+
   async shipping() {
     const [rates, barems, packaging] = await Promise.all([
       this.db.query("SELECT * FROM shipping_costs ORDER BY carrier,desi_kg"),
@@ -278,7 +339,22 @@ class CostRepository {
     };
   }
 
-  async saveShippingRate(input) {
+  async saveShippingRate(input, id) {
+    if (id)
+      return (
+        await this.db.query(
+          `UPDATE shipping_costs SET desi_kg=$1,carrier=$2,cost_ex_vat=$3,
+           cost_inc_vat=ROUND($3*(1+$4/100),2),vat_rate=$4,updated_at=NOW()
+           WHERE id=$5 RETURNING *`,
+          [
+            input.desi_kg,
+            input.carrier,
+            input.cost_ex_vat,
+            input.vat_rate ?? 20,
+            id,
+          ],
+        )
+      ).rows[0];
     return (
       await this.db.query(
         `INSERT INTO shipping_costs(desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate,updated_at)
@@ -287,10 +363,20 @@ class CostRepository {
       )
     ).rows[0];
   }
-  async saveBarem(input) {
+  async deleteShippingRate(id) {
+    return (
+      await this.db.query(
+        "DELETE FROM shipping_costs WHERE id=$1 RETURNING *",
+        [id],
+      )
+    ).rows[0];
+  }
+  async saveBarem(input, id) {
     const overlap = await this.db.query(
-      `SELECT id FROM shipping_barems WHERE carrier=$1 AND NOT($3<=min_basket OR $2>=max_basket) AND NOT(min_basket=$2 AND max_basket=$3) LIMIT 1`,
-      [input.carrier, input.min_basket, input.max_basket],
+      `SELECT id FROM shipping_barems WHERE carrier=$1
+       AND ($4::bigint IS NULL OR id<>$4)
+       AND NOT($3<=min_basket OR $2>=max_basket) LIMIT 1`,
+      [input.carrier, input.min_basket, input.max_basket, id || null],
     );
     if (overlap.rowCount)
       throw new AppError(
@@ -298,6 +384,24 @@ class CostRepository {
         409,
         "OVERLAPPING_BAREM",
       );
+    if (id)
+      return (
+        await this.db.query(
+          `UPDATE shipping_barems SET min_basket=$1,max_basket=$2,
+           barem_name=$3,carrier=$4,cost_ex_vat=$5,
+           cost_inc_vat=ROUND($5*(1+$6/100),2),vat_rate=$6,updated_at=NOW()
+           WHERE id=$7 RETURNING *`,
+          [
+            input.min_basket,
+            input.max_basket,
+            input.barem_name,
+            input.carrier,
+            input.cost_ex_vat,
+            input.vat_rate ?? 20,
+            id,
+          ],
+        )
+      ).rows[0];
     return (
       await this.db.query(
         `INSERT INTO shipping_barems(min_basket,max_basket,barem_name,carrier,cost_ex_vat,cost_inc_vat,vat_rate,updated_at)
@@ -310,6 +414,14 @@ class CostRepository {
           input.cost_ex_vat,
           input.vat_rate ?? 20,
         ],
+      )
+    ).rows[0];
+  }
+  async deleteBarem(id) {
+    return (
+      await this.db.query(
+        "DELETE FROM shipping_barems WHERE id=$1 RETURNING *",
+        [id],
       )
     ).rows[0];
   }

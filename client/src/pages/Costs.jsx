@@ -175,6 +175,15 @@ function ResourceTable({
             Toplu mapping
           </Button>
         )}
+        {mode === "commissions" && (
+          <Button
+            variant="secondary"
+            icon={Upload}
+            onClick={() => setEditing({ bulk: true })}
+          >
+            Toplu komisyon
+          </Button>
+        )}
       </div>
       <div className="panel table-panel">
         <DataTable
@@ -209,22 +218,39 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
           .split("\n")
           .filter(Boolean)
           .map((line) => {
-            const [barcode, cost_item_code, quantity] = line.split(/[\t;]/);
-            return { barcode, cost_item_code, quantity: Number(quantity) };
+            const cells = line.split(/[\t;]/).map((cell) => cell.trim());
+            if (mode === "commissions")
+              return {
+                category_id: cells[0],
+                category_name: cells[1],
+                commission_rate: Number(cells[2]),
+                note: cells[3] || "",
+              };
+            return {
+              barcode: cells[0],
+              cost_item_code: cells[1],
+              quantity: Number(cells[2]),
+            };
           });
-        const validation = await post("/api/mappings/validate", { rows });
-        if (!validation.data.valid)
-          throw new Error(
-            `Doğrulama hatası: ${validation.data.errors.length} satır`,
-          );
-        await post("/api/mappings/bulk", { rows });
+        if (mode === "commissions")
+          await post("/api/commissions/bulk", { rows });
+        else {
+          const validation = await post("/api/mappings/validate", { rows });
+          if (!validation.data.valid)
+            throw new Error(
+              `Doğrulama hatası: ${validation.data.errors.length} satır`,
+            );
+          await post("/api/mappings/bulk", { rows });
+        }
       } else if (mode === "costs") {
         const path = value.id
           ? `/api/cost-items/${value.id}`
           : "/api/cost-items";
         await (value.id ? patch(path, form) : post(path, form));
       } else if (mode === "mappings") {
-        await post("/api/mappings", form);
+        await (value.id
+          ? patch(`/api/mappings/${value.id}`, form)
+          : post("/api/mappings", form));
       } else {
         const path = value.category_id
           ? `/api/commissions/${value.category_id}`
@@ -264,14 +290,22 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
       {value.bulk ? (
         <div className="modal-body">
           <Field
-            label="Barkod, Cost Code, Adet"
+            label={
+              mode === "commissions"
+                ? "Kategori ID, Kategori, Komisyon %, Not"
+                : "Barkod, Cost Code, Adet"
+            }
             hint="Her satırı tab veya noktalı virgülle ayırın"
           >
             <textarea
               rows="14"
               value={form.text || ""}
               onChange={(e) => set("text", e.target.value)}
-              placeholder={"8690609598109\tYUMUSATICI_ACTISOFT_1500ML\t1"}
+              placeholder={
+                mode === "commissions"
+                  ? "2354\tYumuşatıcı\t17\t"
+                  : "8690609598109\tYUMUSATICI_ACTISOFT_1500ML\t1"
+              }
             />
           </Field>
         </div>
@@ -509,13 +543,34 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
   const set = (k, v) => setForm({ ...form, [k]: v });
   async function save() {
     try {
-      if (actual === "rates") await post("/api/shipping/rates", form);
-      else if (actual === "barems") await post("/api/shipping/barems", form);
+      if (actual === "rates")
+        await (value.id
+          ? patch(`/api/shipping/rates/${value.id}`, form)
+          : post("/api/shipping/rates", form));
+      else if (actual === "barems")
+        await (value.id
+          ? patch(`/api/shipping/barems/${value.id}`, form)
+          : post("/api/shipping/barems", form));
       else
         await (value.id
           ? patch(`/api/packaging-rules/${value.id}`, form)
           : post("/api/packaging-rules", form));
       notify("Kural kaydedildi");
+      onSaved();
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  }
+  async function remove() {
+    try {
+      const path =
+        actual === "rates"
+          ? `/api/shipping/rates/${value.id}`
+          : actual === "barems"
+            ? `/api/shipping/barems/${value.id}`
+            : `/api/packaging-rules/${value.id}`;
+      await del(path);
+      notify("Kural silindi");
       onSaved();
     } catch (e) {
       notify(e.message, "error");
@@ -615,6 +670,12 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
         )}
       </div>
       <footer className="modal-actions">
+        {value.id && (
+          <Button variant="danger" icon={Trash2} onClick={remove}>
+            Sil
+          </Button>
+        )}
+        <span />
         <Button variant="secondary" onClick={onClose}>
           Vazgeç
         </Button>

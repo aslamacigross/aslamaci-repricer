@@ -28,8 +28,35 @@ const columns = [
   { key: "product_name", label: "Ürün", width: 310 },
   { key: "brand", label: "Marka" },
   { key: "category_name", label: "Kategori" },
+  { key: "category_id", label: "Kategori ID" },
   { key: "stock_quantity", label: "Stok" },
   { key: "my_price", label: "Fiyat", render: (r) => money(r.my_price) },
+  {
+    key: "commission_rate",
+    label: "Komisyon",
+    render: (r) => percent(r.commission_rate),
+  },
+  { key: "desi", label: "Desi" },
+  {
+    key: "calculated_product_cost",
+    label: "Ürün maliyeti",
+    render: (r) => money(r.calculated_product_cost),
+  },
+  {
+    key: "calculated_shipping_cost",
+    label: "Kargo",
+    render: (r) => money(r.calculated_shipping_cost),
+  },
+  {
+    key: "packaging_cost",
+    label: "Ambalaj",
+    render: (r) => money(r.packaging_cost),
+  },
+  {
+    key: "service_fee",
+    label: "Hizmet",
+    render: (r) => money(r.service_fee),
+  },
   {
     key: "calculated_net_profit",
     label: "Net kâr",
@@ -49,7 +76,22 @@ const columns = [
     render: (r) => percent(r.calculated_net_margin),
   },
   { key: "min_price", label: "Min fiyat", render: (r) => money(r.min_price) },
+  {
+    key: "buybox_price",
+    label: "Buybox fiyatı",
+    render: (r) => money(r.buybox_price),
+  },
   { key: "rank", label: "Sıra", render: (r) => r.rank || "-" },
+  {
+    key: "auto_update",
+    label: "Auto update",
+    render: (r) => (
+      <Badge tone={r.auto_update ? "success" : "neutral"}>
+        {r.auto_update ? "Açık" : "Kapalı"}
+      </Badge>
+    ),
+  },
+  { key: "strategy", label: "Strateji" },
   { key: "data_status", label: "Veri", badge: true },
   { key: "repricer_mode", label: "Mod", badge: true },
 ];
@@ -178,6 +220,8 @@ export default function Products({ notify }) {
         >
           <option value="">Tüm durumlar</option>
           <option value="incomplete">Veri eksik</option>
+          <option value="cost_missing">Maliyet eksik</option>
+          <option value="commission_missing">Komisyon eksik</option>
           <option value="loss">Zararda</option>
           <option value="below_min">Minimum fiyat altı</option>
           <option value="buybox">Buybox bizde</option>
@@ -323,8 +367,8 @@ function CostBreakdown({ data }) {
         <code>
           ({money(p.calculated_product_cost)} +{" "}
           {money(p.calculated_shipping_cost)} + {money(p.packaging_cost)} +{" "}
-          {money(p.service_fee)} + {money(p.target_profit)}) / (1 - %
-          {Number(p.commission_rate || 0)}) = {money(p.min_price)}
+          {money(p.service_fee)} + {money(p.target_profit)}) / (1 -{" "}
+          {Number(p.commission_rate || 0)}/100) = {money(p.min_price)}
         </code>
       </div>
       <div className="breakdown-list">
@@ -367,7 +411,10 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
     max_increase_tl: 10,
     max_daily_change_pct: 15,
     minimum_profit_tl: 40,
+    minimum_profit_pct: 0,
     minimum_margin_pct: 0,
+    min_undercut_tl: 0.1,
+    max_undercut_tl: 75,
     min_change_interval_minutes: 30,
     daily_action_limit: 3,
     buybox_max_age_minutes: 20,
@@ -422,9 +469,12 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
         ["max_increase_tl", "Maksimum artış TL"],
         ["max_daily_change_pct", "Maks. günlük değişim %"],
         ["minimum_profit_tl", "Minimum kâr TL"],
+        ["minimum_profit_pct", "Minimum kâr %"],
         ["minimum_margin_pct", "Minimum marj %"],
         ["minimum_price", "Özel minimum fiyat"],
         ["maximum_price", "Maksimum fiyat"],
+        ["min_undercut_tl", "Minimum fiyat kırma TL"],
+        ["max_undercut_tl", "Maksimum fiyat kırma TL"],
         ["min_change_interval_minutes", "Bekleme süresi (dk)"],
         ["daily_action_limit", "Günlük aksiyon limiti"],
         ["buybox_max_age_minutes", "Buybox veri yaşı (dk)"],
@@ -489,7 +539,8 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
   );
 }
 function HistoryPanel({ barcode }) {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(null),
+    [type, setType] = useState("repricer");
   useEffect(() => {
     Promise.all([
       get(`/api/products/${barcode}/price-history`),
@@ -500,29 +551,88 @@ function HistoryPanel({ barcode }) {
     );
   }, [barcode]);
   if (!data) return <Loading />;
+  const tabs = [
+    ["repricer", "Repricer aksiyonları"],
+    ["price", "Fiyat geçmişi"],
+    ["buybox", "Buybox geçmişi"],
+  ];
   return (
-    <div className="timeline">
-      {data.repricer.slice(0, 20).map((x) => (
-        <div key={x.id}>
-          <span />
-          <section>
-            <header>
-              <Badge tone={toneFor(x.status)}>{x.status}</Badge>
-              <time>{date(x.created_at)}</time>
-            </header>
-            <strong>
-              {x.action}: {money(x.old_price)} → {money(x.proposed_price)}
-            </strong>
-            <p>{x.reason}</p>
-          </section>
-        </div>
-      ))}
-      {!data.repricer.length && (
-        <div className="inline-warning">
-          <ShieldAlert />
-          Bu ürün için henüz repricer aksiyonu yok.
-        </div>
-      )}
+    <div>
+      <div className="tabs history-tabs">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            className={type === key ? "active" : ""}
+            onClick={() => setType(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="timeline">
+        {type === "repricer" &&
+          data.repricer.slice(0, 50).map((x) => (
+            <div key={x.id}>
+              <span />
+              <section>
+                <header>
+                  <Badge tone={toneFor(x.status)}>{x.status}</Badge>
+                  <time>{date(x.created_at)}</time>
+                </header>
+                <strong>
+                  {x.action}: {money(x.old_price)} → {money(x.proposed_price)}
+                </strong>
+                <p>
+                  {x.reason} · Hedef sıra: {x.target_rank || "-"}
+                </p>
+              </section>
+            </div>
+          ))}
+        {type === "price" &&
+          data.price.slice(0, 50).map((x) => (
+            <div key={x.id}>
+              <span />
+              <section>
+                <header>
+                  <Badge tone="info">{x.action || "FİYAT"}</Badge>
+                  <time>{date(x.created_at)}</time>
+                </header>
+                <strong>
+                  {money(x.old_price)} → {money(x.new_price)}
+                </strong>
+                <p>Buybox: {money(x.buybox_price)}</p>
+              </section>
+            </div>
+          ))}
+        {type === "buybox" &&
+          data.buybox.slice(0, 50).map((x) => (
+            <div key={x.id}>
+              <span />
+              <section>
+                <header>
+                  <Badge tone={Number(x.rank) === 1 ? "success" : "warning"}>
+                    {x.rank ? `${x.rank}. sıra` : "Sıra yok"}
+                  </Badge>
+                  <time>{date(x.observed_at)}</time>
+                </header>
+                <strong>
+                  Biz: {money(x.observed_price)} · Buybox:{" "}
+                  {money(x.buybox_price)}
+                </strong>
+                <p>
+                  2. fiyat {money(x.second_price)} · 3. fiyat{" "}
+                  {money(x.third_price)}
+                </p>
+              </section>
+            </div>
+          ))}
+        {!data[type].length && (
+          <div className="inline-warning">
+            <ShieldAlert />
+            Bu ürün için seçilen geçmiş türünde henüz kayıt yok.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -9,6 +9,15 @@
 
 Aksiyon etiketi matematiksel yönle merkezi domain fonksiyonunda üretilir.
 
+## Hedef Sıra ve Kâr Optimizasyonu
+
+- Ekonomik olarak mümkünse 1. sıra hedeflenir.
+- Birinci sıra minimum fiyatın altındaysa 2., o da mümkün değilse 3. sıra denenir.
+- Üst sıra güvenli değilse mevcut sırada, bilinen bir sonraki fiyatın kırma tutarı kadar altında mümkün olan en yüksek fiyat seçilir.
+- `Kâr Koru` stratejisi mevcut sıradan yukarı çıkmayı denemez.
+- Artış `max_increase_tl`, öğrenilmiş artış limiti ve günlük yüzdeyle; düşüş günlük yüzdeyle kademelenir.
+- Karar, hedef sıra ve sınırı uygulayan kural aksiyon kaydına yazılır.
+
 ## Minimum Fiyat
 
 ```text
@@ -19,7 +28,7 @@ Aksiyon etiketi matematiksel yönle merkezi domain fonksiyonunda üretilir.
 
 Kargo tarifesi ve baremi Sheet/panelde KDV hariçtir; yüzde 20 eklenmiş tutar hesapta kullanılır. Diğer alış ve satış fiyatları KDV dahildir.
 
-## Zorunlu Safety Gate
+## Otomatik Aksiyon Safety Gate
 
 - Global repricer açık
 - Global dry-run kapalı
@@ -41,14 +50,27 @@ Kargo tarifesi ve baremi Sheet/panelde KDV hariçtir; yüzde 20 eklenmiş tutar 
 
 Safety gate uygulama anında yeniden çalışır. Preview sonucu fiyat gönderme yetkisi değildir.
 
+Manuel ve geri alma aksiyonları insan onayı nedeniyle `auto_update`, global repricer ve learning-pause kapılarını kullanmaz. Dry-run, aktif/stok, maliyet, minimum/maksimum fiyat, buybox güncelliği, kâr/marj, günlük limit, cooldown ve açık aksiyon kontrollerinin tamamı yine zorunludur.
+
+## Geri Alma
+
+- Yalnızca sonucu doğrulanmış `SUCCESS` aksiyon geri alınabilir.
+- Güncel ürün fiyatı asıl aksiyonun uygulanan fiyatıyla eşleşmelidir.
+- Eski fiyata yeni `ROLLBACK` aksiyonu oluşturulur; doğrudan gönderim yapılmaz.
+- Ters aksiyon ayrıca onaylanır ve uygulama anında safety gate yeniden çalışır.
+- Başarılı API kabulünden sonra asıl kayıt `REVERTED` olur ve iki kayıt birbirine bağlanır.
+
 ## Öğrenme
 
 - Sonuçlar 5, 15 ve 60 dakikada ölçülür.
-- Öğrenme 15. dakikadan sonra güncellenir.
+- Sonuç yazılmadan önce yalnızca ilgili barkodların buybox verisi yeniden çekilir; yenileme başarısızsa eski veriyle sonuç yazılmaz.
+- Öğrenme aynı aksiyonu üç kez saymamak için 60. dakika sonucunda güncellenir.
 - Başarılı en küçük fiyat kırma tercih edilir.
 - Başarısız düşüşlerde adım en az 5 TL veya fiyatın yüzde 0,5'i kadar artırılır.
 - Öğrenilen değer ürün min/max undercut sınırını aşmaz.
 - Beş ardışık başarısızlıkta öğrenme duraklatılır.
+- Başarısız fiyat artışlarında ürünün öğrenilmiş maksimum artışı azaltılır.
+- Başarı hedeflenen sıraya göre ölçülür; ikinci veya üçüncü sıra hedefi de geçerli sonuçtur.
 - Öğrenme hiçbir zaman minimum fiyat safety gate'ini geçersiz kılamaz.
 
 ## Production Varsayılanı
@@ -58,3 +80,5 @@ Safety gate uygulama anında yeniden çalışır. Preview sonucu fiyat gönderme
 - Ürün `auto_update = false` varsayılanı
 
 Bu üç anahtar migration tarafından kendiliğinden canlı moda çevrilmez.
+
+Dry-run kapatma veya global repricer açma API seviyesinde `CANLI_FIYAT_MODUNU_AC` onayı gerektirir; panel bunu ayrı bir risk penceresiyle toplar.
