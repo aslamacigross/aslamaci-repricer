@@ -16,7 +16,7 @@
 - Güvenli, bağlı ve yeniden onaylanan fiyat geri alma aksiyonları
 - Job history, advisory lock, audit ve integration logları
 - Railway build/health yapılandırması
-- 78 backend unit/integration/regression, 4 React bileşen ve 3 Chrome uçtan uca test
+- 78 backend unit/integration/regression, 5 React bileşen ve 3 Chrome uçtan uca test
 - Transaction'lı toplu maliyet kalemi yönetimi ve ortak CSV dışa aktarma
 - Öğrenme geçmişi çekmecesi, strateji puanları ve açıklamalı sonraki adım
 - Mapping, Buybox ve fiyat aksiyonlarında veri hacmine uygun sayfalama
@@ -33,6 +33,7 @@
 - Outcome ölçümü yalnızca taze ve barkod hedefli buybox yenilemesinden sonra yazılır.
 - Sistem logları arama, seviye filtresi ve sayfalama kazandı.
 - Otomatik Google Sheets senkronu yeni kurulumlarda varsayılan kapalıya alındı.
+- Ürün CSV aktarımı API'nin gerçek sayfa limitine uyarlanarak tüm katalog kayıtlarını toplar.
 
 ### Preserved
 

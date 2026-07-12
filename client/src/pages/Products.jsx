@@ -136,6 +136,28 @@ const initialFilters = {
   page: 1,
   limit: 50,
 };
+
+export async function fetchAllProducts(filters, fetchPage = get) {
+  const requestedLimit = 1000;
+  const query = new URLSearchParams(
+    Object.entries({ ...filters, page: 1, limit: requestedLimit }).filter(
+      ([, value]) => value !== "",
+    ),
+  );
+  const first = await fetchPage(`/api/products?${query}`);
+  const items = [...first.items];
+  const pageSize = Math.max(
+    Number(first.limit) || first.items.length || requestedLimit,
+    1,
+  );
+  const pages = Math.ceil(first.total / pageSize);
+  for (let page = 2; page <= pages; page++) {
+    query.set("page", page);
+    items.push(...(await fetchPage(`/api/products?${query}`)).items);
+  }
+  return items;
+}
+
 export default function Products({ notify }) {
   const [filters, setFilters] = useState(initialFilters),
     [result, setResult] = useState(null),
@@ -192,19 +214,7 @@ export default function Products({ notify }) {
   }
   async function exportAll(exportColumns) {
     try {
-      const limit = 1000;
-      const query = new URLSearchParams(
-        Object.entries({ ...filters, page: 1, limit }).filter(
-          ([, value]) => value !== "",
-        ),
-      );
-      const first = await get(`/api/products?${query}`);
-      const items = [...first.items];
-      const pages = Math.ceil(first.total / limit);
-      for (let page = 2; page <= pages; page++) {
-        query.set("page", page);
-        items.push(...(await get(`/api/products?${query}`)).items);
-      }
+      const items = await fetchAllProducts(filters);
       downloadCsv(exportColumns, items, "urunler");
       notify(`${items.length} ürün CSV dosyasına hazırlandı`);
     } catch (error) {
