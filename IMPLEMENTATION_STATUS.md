@@ -55,7 +55,8 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
 - [x] React bileşen testleri: 2/2 başarılı
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 2/2 başarılı
-- [x] Backend testleri: 68/68 başarılı
+- [x] Backend testleri: 69/69 başarılı
+- [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 
 ## Devam Eden
 

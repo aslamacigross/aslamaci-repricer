@@ -115,6 +115,7 @@ Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canl
 PostgreSQL ana veri kaynağıdır. Sheets yalnızca geçiş, toplu düzenleme ve export katmanıdır. Import tüm sekmeleri önce okur ve doğrular; geçerli veri tamamlanmadan transaction veya silme başlamaz. Aynı değerli tekrarlar uyarıyla tekilleştirilir, boş mapping adedi `1` kabul edilir, eksik maliyet tutarı `0` olarak içe alınıp ilgili ürün eksik işaretlenir. Çelişkili tekrarlar transaction başlamadan reddedilir. Mapping replace ve maliyet hesaplama aynı transaction içinde tamamlanır. `KargoMaliyetleri` ve `KargoBarem` tutarlarına yüzde 20 KDV eklenir.
 
 Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister.
+Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz.
 
 ## Railway
 

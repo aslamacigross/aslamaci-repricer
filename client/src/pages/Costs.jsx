@@ -169,8 +169,12 @@ function ResourceTable({
               key: "orphan",
               label: "Durum",
               render: (r) => (
-                <Badge tone={r.orphan ? "danger" : "success"}>
-                  {r.orphan ? "Orphan" : "Geçerli"}
+                <Badge tone={r.orphan || r.incomplete ? "danger" : "success"}>
+                  {r.orphan
+                    ? "Orphan"
+                    : r.incomplete
+                      ? "Maliyet eksik"
+                      : "Geçerli"}
                 </Badge>
               ),
             },

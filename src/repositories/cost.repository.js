@@ -106,7 +106,11 @@ class CostRepository {
     return (
       await this.db.query(
         `SELECT pcm.*, p.product_name, ci.item_name, ci.unit_cost, ci.unit_desi,
-              pcm.quantity*ci.unit_cost AS line_cost, (ci.id IS NULL) AS orphan
+              pcm.quantity*ci.unit_cost AS line_cost,
+              (ci.id IS NULL) AS orphan,
+              (ci.id IS NOT NULL AND (
+                ci.unit_cost<=0 OR COALESCE(ci.unit_desi,0)<=0
+              )) AS incomplete
        FROM product_cost_mappings pcm
        LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
        LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
@@ -147,7 +151,8 @@ class CostRepository {
     const barcodes = [...new Set(normalized.map((row) => row.barcode))];
     const [costResult, productResult] = await Promise.all([
       queryable.query(
-        "SELECT item_code FROM cost_items WHERE item_code=ANY($1::text[])",
+        `SELECT item_code,unit_cost,unit_desi FROM cost_items
+         WHERE item_code=ANY($1::text[])`,
         [codes],
       ),
       queryable.query(
@@ -162,6 +167,9 @@ class CostRepository {
     for (const code of codes)
       if (!existingCodes.has(code))
         errors.push({ code: "ORPHAN_COST_CODE", value: code });
+    for (const item of costResult.rows)
+      if (Number(item.unit_cost) <= 0 || Number(item.unit_desi) <= 0)
+        errors.push({ code: "INCOMPLETE_COST_ITEM", value: item.item_code });
     for (const barcode of barcodes)
       if (!existingProducts.has(barcode))
         errors.push({ code: "PRODUCT_NOT_FOUND", value: barcode });

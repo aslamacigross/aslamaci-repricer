@@ -56,6 +56,34 @@ test("orphan cost code varsa mapping replace transactiona girmez", async () => {
   );
   assert.equal(transactions, 0);
 });
+test("sifir maliyet veya desili cost item panel mappingine alinmaz", async () => {
+  let transactionStarted = false;
+  const db = {
+    query: async (sql) => {
+      if (sql.includes("FROM cost_items"))
+        return {
+          rows: [{ item_code: "EMPTY", unit_cost: 0, unit_desi: 0 }],
+        };
+      return { rows: [{ barcode: "8690609598109" }] };
+    },
+  };
+  const repo = new CostRepository(db, async () => {
+    transactionStarted = true;
+  });
+  await assert.rejects(
+    repo.replaceMappingsForBarcodes([
+      {
+        barcode: "8690609598109",
+        cost_item_code: "EMPTY",
+        quantity: 1,
+      },
+    ]),
+    (error) =>
+      error.code === "MAPPING_VALIDATION_FAILED" &&
+      error.details[0].code === "INCOMPLETE_COST_ITEM",
+  );
+  assert.equal(transactionStarted, false);
+});
 test("panel toplu mapping islemi yalnizca gonderilen barkodlari yeniler", async () => {
   const rows = [
     { barcode: "1", cost_item_code: "A", quantity: 1 },
