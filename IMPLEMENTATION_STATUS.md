@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 55/55 başarılı
+- [x] Unit/integration/regression testleri: 69/69 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -37,7 +37,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Railway build/start/health yapılandırması
 - [x] Railway `preview-v2` deployment ve ayrı PostgreSQL doğrulaması
 - [x] Canlı Sheet uyumluluk importu: 4.230 kayıt, atomik replace + hesaplama
-- [x] 764 ürün ve 717 buybox kaydıyla preview API kabul turu
+- [x] 768 ürün ve 717 buybox kaydıyla preview API kabul turu
 - [x] Menekşe manuel fiyat aksiyonu: `PENDING -> APPROVED -> DRY_RUN`, fiyat değişmedi
 - [x] Desktop ve 390x844 mobil görsel kabul turu
 - [x] Preview güvenlik anahtarlarının dry-run açık, repricer/job/Sheet otomasyonu kapalı bırakılması
@@ -57,10 +57,12 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 2/2 başarılı
 - [x] Backend testleri: 69/69 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
+- [x] Railway preview son kabulü: release `6c4fe92`, `/health`, `/ready` ve `/version` başarılı
+- [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
+- [x] Gerçek preview verisinde buybox geçmiş grafiği, aksiyon listesi ve güvenli sistem ayarlarının son görsel kontrolü
 
 ## Devam Eden
 
-- [ ] Son dokümantasyon, commit, branch push ve Railway preview doğrulaması
 - [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
 
 ## Dış Ortamda Bekleyen

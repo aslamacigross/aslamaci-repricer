@@ -81,8 +81,11 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Menekşe manuel aksiyonu `PENDING -> APPROVED -> DRY_RUN` oldu; Trendyol çağrısı yapılmadı ve ürün fiyatı 322,00 TL kaldı.
 - Login, dashboard, ürün detay/maliyet kırılımı, buybox, repricer, aksiyon, öğrenme, job, log ve ayar ekranları desktopta; dashboard ve ürün listesi 390x844 mobil viewportta görsel olarak doğrulandı.
 - Preview güvenlik durumu: dry-run açık; global repricer, scheduler ve otomatik Sheet sync kapalı.
+- Son kabul sürümü `6c4fe92`; `/version`, `/health` ve migration-aware `/ready` başarılıdır.
+- Panel kabuğu `Cache-Control: no-store`, içerik hash'li statik dosyalar `immutable` olarak sunulur; yeni deploy sonrası eski panel sürümünün tarayıcıda kalması engellenmiştir.
 - Production uygulaması, veritabanı ve öğrenen pilot geçmişi değiştirilmedi.
 - Para motoru kuruş/oran ölçekli tam sayı aritmetiği kullanıyor; mapping önizlemesi de aynı hassasiyeti koruyor.
 - `005_operational_controls` migrationı bakım modu ekliyor; `/ready` gerekli migration sürümünü denetliyor.
 - Panelde kolon görünürlüğü, mapping önizleme/çoğaltma, maliyet kullanım/geçmişi, eksik komisyon ve kargo tarifesi uyarıları, kargo hesaplayıcı, buybox geçmiş grafiği ve fiyat düzenleyip onaylama akışları tamamlandı.
 - Cost code mevcut olsa bile birim maliyet veya desisi sıfır olan mapping panelde `Maliyet eksik` gösterilir ve yeni toplu mappinge alınmaz.
+- Gerçek preview verisinde 201 satırlık buybox tablosu ve geçmiş grafiği, fiyat aksiyonu listesi ve sistem ayarları son kez görsel olarak doğrulandı.
