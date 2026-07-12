@@ -8,7 +8,12 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { get, patch, post } from "../lib/api";
-import DataTable, { money, percent, date } from "../components/DataTable";
+import DataTable, {
+  money,
+  percent,
+  date,
+  downloadCsv,
+} from "../components/DataTable";
 import {
   PageHeader,
   SearchInput,
@@ -185,6 +190,27 @@ export default function Products({ notify }) {
       setSaving(false);
     }
   }
+  async function exportAll(exportColumns) {
+    try {
+      const limit = 1000;
+      const query = new URLSearchParams(
+        Object.entries({ ...filters, page: 1, limit }).filter(
+          ([, value]) => value !== "",
+        ),
+      );
+      const first = await get(`/api/products?${query}`);
+      const items = [...first.items];
+      const pages = Math.ceil(first.total / limit);
+      for (let page = 2; page <= pages; page++) {
+        query.set("page", page);
+        items.push(...(await get(`/api/products?${query}`)).items);
+      }
+      downloadCsv(exportColumns, items, "urunler");
+      notify(`${items.length} ürün CSV dosyasına hazırlandı`);
+    } catch (error) {
+      notify(error.message, "error");
+    }
+  }
   return (
     <>
       <PageHeader
@@ -283,6 +309,7 @@ export default function Products({ notify }) {
               rows={result.items}
               columnVisibilityKey="products"
               exportFileName="urunler"
+              onExport={exportAll}
               onRowClick={open}
             />
             <Pagination

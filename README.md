@@ -122,11 +122,19 @@ Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebil
 
 Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından yönetilir. Böylece panelde yapılan değişiklikler servis yeniden başladığında korunur.
 
-Mapping ve Buybox ekranları bütün Trendyol ürün kümesini yükler, arama sonrası 100 satırlık sayfalara böler. Fiyat aksiyonları server-side sayfalanır. CSV aktarımı seçili kolonları ve filtrelenmiş kayıt kümesini kullanır.
+Mapping ekranı tüm mapping kümesini alıp 100 satırlık sayfalara böler. Buybox ve fiyat aksiyonları büyüyen katalog için server-side aranıp sayfalanır. Ürün ve Buybox CSV aktarımı gerekirse bütün API sayfalarını birleştirir; diğer tablolar seçili kolonları ve filtrelenmiş kayıt kümesini kullanır.
 
 ## Railway
 
 Repo kökündeki `railway.toml` build, start ve health check ayarlarını içerir. Ayrıntılı akış [DEPLOYMENT.md](DEPLOYMENT.md), acil durum adımları [RUNBOOK.md](RUNBOOK.md) içindedir.
+
+## Bilinen Sınırlamalar
+
+- Öğrenme motoru ilk sürümde açıklanabilir ve deterministik kurallıdır; bağımsız bir makine öğrenmesi modeli yoktur.
+- Trendyol yanıtında rakip satıcı puanı veya kupon ayrıntısı bulunmadığında bu alanlar gözlem tablosunda boş kalır ve karar motoru yalnız doğrulanabilen fiyat/sıra verisini kullanır.
+- Railway preview veritabanı production'dan ayrıdır; gerçek öğrenen pilot geçmişi preview'a kopyalanmamıştır. Migrationlar production'daki `price_war_log`, `buybox_snapshots` ve `repricer_learning` kayıtlarını koruyup backfill eder.
+- Hepsiburada adaptörü V2 veri modeline eklenebilir durumdadır ancak bu sürümde yalnız Trendyol entegrasyonu çalışır.
+- Production migration/deploy, PR incelemesi ve ayrı DB snapshot sonrasında yapılmalıdır; preview kabulü production'a otomatik geçiş yapmaz.
 
 ## Dokümantasyon
 

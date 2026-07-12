@@ -26,7 +26,12 @@ import {
   Pencil,
 } from "lucide-react";
 import { get, post, patch } from "../lib/api";
-import DataTable, { money, percent, date } from "../components/DataTable";
+import DataTable, {
+  money,
+  percent,
+  date,
+  downloadCsv,
+} from "../components/DataTable";
 import {
   PageHeader,
   IconButton,
@@ -79,7 +84,7 @@ export default function Operations({ mode, notify, setDryRun }) {
           />
         }
       />
-      {mode === "buybox" && <Buybox key={refresh} />}{" "}
+      {mode === "buybox" && <Buybox key={refresh} notify={notify} />}{" "}
       {mode === "repricer" && <Repricer key={refresh} notify={notify} />}{" "}
       {mode === "actions" && <Actions key={refresh} notify={notify} />}{" "}
       {mode === "learning" && <Learning key={refresh} notify={notify} />}{" "}
@@ -101,26 +106,68 @@ function Remote({ url, children }) {
   if (!data) return <Loading />;
   return children(data);
 }
-function Buybox() {
+function Buybox({ notify }) {
+  const [payload, setPayload] = useState(null),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1),
+    [error, setError] = useState(null),
+    [reload, setReload] = useState(0);
+  useEffect(() => {
+    const id = setTimeout(
+      () => {
+        const query = new URLSearchParams({ page, limit: 100 });
+        if (search) query.set("search", search);
+        get(`/api/buybox?${query}`).then(setPayload).catch(setError);
+      },
+      search ? 250 : 0,
+    );
+    return () => clearTimeout(id);
+  }, [page, search, reload]);
+  async function exportAll(columns) {
+    try {
+      const limit = 1000;
+      const query = new URLSearchParams({ page: 1, limit });
+      if (search) query.set("search", search);
+      const first = await get(`/api/buybox?${query}`);
+      const items = [...first.items];
+      const pages = Math.ceil(first.total / limit);
+      for (let nextPage = 2; nextPage <= pages; nextPage++) {
+        query.set("page", nextPage);
+        items.push(...(await get(`/api/buybox?${query}`)).items);
+      }
+      downloadCsv(columns, items, "buybox");
+      notify(`${items.length} buybox kaydı CSV dosyasına hazırlandı`);
+    } catch (exportError) {
+      notify(exportError.message, "error");
+    }
+  }
+  if (error)
+    return (
+      <ErrorState
+        error={error}
+        retry={() => {
+          setError(null);
+          setReload((value) => value + 1);
+        }}
+      />
+    );
+  if (!payload) return <Loading />;
   return (
-    <Remote url="/api/buybox?limit=1000">
-      {(payload) => <BuyboxTable payload={payload} />}
-    </Remote>
+    <BuyboxTable
+      payload={payload}
+      search={search}
+      setSearch={(value) => {
+        setSearch(value);
+        setPage(1);
+      }}
+      page={page}
+      setPage={setPage}
+      onExport={exportAll}
+    />
   );
 }
-// Kept separate so hooks remain stable while Remote supplies the payload.
-function BuyboxTable({ payload }) {
-  const [search, setSearch] = useState("");
+function BuyboxTable({ payload, search, setSearch, page, setPage, onExport }) {
   const [selected, setSelected] = useState(null);
-  const [page, setPage] = useState(1);
-  const rows = payload.items.filter((r) =>
-    `${r.barcode} ${r.product_name}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
-  useEffect(() => setPage(1), [search]);
-  const limit = 100;
-  const paged = rows.slice((page - 1) * limit, page * limit);
   const cols = [
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
@@ -194,15 +241,15 @@ function BuyboxTable({ payload }) {
       <div className="panel table-panel">
         <DataTable
           columns={cols}
-          rows={paged}
-          exportRows={rows}
+          rows={payload.items}
           onRowClick={setSelected}
           columnVisibilityKey="buybox"
+          onExport={onExport}
         />
         <Pagination
           page={page}
-          total={rows.length}
-          limit={limit}
+          total={payload.total}
+          limit={payload.limit}
           onChange={setPage}
         />
       </div>
@@ -471,6 +518,24 @@ function Actions({ notify }) {
       notify(error.message, "error");
     }
   }
+  async function exportAll(columns) {
+    try {
+      const limit = 200;
+      const query = new URLSearchParams({ page: 1, limit });
+      if (status) query.set("status", status);
+      const first = await get(`/api/actions?${query}`);
+      const items = [...first.items];
+      const pages = Math.ceil(first.total / limit);
+      for (let nextPage = 2; nextPage <= pages; nextPage++) {
+        query.set("page", nextPage);
+        items.push(...(await get(`/api/actions?${query}`)).items);
+      }
+      downloadCsv(columns, items, "fiyat-aksiyonlari");
+      notify(`${items.length} fiyat aksiyonu CSV dosyasına hazırlandı`);
+    } catch (exportError) {
+      notify(exportError.message, "error");
+    }
+  }
   if (!data) return <Loading />;
   const cols = [
     { key: "created_at", label: "Tarih", render: (r) => date(r.created_at) },
@@ -591,6 +656,7 @@ function Actions({ notify }) {
           onSelectionChange={setSelected}
           canSelectRow={(row) => row.status === "PENDING"}
           columnVisibilityKey="actions"
+          onExport={exportAll}
         />
         <Pagination
           page={data.page || page}

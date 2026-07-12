@@ -43,6 +43,20 @@ export function buildCsv(columns, rows) {
   ].join("\n");
 }
 
+export function downloadCsv(columns, rows, fileName) {
+  const csv = buildCsv(columns, rows);
+  const url = URL.createObjectURL(
+    new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${String(fileName || "tablo")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function DataTable({
   columns,
   rows = [],
@@ -56,6 +70,7 @@ export default function DataTable({
   columnVisibilityKey,
   exportFileName = columnVisibilityKey || "tablo",
   exportRows,
+  onExport,
 }) {
   const [localSort, setLocalSort] = useState({ key: null, direction: "asc" });
   const [hiddenColumns, setHiddenColumns] = useState(() =>
@@ -120,17 +135,12 @@ export default function DataTable({
       );
   }
   function exportCsv() {
-    const csv = buildCsv(visibleColumns, exportRows || sortedRows);
-    const url = URL.createObjectURL(
-      new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }),
+    if (onExport) return onExport(visibleColumns);
+    return downloadCsv(
+      visibleColumns,
+      exportRows || sortedRows,
+      exportFileName,
     );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${String(exportFileName)
-      .trim()
-      .replace(/[^a-zA-Z0-9_-]+/g, "-")}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
   }
   if (!rows.length) return <Empty />;
   return (
