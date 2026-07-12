@@ -141,13 +141,18 @@ function createApp(container = createContainer()) {
   const dist = path.resolve(__dirname, "../dist");
   if (fs.existsSync(dist)) {
     app.use(
-      express.static(dist, { maxAge: env.nodeEnv === "production" ? "1h" : 0 }),
+      "/assets",
+      express.static(path.join(dist, "assets"), {
+        maxAge: env.nodeEnv === "production" ? "1y" : 0,
+        immutable: env.nodeEnv === "production",
+      }),
     );
-    app.get("*", (req, res, next) =>
-      req.path.startsWith("/api/")
-        ? next()
-        : res.sendFile(path.join(dist, "index.html")),
-    );
+    app.use(express.static(dist, { maxAge: 0, index: false }));
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api/")) return next();
+      res.set("Cache-Control", "no-store");
+      return res.sendFile(path.join(dist, "index.html"));
+    });
   } else
     app.get("/", (req, res) =>
       res.json({

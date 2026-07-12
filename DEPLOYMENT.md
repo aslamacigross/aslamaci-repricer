@@ -54,6 +54,8 @@ Yedek dosyasının boş olmadığı ve restore edilebilir olduğu kontrol edilme
 
 Sunucu açılırken bekleyen migrationlar transaction içinde idempotent olarak uygulanır.
 
+Hash'li `/assets` dosyaları uzun süre immutable cache edilir; `index.html` ve SPA fallback yanıtı `no-store` olduğu için yeni release tarayıcıda eski uygulama kabuğuna takılmaz.
+
 ## Yeni Environment Variables
 
 Zorunlu:

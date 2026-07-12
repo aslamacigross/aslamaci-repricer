@@ -114,7 +114,10 @@ test(
   "panel root istegi legacy koruma katmaninda beklemez",
   { timeout: 1000 },
   async () => {
-    await request(createApp(container())).get("/").expect(200);
+    await request(createApp(container()))
+      .get("/")
+      .expect(200)
+      .expect((res) => assert.match(res.headers["cache-control"], /no-store/));
   },
 );
 test("mutasyon CSRF olmadan engellenir", async () => {
