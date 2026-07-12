@@ -75,7 +75,9 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
 - `004_market_price_verification` migrationı ve batch sonrası atomik fiyat kesinleştirme gerçek PostgreSQL motorunda up/down doğrulandı.
 - Railway `preview-v2` ortamı `https://aslamaci-repricer-preview-v2.up.railway.app` adresinde çalışıyor.
-- Preview DB'de 764 ürün, 717 buybox kaydı ve 4.230 satırlık güvenli Sheet importu doğrulandı.
+- Preview DB'de Product V2 ile 768 ürün varyantı, 717 buybox kaydı ve 4.230 satırlık güvenli Sheet importu doğrulandı.
+- Product V2 sync jobu 6,3 saniyede 768 başarılı, 0 hatalı kayıtla tamamlandı.
+- Preview panel ayarlarında dry-run açık; global repricer ve Google Sheets otomatik sync kapalı olarak yeniden doğrulandı.
 - Menekşe manuel aksiyonu `PENDING -> APPROVED -> DRY_RUN` oldu; Trendyol çağrısı yapılmadı ve ürün fiyatı 322,00 TL kaldı.
 - Login, dashboard, ürün detay/maliyet kırılımı, buybox, repricer, aksiyon, öğrenme, job, log ve ayar ekranları desktopta; dashboard ve ürün listesi 390x844 mobil viewportta görsel olarak doğrulandı.
 - Preview güvenlik durumu: dry-run açık; global repricer, scheduler ve otomatik Sheet sync kapalı.

@@ -22,11 +22,14 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 - Railway environment: `preview-v2`
 - Ayrı PostgreSQL servisi kullanılır; production DB'ye migration veya write yapılmamıştır.
 - Güvenlik: `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`, `GOOGLE_SHEETS_SYNC_ENABLED=false`.
-- 764 Trendyol ürünü ve 717 buybox kaydı read-only API çağrılarıyla senkronize edildi.
+- Product V2 ile 768 Trendyol varyantı ve buybox servisiyle 717 barkod read-only API çağrılarıyla senkronize edildi.
 - Google Sheet importu 4.230 kaydı transaction içinde işledi; import sonrası otomatik Sheet kapısı yeniden kapatıldı.
 - Menekşe (`8690609598109`) panelde 312,28 TL minimum fiyat ve `COMPLETE` durumuyla doğrulandı.
 - Manuel aksiyon `PENDING -> APPROVED -> DRY_RUN` akışını tamamladı; Trendyol fiyatı ve ürünün 322,00 TL mevcut fiyatı değişmedi.
 - Desktop ile 390x844 mobil dashboard/ürün ekranları görsel olarak doğrulandı.
+- `004_market_price_verification` migrationı uygulandı; ürün detayında ayrı tek işlem/günlük değişim alanları görüldü.
+- Product V2 ürün sync jobu 6,3 saniyede `SUCCESS`, 768 işlenen ve 0 hata sonucu verdi.
+- Panel güvenlik anahtarları tekrar doğrulandı: dry-run açık; global repricer ve Google Sheets otomatik sync kapalı.
 
 ## Production Öncesi Yedek
 

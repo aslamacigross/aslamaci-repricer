@@ -41,10 +41,12 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Menekşe manuel fiyat aksiyonu: `PENDING -> APPROVED -> DRY_RUN`, fiyat değişmedi
 - [x] Desktop ve 390x844 mobil görsel kabul turu
 - [x] Preview güvenlik anahtarlarının dry-run açık, repricer/job/Sheet otomasyonu kapalı bırakılması
+- [x] Product V2 Railway preview sync kabulü: 768 başarılı, 0 hatalı kayıt
+- [x] `004` migration alanlarının preview ürün detayında görsel doğrulaması
+- [x] Preview panel ayarlarında dry-run açık, repricer ve Sheets otomasyonu kapalı son kontrolü
 
 ## Devam Eden
 
-- [ ] Yeni Product V2 ve fiyat doğrulama katmanının Railway preview kabul turu
 - [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
 
 ## Dış Ortamda Bekleyen
@@ -58,6 +60,6 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - Gerçek Trendyol fiyat çağrısı yapılmadı.
 - Production veritabanına migration veya write yapılmadı.
 - Preview'da Trendyol ürün/buybox verisi yalnızca read-only çekildi; manuel fiyat aksiyonu `DRY_RUN` durumunda tamamlandı ve fiyat değişmedi.
-- Preview'da `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`, `GOOGLE_SHEETS_SYNC_ENABLED=false` bırakıldı.
+- Preview'da `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`, `GOOGLE_SHEETS_SYNC_ENABLED=false` bırakıldı; paneldeki Sheets sync ayarı da kapatıldı.
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.
