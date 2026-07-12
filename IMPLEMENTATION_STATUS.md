@@ -39,7 +39,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 
 ## Devam Eden
 
-- [ ] Son belge commit'i, remote push ve kullanıcı onayından sonra tek draft pull request
+- [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
 
 ## Dış Ortamda Bekleyen
 
