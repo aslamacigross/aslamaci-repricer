@@ -35,11 +35,11 @@ class DashboardRepository {
           .query(`SELECT COALESCE(category_name,'Kategori Yok') name,COUNT(*)::int count,
         ROUND(AVG(calculated_net_margin)::numeric,2) margin FROM products WHERE marketplace='TRENDYOL'
         GROUP BY category_name ORDER BY count DESC LIMIT 12`),
-        this.db.query(`SELECT DATE(created_at) day,COUNT(*)::int count,
+        this.db.query(`SELECT DATE(created_at) AS "day",COUNT(*)::int count,
         COUNT(*) FILTER(WHERE status IN('SUCCESS','SENT','DRY_RUN'))::int successful,
         COUNT(*) FILTER(WHERE status='FAILED')::int failed
         FROM repricer_actions WHERE created_at>NOW()-INTERVAL '14 days' GROUP BY DATE(created_at) ORDER BY day`),
-        this.db.query(`SELECT DATE(checked_at) day,
+        this.db.query(`SELECT DATE(checked_at) AS "day",
         COUNT(*) FILTER(WHERE buybox_won=TRUE)::int won,
         COUNT(*) FILTER(WHERE buybox_lost=TRUE)::int lost,
         COUNT(*) FILTER(WHERE target_achieved=TRUE)::int target_achieved
