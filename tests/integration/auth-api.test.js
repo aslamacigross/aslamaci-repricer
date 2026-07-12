@@ -78,6 +78,13 @@ test("login HttpOnly session verir ve me endpointi calisir", async () => {
 test("korumali endpoint oturumsuz 401 verir", async () => {
   await request(createApp(container())).get("/api/dashboard").expect(401);
 });
+test(
+  "panel root istegi legacy koruma katmaninda beklemez",
+  { timeout: 1000 },
+  async () => {
+    await request(createApp(container())).get("/").expect(200);
+  },
+);
 test("mutasyon CSRF olmadan engellenir", async () => {
   const app = createApp(container());
   const login = await request(app)

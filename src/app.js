@@ -98,10 +98,10 @@ function createApp(container = createContainer()) {
     "/apply-approved-prices",
   ]);
   app.use((req, res, next) =>
-    legacyPaths.has(req.path) ? requireAuth(req, res, next) : next,
+    legacyPaths.has(req.path) ? requireAuth(req, res, next) : next(),
   );
   app.use((req, res, next) =>
-    legacyPaths.has(req.path) ? csrfRequired(req, res, next) : next,
+    legacyPaths.has(req.path) ? csrfRequired(req, res, next) : next(),
   );
   app.use(legacyRoutes(container));
   const dist = path.resolve(__dirname, "../dist");
