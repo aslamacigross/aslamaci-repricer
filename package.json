@@ -2,7 +2,7 @@
   "name": "aslamaci-repricer",
   "version": "2.0.0",
   "private": true,
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@10.34.5",
   "description": "Aslamaci ERP and marketplace repricer",
   "main": "index.js",
   "scripts": {
