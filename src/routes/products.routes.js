@@ -16,6 +16,7 @@ const modes = new Set(["MANUAL", "MONITOR", "AUTOMATIC"]);
 const numericSettings = [
   "price_cut_tl",
   "max_increase_tl",
+  "max_single_change_pct",
   "max_daily_change_pct",
   "minimum_profit_tl",
   "minimum_profit_pct",

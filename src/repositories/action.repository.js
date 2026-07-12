@@ -128,11 +128,132 @@ class ActionRepository {
       await this.db.query(
         `SELECT ra.*,p.buybox_price buybox_after,p.rank rank_after,p.calculated_net_profit profit_after
       FROM repricer_actions ra JOIN products p ON p.marketplace=ra.marketplace AND p.barcode=ra.barcode
-      WHERE ra.status IN('SENT','AWAITING_RESULT','SUCCESS') AND ra.sent_at<=NOW()-($1||' minutes')::interval
+      WHERE ra.status IN('SENT','AWAITING_RESULT','SUCCESS')
+      AND ra.verified_at IS NOT NULL
+      AND ra.sent_at<=NOW()-($1||' minutes')::interval
       AND NOT EXISTS(SELECT 1 FROM price_change_outcomes pco WHERE pco.action_id=ra.id AND pco.elapsed_minutes=$1)`,
         [elapsedMinutes],
       )
     ).rows;
+  }
+
+  async pendingVerifications(limit = 200) {
+    return (
+      await this.db.query(
+        `SELECT * FROM repricer_actions
+         WHERE status='AWAITING_RESULT' AND verified_at IS NULL
+         ORDER BY sent_at ASC LIMIT $1`,
+        [Math.min(Math.max(Number(limit) || 200, 1), 500)],
+      )
+    ).rows;
+  }
+
+  async recordMarketPreflight(id, price) {
+    return (
+      await this.db.query(
+        `UPDATE repricer_actions SET market_price_before=$2,
+         market_price_checked_at=NOW(),
+         updated_at=NOW() WHERE id=$1 RETURNING *`,
+        [id, price],
+      )
+    ).rows[0];
+  }
+
+  async confirmApplied(id, { marketProduct, batchResponse }) {
+    return this.withTransaction(async (client) => {
+      const locked = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!locked) throw new Error("Fiyat aksiyonu bulunamadı");
+      if (locked.verified_at) return locked;
+      if (locked.status !== "AWAITING_RESULT")
+        throw new Error("Fiyat aksiyonu doğrulanabilir durumda değil");
+      const appliedPrice = Number(marketProduct.salePrice);
+      const listPrice = Number(marketProduct.listPrice) || appliedPrice;
+      const apiResponse = {
+        ...(locked.api_response || {}),
+        verification: {
+          salePrice: appliedPrice,
+          listPrice,
+          batch: batchResponse,
+        },
+      };
+      const action = (
+        await client.query(
+          `UPDATE repricer_actions SET applied_price=$2,verified_at=NOW(),
+           batch_checked_at=NOW(),verification_error=NULL,
+           api_response=$3::jsonb,
+           updated_at=NOW() WHERE id=$1 RETURNING *`,
+          [id, appliedPrice, JSON.stringify(apiResponse)],
+        )
+      ).rows[0];
+      await client.query(
+        `UPDATE products SET my_price=$1,list_price=$2,
+         calculated_net_profit=COALESCE($5,calculated_net_profit),
+         calculated_net_margin=COALESCE($6,calculated_net_margin),
+         last_price_change_at=NOW(),updated_at=NOW()
+         WHERE marketplace=$3 AND barcode=$4`,
+        [
+          appliedPrice,
+          listPrice,
+          locked.marketplace,
+          locked.barcode,
+          locked.expected_profit,
+          locked.expected_margin,
+        ],
+      );
+      await client.query(
+        `INSERT INTO price_war_log(
+          marketplace,barcode,product_name,old_price,new_price,price_diff,
+          buybox_price,second_price,third_price,rank,min_price,action
+        )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [
+          locked.marketplace,
+          locked.barcode,
+          locked.product_name,
+          locked.old_price,
+          appliedPrice,
+          appliedPrice - Number(locked.old_price),
+          locked.buybox_before,
+          locked.second_price,
+          locked.third_price,
+          locked.rank_before,
+          locked.min_price,
+          locked.action,
+        ],
+      );
+      if (locked.reverts_action_id) {
+        const original = await this.markReverted(
+          locked.reverts_action_id,
+          locked.id,
+          client,
+        );
+        if (!original)
+          throw new Error("Geri alınan aksiyon doğrulama sırasında değişti");
+      }
+      return action;
+    });
+  }
+
+  async markVerificationFailed(id, error, batchResponse) {
+    const current = await this.get(id);
+    const apiResponse = {
+      ...(current?.api_response || {}),
+      verification: { batch: batchResponse },
+    };
+    return (
+      await this.db.query(
+        `UPDATE repricer_actions SET status='FAILED',batch_checked_at=NOW(),
+         verification_error=$2,error=$2,
+         api_response=$3::jsonb,
+         updated_at=NOW() WHERE id=$1 AND status='AWAITING_RESULT'
+         RETURNING *`,
+        [id, error, JSON.stringify(apiResponse)],
+      )
+    ).rows[0];
   }
 
   async recordOutcome(action, outcome) {
@@ -268,7 +389,7 @@ class ActionRepository {
       await client.query(
         `UPDATE repricer_actions SET status='REVERTED',
          reverted_by_action_id=$2,reverted_at=NOW(),updated_at=NOW()
-         WHERE id=$1
+         WHERE id=$1 AND status='SUCCESS'
          RETURNING *`,
         [actionId, reversalActionId],
       )

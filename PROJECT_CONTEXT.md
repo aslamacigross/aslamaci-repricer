@@ -52,8 +52,10 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 - Railway'de Express API ve build edilmiş React panel tek serviste çalışır.
 - `index.js` yalnızca `src/server.js` bootstrap dosyasını çağırır.
-- Aksiyon uygulaması önce DB'de `SENDING` durumuna alınır; Trendyol çağrısı transaction dışında yapılır ve batch sonucu ayrıca kaydedilir.
-- API kabulünden sonra beklenen ürün fiyatı ve `price_war_log` transaction içinde güncellenir; bu değer pazar sonucu sayılmaz ve outcome joblarıyla doğrulanır.
+- Aksiyon uygulaması önce DB'de `SENDING` durumuna alınır; gerçek gönderim öncesi barkod Product V2 ile yeniden okunur ve pazar fiyatı aksiyondaki eski fiyatla eşleştirilir.
+- API kabulünden sonra yalnızca batch ID ve `AWAITING_RESULT` kaydedilir; DB ürün fiyatı değiştirilmez.
+- Batch item `SUCCESS` ve Product V2 satış fiyatı önerilen değer olarak doğrulanınca ürün fiyatı, kâr alanları ve `price_war_log` tek transaction içinde kesinleşir.
+- Tek işlem değişim yüzdesi ile gün başına toplam değişim yüzdesi ayrı ürün ayarlarıdır.
 - Repricer mümkün olan en iyi 1/2/3. sırayı, mümkün değilse mevcut sıradaki en yüksek güvenli kârı hedefler.
 - Öğrenme anlık refresh içinde çalışmaz; 5/15/60 dakika outcome jobları kullanılır.
 - Outcome jobu ilgili barkodların buybox verisini yenileyemezse eski veriyle sonuç yazmaz.
@@ -67,10 +69,11 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 ## Doğrulama Durumu
 
-- 48 unit/integration/regression testi geçiyor.
+- 55 unit/integration/regression testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
+- `004_market_price_verification` migrationı ve batch sonrası atomik fiyat kesinleştirme gerçek PostgreSQL motorunda up/down doğrulandı.
 - Railway `preview-v2` ortamı `https://aslamaci-repricer-preview-v2.up.railway.app` adresinde çalışıyor.
 - Preview DB'de 764 ürün, 717 buybox kaydı ve 4.230 satırlık güvenli Sheet importu doğrulandı.
 - Menekşe manuel aksiyonu `PENDING -> APPROVED -> DRY_RUN` oldu; Trendyol çağrısı yapılmadı ve ürün fiyatı 322,00 TL kaldı.

@@ -26,6 +26,7 @@ const settings = {
   strategy: "Normal",
   price_cut_tl: 11,
   max_increase_tl: 100,
+  max_single_change_pct: 15,
   max_daily_change_pct: 15,
   daily_action_limit: 3,
   min_change_interval_minutes: 0,
@@ -98,6 +99,38 @@ test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   );
   assert.equal(decrease.proposedPrice, 850);
   assert.equal(decrease.limitedBy, "KADEMELI_DUSUS");
+});
+test("tek islem ve gunluk toplam degisim limitleri ayri uygulanir", () => {
+  const stepped = proposePrice(
+    { ...base, my_price: 1000, min_price: 500, rank: 2, buybox_price: 700 },
+    {
+      ...settings,
+      price_cut_tl: 1,
+      max_single_change_pct: 5,
+      max_daily_change_pct: 20,
+    },
+  );
+  assert.equal(stepped.proposedPrice, 950);
+
+  const result = safetyCheck({
+    product: base,
+    settings: {
+      ...settings,
+      max_single_change_pct: 15,
+      max_daily_change_pct: 5,
+    },
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 0.1,
+    },
+    proposal: proposePrice(base, settings),
+    today: { actionCount: 0, dayStartPrice: 850 },
+  });
+  assert.ok(result.failures.includes("DAILY_CHANGE_LIMIT"));
+  assert.ok(!result.failures.includes("SINGLE_CHANGE_LIMIT"));
 });
 test("auto update kapali urun safety gate gecemez", () => {
   const proposal = proposePrice(base, settings);

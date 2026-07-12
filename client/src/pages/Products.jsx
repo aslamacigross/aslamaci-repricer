@@ -409,6 +409,7 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
     auto_update: false,
     price_cut_tl: 0.1,
     max_increase_tl: 10,
+    max_single_change_pct: 15,
     max_daily_change_pct: 15,
     minimum_profit_tl: 40,
     minimum_profit_pct: 0,
@@ -467,6 +468,7 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
       {[
         ["price_cut_tl", "Fiyat kırma TL"],
         ["max_increase_tl", "Maksimum artış TL"],
+        ["max_single_change_pct", "Tek işlem değişim limiti %"],
         ["max_daily_change_pct", "Maks. günlük değişim %"],
         ["minimum_profit_tl", "Minimum kâr TL"],
         ["minimum_profit_pct", "Minimum kâr %"],

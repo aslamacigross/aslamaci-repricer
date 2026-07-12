@@ -115,6 +115,7 @@ class ProductRepository {
       strategy: "Manuel",
       price_cut_tl: 0.1,
       max_increase_tl: 10,
+      max_single_change_pct: 15,
       max_daily_change_pct: 15,
       minimum_profit_tl: 40,
       minimum_profit_pct: null,
@@ -140,6 +141,7 @@ class ProductRepository {
       merged.strategy,
       merged.price_cut_tl,
       merged.max_increase_tl,
+      merged.max_single_change_pct,
       merged.max_daily_change_pct,
       merged.minimum_profit_tl,
       merged.minimum_profit_pct,
@@ -159,14 +161,15 @@ class ProductRepository {
     ];
     const result = await this.db.query(
       `INSERT INTO product_settings(
-         marketplace, barcode, strategy, price_cut_tl, max_increase_tl, max_daily_change_pct,
+         marketplace, barcode, strategy, price_cut_tl, max_increase_tl, max_single_change_pct, max_daily_change_pct,
          minimum_profit_tl, minimum_profit_pct, minimum_margin_pct, minimum_price,
          maximum_price, min_undercut_tl, max_undercut_tl, min_change_interval_minutes,
          daily_action_limit, buybox_max_age_minutes, blacklisted, learning_enabled,
          mode, auto_update, note, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
        ON CONFLICT (marketplace, barcode) WHERE barcode IS NOT NULL DO UPDATE SET
          strategy=EXCLUDED.strategy, price_cut_tl=EXCLUDED.price_cut_tl, max_increase_tl=EXCLUDED.max_increase_tl,
+         max_single_change_pct=EXCLUDED.max_single_change_pct,
          max_daily_change_pct=EXCLUDED.max_daily_change_pct, minimum_profit_tl=EXCLUDED.minimum_profit_tl,
          minimum_profit_pct=EXCLUDED.minimum_profit_pct,minimum_margin_pct=EXCLUDED.minimum_margin_pct,
          minimum_price=EXCLUDED.minimum_price,maximum_price=EXCLUDED.maximum_price,

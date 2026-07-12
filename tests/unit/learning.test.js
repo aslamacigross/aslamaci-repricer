@@ -71,3 +71,33 @@ test("buybox yenilenemezse eski veriyle sonuc yazilmaz", async () => {
   assert.equal(result.refreshFailures, 1);
   assert.equal(recorded, 0);
 });
+
+test("batch ve pazar fiyati dogrulanmadan aksiyon uygulanmis sayilmaz", async () => {
+  let confirmed;
+  const action = {
+    id: 12,
+    barcode: "8690609598109",
+    batch_id: "batch-12",
+    proposed_price: 312.28,
+    sent_at: new Date(),
+  };
+  const verification = {
+    status: "VERIFIED",
+    batchResponse: { items: [{ status: "SUCCESS" }] },
+    marketProduct: { barcode: action.barcode, salePrice: 312.28 },
+  };
+  const service = new LearningService({
+    actions: {
+      pendingVerifications: async () => [action],
+      confirmApplied: async (id, result) => {
+        confirmed = { id, result };
+      },
+      pendingOutcomes: async () => [],
+    },
+    sync: { verifyPriceAction: async () => verification },
+  });
+  const result = await service.checkOutcomes(5);
+  assert.equal(result.verification.verified, 1);
+  assert.equal(confirmed.id, action.id);
+  assert.equal(confirmed.result.marketProduct.salePrice, 312.28);
+});

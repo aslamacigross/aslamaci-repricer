@@ -35,6 +35,14 @@ test("aksiyon, outcome ve rollback iliskileri gercek semada atomik calisir", asy
     }
   };
   const actions = new ActionRepository(db, transaction);
+  await db.query(
+    `INSERT INTO products(
+      marketplace,barcode,product_name,commission_rate,my_price,list_price,
+      stock_quantity,on_sale,approved,calculated_product_cost,
+      calculated_shipping_cost,packaging_cost,service_fee,min_price,data_complete
+    )VALUES('TRENDYOL',$1,$2,17,320,320,10,TRUE,TRUE,112,79,15,13.19,312.28,TRUE)`,
+    ["8690609598109", "Menekşe Konsantre Yumuşatıcı"],
+  );
   const original = await actions.create({
     barcode: "8690609598109",
     product_name: "Menekşe Konsantre Yumuşatıcı",
@@ -65,11 +73,35 @@ test("aksiyon, outcome ve rollback iliskileri gercek semada atomik calisir", asy
     undefined,
   );
 
+  await actions.recordMarketPreflight(original.id, 320);
   await actions.updateStatus(original.id, "AWAITING_RESULT", {
     actor: "admin",
-    appliedPrice: 312.28,
     batchId: "test-batch",
   });
+  const confirmed = await actions.confirmApplied(original.id, {
+    marketProduct: { salePrice: 312.28, listPrice: 312.28 },
+    batchResponse: {
+      items: [
+        {
+          requestItem: { barcode: original.barcode },
+          status: "SUCCESS",
+        },
+      ],
+    },
+  });
+  assert.equal(Number(confirmed.applied_price), 312.28);
+  assert.ok(confirmed.verified_at);
+  const verifiedProduct = await db.query(
+    "SELECT my_price,last_price_change_at FROM products WHERE barcode=$1",
+    [original.barcode],
+  );
+  assert.equal(Number(verifiedProduct.rows[0].my_price), 312.28);
+  assert.ok(verifiedProduct.rows[0].last_price_change_at);
+  const priceLog = await db.query(
+    "SELECT COUNT(*)::int count FROM price_war_log WHERE barcode=$1",
+    [original.barcode],
+  );
+  assert.equal(priceLog.rows[0].count, 1);
   const recorded = await actions.recordOutcome(
     {
       ...original,

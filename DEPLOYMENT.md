@@ -14,6 +14,7 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 6. Deploy health check `/health` yeşil olana kadar beklenir.
 7. Login, dashboard, ürün detayı, Menekşe kırılımı, buybox sync, repricer preview ve dry-run aksiyonu test edilir.
 8. `003_learning_contracts_and_operations` migrationının eski pilot aksiyonlarını koruduğu ve rollback ilişkilerini eklediği doğrulanır.
+9. `004_market_price_verification` migrationının tek işlem limitini mevcut günlük limitten taşıdığı ve bekleyen aksiyonları değiştirmediği doğrulanır.
 
 ## Doğrulanmış V2 Preview
 
@@ -88,6 +89,8 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Buybox sync job
 - Repricer preview
 - Onay + apply: sonuç `DRY_RUN`, Trendyol çağrısı yok
+- Mock/canlı olmayan doğrulama: pazar fiyatı eski fiyatla uyuşmazsa gönderim bloklanır
+- Batch kabulünden sonra doğrulama gelene kadar ürün fiyatı değişmez
 - Başarılı fixture aksiyonunda geri alma isteği: yeni `ROLLBACK/PENDING` kayıt, doğrudan API çağrısı yok
 - Dry-run kapatma denemesi: ikinci canlı-mod onayı olmadan `409`
 - Job geçmişi ve audit log

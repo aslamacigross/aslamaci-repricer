@@ -1,10 +1,87 @@
 class LearningService {
-  constructor({ actions, sync }) {
+  constructor({ actions, sync, audit }) {
     this.actions = actions;
     this.sync = sync;
+    this.audit = audit;
+  }
+
+  async verifyPendingActions() {
+    if (
+      !this.actions.pendingVerifications ||
+      !this.sync?.verifyPriceAction ||
+      !this.actions.confirmApplied
+    )
+      return { processed: 0, verified: 0, failed: 0, pending: 0, errors: 0 };
+    const actions = await this.actions.pendingVerifications();
+    const summary = {
+      processed: actions.length,
+      verified: 0,
+      failed: 0,
+      pending: 0,
+      errors: 0,
+    };
+    for (const action of actions) {
+      try {
+        const result = await this.sync.verifyPriceAction(action);
+        if (result.status === "VERIFIED") {
+          await this.actions.confirmApplied(action.id, result);
+          await this.audit?.record?.({
+            actor: "system",
+            action: "PRICE_ACTION_VERIFIED",
+            entityType: "repricer_action",
+            entityId: String(action.id),
+            after: {
+              barcode: action.barcode,
+              batchId: action.batch_id,
+              appliedPrice: result.observedPrice,
+            },
+          });
+          summary.verified++;
+          continue;
+        }
+        const ageMinutes = action.sent_at
+          ? (Date.now() - new Date(action.sent_at).getTime()) / 60000
+          : 0;
+        const verificationTimedOut =
+          ["PENDING", "MISMATCH"].includes(result.status) && ageMinutes >= 60;
+        if (result.status === "FAILED" || verificationTimedOut) {
+          await this.actions.markVerificationFailed(
+            action.id,
+            result.error ||
+              "Trendyol fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı",
+            result.batchResponse,
+          );
+          await this.audit?.record?.({
+            actor: "system",
+            action: "PRICE_ACTION_VERIFICATION_FAILED",
+            entityType: "repricer_action",
+            entityId: String(action.id),
+            after: {
+              barcode: action.barcode,
+              batchId: action.batch_id,
+              reason: result.error || "VERIFICATION_TIMEOUT",
+            },
+          });
+          summary.failed++;
+        } else {
+          summary.pending++;
+        }
+      } catch (error) {
+        summary.errors++;
+        await this.audit?.integration?.({
+          integration: "TRENDYOL",
+          level: "ERROR",
+          operation: "PRICE_ACTION_VERIFICATION",
+          message: error.message,
+          details: { actionId: action.id, barcode: action.barcode },
+        });
+      }
+    }
+    return summary;
   }
 
   async checkOutcomes(elapsedMinutes) {
+    const verification = await this.verifyPendingActions();
     let pending = await this.actions.pendingOutcomes(elapsedMinutes);
     let refreshFailures = 0;
     if (pending.length && this.sync) {
@@ -64,6 +141,7 @@ class LearningService {
       successful,
       failed,
       refreshFailures,
+      verification,
     };
   }
 }

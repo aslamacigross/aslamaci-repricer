@@ -26,6 +26,13 @@
 - Eski `price_war_log`, observation ve outcome kayıtlarını idempotent olarak yeni sözleşmelere backfill eder.
 - Dashboard cache jobunu, cron ve güvenlik ayarlarını ekler.
 
+### `004_market_price_verification`
+
+- Ürün ayarlarına mevcut günlük limiti koruyarak ayrı `max_single_change_pct` alanı ekler.
+- Aksiyonlara gönderim öncesi pazar fiyatı, kontrol zamanı, batch kontrol zamanı ve doğrulama hatası alanlarını ekler.
+- Doğrulama bekleyen aksiyonlar için partial index ekler.
+- Mevcut ürün, aksiyon ve öğrenme kayıtlarını silmez.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`
@@ -43,6 +50,7 @@
 - `products(marketplace, rank, buybox_updated_at)`
 - `product_cost_mappings(marketplace, barcode)`
 - `repricer_actions(barcode, status, created_at)`
+- Doğrulama bekleyen `repricer_actions(status, sent_at)` partial indexi
 - `repricer_observations(barcode, observed_at)`
 - `buybox_history(marketplace, barcode, observed_at)`
 - `price_change_outcomes(marketplace, barcode, checked_at)`

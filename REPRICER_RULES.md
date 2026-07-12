@@ -15,7 +15,8 @@ Aksiyon etiketi matematiksel yönle merkezi domain fonksiyonunda üretilir.
 - Birinci sıra minimum fiyatın altındaysa 2., o da mümkün değilse 3. sıra denenir.
 - Üst sıra güvenli değilse mevcut sırada, bilinen bir sonraki fiyatın kırma tutarı kadar altında mümkün olan en yüksek fiyat seçilir.
 - `Kâr Koru` stratejisi mevcut sıradan yukarı çıkmayı denemez.
-- Artış `max_increase_tl`, öğrenilmiş artış limiti ve günlük yüzdeyle; düşüş günlük yüzdeyle kademelenir.
+- Artış `max_increase_tl`, öğrenilmiş artış limiti ve tek işlem yüzdesiyle; düşüş tek işlem yüzdesiyle kademelenir.
+- Tek aksiyon değişim limiti `max_single_change_pct`, gün başına göre toplam limit `max_daily_change_pct` alanıdır.
 - Karar, hedef sıra ve sınırı uygulayan kural aksiyon kaydına yazılır.
 
 ## Minimum Fiyat
@@ -46,6 +47,7 @@ Kargo tarifesi ve baremi Sheet/panelde KDV hariçtir; yüzde 20 eklenmiş tutar 
 - Beklenen kâr negatif ve marj minimumun altında değil
 - Başka açık aksiyon yok
 - Aksiyondaki eski fiyat güncel DB fiyatıyla aynı
+- Trendyol Product V2 ile okunan güncel fiyat aksiyondaki eski fiyatla aynı
 - Aksiyon süresi dolmamış
 
 Safety gate uygulama anında yeniden çalışır. Preview sonucu fiyat gönderme yetkisi değildir.
@@ -58,11 +60,12 @@ Manuel ve geri alma aksiyonları insan onayı nedeniyle `auto_update`, global re
 - Güncel ürün fiyatı asıl aksiyonun uygulanan fiyatıyla eşleşmelidir.
 - Eski fiyata yeni `ROLLBACK` aksiyonu oluşturulur; doğrudan gönderim yapılmaz.
 - Ters aksiyon ayrıca onaylanır ve uygulama anında safety gate yeniden çalışır.
-- Başarılı API kabulünden sonra asıl kayıt `REVERTED` olur ve iki kayıt birbirine bağlanır.
+- Batch item başarılı ve pazardaki fiyat doğrulandıktan sonra asıl kayıt `REVERTED` olur ve iki kayıt birbirine bağlanır.
 
 ## Öğrenme
 
 - Sonuçlar 5, 15 ve 60 dakikada ölçülür.
+- Önce batch item sonucu ve Trendyol'da görülen gerçek satış fiyatı doğrulanır; yalnızca batch ID almak başarı sayılmaz.
 - Sonuç yazılmadan önce yalnızca ilgili barkodların buybox verisi yeniden çekilir; yenileme başarısızsa eski veriyle sonuç yazılmaz.
 - Öğrenme aynı aksiyonu üç kez saymamak için 60. dakika sonucunda güncellenir.
 - Başarılı en küçük fiyat kırma tercih edilir.

@@ -29,9 +29,15 @@ function effectiveIncreaseLimit(settings) {
 
 function applyStepLimits(current, target, settings) {
   if (current <= 0 || target === current) return target;
-  const dailyPct = Math.max(parseNumber(settings.max_daily_change_pct, 15), 0);
-  const lower = current * (1 - dailyPct / 100);
-  const upper = current * (1 + dailyPct / 100);
+  const singlePct = Math.max(
+    parseNumber(
+      settings.max_single_change_pct,
+      parseNumber(settings.max_daily_change_pct, 15),
+    ),
+    0,
+  );
+  const lower = current * (1 - singlePct / 100);
+  const upper = current * (1 + singlePct / 100);
   if (target < current) return Math.max(target, lower);
   return Math.min(target, upper, current + effectiveIncreaseLimit(settings));
 }
@@ -114,7 +120,7 @@ function proposePrice(product, settings = {}) {
   proposed = applyStepLimits(current, proposed, settings);
   if (roundMoney(beforeStepLimit) !== roundMoney(proposed)) {
     limitedBy = proposed > current ? "KADEMELI_ARTIS" : "KADEMELI_DUSUS";
-    reason = `${reason}; günlük değişim adımı uygulandı`;
+    reason = `${reason}; tek işlem değişim adımı uygulandı`;
   }
   if (!(current < minimum && proposed > current))
     proposed = Math.max(proposed, minimum || 0);
@@ -178,8 +184,13 @@ function safetyCheck(context) {
   );
   const recovery = current < minimum && proposed > current;
   const productMaxDaily = parseNumber(settings.max_daily_change_pct, Infinity);
+  const productMaxSingle = parseNumber(
+    settings.max_single_change_pct,
+    productMaxDaily,
+  );
   const globalMaxDaily = parseNumber(global.maxChangePct, 15);
   const maxDailyChangePct = Math.min(productMaxDaily, globalMaxDaily);
+  const maxSingleChangePct = Math.min(productMaxSingle, globalMaxDaily);
   const changePct =
     current > 0 ? (Math.abs(proposed - current) / current) * 100 : 100;
   const dayStartPrice = parseNumber(today.dayStartPrice, current);
@@ -205,7 +216,8 @@ function safetyCheck(context) {
     failures.push("BUYBOX_MISSING");
   if (buyboxAgeMs > parseNumber(global.buyboxMaxAgeMinutes, 20) * 60000)
     failures.push("BUYBOX_STALE");
-  if (changePct > maxDailyChangePct || dailyNetChangePct > maxDailyChangePct)
+  if (changePct > maxSingleChangePct) failures.push("SINGLE_CHANGE_LIMIT");
+  if (dailyNetChangePct > maxDailyChangePct)
     failures.push("DAILY_CHANGE_LIMIT");
   if (
     parseNumber(today.actionCount) >=

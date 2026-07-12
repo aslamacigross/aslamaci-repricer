@@ -1,5 +1,6 @@
 const { env } = require("../config/env");
 const { sleep } = require("./google-sheets.service");
+const { roundMoney } = require("../utils/numbers");
 
 class SyncService {
   constructor({ db, trendyol, audit }) {
@@ -12,7 +13,7 @@ class SyncService {
     let page = 0,
       processed = 0;
     while (true) {
-      const data = await this.trendyol.listProducts(page, 200);
+      const data = await this.trendyol.listProducts(page, 100);
       const products = data.content || [];
       for (const product of products) {
         const barcode = String(product.barcode || "").trim();
@@ -171,6 +172,52 @@ class SyncService {
       failed,
       updatedBarcodes,
       failedBarcodes: [...new Set(failedBarcodes)],
+    };
+  }
+
+  async verifyPriceAction(action) {
+    const batchResponse = await this.trendyol.getBatchResult(action.batch_id);
+    const item = (batchResponse.items || []).find((candidate) => {
+      const request = candidate.requestItem || candidate.request || {};
+      return String(request.barcode || "") === String(action.barcode);
+    });
+    const itemStatus = String(item?.status || "IN_PROGRESS").toUpperCase();
+    if (itemStatus === "FAILED")
+      return {
+        status: "FAILED",
+        error: (item.failureReasons || ["Trendyol batch işlemi başarısız"])
+          .map((reason) =>
+            typeof reason === "string"
+              ? reason
+              : reason.message || JSON.stringify(reason),
+          )
+          .join("; "),
+        batchResponse,
+      };
+    if (itemStatus !== "SUCCESS") return { status: "PENDING", batchResponse };
+
+    const marketProduct = await this.trendyol.getProductByBarcode(
+      action.barcode,
+    );
+    if (!marketProduct)
+      return {
+        status: "PENDING",
+        error: "Trendyol ürün fiyatı henüz okunamadı",
+        batchResponse,
+      };
+    const observedPrice = roundMoney(marketProduct.salePrice);
+    if (observedPrice !== roundMoney(action.proposed_price))
+      return {
+        status: "MISMATCH",
+        error: `Beklenen fiyat ${roundMoney(action.proposed_price)}, görülen fiyat ${observedPrice}`,
+        batchResponse,
+        marketProduct,
+      };
+    return {
+      status: "VERIFIED",
+      batchResponse,
+      marketProduct,
+      observedPrice,
     };
   }
 

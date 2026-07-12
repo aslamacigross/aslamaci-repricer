@@ -5,6 +5,11 @@ class TrendyolService {
     this.fetch = options.fetch || global.fetch;
     this.baseUrl = options.baseUrl || "https://apigw.trendyol.com/integration";
     this.timeoutMs = options.timeoutMs || 20000;
+    this.retryAttempts = options.retryAttempts || 3;
+    this.retryBaseDelayMs = options.retryBaseDelayMs || 250;
+    this.sleep =
+      options.sleep ||
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
   headers() {
     return {
@@ -14,30 +19,102 @@ class TrendyolService {
     };
   }
   async request(path, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const response = await this.fetch(`${this.baseUrl}${path}`, {
-        ...options,
-        headers: { ...this.headers(), ...(options.headers || {}) },
-        signal: controller.signal,
-      });
-      const text = await response.text();
-      if (!response.ok) {
-        const error = new Error(
-          `Trendyol HTTP ${response.status}: ${text.slice(0, 500)}`,
-        );
-        error.status = response.status;
-        throw error;
+    const method = String(options.method || "GET").toUpperCase();
+    const attempts = method === "GET" ? this.retryAttempts : 1;
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        const response = await this.fetch(`${this.baseUrl}${path}`, {
+          ...options,
+          headers: { ...this.headers(), ...(options.headers || {}) },
+          signal: controller.signal,
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          const error = new Error(
+            `Trendyol HTTP ${response.status}: ${text.slice(0, 500)}`,
+          );
+          error.status = response.status;
+          throw error;
+        }
+        try {
+          return text ? JSON.parse(text) : {};
+        } catch (error) {
+          error.message = `Trendyol geçersiz JSON yanıtı: ${error.message}`;
+          throw error;
+        }
+      } catch (error) {
+        lastError = error;
+        const retryable =
+          !error.status || [429, 500, 502, 503, 504].includes(error.status);
+        if (!retryable || attempt === attempts) throw error;
+      } finally {
+        clearTimeout(timer);
       }
-      return text ? JSON.parse(text) : {};
-    } finally {
-      clearTimeout(timer);
+      await this.sleep(this.retryBaseDelayMs * 2 ** (attempt - 1));
     }
+    throw lastError;
   }
-  async listProducts(page = 0, size = 200) {
+  normalizeProductPage(data) {
+    const content = [];
+    for (const product of data.content || []) {
+      const variants = product.variants || [product];
+      for (const variant of variants) {
+        content.push({
+          ...variant,
+          id: variant.variantId || variant.id,
+          barcode: variant.barcode,
+          title: product.title || variant.title,
+          brand:
+            typeof product.brand === "object"
+              ? product.brand?.name
+              : product.brand || variant.brand,
+          categoryName:
+            typeof product.category === "object"
+              ? product.category?.name
+              : product.categoryName || variant.categoryName,
+          pimCategoryId:
+            product.category?.id || product.pimCategoryId || variant.categoryId,
+          categoryId:
+            product.category?.id || product.categoryId || variant.categoryId,
+          salePrice: variant.price?.salePrice ?? variant.salePrice,
+          listPrice: variant.price?.listPrice ?? variant.listPrice,
+          quantity: variant.stock?.quantity ?? variant.quantity,
+          approved: variant.approved ?? product.approved ?? true,
+          archived: variant.archived ?? product.archived ?? false,
+          locked: variant.locked ?? product.locked ?? false,
+          onSale: variant.onSale ?? product.onSale ?? false,
+        });
+      }
+    }
+    const currentPage = Number(data.page || 0);
+    const totalPages = Number(data.totalPages || 0);
+    return {
+      ...data,
+      content,
+      last:
+        totalPages > 0 ? currentPage + 1 >= totalPages : content.length === 0,
+    };
+  }
+  async listProducts(page = 0, size = 100) {
+    const data = await this.request(
+      `/product/sellers/${env.trendyolSupplierId}/products/approved?page=${page}&size=${Math.min(Number(size) || 100, 100)}`,
+    );
+    return this.normalizeProductPage(data);
+  }
+  async getProductByBarcode(barcode) {
+    const data = await this.request(
+      `/product/sellers/${env.trendyolSupplierId}/products/approved?barcode=${encodeURIComponent(barcode)}&page=0&size=1`,
+    );
+    return this.normalizeProductPage(data).content.find(
+      (item) => String(item.barcode) === String(barcode),
+    );
+  }
+  async getBatchResult(batchRequestId) {
     return this.request(
-      `/product/sellers/${env.trendyolSupplierId}/products?approved=true&page=${page}&size=${size}`,
+      `/product/sellers/${env.trendyolSupplierId}/products/batch-requests/${encodeURIComponent(batchRequestId)}`,
     );
   }
   async buybox(barcodes) {

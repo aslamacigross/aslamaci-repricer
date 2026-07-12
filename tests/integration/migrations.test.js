@@ -26,6 +26,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "001_core_schema",
       "002_operations_and_learning",
       "003_learning_contracts_and_operations",
+      "004_market_price_verification",
     ],
   );
   const safety = await db.query(
@@ -44,21 +45,32 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   const actionColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name='repricer_actions'
-       AND column_name IN('target_rank','reverts_action_id','reverted_by_action_id')`,
+       AND column_name IN('target_rank','reverts_action_id','reverted_by_action_id',
+                          'market_price_before','market_price_checked_at',
+                          'batch_checked_at','verification_error')`,
   );
-  assert.equal(actionColumns.rowCount, 3);
+  assert.equal(actionColumns.rowCount, 7);
+  const productSettingColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='product_settings' AND column_name='max_single_change_pct'`,
+  );
+  assert.equal(productSettingColumns.rowCount, 1);
   await migrate("down", db);
   const afterDown = await db.query(
     "SELECT version FROM schema_migrations ORDER BY version",
   );
   assert.deepEqual(
     afterDown.rows.map((row) => row.version),
-    ["001_core_schema", "002_operations_and_learning"],
+    [
+      "001_core_schema",
+      "002_operations_and_learning",
+      "003_learning_contracts_and_operations",
+    ],
   );
   const removedColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
-     WHERE (table_name='repricer_actions' AND column_name='reverts_action_id')
-        OR (table_name='repricer_learning' AND column_name='last_outcome')`,
+     WHERE (table_name='repricer_actions' AND column_name='market_price_before')
+        OR (table_name='product_settings' AND column_name='max_single_change_pct')`,
   );
   assert.equal(removedColumns.rowCount, 0);
   await db.end();

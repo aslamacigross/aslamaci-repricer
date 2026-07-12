@@ -29,6 +29,14 @@ class SettingsRepository {
       )
     ).rows[0];
   }
+
+  async applyServiceFeeToProducts(value) {
+    return this.db.query(
+      `UPDATE products SET service_fee=$1,updated_at=NOW()
+       WHERE marketplace='TRENDYOL'`,
+      [value],
+    );
+  }
 }
 
 module.exports = { SettingsRepository };

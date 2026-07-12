@@ -9,6 +9,7 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - Açıklamalı minimum fiyat ve net kâr kırılımı
 - Buybox takibi ve ürün bazlı repricer ayarları
 - Sıra bazlı kâr optimizasyonu, onaylı fiyat aksiyonları ve çok katmanlı safety gate
+- Trendyol Product V2 okuma, gönderim öncesi pazar fiyatı kontrolü ve batch doğrulaması
 - 5/15/60 dakika taze buybox sonuç ölçümü ve açıklanabilir öğrenme
 - Yeniden onay gerektiren izlenebilir fiyat geri alma akışı
 - PostgreSQL advisory lock kullanan job sistemi
@@ -102,7 +103,7 @@ Tam liste [.env.example](.env.example) dosyasındadır.
 4. Repricer yalnızca pilot ürünlerde önizlenir.
 5. Gerçek fiyat modu ayrı kullanıcı onayıyla daha sonra açılır.
 
-Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canlı-mod onayı gerekir. Manuel aksiyonlar otomasyon kapalıyken kullanılabilir; yine de dry-run, minimum fiyat, maliyet, kâr, buybox güncelliği, günlük limit ve cooldown kontrollerini geçmek zorundadır.
+Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canlı-mod onayı gerekir. Manuel aksiyonlar otomasyon kapalıyken kullanılabilir; yine de dry-run, minimum fiyat, maliyet, kâr, buybox güncelliği, tek işlem/günlük limit ve cooldown kontrollerini geçmek zorundadır. Canlı gönderim öncesinde Trendyol Product V2 üzerinden barkodun gerçek fiyatı yeniden okunur; DB fiyatıyla eşleşmezse istek gönderilmez. Batch kabulü ürün fiyatını kesinleştirmez; batch item sonucu ve pazaryerinde görülen fiyat doğrulanana kadar ürün kaydı değişmez.
 
 ## Google Sheets
 

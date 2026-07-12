@@ -75,7 +75,8 @@ function createContainer(overrides = {}) {
       audit,
       repricer,
     });
-  const learning = overrides.learning || new LearningService({ actions, sync });
+  const learning =
+    overrides.learning || new LearningService({ actions, sync, audit });
   const maintenance = new MaintenanceService(db, env.logRetentionDays);
   const jobService =
     overrides.jobService || new JobService({ db, repository: jobs });

@@ -16,6 +16,10 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Repository/service katmanı
 - [x] Google Sheets retry, timeout, circuit breaker ve atomic import
 - [x] Trendyol entegrasyonu ve dry-run action servisi
+- [x] Trendyol Product V2 ürün okuma uyumluluğu
+- [x] Gönderim öncesi gerçek pazar fiyatı eşleştirmesi
+- [x] Batch item + pazar fiyatı doğrulanmadan DB fiyatını değiştirmeme
+- [x] Ayrı tek işlem ve günlük toplam fiyat değişim limitleri
 - [x] Rank bazlı 1/2/3. sıra optimizasyonu ve kademeli artış/düşüş
 - [x] Taze buybox verisiyle 5/15/60 dakika hedef sıra sonucu
 - [x] Güvenli ve yeniden onaylanan fiyat geri alma akışı
@@ -24,7 +28,8 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 48/48 başarılı
+- [x] Unit/integration/regression testleri: 55/55 başarılı
+- [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
 - [x] ESLint kontrolü
@@ -39,6 +44,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 
 ## Devam Eden
 
+- [ ] Yeni Product V2 ve fiyat doğrulama katmanının Railway preview kabul turu
 - [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
 
 ## Dış Ortamda Bekleyen

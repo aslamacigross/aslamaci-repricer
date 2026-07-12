@@ -1,7 +1,6 @@
 const express = require("express");
 const { asyncRoute, AppError } = require("../utils/errors");
 function systemRoutes({
-  db,
   products,
   jobs,
   jobService,
@@ -217,11 +216,7 @@ function systemRoutes({
       for (const [key, value] of Object.entries(input)) {
         changed.push(await settings.set(key, value, req.user.username));
         if (key === "service_fee")
-          await db.query(
-            `UPDATE products SET service_fee=$1,updated_at=NOW()
-             WHERE marketplace='TRENDYOL'`,
-            [Number(value)],
-          );
+          await settings.applyServiceFeeToProducts(Number(value));
         if (["service_fee", "default_carrier"].includes(key))
           recalculateNeeded = true;
         if (jobForSetting[key])

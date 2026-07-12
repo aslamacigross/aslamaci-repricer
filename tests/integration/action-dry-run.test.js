@@ -105,7 +105,7 @@ test("ayni aksiyon ikinci kez uygulanamaz", async () => {
     (error) => error.code === "DUPLICATE_APPLY",
   );
 });
-test("basarili Trendyol yaniti urun fiyatini ve fiyat gecmisini atomik gunceller", async () => {
+test("Trendyol kabul yaniti urun fiyatini dogrulama olmadan kesinlestirmez", async () => {
   const { action, product } = fixture();
   const queries = [];
   let apiCalls = 0;
@@ -120,6 +120,7 @@ test("basarili Trendyol yaniti urun fiyatini ve fiyat gecmisini atomik gunceller
   const actions = {
     findOpen: async () => null,
     todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+    recordMarketPreflight: async () => {},
     updateStatus: async (id, status, fields) => ({
       ...action,
       status,
@@ -133,6 +134,15 @@ test("basarili Trendyol yaniti urun fiyatini ve fiyat gecmisini atomik gunceller
     products: { get: async () => product },
     settings: {},
     trendyol: {
+      getProductByBarcode: async () => ({
+        barcode: action.barcode,
+        salePrice: action.old_price,
+        listPrice: action.old_price,
+        quantity: 10,
+        approved: true,
+        archived: false,
+        onSale: true,
+      }),
       updatePrices: async () => {
         apiCalls++;
         return { batchRequestId: "mock-batch" };
@@ -152,10 +162,67 @@ test("basarili Trendyol yaniti urun fiyatini ve fiyat gecmisini atomik gunceller
   const result = await service.apply(1, "admin");
   assert.equal(result.status, "AWAITING_RESULT");
   assert.equal(apiCalls, 1);
+  assert.equal(result.applied_price, undefined);
   assert.ok(
-    queries.some((sql) => sql.includes("UPDATE products SET my_price")),
+    !queries.some((sql) => sql.includes("UPDATE products SET my_price")),
   );
-  assert.ok(queries.some((sql) => sql.includes("INSERT INTO price_war_log")));
+  assert.ok(!queries.some((sql) => sql.includes("INSERT INTO price_war_log")));
+});
+
+test("Trendyol guncel fiyati beklenen fiyatla uyusmazsa gonderim engellenir", async () => {
+  const { action, product } = fixture();
+  let apiCalls = 0;
+  let failedStatus;
+  let preflight;
+  const actions = {
+    findOpen: async () => null,
+    todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+    recordMarketPreflight: async (id, price) => {
+      preflight = price;
+    },
+    updateStatus: async (id, status) => {
+      if (status === "FAILED") failedStatus = status;
+      return { ...action, status };
+    },
+  };
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions,
+    products: { get: async () => product },
+    settings: {},
+    trendyol: {
+      getProductByBarcode: async () => ({
+        barcode: action.barcode,
+        salePrice: 945,
+        quantity: 10,
+        approved: true,
+        archived: false,
+        onSale: true,
+      }),
+      updatePrices: async () => {
+        apiCalls++;
+      },
+    },
+    audit: { record: async () => {} },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: false,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+  });
+  await assert.rejects(
+    service.apply(1, "admin"),
+    (error) => error.code === "MARKET_PRICE_MISMATCH",
+  );
+  assert.equal(preflight, 945);
+  assert.equal(apiCalls, 0);
+  assert.equal(failedStatus, "FAILED");
 });
 
 test("manuel aksiyon otomatik repricer kapaliyken dry-run olarak islenebilir", async () => {

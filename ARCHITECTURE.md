@@ -46,23 +46,28 @@ sequenceDiagram
   alt Dry-run açık
     Engine->>DB: DRY_RUN sonucu
   else Tüm kontroller güvenli
+    Engine->>TY: Barkodun güncel pazar fiyatını oku
+    TY-->>Engine: Gerçek satış fiyatı
+    Engine->>Engine: Beklenen eski fiyatla eşleştir
     Engine->>TY: İdempotent fiyat isteği
     TY-->>Engine: Batch ID
-    Engine->>DB: Beklenen fiyat + AWAITING_RESULT
+    Engine->>DB: AWAITING_RESULT; ürün fiyatını değiştirme
   end
+  Job->>TY: Batch item sonucu + güncel ürün fiyatı
+  Job->>DB: Doğrulanan fiyatı atomik kesinleştir
   Job->>TY: İlgili barkodlarda taze buybox sorgusu
   Job->>DB: 5/15/60 dk sonucu ölç
 ```
 
-API kabulünden sonra beklenen fiyat ve geçmiş atomik kaydedilir. Bu değer kesin pazar sonucu sayılmaz; 5/15/60 dakika jobları ilgili barkodların buybox verisini yeniden çekmeden outcome yazmaz.
+API kabulü yalnızca batch takip numarasını ve `AWAITING_RESULT` durumunu kaydeder. Ürün fiyatı, kâr alanları, fiyat geçmişi ve rollback ilişkisi; batch item `SUCCESS` olduktan ve Product V2 okuması önerilen fiyatı gerçekten gösterdikten sonra tek transaction içinde kesinleşir. 5/15/60 dakika jobları ayrıca ilgili barkodların buybox verisini yeniden çekmeden outcome yazmaz.
 
 ## Sıra Bazlı Optimizasyon
 
-Repricer önce ekonomik olarak mümkün olan en iyi sırayı arar. Birinci sıra minimum fiyatın altındaysa ikinci, ikinci de mümkün değilse üçüncü sıra hedeflenir. Üst sıraya çıkılamadığında mevcut sıra korunarak bilinen bir sonraki fiyatın hemen altında mümkün olan en yüksek kâr aranır. Tüm artış ve düşüşler ürün/global günlük değişim, maksimum artış ve minimum fiyat sınırlarıyla kademelenir.
+Repricer önce ekonomik olarak mümkün olan en iyi sırayı arar. Birinci sıra minimum fiyatın altındaysa ikinci, ikinci de mümkün değilse üçüncü sıra hedeflenir. Üst sıraya çıkılamadığında mevcut sıra korunarak bilinen bir sonraki fiyatın hemen altında mümkün olan en yüksek kâr aranır. Tüm artış ve düşüşler ayrı tek işlem ve günlük toplam değişim, maksimum artış ve minimum fiyat sınırlarıyla kademelenir.
 
 ## Güvenli Geri Alma
 
-Başarılı bir aksiyon geri alınırken doğrudan API çağrısı yapılmaz. Eski fiyata bağlı `ROLLBACK` aksiyonu oluşturulur; bu kayıt yeniden onaylanır ve uygulama anında tüm safety kontrollerinden geçer. Başarılı gönderimden sonra asıl aksiyon `REVERTED` olarak ilişkilendirilir.
+Başarılı bir aksiyon geri alınırken doğrudan API çağrısı yapılmaz. Eski fiyata bağlı `ROLLBACK` aksiyonu oluşturulur; bu kayıt yeniden onaylanır ve uygulama anında tüm safety kontrollerinden geçer. Batch ve pazar fiyatı doğrulandıktan sonra asıl aksiyon `REVERTED` olarak ilişkilendirilir.
 
 ## Google Dayanıklılığı
 

@@ -1,6 +1,7 @@
 const { AppError } = require("../utils/errors");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
+const { roundMoney } = require("../utils/numbers");
 
 class ActionService {
   constructor({
@@ -274,6 +275,39 @@ class ActionService {
     }
     const locked = preparation.locked;
     try {
+      const marketProduct = await this.trendyol.getProductByBarcode(
+        locked.barcode,
+      );
+      if (!marketProduct)
+        throw new AppError(
+          "Ürün Trendyol'da bulunamadı; fiyat gönderimi durduruldu",
+          409,
+          "MARKET_PRODUCT_NOT_FOUND",
+        );
+      const marketPrice = roundMoney(marketProduct.salePrice);
+      await this.actions.recordMarketPreflight(id, marketPrice);
+      if (marketPrice <= 0 || marketPrice !== roundMoney(locked.old_price))
+        throw new AppError(
+          "Trendyol'daki güncel fiyat aksiyonun beklediği fiyatla eşleşmiyor",
+          409,
+          "MARKET_PRICE_MISMATCH",
+          {
+            expected: roundMoney(locked.old_price),
+            observed: marketPrice,
+          },
+        );
+      if (
+        marketProduct.archived === true ||
+        marketProduct.approved === false ||
+        marketProduct.onSale === false ||
+        (marketProduct.quantity !== undefined &&
+          Number(marketProduct.quantity) <= 0)
+      )
+        throw new AppError(
+          "Ürün Trendyol'da satışa uygun değil; fiyat gönderimi durduruldu",
+          409,
+          "MARKET_PRODUCT_UNAVAILABLE",
+        );
       const response = await this.trendyol.updatePrices(
         [
           {
@@ -285,65 +319,23 @@ class ActionService {
         { dryRun: false },
       );
       const batchId = response.batchRequestId || response.batchId || null;
+      if (!batchId)
+        throw new AppError(
+          "Trendyol fiyat isteği takip numarası döndürmedi",
+          502,
+          "MARKET_BATCH_ID_MISSING",
+        );
       const updated = await this.withTransaction(async (client) => {
         const action = await this.actions.updateStatus(
           id,
           "AWAITING_RESULT",
           {
             actor,
-            appliedPrice: Number(locked.proposed_price),
             batchId,
-            apiResponse: response,
+            apiResponse: { submission: response },
           },
           client,
         );
-        await client.query(
-          `UPDATE products SET my_price=$1,list_price=$1,
-           calculated_net_profit=CASE WHEN commission_rate>0 THEN
-             ROUND($1-($1*commission_rate/100)-calculated_product_cost-
-               calculated_shipping_cost-packaging_cost-service_fee,2)
-             ELSE calculated_net_profit END,
-           calculated_net_margin=CASE WHEN $1>0 AND commission_rate>0 THEN
-             ROUND((($1-($1*commission_rate/100)-calculated_product_cost-
-               calculated_shipping_cost-packaging_cost-service_fee)/$1)*100,2)
-             ELSE calculated_net_margin END,
-           last_price_change_at=NOW(),updated_at=NOW()
-           WHERE marketplace=$2 AND barcode=$3`,
-          [Number(locked.proposed_price), locked.marketplace, locked.barcode],
-        );
-        await client.query(
-          `INSERT INTO price_war_log(
-            marketplace,barcode,product_name,old_price,new_price,price_diff,
-            buybox_price,second_price,third_price,rank,min_price,action
-          )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          [
-            locked.marketplace,
-            locked.barcode,
-            locked.product_name,
-            locked.old_price,
-            locked.proposed_price,
-            Number(locked.proposed_price) - Number(locked.old_price),
-            locked.buybox_before,
-            locked.second_price,
-            locked.third_price,
-            locked.rank_before,
-            locked.min_price,
-            locked.action,
-          ],
-        );
-        if (locked.reverts_action_id) {
-          const original = await this.actions.markReverted(
-            locked.reverts_action_id,
-            locked.id,
-            client,
-          );
-          if (!original)
-            throw new AppError(
-              "Geri alınan aksiyon artık uygun durumda değil",
-              409,
-              "REVERSAL_STATE_CHANGED",
-            );
-        }
         return action;
       });
       await this.audit.record({
@@ -353,14 +345,6 @@ class ActionService {
         entityId: String(id),
         after: { batchId },
       });
-      if (locked.reverts_action_id)
-        await this.audit.record({
-          actor,
-          action: "PRICE_ACTION_REVERTED",
-          entityType: "repricer_action",
-          entityId: String(locked.reverts_action_id),
-          after: { reversalActionId: locked.id },
-        });
       return updated;
     } catch (error) {
       await this.actions.updateStatus(id, "FAILED", {

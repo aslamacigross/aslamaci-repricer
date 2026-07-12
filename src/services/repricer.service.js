@@ -41,7 +41,7 @@ class RepricerService {
       await this.db.query(
         `SELECT p.*,
       CASE WHEN COALESCE(rl.paused,FALSE) THEN 'Kâr Koru' ELSE COALESCE(ps.strategy,'Manuel') END strategy,
-      ps.price_cut_tl,ps.max_increase_tl,ps.max_daily_change_pct,
+      ps.price_cut_tl,ps.max_increase_tl,ps.max_single_change_pct,ps.max_daily_change_pct,
       ps.minimum_profit_tl,
       COALESCE(ps.minimum_profit_pct,0)minimum_profit_pct,
       COALESCE(ps.minimum_margin_pct,0)minimum_margin_pct,ps.minimum_price,ps.maximum_price,
@@ -69,6 +69,8 @@ class RepricerService {
         ...product,
         price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
         max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
+        max_single_change_pct:
+          product.max_single_change_pct ?? global.maxChangePct,
         max_daily_change_pct:
           product.max_daily_change_pct ?? global.maxChangePct,
         minimum_profit_tl:
@@ -185,6 +187,8 @@ class RepricerService {
       ...product,
       price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
       max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
+      max_single_change_pct:
+        product.max_single_change_pct ?? global.maxChangePct,
       max_daily_change_pct: product.max_daily_change_pct ?? global.maxChangePct,
       minimum_profit_tl:
         product.minimum_profit_tl ??

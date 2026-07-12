@@ -251,7 +251,8 @@ function costsRoutes({ costs, costEngine, audit }) {
         "cost_ex_vat",
         "vat_rate",
       ]);
-      positive(req.body, ["desi_kg", "cost_ex_vat"]);
+      positive(req.body, ["desi_kg"], { allowZero: true });
+      positive(req.body, ["cost_ex_vat"]);
       const data = await costs.saveShippingRate(req.body);
       await costEngine.recalculate();
       await logged(
@@ -273,7 +274,8 @@ function costsRoutes({ costs, costEngine, audit }) {
         "cost_ex_vat",
         "vat_rate",
       ]);
-      positive(req.body, ["desi_kg", "cost_ex_vat"]);
+      positive(req.body, ["desi_kg"], { allowZero: true });
+      positive(req.body, ["cost_ex_vat"]);
       const data = await costs.saveShippingRate(req.body, req.params.id);
       if (!data) throw new AppError("Kargo tarifesi bulunamadı", 404);
       await costEngine.recalculate();
