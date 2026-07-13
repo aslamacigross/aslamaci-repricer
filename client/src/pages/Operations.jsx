@@ -47,6 +47,49 @@ import {
   Modal,
   Drawer,
 } from "../components/ui";
+
+const SAFETY_REASON_LABELS = {
+  PRODUCT_INACTIVE: "Ürün aktif değil.",
+  PRODUCT_NOT_ON_SALE: "Ürün satışta görünmüyor.",
+  PRODUCT_LOCKED: "Ürün kilitli.",
+  OUT_OF_STOCK: "Stok sıfır veya geçersiz.",
+  COST_INCOMPLETE: "Maliyet verisi tamam değil.",
+  COMMISSION_MISSING: "Komisyon oranı eksik.",
+  MIN_PRICE_MISSING: "Minimum fiyat hesaplanamamış.",
+  BELOW_MIN_PRICE: "Önerilen fiyat minimum fiyatın altında.",
+  CURRENT_PRICE_INVALID: "Mevcut fiyat geçersiz.",
+  BUYBOX_MISSING: "Buybox verisi eksik.",
+  BUYBOX_STALE: "Buybox verisi izin verilen süreden eski.",
+  SINGLE_CHANGE_LIMIT: "Tek işlem fiyat değişim limiti aşılırdı.",
+  DAILY_CHANGE_LIMIT: "Günlük fiyat değişim limiti aşılırdı.",
+  DAILY_ACTION_LIMIT: "Günlük aksiyon sayısı limiti dolmuş.",
+  BLACKLISTED: "Ürün kara listede.",
+  LEARNING_PAUSED: "Bu üründe öğrenme duraklatılmış.",
+  AUTO_UPDATE_DISABLED: "Ürün auto update kapalı.",
+  GLOBAL_REPRICER_DISABLED: "Global repricer kapalı.",
+  DRY_RUN: "Dry-run açık; gerçek fiyat gönderimi yapılmaz.",
+  CHANGE_TOO_SMALL: "Fiyat değişimi anlamlı minimum tutarın altında.",
+  LOSS_MAKING_DECREASE: "Zarardaki üründe otomatik düşüş yasak.",
+  EXPECTED_LOSS: "Öneri sonrası beklenen kâr negatif.",
+  MAX_INCREASE_LIMIT: "Maksimum artış TL limiti aşılırdı.",
+  MIN_PROFIT_TL_VIOLATION: "Minimum kâr TL şartı sağlanmıyor.",
+  MIN_PROFIT_PCT_VIOLATION: "Minimum kâr yüzdesi şartı sağlanmıyor.",
+  MIN_MARGIN_VIOLATION: "Minimum marj şartı sağlanmıyor.",
+  ABOVE_MAX_PRICE: "Önerilen fiyat maksimum fiyatın üstünde.",
+  BELOW_MIN_DECREASE: "Fiyat düşüşü minimum fiyat sınırını zorlar.",
+  COOLDOWN_ACTIVE: "İki fiyat aksiyonu arası bekleme süresi dolmamış.",
+};
+
+function safetyReasonText(code) {
+  return SAFETY_REASON_LABELS[code] || code;
+}
+
+function formatSignedMoney(value) {
+  const number = Number(value || 0);
+  const formatted = money(number);
+  return number > 0 ? `+${formatted}` : formatted;
+}
+
 const info = {
   buybox: [
     "Buybox",
@@ -349,6 +392,7 @@ function BuyboxHistory({ product, onClose }) {
 function Repricer({ notify }) {
   const [barcode, setBarcode] = useState(""),
     [items, setItems] = useState(null),
+    [selectedPreview, setSelectedPreview] = useState(null),
     [loading, setLoading] = useState(false);
   async function preview() {
     setLoading(true);
@@ -400,16 +444,58 @@ function Repricer({ notify }) {
       label: "Fiyat kırma",
       render: (r) => money(r.effectiveUndercut),
     },
-    { key: "reason", label: "Neden" },
+    {
+      key: "reason",
+      label: "Neden",
+      render: (r) => (
+        <button
+          type="button"
+          className="link-cell"
+          title={r.reason}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSelectedPreview(r);
+          }}
+        >
+          {r.reason}
+        </button>
+      ),
+    },
     {
       key: "blockedReasons",
       label: "Güvenlik",
       render: (r) =>
         r.blockedReasons.length ? (
-          <Badge tone="danger">{r.blockedReasons.length} engel</Badge>
+          <button
+            type="button"
+            className="badge-button"
+            title={r.blockedReasons.map(safetyReasonText).join("\n")}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSelectedPreview(r);
+            }}
+          >
+            <Badge tone="danger">{r.blockedReasons.length} engel</Badge>
+          </button>
         ) : (
           <Badge tone="success">Güvenli</Badge>
         ),
+    },
+    {
+      key: "ops",
+      label: "Detay",
+      sortable: false,
+      exportable: false,
+      render: (r) => (
+        <IconButton
+          icon={Eye}
+          label="Karar detayını aç"
+          onClick={(event) => {
+            event.stopPropagation();
+            setSelectedPreview(r);
+          }}
+        />
+      ),
     },
   ];
   return (
@@ -450,12 +536,119 @@ function Repricer({ notify }) {
             <DataTable
               columns={cols}
               rows={items}
+              onRowClick={setSelectedPreview}
               columnVisibilityKey="repricer-preview"
             />
           </div>
         )
       )}
+      <RepricerPreviewDetail
+        item={selectedPreview}
+        onClose={() => setSelectedPreview(null)}
+      />
     </>
+  );
+}
+
+function RepricerPreviewDetail({ item, onClose }) {
+  if (!item) return null;
+  const blockedReasons = item.blockedReasons || [];
+  return (
+    <Drawer
+      open
+      wide
+      onClose={onClose}
+      title={`${item.barcode} repricer önizleme detayı`}
+    >
+      <div className="preview-detail">
+        <div className="metric-row">
+          <div>
+            <span>Mevcut fiyat</span>
+            <b>{money(item.oldPrice)}</b>
+          </div>
+          <div>
+            <span>Önerilen fiyat</span>
+            <b>{money(item.proposedPrice)}</b>
+          </div>
+          <div>
+            <span>Fark</span>
+            <b>{formatSignedMoney(item.difference)}</b>
+          </div>
+          <div>
+            <span>Beklenen kâr</span>
+            <b>{money(item.expectedProfit)}</b>
+          </div>
+        </div>
+        <div className="metric-row">
+          <div>
+            <span>Aksiyon</span>
+            <b>{item.action}</b>
+          </div>
+          <div>
+            <span>Strateji</span>
+            <b>{item.strategy || "-"}</b>
+          </div>
+          <div>
+            <span>Mevcut sıra</span>
+            <b>{item.rank || "-"}</b>
+          </div>
+          <div>
+            <span>Hedef sıra</span>
+            <b>{item.targetRank || "-"}</b>
+          </div>
+        </div>
+        <section>
+          <h3>Karar nedeni</h3>
+          <p className="reason-full">{item.reason || "-"}</p>
+        </section>
+        <section>
+          <h3>Fiyat bağlamı</h3>
+          <div className="compact-kv">
+            <span>Minimum fiyat</span>
+            <b>{money(item.minPrice)}</b>
+            <span>Maksimum fiyat</span>
+            <b>{item.maxPrice ? money(item.maxPrice) : "-"}</b>
+            <span>Buybox fiyatı</span>
+            <b>{money(item.buyboxPrice)}</b>
+            <span>2. fiyat</span>
+            <b>{money(item.secondPrice)}</b>
+            <span>3. fiyat</span>
+            <b>{money(item.thirdPrice)}</b>
+            <span>Etkin fiyat kırma</span>
+            <b>{money(item.effectiveUndercut)}</b>
+            <span>Öğrenilmiş kırma</span>
+            <b>{money(item.learnedUndercut)}</b>
+            <span>Güven skoru</span>
+            <b>{percent(item.confidence)}</b>
+          </div>
+        </section>
+        <section>
+          <h3>Güvenlik durumu</h3>
+          {blockedReasons.length ? (
+            <div className="safety-list">
+              {blockedReasons.map((reason) => (
+                <div key={reason}>
+                  <Badge tone="danger">{reason}</Badge>
+                  <p>{safetyReasonText(reason)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="safety-list">
+              <div>
+                <Badge tone="success">Güvenli</Badge>
+                <p>Bu önizlemede bloklayıcı güvenlik engeli görünmüyor.</p>
+              </div>
+            </div>
+          )}
+        </section>
+        <p className="muted-note">
+          Önizleme fiyat göndermez. Aksiyon oluşturulsa bile uygulama anında
+          dry-run, minimum fiyat, buybox güncelliği, pazar fiyatı doğrulaması ve
+          günlük limitler yeniden kontrol edilir.
+        </p>
+      </div>
+    </Drawer>
   );
 }
 function Actions({ notify }) {

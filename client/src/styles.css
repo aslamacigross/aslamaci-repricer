@@ -290,6 +290,29 @@ button:disabled {
   background: #edf1ef;
   color: #56635d;
 }
+.badge-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.link-cell {
+  max-width: 360px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-cell:hover {
+  color: var(--green);
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -766,6 +789,68 @@ tbody tr.clickable:hover {
 .metric-row b {
   font-size: 14px;
   margin-top: 4px;
+}
+.preview-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.preview-detail section h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.reason-full,
+.muted-note {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+}
+.muted-note {
+  color: var(--muted);
+}
+.compact-kv {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(100px, 1fr);
+  overflow: hidden;
+}
+.compact-kv span,
+.compact-kv b {
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  padding: 9px 10px;
+}
+.compact-kv span {
+  background: #f7faf8;
+  color: var(--muted);
+}
+.compact-kv b {
+  font-weight: 700;
+}
+.compact-kv span:nth-last-child(-n + 2),
+.compact-kv b:nth-last-child(-n + 1) {
+  border-bottom: 0;
+}
+.safety-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.safety-list > div {
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 1fr;
+  padding: 10px;
+}
+.safety-list p {
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
 }
 .tabs {
   display: flex;
