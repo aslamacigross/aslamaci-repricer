@@ -62,6 +62,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Gerçek preview verisinde buybox geçmiş grafiği, aksiyon listesi ve güvenli sistem ayarlarının son görsel kontrolü
 - [x] Tüm operasyon tablolarında filtrelenmiş CSV dışa aktarma
 - [x] API sayfa limiti küçülse bile Ürün CSV aktarımında bütün sayfaların birleştirilmesi
+- [x] Railway preview'da Ürün ve Buybox CSV aktarımlarının 768/768 kayıtla doğrulanması
 - [x] Transaction'lı toplu maliyet kalemi upsert ve panel akışı
 - [x] Mapping, Buybox ve fiyat aksiyonlarında üretim hacmine uygun sayfalama
 - [x] Öğrenme Merkezi son denemeler, strateji puanı ve sonraki adım çekmecesi
@@ -80,12 +81,10 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 
 ## Devam Eden
 
-- [ ] Son yerel commit'in bilgisayar kilidi açıldıktan sonra GitHub'a gönderilmesi ve 768 ürün CSV preview doğrulaması
 - [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
 
 ## Dış Ortamda Bekleyen
 
-- [ ] GitHub Desktop erişimi için macOS oturumunun açık olması
 - [ ] `Aşlamacı ERP V2 production web panel` başlıklı draft pull request için kullanıcı onayı
 - [ ] Production DB backup/snapshot ve production dry-run migration/deploy (PR merge sonrasında ayrı işlem)
 - [ ] Railway preview deneme planı sona ermeden kalıcı plan veya ortam kapatma kararı
