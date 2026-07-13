@@ -164,6 +164,8 @@ export default function Products({ notify }) {
     [loading, setLoading] = useState(true),
     [error, setError] = useState(null),
     [selected, setSelected] = useState(null),
+    [selectedIds, setSelectedIds] = useState([]),
+    [bulkOpen, setBulkOpen] = useState(false),
     [detail, setDetail] = useState(null),
     [tab, setTab] = useState("cost"),
     [saving, setSaving] = useState(false);
@@ -226,7 +228,19 @@ export default function Products({ notify }) {
       <PageHeader
         title="Ürünler"
         description="Maliyet, kârlılık, buybox ve repricer durumunu tek listede yönetin"
-        actions={<IconButton icon={RefreshCw} label="Yenile" onClick={load} />}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon={SlidersHorizontal}
+              onClick={() => setBulkOpen(true)}
+              disabled={!result?.total}
+            >
+              Toplu ayar
+            </Button>
+            <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
+          </>
+        }
       />
       <div className="filters">
         <SearchInput
@@ -321,6 +335,9 @@ export default function Products({ notify }) {
               exportFileName="urunler"
               onExport={exportAll}
               onRowClick={open}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              rowKey={(row) => row.barcode}
             />
             <Pagination
               page={result.page}
@@ -331,6 +348,18 @@ export default function Products({ notify }) {
           </>
         )}
       </div>
+      <BulkSettingsDrawer
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        selectedIds={selectedIds}
+        filters={filters}
+        total={result?.total || 0}
+        notify={notify}
+        onDone={() => {
+          setSelectedIds([]);
+          load();
+        }}
+      />
       <Drawer
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
@@ -410,6 +439,295 @@ export default function Products({ notify }) {
     </>
   );
 }
+
+const bulkDefaults = {
+  mode: "MONITOR",
+  strategy: "Öğrenen Pilot",
+  auto_update: false,
+  learning_enabled: true,
+  price_cut_tl: "",
+  max_increase_tl: "",
+  max_single_change_pct: "",
+  max_daily_change_pct: "",
+  minimum_profit_tl: "",
+  daily_action_limit: "",
+  buybox_max_age_minutes: "",
+};
+
+function cleanFilters(filters) {
+  return Object.fromEntries(
+    Object.entries(filters).filter(
+      ([key, value]) => !["page", "limit"].includes(key) && value !== "",
+    ),
+  );
+}
+
+function cleanBulkSettings(form) {
+  const settings = {
+    mode: form.mode,
+    strategy: form.strategy,
+    auto_update: Boolean(form.auto_update),
+    learning_enabled: Boolean(form.learning_enabled),
+  };
+  for (const key of [
+    "price_cut_tl",
+    "max_increase_tl",
+    "max_single_change_pct",
+    "max_daily_change_pct",
+    "minimum_profit_tl",
+    "daily_action_limit",
+    "buybox_max_age_minutes",
+  ]) {
+    if (form[key] !== "" && form[key] != null) settings[key] = Number(form[key]);
+  }
+  return settings;
+}
+
+function BulkSettingsDrawer({
+  open,
+  onClose,
+  selectedIds,
+  filters,
+  total,
+  notify,
+  onDone,
+}) {
+  const [scope, setScope] = useState("selected"),
+    [form, setForm] = useState(bulkDefaults),
+    [preview, setPreview] = useState(null),
+    [loading, setLoading] = useState(false),
+    [applying, setApplying] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setScope(selectedIds.length ? "selected" : "filtered");
+      setPreview(null);
+    }
+  }, [open, selectedIds.length]);
+  if (!open) return null;
+  const targetCount = scope === "selected" ? selectedIds.length : total;
+  const payload = {
+    settings: cleanBulkSettings(form),
+    ...(scope === "selected"
+      ? { barcodes: selectedIds }
+      : { filters: cleanFilters(filters) }),
+  };
+  const update = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setPreview(null);
+  };
+  async function loadPreview() {
+    setLoading(true);
+    try {
+      const result = await post("/api/products/bulk-settings/preview", payload);
+      setPreview(result.data);
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function apply() {
+    setApplying(true);
+    try {
+      const result = await post("/api/products/bulk-settings/apply", payload);
+      notify(`${result.data.updated} ürün için repricer ayarı güncellendi`);
+      onDone();
+      onClose();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setApplying(false);
+    }
+  }
+  return (
+    <Drawer open={open} onClose={onClose} title="Toplu repricer ayarı" wide>
+      <div className="bulk-settings">
+        <div className="info-banner warning">
+          <ShieldAlert />
+          <div>
+            <strong>Toplu ayar fiyat göndermez</strong>
+            <p>
+              Bu işlem ürün ayarlarını değiştirir. Dry-run açıkken gerçek
+              Trendyol fiyatı gönderilmez.
+            </p>
+          </div>
+        </div>
+        <div className="scope-switch">
+          <label>
+            <input
+              type="radio"
+              checked={scope === "selected"}
+              disabled={!selectedIds.length}
+              onChange={() => {
+                setScope("selected");
+                setPreview(null);
+              }}
+            />
+            <span>Seçili ürünler ({selectedIds.length})</span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              checked={scope === "filtered"}
+              onChange={() => {
+                setScope("filtered");
+                setPreview(null);
+              }}
+            />
+            <span>Filtrelenen tüm ürünler ({total})</span>
+          </label>
+        </div>
+        <div className="form-grid">
+          <Field label="Çalışma modu">
+            <select
+              value={form.mode}
+              onChange={(event) => update("mode", event.target.value)}
+            >
+              <option value="MANUAL">Manuel</option>
+              <option value="MONITOR">Sadece izle</option>
+              <option value="AUTOMATIC">Otomatik</option>
+            </select>
+          </Field>
+          <Field label="Strateji">
+            <select
+              value={form.strategy}
+              onChange={(event) => update("strategy", event.target.value)}
+            >
+              {[
+                "Manuel",
+                "Sadece İzle",
+                "Temkinli",
+                "Normal",
+                "Agresif",
+                "Kâr Koru",
+                "Buybox Odaklı",
+                "Öğrenen Pilot",
+              ].map((strategy) => (
+                <option key={strategy}>{strategy}</option>
+              ))}
+            </select>
+          </Field>
+          {[
+            ["price_cut_tl", "Fiyat kırma TL"],
+            ["max_increase_tl", "Maksimum artış TL"],
+            ["max_single_change_pct", "Tek işlem değişim limiti %"],
+            ["max_daily_change_pct", "Maks. günlük değişim %"],
+            ["minimum_profit_tl", "Minimum kâr TL"],
+            ["daily_action_limit", "Günlük aksiyon limiti"],
+            ["buybox_max_age_minutes", "Buybox veri yaşı (dk)"],
+          ].map(([key, label]) => (
+            <Field key={key} label={label}>
+              <input
+                type="number"
+                step="0.01"
+                value={form[key]}
+                placeholder="Değiştirme"
+                onChange={(event) => update(key, event.target.value)}
+              />
+            </Field>
+          ))}
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={form.auto_update}
+              onChange={(event) => update("auto_update", event.target.checked)}
+            />
+            <span />
+            Auto update
+          </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={form.learning_enabled}
+              onChange={(event) =>
+                update("learning_enabled", event.target.checked)
+              }
+            />
+            <span />
+            Öğrenmeye dahil
+          </label>
+        </div>
+        <div className="bulk-actions">
+          <Button
+            variant="secondary"
+            icon={Calculator}
+            onClick={loadPreview}
+            disabled={!targetCount || loading}
+          >
+            {loading ? "Önizleniyor" : "Önizle"}
+          </Button>
+          <Button
+            icon={Save}
+            onClick={apply}
+            disabled={!preview?.total || applying}
+          >
+            {applying ? "Uygulanıyor" : "Uygula"}
+          </Button>
+        </div>
+        {preview && (
+          <div className="bulk-preview">
+            <div className="metric-row">
+              <div>
+                <span>Etkilenecek ürün</span>
+                <b>{preview.total}</b>
+              </div>
+              <div>
+                <span>Verisi tam</span>
+                <b>{preview.complete}</b>
+              </div>
+              <div>
+                <span>Stoklu</span>
+                <b>{preview.stocked}</b>
+              </div>
+              <div>
+                <span>Aktif</span>
+                <b>{preview.active}</b>
+              </div>
+            </div>
+            <div className="compact-kv">
+              <span>Veri eksik</span>
+              <b>{preview.incomplete}</b>
+              <span>Mapping eksik</span>
+              <b>{preview.mappingMissing}</b>
+              <span>Komisyon eksik</span>
+              <b>{preview.commissionMissing}</b>
+              <span>Zararda</span>
+              <b>{preview.lossMaking}</b>
+              <span>Minimum fiyat altı</span>
+              <b>{preview.belowMin}</b>
+            </div>
+            <h3>Örnek ürünler</h3>
+            <div className="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Barkod</th>
+                    <th>Ürün</th>
+                    <th>Veri</th>
+                    <th>Fiyat</th>
+                    <th>Min</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.sample.map((item) => (
+                    <tr key={item.barcode}>
+                      <td>{item.barcode}</td>
+                      <td>{item.product_name}</td>
+                      <td>{item.data_status}</td>
+                      <td>{money(item.my_price)}</td>
+                      <td>{money(item.min_price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
 function CostBreakdown({ data }) {
   const p = data.product;
   return (

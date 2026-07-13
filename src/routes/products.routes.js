@@ -56,25 +56,75 @@ function validateSettings(input = {}) {
     );
   return input;
 }
+
+function productFilters(query = {}) {
+  return {
+    ...query,
+    active: query.active == null ? undefined : query.active === "true",
+    stocked: query.stocked == null ? undefined : query.stocked === "true",
+    autoUpdate:
+      query.autoUpdate == null ? undefined : query.autoUpdate === "true",
+  };
+}
+
+function bulkTarget(body = {}) {
+  const barcodes = Array.isArray(body.barcodes)
+    ? body.barcodes.map(String).filter(Boolean)
+    : [];
+  return {
+    barcodes,
+    filters: productFilters(body.filters || {}),
+  };
+}
+
 function productsRoutes({ products, costEngine, audit, repricer }) {
   const r = express.Router();
   r.get(
     "/",
     asyncRoute(async (req, res) => {
       const page = pagination(req.query);
-      const filters = {
-        ...req.query,
-        ...page,
-        active:
-          req.query.active == null ? undefined : req.query.active === "true",
-        stocked:
-          req.query.stocked == null ? undefined : req.query.stocked === "true",
-        autoUpdate:
-          req.query.autoUpdate == null
-            ? undefined
-            : req.query.autoUpdate === "true",
-      };
+      const filters = productFilters({ ...req.query, ...page });
       res.json({ status: "ok", ...(await products.list(filters)) });
+    }),
+  );
+  r.post(
+    "/bulk-settings/preview",
+    asyncRoute(async (req, res) => {
+      const settings = validateSettings(req.body.settings || {});
+      const target = bulkTarget(req.body);
+      const data = await products.previewBulkSettings(target);
+      res.json({ status: "ok", data: { ...data, settings } });
+    }),
+  );
+  r.post(
+    "/bulk-settings/apply",
+    asyncRoute(async (req, res) => {
+      const settings = validateSettings(req.body.settings || {});
+      if (!Object.keys(settings).length)
+        throw new AppError("En az bir ayar seçilmeli", 400, "VALIDATION_ERROR");
+      const target = bulkTarget(req.body);
+      const preview = await products.previewBulkSettings(target);
+      if (!preview.total)
+        throw new AppError("Uygulanacak ürün bulunamadı", 400, "NO_TARGETS");
+      const data = await products.bulkUpdateSettings({
+        target,
+        input: settings,
+        actor: req.user.username,
+      });
+      if (settings.minimum_profit_tl !== undefined) {
+        for (const barcode of data.barcodes) await costEngine.recalculate(barcode);
+      }
+      await audit.record({
+        actor: req.user.username,
+        action: "PRODUCT_SETTINGS_BULK_UPDATED",
+        entityType: "product",
+        entityId: "bulk",
+        before: preview,
+        after: { settings, updated: data.updated, sample: data.sample },
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.json({ status: "ok", data: { ...data, preview } });
     }),
   );
   r.get(

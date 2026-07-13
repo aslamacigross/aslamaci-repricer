@@ -852,6 +852,46 @@ tbody tr.clickable:hover {
   line-height: 1.45;
   margin: 0;
 }
+.bulk-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.scope-switch {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  overflow: hidden;
+}
+.scope-switch label {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+}
+.scope-switch label + label {
+  border-left: 1px solid var(--line);
+}
+.scope-switch input:disabled + span {
+  color: var(--muted);
+}
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.bulk-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bulk-preview h3 {
+  font-size: 13px;
+  margin: 0;
+}
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--line);
