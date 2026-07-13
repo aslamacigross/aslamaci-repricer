@@ -44,9 +44,10 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 ## Branch ve Çalışma Şekli
 
 - Branch: `feature/aslamaci-erp-v2`
+- Draft PR: [#1 Aşlamacı ERP V2 production web panel](https://github.com/aslamacigross/aslamaci-repricer/pull/1)
 - Production branch’e doğrudan yazılmaz.
 - Her ana aşamada bu dosya ve `IMPLEMENTATION_STATUS.md` güncellenir.
-- İş sonunda tek pull request hazırlanır.
+- Tek pull request draft olarak hazırlanmıştır; merge ve production deploy ayrı onay gerektirir.
 
 ## V2 Mimari Kararları
 
@@ -92,3 +93,4 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - PR öncesi kapsam denetiminde toplu maliyet kalemi yönetimi, tüm tablolarda CSV, veri hacmine uygun Mapping/Buybox/aksiyon sayfalaması, öğrenme detayı ve silme onayları tamamlandı.
 - Ürün CSV aktarımı API'nin talep edilen sayfa limitini küçültmesi durumunda dönen gerçek limiti izleyerek tüm sayfaları toplar; regresyon testi ve 768 kayıtlı Railway preview kataloğu üzerinde doğrulandı.
 - Yeni kurulumlarda otomatik Google Sheets sync hem environment hem panel kapısı açılana kadar kapalıdır.
+- GitHub PR #1 açık, draft, merge edilmemiş ve `main <- feature/aslamaci-erp-v2` yönünde birleştirilebilir durumdadır.

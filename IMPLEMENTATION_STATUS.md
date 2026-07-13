@@ -70,6 +70,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Dashboard dry-run, global repricer, ürün sync ve buybox sync görünürlüğü
 - [x] Maliyet, mapping, kargo, barem ve ambalaj silmelerinde onay penceresi
 - [x] Yeni kurulumlarda otomatik Google Sheets sync varsayılan kapalı
+- [x] GitHub draft pull request: [#1 Aşlamacı ERP V2 production web panel](https://github.com/aslamacigross/aslamaci-repricer/pull/1)
 
 ## PR Öncesi Kapsam Denetimi
 
@@ -77,15 +78,14 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Şartnamedeki panel sayfaları, kolonlar, filtreler, durumlar ve günlük yönetim akışları yeniden denetlendi
 - [x] Menekşe 312,28 TL, mapping atomic replace, Google hata koruması ve repricer safety regresyonları yeniden geçti
 - [x] Desktop, mobil, CSV, toplu maliyet ve öğrenme detayı Chrome akışları geçti
-- [ ] Kullanıcı açık onayından sonra tek draft pull request oluşturulması
+- [x] Kullanıcı açık onayından sonra tek draft pull request oluşturulması
 
 ## Devam Eden
 
-- [ ] Kullanıcı açıkça onayladıktan sonra tek draft pull request oluşturulması
+- Teknik geliştirme, preview kabulü ve draft PR teslimi tamamlandı.
 
 ## Dış Ortamda Bekleyen
 
-- [ ] `Aşlamacı ERP V2 production web panel` başlıklı draft pull request için kullanıcı onayı
 - [ ] Production DB backup/snapshot ve production dry-run migration/deploy (PR merge sonrasında ayrı işlem)
 - [ ] Railway preview deneme planı sona ermeden kalıcı plan veya ortam kapatma kararı
 
