@@ -151,26 +151,41 @@ function Remote({ url, children }) {
 }
 function Buybox({ notify }) {
   const [payload, setPayload] = useState(null),
-    [search, setSearch] = useState(""),
-    [page, setPage] = useState(1),
+    [filters, setFilters] = useState({
+      search: "",
+      status: "",
+      active: "",
+      stocked: "",
+      autoUpdate: "",
+      mode: "",
+      category: "",
+      brand: "",
+      page: 1,
+    }),
     [error, setError] = useState(null),
     [reload, setReload] = useState(0);
   useEffect(() => {
     const id = setTimeout(
       () => {
-        const query = new URLSearchParams({ page, limit: 100 });
-        if (search) query.set("search", search);
+        const query = new URLSearchParams(
+          Object.entries({ ...filters, limit: 100 }).filter(
+            ([, value]) => value !== "",
+          ),
+        );
         get(`/api/buybox?${query}`).then(setPayload).catch(setError);
       },
-      search ? 250 : 0,
+      filters.search ? 250 : 0,
     );
     return () => clearTimeout(id);
-  }, [page, search, reload]);
+  }, [filters, reload]);
   async function exportAll(columns) {
     try {
       const limit = 1000;
-      const query = new URLSearchParams({ page: 1, limit });
-      if (search) query.set("search", search);
+      const query = new URLSearchParams(
+        Object.entries({ ...filters, page: 1, limit }).filter(
+          ([, value]) => value !== "",
+        ),
+      );
       const first = await get(`/api/buybox?${query}`);
       const items = [...first.items];
       const pages = Math.ceil(first.total / limit);
@@ -198,19 +213,16 @@ function Buybox({ notify }) {
   return (
     <BuyboxTable
       payload={payload}
-      search={search}
-      setSearch={(value) => {
-        setSearch(value);
-        setPage(1);
-      }}
-      page={page}
-      setPage={setPage}
+      filters={filters}
+      setFilters={setFilters}
       onExport={exportAll}
     />
   );
 }
-function BuyboxTable({ payload, search, setSearch, page, setPage, onExport }) {
+function BuyboxTable({ payload, filters, setFilters, onExport }) {
   const [selected, setSelected] = useState(null);
+  const updateFilter = (key, value) =>
+    setFilters((current) => ({ ...current, [key]: value, page: 1 }));
   const cols = [
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
@@ -264,22 +276,106 @@ function BuyboxTable({ payload, search, setSearch, page, setPage, onExport }) {
       label: "Son kontrol",
       render: (r) => date(r.buybox_updated_at),
     },
-    { key: "last_action", label: "Önerilen aksiyon", badge: true },
+    { key: "preview_action", label: "Anlık aksiyon", badge: true },
     {
-      key: "last_proposed_price",
-      label: "Önerilen fiyat",
+      key: "preview_proposed_price",
+      label: "Anlık öneri",
       render: (r) =>
-        r.last_proposed_price == null ? "-" : money(r.last_proposed_price),
+        r.preview_proposed_price == null
+          ? "-"
+          : money(r.preview_proposed_price),
+    },
+    {
+      key: "preview_difference",
+      label: "Fark",
+      render: (r) => formatSignedMoney(r.preview_difference),
+    },
+    {
+      key: "preview_blocked_reasons",
+      label: "Engel",
+      render: (r) =>
+        r.preview_blocked_reasons?.length ? (
+          <Badge tone="danger">{r.preview_blocked_reasons.length} engel</Badge>
+        ) : (
+          <Badge tone="success">Uygun</Badge>
+        ),
+    },
+    {
+      key: "preview_reason",
+      label: "Neden",
+      render: (r) => (
+        <span title={r.preview_reason} className="table-note">
+          {r.preview_reason || "-"}
+        </span>
+      ),
     },
   ];
   return (
     <>
       <div className="filters">
         <SearchInput
-          value={search}
-          onChange={setSearch}
+          value={filters.search}
+          onChange={(value) => updateFilter("search", value)}
           placeholder="Barkod veya ürün ara"
         />
+        <input
+          value={filters.brand}
+          onChange={(event) => updateFilter("brand", event.target.value)}
+          placeholder="Marka"
+        />
+        <input
+          value={filters.category}
+          onChange={(event) => updateFilter("category", event.target.value)}
+          placeholder="Kategori adı veya ID"
+        />
+        <select
+          value={filters.status}
+          onChange={(event) => updateFilter("status", event.target.value)}
+        >
+          <option value="">Tüm durumlar</option>
+          <option value="incomplete">Veri eksik</option>
+          <option value="mapping_missing">Mapping eksik</option>
+          <option value="cost_missing">Maliyet eksik</option>
+          <option value="commission_missing">Komisyon eksik</option>
+          <option value="shipping_missing">Kargo eksik</option>
+          <option value="loss">Zararda</option>
+          <option value="below_min">Minimum fiyat altı</option>
+          <option value="buybox">Buybox bizde</option>
+          <option value="outside_buybox">Buybox değil</option>
+        </select>
+        <select
+          value={filters.active}
+          onChange={(event) => updateFilter("active", event.target.value)}
+        >
+          <option value="">Aktif / pasif</option>
+          <option value="true">Aktif</option>
+          <option value="false">Pasif</option>
+        </select>
+        <select
+          value={filters.stocked}
+          onChange={(event) => updateFilter("stocked", event.target.value)}
+        >
+          <option value="">Stok durumu</option>
+          <option value="true">Stoklu</option>
+          <option value="false">Stoksuz</option>
+        </select>
+        <select
+          value={filters.autoUpdate}
+          onChange={(event) => updateFilter("autoUpdate", event.target.value)}
+        >
+          <option value="">Auto update</option>
+          <option value="true">Açık</option>
+          <option value="false">Kapalı</option>
+        </select>
+        <select
+          value={filters.mode}
+          onChange={(event) => updateFilter("mode", event.target.value)}
+        >
+          <option value="">Tüm çalışma modları</option>
+          <option value="MANUAL">Manuel</option>
+          <option value="MONITOR">Sadece izle</option>
+          <option value="AUTOMATIC">Otomatik</option>
+        </select>
       </div>
       <div className="panel table-panel">
         <DataTable
@@ -290,10 +386,12 @@ function BuyboxTable({ payload, search, setSearch, page, setPage, onExport }) {
           onExport={onExport}
         />
         <Pagination
-          page={page}
+          page={payload.page}
           total={payload.total}
           limit={payload.limit}
-          onChange={setPage}
+          onChange={(page) =>
+            setFilters((current) => ({ ...current, page }))
+          }
         />
       </div>
       <BuyboxHistory product={selected} onClose={() => setSelected(null)} />

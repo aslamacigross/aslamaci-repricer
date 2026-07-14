@@ -9,21 +9,50 @@ function systemRoutes({
   sheets,
   sync,
   costEngine,
+  repricer,
 }) {
   const r = express.Router();
+  const productFilters = (query = {}) => ({
+    ...query,
+    active: query.active == null ? undefined : query.active === "true",
+    stocked: query.stocked == null ? undefined : query.stocked === "true",
+    autoUpdate:
+      query.autoUpdate == null ? undefined : query.autoUpdate === "true",
+  });
   r.get(
     "/buybox",
-    asyncRoute(async (req, res) =>
+    asyncRoute(async (req, res) => {
+      const result = await products.list({
+        ...productFilters(req.query),
+        status: req.query.status || undefined,
+        limit: req.query.limit || 100,
+        sort: "rank",
+      });
+      const previews = await repricer.preview(
+        result.items.map((item) => item.barcode),
+      );
+      const previewByBarcode = new Map(
+        previews.map((preview) => [preview.barcode, preview]),
+      );
       res.json({
         status: "ok",
-        ...(await products.list({
-          ...req.query,
-          status: req.query.status || undefined,
-          limit: req.query.limit || 100,
-          sort: "rank",
-        })),
-      }),
-    ),
+        ...result,
+        items: result.items.map((item) => {
+          const preview = previewByBarcode.get(item.barcode);
+          return {
+            ...item,
+            preview_action: preview?.action || "KORU",
+            preview_proposed_price: preview?.proposedPrice ?? item.my_price,
+            preview_difference: preview?.difference ?? 0,
+            preview_expected_profit: preview?.expectedProfit ?? null,
+            preview_reason: preview?.reason || "Fiyat korunuyor",
+            preview_blocked_reasons: preview?.blockedReasons || [],
+            preview_target_rank: preview?.targetRank ?? item.rank ?? null,
+            preview_effective_undercut: preview?.effectiveUndercut ?? null,
+          };
+        }),
+      });
+    }),
   );
   r.post(
     "/sync/buybox",

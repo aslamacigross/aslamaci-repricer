@@ -313,6 +313,13 @@ button:disabled {
 .link-cell:hover {
   color: var(--green);
 }
+.table-note {
+  display: block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);

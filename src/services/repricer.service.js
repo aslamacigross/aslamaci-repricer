@@ -33,7 +33,10 @@ class RepricerService {
   async candidates(barcode) {
     const params = [];
     let filter = "AND COALESCE(ps.auto_update,p.auto_update,FALSE)=TRUE";
-    if (barcode) {
+    if (Array.isArray(barcode) && barcode.length) {
+      params.push(barcode);
+      filter = "AND p.barcode=ANY($1::text[])";
+    } else if (barcode) {
       params.push(barcode);
       filter = "AND p.barcode=$1";
     }
@@ -61,6 +64,7 @@ class RepricerService {
   }
 
   async preview(barcode) {
+    if (Array.isArray(barcode) && barcode.length === 0) return [];
     const global = await this.globalSettings();
     const products = await this.candidates(barcode);
     const results = [];
