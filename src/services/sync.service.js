@@ -31,18 +31,19 @@ class SyncService {
             quantity > 0 &&
             salePrice > 0,
         );
-        await this.db.query(
-          `INSERT INTO products(
-          marketplace,barcode,product_name,brand,category_name,category_id,my_price,list_price,stock_quantity,
-          archived,locked,on_sale,approved,commission_rate,trendyol_commission_rate,base_commission_rate,
-          special_commission_active,special_commission_checked_at,special_commission_note,
-          is_active,updated_at
-        )VALUES(
-          'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,
-          FALSE,CASE WHEN $13::numeric IS NULL THEN NULL ELSE NOW() END,NULL,$14,NOW()
-        )
-        ON CONFLICT(marketplace,barcode)DO UPDATE SET product_name=EXCLUDED.product_name,brand=EXCLUDED.brand,
-        category_name=EXCLUDED.category_name,category_id=EXCLUDED.category_id,my_price=EXCLUDED.my_price,
+	        await this.db.query(
+	          `INSERT INTO products(
+	          marketplace,barcode,product_name,brand,category_name,category_id,product_image_url,my_price,list_price,stock_quantity,
+	          archived,locked,on_sale,approved,commission_rate,trendyol_commission_rate,base_commission_rate,
+	          special_commission_active,special_commission_checked_at,special_commission_note,
+	          is_active,updated_at
+	        )VALUES(
+	          'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$14,
+	          FALSE,CASE WHEN $14::numeric IS NULL THEN NULL ELSE NOW() END,NULL,$15,NOW()
+	        )
+	        ON CONFLICT(marketplace,barcode)DO UPDATE SET product_name=EXCLUDED.product_name,brand=EXCLUDED.brand,
+	        category_name=EXCLUDED.category_name,category_id=EXCLUDED.category_id,product_image_url=EXCLUDED.product_image_url,
+	        my_price=EXCLUDED.my_price,
         list_price=EXCLUDED.list_price,stock_quantity=EXCLUDED.stock_quantity,archived=EXCLUDED.archived,
         locked=EXCLUDED.locked,on_sale=EXCLUDED.on_sale,approved=EXCLUDED.approved,
         commission_rate=EXCLUDED.commission_rate,
@@ -52,13 +53,14 @@ class SyncService {
         special_commission_active=FALSE,
         special_commission_note=NULL,
         is_active=EXCLUDED.is_active,updated_at=NOW()`,
-          [
-            barcode,
-            product.title || "",
-            product.brand || "",
-            product.categoryName || "",
-            String(product.pimCategoryId || product.categoryId || ""),
-            salePrice,
+	          [
+	            barcode,
+	            product.title || "",
+	            product.brand || "",
+	            product.categoryName || "",
+	            String(product.pimCategoryId || product.categoryId || ""),
+	            product.productImageUrl || null,
+	            salePrice,
             Number(product.listPrice) || 0,
             quantity,
             Boolean(product.archived),

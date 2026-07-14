@@ -32,6 +32,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "007_active_product_guard",
       "008_api_commission_source",
       "009_remove_google_sheets_dependency",
+      "010_product_images",
     ],
   );
   const safety = await db.query(
@@ -99,15 +100,17 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "003_learning_contracts_and_operations",
       "004_market_price_verification",
       "005_operational_controls",
-      "006_special_commission_guard",
-      "007_active_product_guard",
-      "008_api_commission_source",
-    ],
-  );
-  await migrate("down", db, { compatibility: "pg-mem" });
-  await migrate("down", db, { compatibility: "pg-mem" });
-  await migrate("down", db, { compatibility: "pg-mem" });
-  const removedSpecialColumns = await db.query(
+	      "006_special_commission_guard",
+	      "007_active_product_guard",
+	      "008_api_commission_source",
+	      "009_remove_google_sheets_dependency",
+	    ],
+	  );
+	  await migrate("down", db, { compatibility: "pg-mem" });
+	  await migrate("down", db, { compatibility: "pg-mem" });
+	  await migrate("down", db, { compatibility: "pg-mem" });
+	  await migrate("down", db, { compatibility: "pg-mem" });
+	  const removedSpecialColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name='products'
        AND column_name IN('trendyol_commission_rate','base_commission_rate',

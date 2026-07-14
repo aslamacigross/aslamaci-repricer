@@ -28,6 +28,14 @@ import {
   Field,
 } from "../components/ui";
 const columns = [
+  {
+    key: "product_image_url",
+    label: "Görsel",
+    width: 62,
+    sortable: false,
+    exportable: false,
+    render: (r) => <ProductThumb product={r} />,
+  },
   { key: "barcode", label: "Barkod" },
   { key: "product_name", label: "Ürün", width: 310 },
   { key: "brand", label: "Marka" },
@@ -141,6 +149,23 @@ const columns = [
     render: (r) => date(r.updated_at),
   },
 ];
+
+function ProductThumb({ product }) {
+  if (!product?.product_image_url)
+    return <span className="product-thumb product-thumb-empty">-</span>;
+  return (
+    <img
+      className="product-thumb"
+      src={product.product_image_url}
+      alt={product.product_name || "Ürün görseli"}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
 
 function saleState(product) {
   if (product.is_active) return "Satılabilir";

@@ -228,6 +228,14 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
     setPreviewDetail(buyboxPreviewDetail(row));
   };
   const cols = [
+    {
+      key: "product_image_url",
+      label: "Görsel",
+      width: 62,
+      sortable: false,
+      exportable: false,
+      render: (r) => <ProductThumb product={r} />,
+    },
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
     { key: "strategy", label: "Öğrenilen strateji" },
@@ -430,6 +438,23 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
         onClose={() => setPreviewDetail(null)}
       />
     </>
+  );
+}
+
+function ProductThumb({ product }) {
+  if (!product?.product_image_url)
+    return <span className="product-thumb product-thumb-empty">-</span>;
+  return (
+    <img
+      className="product-thumb"
+      src={product.product_image_url}
+      alt={product.product_name || "Ürün görseli"}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
   );
 }
 

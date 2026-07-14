@@ -29,7 +29,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "009_remove_google_sheets_dependency" }],
+                  : [{ version: "010_product_images" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },

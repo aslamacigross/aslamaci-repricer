@@ -21,7 +21,7 @@ const { repricerRoutes } = require("./routes/repricer.routes");
 const { systemRoutes } = require("./routes/system.routes");
 
 const APP_VERSION = "2.0.0";
-const REQUIRED_MIGRATION = "009_remove_google_sheets_dependency";
+const REQUIRED_MIGRATION = "010_product_images";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);

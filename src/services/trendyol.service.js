@@ -57,6 +57,27 @@ class TrendyolService {
     }
     throw lastError;
   }
+  firstImageUrl(product, variant = {}) {
+    const sources = [
+      variant.images,
+      variant.imageUrls,
+      variant.productImages,
+      product.images,
+      product.imageUrls,
+      product.productImages,
+    ];
+    for (const source of sources) {
+      const list = Array.isArray(source) ? source : source ? [source] : [];
+      for (const item of list) {
+        const url =
+          typeof item === "string"
+            ? item
+            : item?.url || item?.imageUrl || item?.path || item?.thumbnailUrl;
+        if (url) return String(url);
+      }
+    }
+    return variant.imageUrl || product.imageUrl || product.image || null;
+  }
   normalizeProductPage(data) {
     const content = [];
     for (const product of data.content || []) {
@@ -83,13 +104,14 @@ class TrendyolService {
           listPrice: variant.price?.listPrice ?? variant.listPrice,
           priceSeenByCustomer:
             variant.price?.priceSeenByCustomer ?? variant.priceSeenByCustomer,
-          commission: variant.commission ?? product.commission,
-          quantity: variant.stock?.quantity ?? variant.quantity,
-          approved: variant.approved ?? product.approved ?? true,
-          archived: variant.archived ?? product.archived ?? false,
-          locked: variant.locked ?? product.locked ?? false,
-          onSale: variant.onSale ?? product.onSale ?? false,
-        });
+	          commission: variant.commission ?? product.commission,
+	          quantity: variant.stock?.quantity ?? variant.quantity,
+	          approved: variant.approved ?? product.approved ?? true,
+	          archived: variant.archived ?? product.archived ?? false,
+	          locked: variant.locked ?? product.locked ?? false,
+	          onSale: variant.onSale ?? product.onSale ?? false,
+	          productImageUrl: this.firstImageUrl(product, variant),
+	        });
       }
     }
     const currentPage = Number(data.page || 0);
