@@ -122,6 +122,47 @@ test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   assert.equal(saved.length, 0);
 });
 
+test("kardeş File varyantının fiyatını uyarılı ve kontrollü önerir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "ZEYTIN",
+        product_name: "Daycare Zeytin Çiçeği Kolonya 100 ml",
+        brand: "Daycare",
+        category_id: "123",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        barcode: "KIRAZ",
+        product_name: "Daycare Kiraz Çiçeği Kolonya 100 ml",
+        brand: "Daycare",
+        category_id: "123",
+        cost_item_code: "DAYCARE_SPREY_KOLONYA_100ML",
+        item_name: "Daycare Sprey Kolonya 100 ml",
+        quantity: 1,
+        unit_cost: 45,
+        unit_desi: 0.2,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 9,
+        product_name: "Daycare Kiraz Çiçeği Kolonya 100 ml",
+        brand: "Daycare",
+        current_price: 45,
+      },
+    ],
+  });
+  const result = await service.generate({ limit: 100 });
+  assert.equal(result.eligible, 1);
+  assert.equal(saved[0].confidence_band, "REVIEW");
+  assert.equal(saved[0].evidence.variantPriceInferred, true);
+  assert.equal(saved[0].evidence.fileMatches[0].priceMode, "SIBLING_VARIANT");
+});
+
 test("30 günden eski File fiyatıyla toplu uygulama önizlemesini engeller", async () => {
   const { service } = fixture({
     getSuggestionsByIds: async () => [

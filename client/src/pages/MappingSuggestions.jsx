@@ -86,6 +86,10 @@ function suggestionSummary(row) {
     .join(" + ");
 }
 
+function hasVariantPrice(row) {
+  return Boolean(row.evidence?.variantPriceInferred);
+}
+
 export default function MappingSuggestions({ view, notify }) {
   return view === "file" ? (
     <FileMarketPool notify={notify} />
@@ -205,10 +209,19 @@ function SuggestionQueue({ notify }) {
       {
         key: "file_product_name",
         label: "File ürünü",
-        render: (row) =>
-          row.file_product_name ||
-          row.items.find((item) => item.file_product_name)?.file_product_name ||
-          "-",
+        render: (row) => (
+          <div className="confidence-cell">
+            <span>
+              {row.file_product_name ||
+                row.items.find((item) => item.file_product_name)
+                  ?.file_product_name ||
+                "-"}
+            </span>
+            {hasVariantPrice(row) && (
+              <Badge tone="warning">Varyant fiyatı</Badge>
+            )}
+          </div>
+        ),
       },
       {
         key: "file_current_price",
@@ -237,13 +250,15 @@ function SuggestionQueue({ notify }) {
         key: "source_type",
         label: "Kaynak",
         render: (row) =>
-          row.source_type === "MANUAL_HISTORY_AND_FILE"
-            ? "Eski mapping + File"
-            : row.source_type === "MANUAL_HISTORY"
-              ? "Eski mapping"
-              : row.source_type === "FILE_MARKET"
-                ? "File + maliyet kataloğu"
-                : "Maliyet kataloğu",
+          hasVariantPrice(row)
+            ? "Eski mapping + kardeş varyant"
+            : row.source_type === "MANUAL_HISTORY_AND_FILE"
+              ? "Eski mapping + File"
+              : row.source_type === "MANUAL_HISTORY"
+                ? "Eski mapping"
+                : row.source_type === "FILE_MARKET"
+                  ? "File + maliyet kataloğu"
+                  : "Maliyet kataloğu",
       },
       {
         key: "status",
@@ -490,7 +505,13 @@ function SuggestionDrawer({ suggestion, onClose, onChanged, notify }) {
                   <strong>{item.item_name || item.cost_item_code}</strong>
                   <Badge tone={item.file_market_item_id ? "info" : "neutral"}>
                     {item.file_market_item_id
-                      ? "File fiyatı bulundu"
+                      ? evidence.fileMatches?.find(
+                          (match) =>
+                            match.costItemCode === item.cost_item_code &&
+                            match.priceMode === "SIBLING_VARIANT",
+                        )
+                        ? "Varyant fiyatından türetildi"
+                        : "File fiyatı bulundu"
                       : "Mevcut fiyat"}
                   </Badge>
                 </div>
@@ -578,6 +599,13 @@ function SuggestionDrawer({ suggestion, onClose, onChanged, notify }) {
                 <DatabaseZap size={15} />
                 <span>Örnek alınan eski ürün</span>
                 <b>{evidence.sourceProductName}</b>
+              </div>
+            )}
+            {evidence.variantPriceInferred && (
+              <div>
+                <DatabaseZap size={15} />
+                <span>Kardeş varyant fiyatı kullanıldı</span>
+                <b>Aynı aile ve ölçü, farklı koku / aroma</b>
               </div>
             )}
           </div>

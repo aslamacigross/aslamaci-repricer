@@ -29,9 +29,13 @@ Motor önce mevcut `product_cost_mappings` kayıtlarından doğrulanmış reçet
 
 File ürünü eşleşmesi güncel birim maliyet önerir. Fiyat uygulanırsa `cost_items.previous_unit_cost` eski değeri, `price_source=FILE_MARKET` kaynağı ve gözlem zamanı saklanır.
 
+File'da aynı marka, ürün ailesi ve ölçüde yalnız kardeş varyant görünüyorsa bu fiyat kontrollü bir kanıt olarak kullanılabilir. Örneğin 100 ml Kiraz Çiçeği kolonyanın fiyatı aynı ailedeki 100 ml Zeytin Çiçeği için önerilebilir. Bu satır `Varyant fiyatı` rozeti taşır, gerekçede açıkça belirtilir ve güveni hiçbir zaman `Yüksek güven` düzeyine çıkmaz.
+
 ## Güvenlik Kuralları
 
 - Yalnız aktif ve `MAPPING_MISSING` durumundaki Trendyol ürünleri hedeflenir.
+- Yalnız File fiyat havuzunda bulunan marka kapsamı ve gerçek bir File fiyat desteği olan adaylar kaydedilir.
+- Kardeş varyanttan türetilen fiyat kullanıcı kontrolü gerektirir; doğrudan eşleşme gibi gösterilmez.
 - Bekleyen öneriyi onaylamak hiçbir veriyi değiştirmez.
 - Yalnız onaylı öneriler toplu önizlenebilir.
 - Önizleme sonrasında öneri veya File fiyatı değişirse uygulama reddedilir.

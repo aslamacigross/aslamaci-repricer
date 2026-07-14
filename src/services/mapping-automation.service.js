@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { AppError } = require("../utils/errors");
 const {
   normalizeText,
+  tokens,
   extractPackCount,
   extractSizes,
   compareProducts,
@@ -13,7 +14,48 @@ const {
   isFilePriceFresh,
 } = require("../domain/file-market");
 
-const ALGORITHM_VERSION = "manual-history-file-v2";
+const ALGORITHM_VERSION = "manual-history-file-v3";
+
+const PRODUCT_FAMILY_TOKENS = new Set([
+  "actisoft",
+  "aromali",
+  "bahcesi",
+  "daycare",
+  "harras",
+  "bulasik",
+  "camasir",
+  "cikolata",
+  "cicegi",
+  "dus",
+  "jeli",
+  "kolonya",
+  "konsantre",
+  "kokulu",
+  "kokusu",
+  "makinesi",
+  "meyve",
+  "oda",
+  "parfum",
+  "sabun",
+  "sivi",
+  "suyu",
+  "temizleyici",
+  "yumusatici",
+  "yuzey",
+]);
+
+function filePriceMode(target, fileItem) {
+  const targetVariants = tokens(target.product_name || target.item_name).filter(
+    (token) => !PRODUCT_FAMILY_TOKENS.has(token),
+  );
+  const fileVariants = tokens(
+    fileItem.product_name || fileItem.item_name,
+  ).filter((token) => !PRODUCT_FAMILY_TOKENS.has(token));
+  if (!targetVariants.length || !fileVariants.length) return "DIRECT";
+  return targetVariants.some((token) => fileVariants.includes(token))
+    ? "DIRECT"
+    : "SIBLING_VARIANT";
+}
 
 function parsePrice(value) {
   if (typeof value === "number") return value;
@@ -154,7 +196,13 @@ class MappingAutomationService {
       const targetMatch = compareProducts(target, fileItem);
       const score = itemMatch.score * 0.65 + targetMatch.score * 0.35;
       if (!best || score > best.score)
-        best = { item: fileItem, score, itemMatch, targetMatch };
+        best = {
+          item: fileItem,
+          score,
+          itemMatch,
+          targetMatch,
+          priceMode: filePriceMode(target, fileItem),
+        };
     }
     return best && best.score >= 0.36 ? best : null;
   }
@@ -170,6 +218,7 @@ class MappingAutomationService {
           : Number(item.current_unit_cost),
         file_match_score: fileMatch ? Number(fileMatch.score.toFixed(5)) : null,
         file_product_name: fileMatch?.item.product_name || null,
+        file_price_mode: fileMatch?.priceMode || null,
       };
     });
   }
@@ -189,10 +238,16 @@ class MappingAutomationService {
       ? supported.reduce((sum, item) => sum + item.file_match_score, 0) /
         items.length
       : 0;
-    const confidence = Math.min(
+    const rawConfidence = Math.min(
       1,
       best.comparison.score * 0.9 + fileSupport * 0.1,
     );
+    const variantPriceInferred = items.some(
+      (item) => item.file_price_mode === "SIBLING_VARIANT",
+    );
+    const confidence = variantPriceInferred
+      ? Math.min(rawConfidence, 0.919)
+      : rawConfidence;
     return {
       confidence,
       source_type: supported.length
@@ -211,7 +266,9 @@ class MappingAutomationService {
             costItemCode: item.cost_item_code,
             fileProductName: item.file_product_name,
             score: item.file_match_score,
+            priceMode: item.file_price_mode,
           })),
+        variantPriceInferred,
       },
     };
   }
@@ -240,11 +297,15 @@ class MappingAutomationService {
       fileItems,
     );
     const fileSupport = items[0].file_match_score || 0;
+    const variantPriceInferred = items[0].file_price_mode === "SIBLING_VARIANT";
+    const rawConfidence = Math.min(
+      1,
+      best.comparison.score * 0.85 + fileSupport * 0.15,
+    );
     return {
-      confidence: Math.min(
-        1,
-        best.comparison.score * 0.85 + fileSupport * 0.15,
-      ),
+      confidence: variantPriceInferred
+        ? Math.min(rawConfidence, 0.919)
+        : rawConfidence,
       source_type: items[0].file_market_item_id
         ? "FILE_MARKET"
         : "COST_ITEM_CATALOG",
@@ -259,9 +320,11 @@ class MappingAutomationService {
                 costItemCode: items[0].cost_item_code,
                 fileProductName: items[0].file_product_name,
                 score: items[0].file_match_score,
+                priceMode: items[0].file_price_mode,
               },
             ]
           : [],
+        variantPriceInferred,
       },
     };
   }

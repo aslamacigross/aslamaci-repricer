@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 86/86 başarılı
+- [x] Unit/integration/regression testleri: 89/89 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -53,9 +53,9 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
-- [x] React bileşen testleri: 7/7 başarılı
+- [x] React bileşen testleri: 8/8 başarılı
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 5/5 başarılı
-- [x] Backend testleri: 86/86 başarılı
+- [x] Backend testleri: 89/89 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -77,6 +77,7 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] İlk hedefli fiyat toplama turu: yalnız Harras, Actisoft ve Daycare markalarından 151 ürün
 - [x] Manuel mapping geçmişi, ürün adı, marka, kategori, gramaj ve paket adedi kullanan öneri motoru
 - [x] Yüksek / kontrol gerekli / düşük güven bantları ve açıklanabilir kanıtlar
+- [x] Kardeş File varyantı fiyatını uyarı rozetiyle ve en fazla kontrol düzeyinde önerme
 - [x] Onay ile uygulamayı ayıran toplu önizleme, parmak izi ve transaction güvenliği
 - [x] 30 günden eski File fiyatını maliyet güncellemesinde engelleme
 - [x] Akıllı mapping ve File havuzu için masaüstü/mobil panel

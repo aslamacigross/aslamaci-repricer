@@ -125,6 +125,8 @@ Mapping ekranı tüm mapping kümesini alıp 100 satırlık sayfalara böler. Bu
 
 `Ürün Mapping` sayfası üç çalışma yüzeyi içerir: mevcut mappingler, akıllı öneriler ve File fiyat havuzu. File uygulamasından gözlenen ürün adı/fiyat kayıtları havuza yüklendikten sonra öneri motoru mevcut onaylı mapping reçetelerini eğitim örneği olarak kullanır; ürün adı, marka, gramaj/hacim, kategori ve paket adedini karşılaştırır. Örneğin iki adetlik eski reçete, aynı fiziksel ürünün dört adetlik Trendyol başlığında dört adede ölçeklenir.
 
+Aynı marka, ürün ailesi ve ölçüdeki farklı koku/aroma varyantları File'da aynı fiyatı taşıyorsa motor bunu `Varyant fiyatı` olarak açıkça işaretler. Bu tür çıkarımlar en fazla `Kontrol gerekli` güven düzeyinde kalır ve kullanıcı onayı olmadan uygulanmaz.
+
 Öneriyi onaylamak veriyi değiştirmez. Yalnız `Onaylandı` durumundaki satırlar toplu önizleme ve ikinci bir uygulama adımından sonra transaction içinde mappinge çevrilir; ürün maliyetleri aynı transactionda yeniden hesaplanır. File fiyatı 30 günden eskiyse maliyet güncellemesi engellenir. Ayrıntılı işletim akışı [MAPPING_AUTOMATION.md](MAPPING_AUTOMATION.md) dosyasındadır.
 
 ## Railway

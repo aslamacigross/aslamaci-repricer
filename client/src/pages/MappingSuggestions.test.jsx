@@ -85,4 +85,37 @@ describe("Akıllı mapping paneli", () => {
       expect.anything(),
     );
   });
+
+  test("kardeş varyant fiyatını tabloda ve detayda açıkça işaretler", async () => {
+    const user = userEvent.setup();
+    get.mockResolvedValue({
+      data: {
+        items: [
+          {
+            ...suggestion,
+            confidence: 0.919,
+            confidence_band: "REVIEW",
+            evidence: {
+              ...suggestion.evidence,
+              variantPriceInferred: true,
+              fileMatches: [
+                {
+                  costItemCode: "YUMUSATICI_ACTISOFT_1500ML",
+                  priceMode: "SIBLING_VARIANT",
+                },
+              ],
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 50,
+      },
+    });
+    render(<MappingSuggestions view="suggestions" notify={vi.fn()} />);
+    expect(await screen.findByText("Varyant fiyatı")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Öneriyi incele" }));
+    expect(screen.getByText("Varyant fiyatından türetildi")).toBeVisible();
+    expect(screen.getByText("Kardeş varyant fiyatı kullanıldı")).toBeVisible();
+  });
 });
