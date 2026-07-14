@@ -82,6 +82,9 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] 30 günden eski File fiyatını maliyet güncellemesinde engelleme
 - [x] Akıllı mapping ve File havuzu için masaüstü/mobil panel
 - [x] Mapping önerisi üretme jobu; varsayılan kapalı
+- [x] Preview fiyat havuzu kabulü: 151 File ürünü, yalnız Harras/Actisoft/Daycare
+- [x] Gerçek preview öneri kabulü: 33 aday; 2 yüksek, 17 kontrol, 14 düşük güven
+- [x] Kardeş varyant kabulü: 13 uyarılı öneri ve hatalı `x 300` paket adedi bulunmaması
 
 ## PR Öncesi Kapsam Denetimi
 
@@ -91,9 +94,9 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] Desktop, mobil, CSV, toplu maliyet ve öğrenme detayı Chrome akışları geçti
 - [x] Kullanıcı açık onayından sonra tek draft pull request oluşturulması
 
-## Devam Eden
+## Kullanıcı İncelemesi
 
-- File fiyat havuzu ve akıllı mapping özelliğinin branch push/preview kabulü sürüyor.
+- Preview'da 33 öneri kullanıcı incelemesine hazırdır; hiçbir öneri onaylanmadı veya mappinge uygulanmadı.
 
 ## Dış Ortamda Bekleyen
 

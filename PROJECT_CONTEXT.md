@@ -95,3 +95,4 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - `009_remove_google_sheets_dependency` migrationı Sheets import/export joblarını ve ilgili sistem ayarlarını kaldırır.
 - GitHub PR #1 açık, draft, merge edilmemiş ve `main <- feature/aslamaci-erp-v2` yönünde birleştirilebilir durumdadır.
 - File Mac uygulamasındaki maliyet kalemleri alternatif arama ve kategori gezintisiyle tarandı; yalnız hedeflenen Harras, Actisoft ve Daycare markalarından 151 güncel ürün gözlemi preview fiyat havuzuna aktarıldı.
+- Sıkılaştırılmış öneri motorunun gerçek preview kabulünde 33 aday üretildi: 2 yüksek, 17 kontrol gerekli, 14 düşük güven; 13 satır kardeş varyant fiyatı olarak uyarılıdır ve hiçbir mapping uygulanmamıştır.
