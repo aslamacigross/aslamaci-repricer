@@ -449,8 +449,8 @@ class MappingAutomationRepository {
         suggestion.confidence_band,
         suggestion.learning_adjustment || 0,
         suggestion.source_type,
-        items,
-        suggestion.evidence || {},
+        JSON.stringify(items),
+        JSON.stringify(suggestion.evidence || {}),
         input.reason || null,
       ],
     );
@@ -470,13 +470,13 @@ class MappingAutomationRepository {
         learningKey,
         decision === "APPROVED" ? 1 : 0,
         decision === "REJECTED" ? 1 : 0,
-        {
+        JSON.stringify({
           barcode: suggestion.barcode,
           brand: suggestion.product_snapshot?.brand || null,
           categoryId: suggestion.product_snapshot?.category_id || null,
           sourceType: suggestion.source_type,
           costItemCodes: items.map((item) => item.cost_item_code),
-        },
+        }),
         decision,
       ],
     );
