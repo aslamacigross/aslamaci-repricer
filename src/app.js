@@ -22,7 +22,7 @@ const { systemRoutes } = require("./routes/system.routes");
 const { legacyRoutes } = require("./routes/legacy.routes");
 
 const APP_VERSION = "2.0.0";
-const REQUIRED_MIGRATION = "005_operational_controls";
+const REQUIRED_MIGRATION = "006_special_commission_guard";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);

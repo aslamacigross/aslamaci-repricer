@@ -239,10 +239,31 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       label: "Komisyon",
       render: (r) =>
         r.special_commission_active ? (
-          <Badge tone="info">Özel komisyon</Badge>
+          <span
+            title={`API: ${percent(r.trendyol_commission_rate)} / Manuel: ${percent(r.base_commission_rate || r.commission_rate)}`}
+          >
+            <Badge tone="info">Özel komisyon</Badge>
+          </span>
         ) : (
-          <Badge tone="neutral">Normal</Badge>
+          <span
+            title={`API: ${r.trendyol_commission_rate == null ? "-" : percent(r.trendyol_commission_rate)} / Manuel: ${percent(r.base_commission_rate || r.commission_rate)}`}
+          >
+            <Badge tone="neutral">Normal</Badge>
+          </span>
         ),
+    },
+    {
+      key: "trendyol_commission_rate",
+      label: "API kom.",
+      render: (r) =>
+        r.trendyol_commission_rate == null
+          ? "-"
+          : percent(r.trendyol_commission_rate),
+    },
+    {
+      key: "commission_rate",
+      label: "Manuel kom.",
+      render: (r) => percent(r.base_commission_rate || r.commission_rate),
     },
     { key: "my_price", label: "Mevcut", render: (r) => money(r.my_price) },
     {
@@ -375,6 +396,7 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
           <option value="mapping_missing">Mapping eksik</option>
           <option value="cost_missing">Maliyet eksik</option>
           <option value="commission_missing">Komisyon eksik</option>
+          <option value="special_commission">Özel komisyon</option>
           <option value="shipping_missing">Kargo eksik</option>
           <option value="loss">Zararda</option>
           <option value="below_min">Minimum fiyat altı</option>

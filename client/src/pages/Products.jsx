@@ -46,8 +46,16 @@ const columns = [
   { key: "my_price", label: "Fiyat", render: (r) => money(r.my_price) },
   {
     key: "commission_rate",
-    label: "Komisyon",
+    label: "Manuel komisyon",
     render: (r) => percent(r.commission_rate),
+  },
+  {
+    key: "trendyol_commission_rate",
+    label: "API komisyon",
+    render: (r) =>
+      r.trendyol_commission_rate == null
+        ? "-"
+        : percent(r.trendyol_commission_rate),
   },
   {
     key: "special_commission_active",
@@ -283,6 +291,7 @@ export default function Products({ notify }) {
           <option value="mapping_missing">Mapping eksik</option>
           <option value="cost_missing">Maliyet eksik</option>
           <option value="commission_missing">Komisyon eksik</option>
+          <option value="special_commission">Özel komisyon</option>
           <option value="shipping_missing">Kargo eksik</option>
           <option value="loss">Zararda</option>
           <option value="below_min">Minimum fiyat altı</option>

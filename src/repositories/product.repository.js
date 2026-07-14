@@ -68,6 +68,8 @@ class ProductRepository {
       );
     if (filters.status === "commission_missing")
       where.push("(p.commission_rate IS NULL OR p.commission_rate<=0)");
+    if (filters.status === "special_commission")
+      where.push("p.special_commission_active=TRUE");
     if (filters.status === "shipping_missing")
       where.push("p.calculated_shipping_cost<=0");
     if (filters.status === "loss") where.push("p.calculated_net_profit < 0");
