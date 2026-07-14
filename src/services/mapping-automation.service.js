@@ -13,7 +13,7 @@ const {
   isFilePriceFresh,
 } = require("../domain/file-market");
 
-const ALGORITHM_VERSION = "manual-history-file-v1";
+const ALGORITHM_VERSION = "manual-history-file-v2";
 
 function parsePrice(value) {
   if (typeof value === "number") return value;
@@ -274,8 +274,19 @@ class MappingAutomationService {
       this.repository.costItemsForMatching(),
     ]);
     const examples = this.groupTrainingRows(trainingRows);
+    const fileBrands = new Set(
+      fileItems.map((item) => normalizeText(item.brand)).filter(Boolean),
+    );
     const suggestions = [];
+    let scoped = 0;
     for (const target of targets) {
+      const targetBrand = normalizeText(target.brand);
+      const targetName = normalizeText(target.product_name);
+      const belongsToFileBrand =
+        fileBrands.has(targetBrand) ||
+        [...fileBrands].some((brand) => targetName.includes(brand));
+      if (!belongsToFileBrand) continue;
+      scoped++;
       const fromTraining = this.buildFromTraining(target, examples, fileItems);
       const candidate =
         fromTraining || this.buildFromCostItems(target, costItems, fileItems);
@@ -289,6 +300,7 @@ class MappingAutomationService {
             .filter(Boolean),
         ),
       ];
+      if (!fileIds.length) continue;
       const suggestion = {
         barcode: target.barcode,
         confidence,
@@ -305,9 +317,13 @@ class MappingAutomationService {
       suggestion.fingerprint = hashValue(canonicalSuggestion(suggestion));
       suggestions.push(suggestion);
     }
-    const saved = await this.repository.saveSuggestions(suggestions);
+    const saved = await this.repository.saveSuggestions(
+      suggestions,
+      targets.map((target) => target.barcode),
+    );
     return {
       processed: targets.length,
+      scoped,
       eligible: suggestions.length,
       filePoolSize: fileItems.length,
       trainingProductCount: examples.length,

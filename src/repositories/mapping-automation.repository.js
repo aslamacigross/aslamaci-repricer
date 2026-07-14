@@ -176,26 +176,33 @@ class MappingAutomationRepository {
     ).rows;
   }
 
-  async saveSuggestions(suggestions) {
-    if (!suggestions.length)
-      return { created: 0, skippedApproved: 0, items: [] };
+  async saveSuggestions(suggestions, evaluatedBarcodes = []) {
+    const evaluated = [
+      ...new Set([
+        ...evaluatedBarcodes,
+        ...suggestions.map((suggestion) => suggestion.barcode),
+      ]),
+    ];
+    if (!evaluated.length) return { created: 0, skippedApproved: 0, items: [] };
     return this.withTransaction(async (client) => {
       const barcodes = suggestions.map((suggestion) => suggestion.barcode);
       const approved = new Set(
-        (
-          await client.query(
-            `SELECT barcode FROM mapping_suggestions
+        barcodes.length
+          ? (
+              await client.query(
+                `SELECT barcode FROM mapping_suggestions
              WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
                AND status='APPROVED'`,
-            [barcodes],
-          )
-        ).rows.map((row) => row.barcode),
+                [barcodes],
+              )
+            ).rows.map((row) => row.barcode)
+          : [],
       );
       await client.query(
         `UPDATE mapping_suggestions SET status='STALE',updated_at=NOW()
          WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
            AND status='PENDING'`,
-        [barcodes],
+        [evaluated],
       );
       const saved = [];
       for (const suggestion of suggestions) {

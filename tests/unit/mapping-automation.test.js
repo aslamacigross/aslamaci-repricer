@@ -7,6 +7,7 @@ const {
 
 function fixture(overrides = {}) {
   const saved = [];
+  const evaluated = [];
   const repository = {
     targetProducts: async () => [
       {
@@ -40,14 +41,16 @@ function fixture(overrides = {}) {
       },
     ],
     costItemsForMatching: async () => [],
-    saveSuggestions: async (rows) => {
+    saveSuggestions: async (rows, barcodes = []) => {
       saved.push(...rows);
+      evaluated.push(...barcodes);
       return { created: rows.length, skippedApproved: 0, items: rows };
     },
     ...overrides,
   };
   return {
     saved,
+    evaluated,
     service: new MappingAutomationService({
       repository,
       costs: { validateMappings: async () => ({ valid: true, errors: [] }) },
@@ -73,7 +76,7 @@ test("File import satırını stabil anahtar ve gramajla normalize eder", () => 
 });
 
 test("geçmiş mappingi File fiyatıyla destekleyip hedef adede ölçekler", async () => {
-  const { service, saved } = fixture();
+  const { service, saved, evaluated } = fixture();
   const result = await service.generate({ limit: 100 });
   assert.equal(result.created, 1);
   assert.equal(saved[0].barcode, "TARGET");
@@ -82,6 +85,41 @@ test("geçmiş mappingi File fiyatıyla destekleyip hedef adede ölçekler", asy
   assert.equal(saved[0].source_barcode, "SOURCE");
   assert.ok(saved[0].confidence >= 0.9);
   assert.match(saved[0].source_type, /MANUAL_HISTORY/);
+  assert.deepEqual(evaluated, ["TARGET"]);
+});
+
+test("File havuzundaki markalar dışındaki ürünlere öneri üretmez", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "OTHER",
+        product_name: "Yaban Mersinli Bitki Çayı 4 Paket",
+        brand: "Teekanne",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+  });
+  const result = await service.generate({ limit: 100 });
+  assert.equal(result.scoped, 0);
+  assert.equal(result.eligible, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
+  const { service, saved } = fixture({
+    fileItemsForMatching: async () => [
+      {
+        id: 8,
+        product_name: "Harras Sütlü Çikolata 80 g",
+        brand: "Harras",
+        current_price: 47,
+      },
+    ],
+  });
+  const result = await service.generate({ limit: 100 });
+  assert.equal(result.eligible, 0);
+  assert.equal(saved.length, 0);
 });
 
 test("30 günden eski File fiyatıyla toplu uygulama önizlemesini engeller", async () => {

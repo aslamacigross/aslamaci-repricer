@@ -21,6 +21,8 @@ test("paket adedini farklı Trendyol başlık biçimlerinden çıkarır", () => 
   assert.equal(extractPackCount("Çay 4 Paket x 20 Süzen Poşet"), 4);
   assert.equal(extractPackCount("Meyve Suyu 20 x 200 ml"), 20);
   assert.equal(extractPackCount("Sıvı Sabun 3’lü"), 3);
+  assert.equal(extractPackCount("3 Adet X 300 ml Oda Kokusu"), 3);
+  assert.equal(extractPackCount("Oda Kokusu 300 ml x 3 Adet"), 3);
 });
 
 test("ml litre gram ve kilogramı ortak temel birime çevirir", () => {

@@ -62,11 +62,9 @@ function normalizeText(value) {
 function extractPackCount(value) {
   const text = normalizeText(value);
   const patterns = [
-    /\b(\d+(?:[.,]\d+)?)\s*paket\s*x\s*\d+\b/,
+    /\b(\d+(?:[.,]\d+)?)\s*(?:adet|paket)\b/,
     /\b(\d+(?:[.,]\d+)?)\s*x\s*\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\b/,
     /\b\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\s*x\s*(\d+(?:[.,]\d+)?)\s*(?:adet|paket)?\b/,
-    /\bx\s*(\d+(?:[.,]\d+)?)\s*(?:adet|paket)?\b/,
-    /\b(\d+(?:[.,]\d+)?)\s*(?:adet|paket)\b/,
     /\b(\d+)\s*(?:li|lu)\b/,
   ];
   for (const pattern of patterns) {
