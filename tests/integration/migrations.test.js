@@ -34,6 +34,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "009_remove_google_sheets_dependency",
       "010_product_images",
       "011_file_market_mapping_automation",
+      "012_mapping_feedback_learning",
     ],
   );
   const safety = await db.query(
@@ -54,6 +55,15 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   assert.equal(mappingJob.rowCount, 1);
   assert.equal(mappingJob.rows[0].enabled, false);
   assert.equal(Number(mappingJob.rows[0].schedule_minutes), 1440);
+  const mappingLearningTables = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN('mapping_feedback_events','mapping_learning_profiles')
+     ORDER BY table_name`,
+  );
+  assert.deepEqual(
+    mappingLearningTables.rows.map((row) => row.table_name),
+    ["mapping_feedback_events", "mapping_learning_profiles"],
+  );
   const contracts = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('buybox_history','price_change_outcomes','repricer_results')
@@ -112,8 +122,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "008_api_commission_source",
       "009_remove_google_sheets_dependency",
       "010_product_images",
+      "011_file_market_mapping_automation",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

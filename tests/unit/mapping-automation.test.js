@@ -41,6 +41,7 @@ function fixture(overrides = {}) {
       },
     ],
     costItemsForMatching: async () => [],
+    learningProfiles: async () => [],
     saveSuggestions: async (rows, barcodes = []) => {
       saved.push(...rows);
       evaluated.push(...barcodes);

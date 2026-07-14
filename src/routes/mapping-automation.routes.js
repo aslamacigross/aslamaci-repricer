@@ -54,6 +54,15 @@ function mappingAutomationRoutes({ mappingAutomation, audit }) {
       }),
     ),
   );
+  router.get(
+    "/mapping-learning/feedback",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.listLearningFeedback(req.query),
+      }),
+    ),
+  );
   router.post(
     "/mapping-suggestions/bulk-preview",
     asyncRoute(async (req, res) =>

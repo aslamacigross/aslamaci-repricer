@@ -10,6 +10,7 @@ import {
   Eye,
   TriangleAlert,
   GitBranch,
+  BrainCircuit,
   Sparkles,
   Store,
 } from "lucide-react";
@@ -135,6 +136,12 @@ export default function Costs({ mode, notify }) {
             onClick={() => setMappingView("file")}
           >
             <Store /> File fiyat havuzu
+          </button>
+          <button
+            className={mappingView === "learning" ? "active" : ""}
+            onClick={() => setMappingView("learning")}
+          >
+            <BrainCircuit /> Karar geçmişi
           </button>
         </div>
       )}

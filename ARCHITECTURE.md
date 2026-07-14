@@ -84,12 +84,14 @@ flowchart LR
   PRODUCTS["Aktif mapping eksiği ürünler"] --> MATCH
   MATCH --> QUEUE["Güven skorlu öneri kuyruğu"]
   QUEUE --> REVIEW["Kullanıcı inceleme ve onayı"]
+  REVIEW --> FEEDBACK["Onay / ret olay günlüğü ve öğrenme profili"]
+  FEEDBACK --> MATCH
   REVIEW --> PREVIEW["Toplu güncel önizleme"]
   PREVIEW --> TX["Transaction: mapping + maliyet + desi hesabı"]
   TX --> DB[(PostgreSQL)]
 ```
 
-Eşleştirme motoru ürün adlarını Türkçe karakterlerden bağımsız normalize eder; marka, kategori, hacim/gramaj ve paket adedi sinyallerini ayrı ağırlıklarla değerlendirir. Yüksek güven önerisi dahi kendiliğinden uygulanmaz. Onay, önizleme ve uygulama ayrı durumlardır; hedef ürünün hâlâ aktif ve mapping eksik olması, cost code'ların geçerli olması ve kullanılacak File fiyatının en fazla 30 günlük olması uygulama anında yeniden denetlenir.
+Eşleştirme motoru ürün adlarını Türkçe karakterlerden bağımsız normalize eder; marka, kategori, hacim/gramaj ve paket adedi sinyallerini ayrı ağırlıklarla değerlendirir. Her onay ve ret immutable geri bildirim olayına yazılır; marka, kategori, cost code ve File fiyat eşleşme türünden oluşan öğrenme profili sonraki güven skoruna Bayes tipi yumuşatılmış ve en fazla artı/eksi 25 puanlık etki yapar. Yüksek güven önerisi dahi kendiliğinden uygulanmaz. Onay, önizleme ve uygulama ayrı durumlardır; hedef ürünün hâlâ aktif ve mapping eksik olması, cost code'ların geçerli olması ve kullanılacak File fiyatının en fazla 30 günlük olması uygulama anında yeniden denetlenir.
 
 ## Operasyon Kontrolleri
 

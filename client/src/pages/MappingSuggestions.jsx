@@ -91,10 +91,144 @@ function hasVariantPrice(row) {
 }
 
 export default function MappingSuggestions({ view, notify }) {
-  return view === "file" ? (
-    <FileMarketPool notify={notify} />
-  ) : (
-    <SuggestionQueue notify={notify} />
+  if (view === "file") return <FileMarketPool notify={notify} />;
+  if (view === "learning") return <MappingLearningHistory />;
+  return <SuggestionQueue notify={notify} />;
+}
+
+function learningImpact(value) {
+  const points = Number(value || 0) * 100;
+  return `${points > 0 ? "+" : ""}${points.toLocaleString("tr-TR", {
+    maximumFractionDigits: 2,
+  })} puan`;
+}
+
+function MappingLearningHistory() {
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState("");
+  const [decision, setDecision] = useState("");
+  const [page, setPage] = useState(1);
+
+  async function load() {
+    setError(null);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: "50" });
+      if (search) params.set("search", search);
+      if (decision) params.set("decision", decision);
+      setResult((await get(`/api/mapping-learning/feedback?${params}`)).data);
+    } catch (nextError) {
+      setError(nextError);
+    }
+  }
+
+  useEffect(() => {
+    const id = setTimeout(load, 250);
+    return () => clearTimeout(id);
+  }, [search, decision, page]);
+
+  useEffect(() => setPage(1), [search, decision]);
+
+  const columns = useMemo(
+    () => [
+      {
+        key: "created_at",
+        label: "Tarih",
+        render: (row) => date(row.created_at),
+      },
+      { key: "barcode", label: "Barkod" },
+      { key: "product_name", label: "Trendyol ürünü", width: 320 },
+      {
+        key: "decision",
+        label: "Karar",
+        render: (row) => (
+          <Badge tone={row.decision === "APPROVED" ? "success" : "danger"}>
+            {row.decision === "APPROVED" ? "Onaylandı" : "Reddedildi"}
+          </Badge>
+        ),
+      },
+      {
+        key: "items",
+        label: "Cost Code",
+        render: (row) =>
+          (row.items || []).map((item) => item.cost_item_code).join(" + ") ||
+          "-",
+      },
+      {
+        key: "confidence",
+        label: "Karar anı güveni",
+        render: (row) => percent(Number(row.confidence) * 100),
+      },
+      {
+        key: "learning_adjustment",
+        label: "Öğrenme etkisi",
+        render: (row) => learningImpact(row.learning_adjustment),
+      },
+      {
+        key: "profile",
+        label: "Örüntü geçmişi",
+        render: (row) =>
+          `${Number(row.accepted_count || 0)} onay / ${Number(row.rejected_count || 0)} ret`,
+      },
+      { key: "actor", label: "Kullanıcı" },
+      { key: "reason", label: "Ret notu", width: 260 },
+    ],
+    [],
+  );
+
+  return (
+    <>
+      <div className="mapping-toolbar">
+        <div className="filters">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Barkod veya Trendyol ürünü ara"
+          />
+          <select
+            value={decision}
+            onChange={(event) => setDecision(event.target.value)}
+          >
+            <option value="">Tüm kararlar</option>
+            <option value="APPROVED">Onaylananlar</option>
+            <option value="REJECTED">Reddedilenler</option>
+          </select>
+        </div>
+        <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
+      </div>
+      <div className="info-banner">
+        <DatabaseZap />
+        <div>
+          <strong>Her karar öğrenme verisidir</strong>
+          <p>
+            Benzer ürün ailesi ve cost code kararları biriktikçe sonraki güven
+            skorları kontrollü olarak yükselir veya düşer.
+          </p>
+        </div>
+      </div>
+      {!result && !error ? (
+        <Loading />
+      ) : error ? (
+        <ErrorState error={error} retry={load} />
+      ) : result.items.length ? (
+        <div className="panel table-panel">
+          <DataTable
+            columns={columns}
+            rows={result.items}
+            rowKey={(row) => Number(row.id)}
+            columnVisibilityKey="mapping-learning-feedback"
+          />
+          <Pagination
+            page={result.page}
+            total={result.total}
+            limit={result.limit}
+            onChange={setPage}
+          />
+        </div>
+      ) : (
+        <Empty label="Henüz onay veya ret kararı yok" />
+      )}
+    </>
   );
 }
 
@@ -581,6 +715,25 @@ function SuggestionDrawer({ suggestion, onClose, onChanged, notify }) {
               </small>
             </span>
           </label>
+        )}
+        {evidence.learning && (
+          <section>
+            <h3>Öğrenme durumu</h3>
+            <div className="compact-kv">
+              <span>Benzer örüntü onayı</span>
+              <b>{Number(evidence.learning.accepted || 0)}</b>
+              <span>Benzer örüntü reddi</span>
+              <b>{Number(evidence.learning.rejected || 0)}</b>
+              <span>Bu skora etkisi</span>
+              <b>{learningImpact(evidence.learning.adjustment)}</b>
+              <span>Varyant yüksek güven kilidi</span>
+              <b>
+                {evidence.learning.variantPromotionUnlocked
+                  ? "Yeterli doğrulama var"
+                  : "En az 5 karar ve %90 onay gerekir"}
+              </b>
+            </div>
+          </section>
         )}
         <section>
           <h3>Bu öneri neden geldi?</h3>

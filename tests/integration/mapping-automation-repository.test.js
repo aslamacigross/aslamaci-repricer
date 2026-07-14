@@ -97,6 +97,12 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     update_file_price: true,
   });
   assert.equal(approved.status, "APPROVED");
+  const feedback = await service.listLearningFeedback({});
+  assert.equal(feedback.total, 1);
+  assert.equal(feedback.items[0].decision, "APPROVED");
+  assert.equal(feedback.items[0].actor, "admin");
+  assert.equal(Number(feedback.items[0].accepted_count), 1);
+  assert.equal(Number(feedback.items[0].rejected_count), 0);
   const preview = await service.bulkPreview([approved.id]);
   assert.equal(preview.productCount, 1);
   assert.equal(preview.priceUpdateCount, 1);
@@ -126,5 +132,36 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     [approved.id],
   );
   assert.equal(status.rows[0].status, "APPLIED");
+  await db.query(
+    `INSERT INTO products(
+      marketplace,barcode,product_name,brand,category_id,is_active,data_status,
+      stock_quantity,my_price,commission_rate
+    )VALUES(
+      'TRENDYOL','TARGET_REJECT','Menekşe Konsantre Yumuşatıcı 1500 ml X 6 Adet',
+      'Actisoft','2354',TRUE,'MAPPING_MISSING',10,1200,17
+    )`,
+  );
+  await service.generate({ limit: 20 });
+  const nextPending = await service.listSuggestions({ status: "PENDING" });
+  assert.equal(nextPending.total, 1);
+  const learnedProfile = await db.query(
+    "SELECT learning_key FROM mapping_learning_profiles",
+  );
+  assert.equal(
+    nextPending.items[0].learning_key,
+    learnedProfile.rows[0].learning_key,
+  );
+  assert.equal(nextPending.items[0].evidence.learning.accepted, 1);
+  assert.ok(Number(nextPending.items[0].learning_adjustment) > 0);
+  const rejected = await service.reject(nextPending.items[0].id, "admin", {
+    reason: "Varyant yanlış",
+  });
+  assert.equal(rejected.status, "REJECTED");
+  const feedbackAfterReject = await service.listLearningFeedback({});
+  assert.equal(feedbackAfterReject.total, 2);
+  assert.equal(feedbackAfterReject.items[0].decision, "REJECTED");
+  assert.equal(feedbackAfterReject.items[0].reason, "Varyant yanlış");
+  assert.equal(Number(feedbackAfterReject.items[0].accepted_count), 1);
+  assert.equal(Number(feedbackAfterReject.items[0].rejected_count), 1);
   await db.end();
 });

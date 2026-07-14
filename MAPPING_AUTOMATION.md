@@ -29,13 +29,20 @@ Motor önce mevcut `product_cost_mappings` kayıtlarından doğrulanmış reçet
 
 File ürünü eşleşmesi güncel birim maliyet önerir. Fiyat uygulanırsa `cost_items.previous_unit_cost` eski değeri, `price_source=FILE_MARKET` kaynağı ve gözlem zamanı saklanır.
 
-File'da aynı marka, ürün ailesi ve ölçüde yalnız kardeş varyant görünüyorsa bu fiyat kontrollü bir kanıt olarak kullanılabilir. Örneğin 100 ml Kiraz Çiçeği kolonyanın fiyatı aynı ailedeki 100 ml Zeytin Çiçeği için önerilebilir. Bu satır `Varyant fiyatı` rozeti taşır, gerekçede açıkça belirtilir ve güveni hiçbir zaman `Yüksek güven` düzeyine çıkmaz.
+File'da aynı marka, ürün ailesi ve ölçüde yalnız kardeş varyant görünüyorsa bu fiyat kontrollü bir kanıt olarak kullanılabilir. Örneğin 100 ml Kiraz Çiçeği kolonyanın fiyatı aynı ailedeki 100 ml Zeytin Çiçeği için önerilebilir. Bu satır `Varyant fiyatı` rozeti taşır ve gerekçede açıkça belirtilir. Yeni varyant örüntüsü yüksek güvene çıkamaz; en az 5 karar ve yüzde 90 kabul oranından sonra kilit açılabilir.
+
+## Geri Bildirimle Öğrenme
+
+Her `Öneriyi onayla` ve `Reddet` kararı `mapping_feedback_events` olay günlüğüne yazılır. Karar; barkod, ürün, cost code, File ürünü, güven skoru, öğrenme etkisi, kullanıcı, zaman ve ret notuyla saklanır. Panelde `Ürün Mapping > Karar geçmişi` ekranından aranıp filtrelenebilir.
+
+Öğrenme profili marka, kategori, cost code ve doğrudan/kardeş varyant fiyat türünü birlikte kullanır. Kabul ve ret oranı az sayıda kararda aşırı tepki vermemesi için yumuşatılır; etkisi karar sayısıyla kademeli büyür ve en fazla artı/eksi 25 puandır. Bu sayede tekrar tekrar onaylanan düşük güvenli bir örüntü zamanla kontrol veya yüksek güvene çıkabilir, reddedilen örüntülerin skoru düşer.
 
 ## Güvenlik Kuralları
 
 - Yalnız aktif ve `MAPPING_MISSING` durumundaki Trendyol ürünleri hedeflenir.
 - Yalnız File fiyat havuzunda bulunan marka kapsamı ve gerçek bir File fiyat desteği olan adaylar kaydedilir.
 - Kardeş varyanttan türetilen fiyat kullanıcı kontrolü gerektirir; doğrudan eşleşme gibi gösterilmez.
+- Öğrenme güven bandını değiştirebilir ancak öneriyi onaylama, toplu önizleme ve uygulama adımlarını atlayamaz.
 - Bekleyen öneriyi onaylamak hiçbir veriyi değiştirmez.
 - Yalnız onaylı öneriler toplu önizlenebilir.
 - Önizleme sonrasında öneri veya File fiyatı değişirse uygulama reddedilir.

@@ -118,4 +118,33 @@ describe("Akıllı mapping paneli", () => {
     expect(screen.getByText("Varyant fiyatından türetildi")).toBeVisible();
     expect(screen.getByText("Kardeş varyant fiyatı kullanıldı")).toBeVisible();
   });
+
+  test("onay ve ret geri bildirimlerini karar geçmişinde gösterir", async () => {
+    get.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 22,
+            created_at: "2026-07-15T01:00:00.000Z",
+            barcode: "8690609598109",
+            product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml",
+            decision: "APPROVED",
+            confidence: 0.78,
+            learning_adjustment: 0.025,
+            accepted_count: 3,
+            rejected_count: 1,
+            actor: "admin",
+            items: [{ cost_item_code: "YUMUSATICI_ACTISOFT_1500ML" }],
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 50,
+      },
+    });
+    render(<MappingSuggestions view="learning" notify={vi.fn()} />);
+    expect(await screen.findByText("Onaylandı")).toBeVisible();
+    expect(screen.getByText("3 onay / 1 ret")).toBeVisible();
+    expect(screen.getByText("+2,5 puan")).toBeVisible();
+  });
 });

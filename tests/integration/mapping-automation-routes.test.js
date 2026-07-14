@@ -18,6 +18,12 @@ function appFixture() {
     listFileItems: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
     generate: async () => ({ created: 3, trainingProductCount: 120 }),
     listSuggestions: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
+    listLearningFeedback: async () => ({
+      items: [{ id: 1, decision: "APPROVED" }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    }),
     getSuggestion: async (id) => ({ id: Number(id), status: "PENDING" }),
     approve: async (id) => ({ id: Number(id), barcode: "1", confidence: 0.95 }),
     reject: async (id, actor, body) => ({
@@ -69,4 +75,12 @@ test("mapping önerisi onayı ile uygulaması ayrı endpointlerdir", async () =>
     .send({ ids: [4], previewToken: "token" })
     .expect(200);
   assert.deepEqual(fixture.calls, [{ ids: [4], token: "token" }]);
+});
+
+test("mapping karar geçmişi API üzerinden listelenir", async () => {
+  const response = await request(appFixture().app)
+    .get("/api/mapping-learning/feedback")
+    .expect(200);
+  assert.equal(response.body.data.total, 1);
+  assert.equal(response.body.data.items[0].decision, "APPROVED");
 });

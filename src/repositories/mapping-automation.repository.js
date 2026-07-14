@@ -176,6 +176,19 @@ class MappingAutomationRepository {
     ).rows;
   }
 
+  async learningProfiles(keys) {
+    const unique = [...new Set((keys || []).filter(Boolean))];
+    if (!unique.length) return [];
+    const placeholders = unique.map((_, index) => `$${index + 1}`).join(",");
+    return (
+      await this.db.query(
+        `SELECT * FROM mapping_learning_profiles
+         WHERE learning_key IN (${placeholders})`,
+        unique,
+      )
+    ).rows;
+  }
+
   async saveSuggestions(suggestions, evaluatedBarcodes = []) {
     const evaluated = [
       ...new Set([
@@ -210,15 +223,19 @@ class MappingAutomationRepository {
         const parent = (
           await client.query(
             `INSERT INTO mapping_suggestions(
-              marketplace,barcode,status,confidence,confidence_band,
+              marketplace,barcode,status,confidence,base_confidence,
+              learning_adjustment,confidence_band,learning_key,
               algorithm_version,source_type,source_barcode,file_market_item_id,
               update_file_price,evidence,product_snapshot,fingerprint
-            )VALUES('TRENDYOL',$1,'PENDING',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            )VALUES('TRENDYOL',$1,'PENDING',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
             RETURNING *`,
             [
               suggestion.barcode,
               suggestion.confidence,
+              suggestion.base_confidence,
+              suggestion.learning_adjustment,
               suggestion.confidence_band,
+              suggestion.learning_key,
               suggestion.algorithm_version,
               suggestion.source_type,
               suggestion.source_barcode,
@@ -344,6 +361,48 @@ class MappingAutomationRepository {
     };
   }
 
+  async listLearningFeedback({ search, decision, page = 1, limit = 50 } = {}) {
+    const params = [];
+    const where = ["1=1"];
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(mfe.barcode ILIKE $${params.length} OR p.product_name ILIKE $${params.length})`,
+      );
+    }
+    if (decision) {
+      params.push(decision);
+      where.push(`mfe.decision=$${params.length}`);
+    }
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safePage = Math.max(Number(page) || 1, 1);
+    const count = await this.db.query(
+      `SELECT COUNT(*)::int AS total
+       FROM mapping_feedback_events mfe
+       LEFT JOIN products p ON p.marketplace=mfe.marketplace AND p.barcode=mfe.barcode
+       WHERE ${where.join(" AND ")}`,
+      params,
+    );
+    params.push(safeLimit, (safePage - 1) * safeLimit);
+    const result = await this.db.query(
+      `SELECT mfe.*,p.product_name,p.product_image_url,
+              mlp.accepted_count,mlp.rejected_count
+       FROM mapping_feedback_events mfe
+       LEFT JOIN products p ON p.marketplace=mfe.marketplace AND p.barcode=mfe.barcode
+       LEFT JOIN mapping_learning_profiles mlp ON mlp.learning_key=mfe.learning_key
+       WHERE ${where.join(" AND ")}
+       ORDER BY mfe.created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return {
+      items: result.rows,
+      total: count.rows[0].total,
+      page: safePage,
+      limit: safeLimit,
+    };
+  }
+
   async getSuggestionsByIds(ids, queryable = this.db, { lock = false } = {}) {
     if (!ids.length) return [];
     const placeholders = ids.map((_, index) => `$${index + 1}`).join(",");
@@ -367,6 +426,62 @@ class MappingAutomationRepository {
     return this.attachItems(result.rows, queryable);
   }
 
+  async recordFeedback(client, suggestion, decision, actor, input = {}) {
+    const learningKey = input.learning_key || suggestion.learning_key;
+    if (!learningKey) return;
+    const items = input.items?.length ? input.items : suggestion.items;
+    const inserted = await client.query(
+      `INSERT INTO mapping_feedback_events(
+        suggestion_id,marketplace,barcode,learning_key,decision,actor,
+        base_confidence,confidence,confidence_band,learning_adjustment,
+        source_type,items,evidence,reason
+      )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      ON CONFLICT(suggestion_id)DO NOTHING RETURNING id`,
+      [
+        suggestion.id,
+        suggestion.marketplace,
+        suggestion.barcode,
+        learningKey,
+        decision,
+        actor,
+        suggestion.base_confidence || suggestion.confidence,
+        suggestion.confidence,
+        suggestion.confidence_band,
+        suggestion.learning_adjustment || 0,
+        suggestion.source_type,
+        items,
+        suggestion.evidence || {},
+        input.reason || null,
+      ],
+    );
+    if (!inserted.rowCount) return;
+    await client.query(
+      `INSERT INTO mapping_learning_profiles(
+        learning_key,accepted_count,rejected_count,sample_context,
+        last_decision,last_decision_at
+      )VALUES($1,$2,$3,$4,$5,NOW())
+      ON CONFLICT(learning_key)DO UPDATE SET
+        accepted_count=mapping_learning_profiles.accepted_count+EXCLUDED.accepted_count,
+        rejected_count=mapping_learning_profiles.rejected_count+EXCLUDED.rejected_count,
+        sample_context=EXCLUDED.sample_context,
+        last_decision=EXCLUDED.last_decision,
+        last_decision_at=NOW(),updated_at=NOW()`,
+      [
+        learningKey,
+        decision === "APPROVED" ? 1 : 0,
+        decision === "REJECTED" ? 1 : 0,
+        {
+          barcode: suggestion.barcode,
+          brand: suggestion.product_snapshot?.brand || null,
+          categoryId: suggestion.product_snapshot?.category_id || null,
+          sourceType: suggestion.source_type,
+          costItemCodes: items.map((item) => item.cost_item_code),
+        },
+        decision,
+      ],
+    );
+  }
+
   async decide(id, decision, actor, input = {}) {
     return this.withTransaction(async (client) => {
       const suggestions = await this.getSuggestionsByIds([id], client, {
@@ -377,14 +492,17 @@ class MappingAutomationRepository {
       if (suggestion.status !== "PENDING")
         return { conflict: true, suggestion };
       if (decision === "REJECTED") {
-        return (
+        const rejected = (
           await client.query(
             `UPDATE mapping_suggestions SET status='REJECTED',rejection_reason=$1,
-             reviewed_by=$2,reviewed_at=NOW(),updated_at=NOW()
-             WHERE id=$3 RETURNING *`,
-            [input.reason || null, actor, id],
+             learning_key=COALESCE(learning_key,$2),reviewed_by=$3,
+             reviewed_at=NOW(),updated_at=NOW()
+             WHERE id=$4 RETURNING *`,
+            [input.reason || null, input.learning_key || null, actor, id],
           )
         ).rows[0];
+        await this.recordFeedback(client, suggestion, decision, actor, input);
+        return rejected;
       }
       if (Array.isArray(input.items) && input.items.length) {
         await client.query(
@@ -408,14 +526,22 @@ class MappingAutomationRepository {
           );
         }
       }
-      return (
+      const approved = (
         await client.query(
           `UPDATE mapping_suggestions SET status='APPROVED',update_file_price=$1,
-           reviewed_by=$2,reviewed_at=NOW(),updated_at=NOW()
-           WHERE id=$3 RETURNING *`,
-          [Boolean(input.update_file_price), actor, id],
+           learning_key=$2,reviewed_by=$3,
+           reviewed_at=NOW(),updated_at=NOW()
+           WHERE id=$4 RETURNING *`,
+          [
+            Boolean(input.update_file_price),
+            input.learning_key || null,
+            actor,
+            id,
+          ],
         )
       ).rows[0];
+      await this.recordFeedback(client, suggestion, decision, actor, input);
+      return approved;
     });
   }
 

@@ -13,8 +13,12 @@ const {
   FILE_PRICE_MAX_AGE_DAYS,
   isFilePriceFresh,
 } = require("../domain/file-market");
+const {
+  buildMappingLearningKey,
+  mappingLearningAdjustment,
+} = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "manual-history-file-v3";
+const ALGORITHM_VERSION = "manual-history-file-v4";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -238,16 +242,13 @@ class MappingAutomationService {
       ? supported.reduce((sum, item) => sum + item.file_match_score, 0) /
         items.length
       : 0;
-    const rawConfidence = Math.min(
+    const confidence = Math.min(
       1,
       best.comparison.score * 0.9 + fileSupport * 0.1,
     );
     const variantPriceInferred = items.some(
       (item) => item.file_price_mode === "SIBLING_VARIANT",
     );
-    const confidence = variantPriceInferred
-      ? Math.min(rawConfidence, 0.919)
-      : rawConfidence;
     return {
       confidence,
       source_type: supported.length
@@ -298,14 +299,12 @@ class MappingAutomationService {
     );
     const fileSupport = items[0].file_match_score || 0;
     const variantPriceInferred = items[0].file_price_mode === "SIBLING_VARIANT";
-    const rawConfidence = Math.min(
+    const confidence = Math.min(
       1,
       best.comparison.score * 0.85 + fileSupport * 0.15,
     );
     return {
-      confidence: variantPriceInferred
-        ? Math.min(rawConfidence, 0.919)
-        : rawConfidence,
+      confidence,
       source_type: items[0].file_market_item_id
         ? "FILE_MARKET"
         : "COST_ITEM_CATALOG",
@@ -340,7 +339,7 @@ class MappingAutomationService {
     const fileBrands = new Set(
       fileItems.map((item) => normalizeText(item.brand)).filter(Boolean),
     );
-    const suggestions = [];
+    const drafts = [];
     let scoped = 0;
     for (const target of targets) {
       const targetBrand = normalizeText(target.brand);
@@ -355,7 +354,7 @@ class MappingAutomationService {
         fromTraining || this.buildFromCostItems(target, costItems, fileItems);
       if (!candidate || candidate.confidence < 0.3 || !candidate.items.length)
         continue;
-      const confidence = Number(candidate.confidence.toFixed(5));
+      const baseConfidence = Number(candidate.confidence.toFixed(5));
       const fileIds = [
         ...new Set(
           candidate.items
@@ -366,8 +365,7 @@ class MappingAutomationService {
       if (!fileIds.length) continue;
       const suggestion = {
         barcode: target.barcode,
-        confidence,
-        confidence_band: confidenceBand(confidence),
+        base_confidence: baseConfidence,
         algorithm_version: ALGORITHM_VERSION,
         source_type: candidate.source_type,
         source_barcode: candidate.source_barcode,
@@ -377,9 +375,32 @@ class MappingAutomationService {
         product_snapshot: target,
         items: candidate.items,
       };
-      suggestion.fingerprint = hashValue(canonicalSuggestion(suggestion));
-      suggestions.push(suggestion);
+      suggestion.learning_key = buildMappingLearningKey(suggestion);
+      drafts.push(suggestion);
     }
+    const profileRows = await this.repository.learningProfiles(
+      drafts.map((suggestion) => suggestion.learning_key),
+    );
+    const profiles = new Map(
+      profileRows.map((profile) => [profile.learning_key, profile]),
+    );
+    const suggestions = drafts.map((suggestion) => {
+      const learning = mappingLearningAdjustment(
+        suggestion.base_confidence,
+        profiles.get(suggestion.learning_key),
+        {
+          variantPriceInferred: Boolean(
+            suggestion.evidence.variantPriceInferred,
+          ),
+        },
+      );
+      suggestion.confidence = learning.confidence;
+      suggestion.learning_adjustment = learning.adjustment;
+      suggestion.confidence_band = confidenceBand(learning.confidence);
+      suggestion.evidence = { ...suggestion.evidence, learning };
+      suggestion.fingerprint = hashValue(canonicalSuggestion(suggestion));
+      return suggestion;
+    });
     const saved = await this.repository.saveSuggestions(
       suggestions,
       targets.map((target) => target.barcode),
@@ -396,6 +417,10 @@ class MappingAutomationService {
 
   async listSuggestions(filters) {
     return this.repository.listSuggestions(filters);
+  }
+
+  async listLearningFeedback(filters) {
+    return this.repository.listLearningFeedback(filters);
   }
 
   async getSuggestion(id) {
@@ -455,6 +480,7 @@ class MappingAutomationService {
       );
     const result = await this.repository.decide(id, "APPROVED", actor, {
       items,
+      learning_key: buildMappingLearningKey({ ...suggestion, items }),
       update_file_price:
         input.update_file_price === undefined
           ? suggestion.update_file_price
@@ -470,7 +496,12 @@ class MappingAutomationService {
   }
 
   async reject(id, actor, input = {}) {
-    const result = await this.repository.decide(id, "REJECTED", actor, input);
+    const suggestion = await this.getSuggestion(id);
+    const result = await this.repository.decide(id, "REJECTED", actor, {
+      ...input,
+      learning_key:
+        suggestion.learning_key || buildMappingLearningKey(suggestion),
+    });
     if (!result)
       throw new AppError(
         "Mapping önerisi bulunamadı",

@@ -54,6 +54,12 @@
 - `mapping_suggestions` ve `mapping_suggestion_items`: öneri, güven skoru, kanıt, durum ve reçete satırlarını saklar.
 - `cost_items` üzerine fiyat kaynağı, önceki maliyet ve kaynak kontrol zamanı ekler.
 - `generate-mapping-suggestions` jobunu kapalı varsayılanla kaydeder.
+
+### `012_mapping_feedback_learning`
+
+- `mapping_feedback_events`: her mapping onayını veya reddini karar anındaki reçete, kanıt, güven skoru, kullanıcı ve ret notuyla immutable olay olarak saklar.
+- `mapping_learning_profiles`: marka, kategori, cost code ve File eşleşme türü örüntüsünün toplam onay/ret sayısını tutar.
+- `mapping_suggestions` üzerine temel güven, öğrenme etkisi ve stabil öğrenme anahtarı ekler.
 - Uygulama readiness kontrolünün beklediği son migration sürümüdür.
 
 ## Ana İlişkiler
@@ -81,6 +87,8 @@
 - `job_runs(job_name, started_at)`
 - `file_market_price_history(file_market_item_id, observed_at)`
 - `mapping_suggestions(status, confidence, created_at)`
+- `mapping_feedback_events(learning_key, created_at)`
+- `mapping_feedback_events(decision, created_at)`
 - Mapping başına tek bekleyen/onaylı öneriyi koruyan partial unique index
 
 ## Atomic Mapping Replace

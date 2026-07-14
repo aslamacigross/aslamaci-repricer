@@ -70,7 +70,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 ## Doğrulama Durumu
 
-- 89 backend unit/integration/regression, 8 React bileşen ve 5 Chrome uçtan uca testi geçiyor.
+- 93 backend unit/integration/regression, 9 React bileşen ve 5 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -96,3 +96,4 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - GitHub PR #1 açık, draft, merge edilmemiş ve `main <- feature/aslamaci-erp-v2` yönünde birleştirilebilir durumdadır.
 - File Mac uygulamasındaki maliyet kalemleri alternatif arama ve kategori gezintisiyle tarandı; yalnız hedeflenen Harras, Actisoft ve Daycare markalarından 151 güncel ürün gözlemi preview fiyat havuzuna aktarıldı.
 - Sıkılaştırılmış öneri motorunun gerçek preview kabulünde 33 aday üretildi: 2 yüksek, 17 kontrol gerekli, 14 düşük güven; 13 satır kardeş varyant fiyatı olarak uyarılıdır ve hiçbir mapping uygulanmamıştır.
+- Mapping onay ve retleri immutable olay günlüğünde tutulur; marka, kategori, cost code ve doğrudan/varyant fiyat türü profili sonraki öneri skorunu en fazla artı/eksi 25 puan etkiler.
