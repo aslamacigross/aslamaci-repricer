@@ -29,6 +29,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "004_market_price_verification",
       "005_operational_controls",
       "006_special_commission_guard",
+      "007_active_product_guard",
     ],
   );
   const safety = await db.query(
@@ -92,8 +93,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "003_learning_contracts_and_operations",
       "004_market_price_verification",
       "005_operational_controls",
+      "006_special_commission_guard",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   const removedSpecialColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name='products'

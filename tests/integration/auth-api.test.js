@@ -29,7 +29,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "006_special_commission_guard" }],
+                  : [{ version: "007_active_product_guard" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },

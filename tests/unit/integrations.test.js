@@ -310,6 +310,75 @@ test("Trendyol tekil urun fiyati barkod filtresiyle okunur", async () => {
   assert.match(requestedUrl, /barcode=8690609598109/);
   assert.match(requestedUrl, /products\/approved/);
 });
+test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {
+      listProducts: async () => ({
+        last: true,
+        content: [
+          {
+            barcode: "ACTIVE",
+            title: "Aktif ürün",
+            salePrice: 100,
+            listPrice: 100,
+            quantity: 2,
+            archived: false,
+            locked: false,
+            onSale: true,
+            approved: true,
+          },
+          {
+            barcode: "NO_STOCK",
+            title: "Stoksuz ürün",
+            salePrice: 100,
+            listPrice: 100,
+            quantity: 0,
+            archived: false,
+            locked: false,
+            onSale: true,
+            approved: true,
+          },
+          {
+            barcode: "NOT_ON_SALE",
+            title: "Satışta olmayan ürün",
+            salePrice: 100,
+            listPrice: 100,
+            quantity: 2,
+            archived: false,
+            locked: false,
+            onSale: false,
+            approved: true,
+          },
+        ],
+      }),
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.products();
+  assert.equal(result.processed, 3);
+  const upserts = queries.filter((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upserts[0].params[13], true);
+  assert.equal(upserts[1].params[13], false);
+  assert.equal(upserts[2].params[13], false);
+  const staleUpdate = queries.find((query) =>
+    String(query.sql).includes("NOT (barcode=ANY"),
+  );
+  assert.deepEqual(staleUpdate.params[0], [
+    "ACTIVE",
+    "NO_STOCK",
+    "NOT_ON_SALE",
+  ]);
+});
 test("Trendyol GET istegi gecici hatada geri cekilmeyle yeniden denenir", async () => {
   let calls = 0;
   const delays = [];

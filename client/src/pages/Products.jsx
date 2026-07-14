@@ -43,6 +43,13 @@ const columns = [
       </Badge>
     ),
   },
+  {
+    key: "sale_state",
+    label: "Satış durumu",
+    render: (r) => (
+      <Badge tone={r.is_active ? "success" : "warning"}>{saleState(r)}</Badge>
+    ),
+  },
   { key: "my_price", label: "Fiyat", render: (r) => money(r.my_price) },
   {
     key: "commission_rate",
@@ -142,6 +149,17 @@ const columns = [
     render: (r) => date(r.updated_at),
   },
 ];
+
+function saleState(product) {
+  if (product.is_active) return "Satılabilir";
+  if (product.approved === false) return "Onaysız";
+  if (product.on_sale === false) return "Satışta değil";
+  if (product.archived) return "Arşivli";
+  if (product.locked) return "Kilitli";
+  if (Number(product.stock_quantity || 0) <= 0) return "Stoksuz";
+  if (Number(product.my_price || 0) <= 0) return "Fiyat yok";
+  return "Pasif";
+}
 const initialFilters = {
   search: "",
   status: "",

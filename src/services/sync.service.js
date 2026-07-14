@@ -12,12 +12,24 @@ class SyncService {
   async products() {
     let page = 0,
       processed = 0;
+    const seenBarcodes = new Set();
     while (true) {
       const data = await this.trendyol.listProducts(page, 100);
       const products = data.content || [];
       for (const product of products) {
         const barcode = String(product.barcode || "").trim();
         if (!barcode) continue;
+        seenBarcodes.add(barcode);
+        const salePrice = Number(product.salePrice) || 0;
+        const quantity = Number(product.quantity) || 0;
+        const active = Boolean(
+          product.approved &&
+            product.onSale &&
+            !product.archived &&
+            !product.locked &&
+            quantity > 0 &&
+            salePrice > 0,
+        );
         await this.db.query(
           `INSERT INTO products(
           marketplace,barcode,product_name,brand,category_name,category_id,my_price,list_price,stock_quantity,
@@ -26,7 +38,7 @@ class SyncService {
           is_active,updated_at
         )VALUES(
           'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,
-          FALSE,CASE WHEN $13::numeric IS NULL THEN NULL ELSE NOW() END,NULL,TRUE,NOW()
+          FALSE,CASE WHEN $13::numeric IS NULL THEN NULL ELSE NOW() END,NULL,$14,NOW()
         )
         ON CONFLICT(marketplace,barcode)DO UPDATE SET product_name=EXCLUDED.product_name,brand=EXCLUDED.brand,
         category_name=EXCLUDED.category_name,category_id=EXCLUDED.category_id,my_price=EXCLUDED.my_price,
@@ -53,27 +65,36 @@ class SyncService {
           THEN 'Trendyol API komisyonu manuel komisyondan düşük'
           ELSE NULL
         END,
-        is_active=TRUE,updated_at=NOW()`,
+        is_active=EXCLUDED.is_active,updated_at=NOW()`,
           [
             barcode,
             product.title || "",
             product.brand || "",
             product.categoryName || "",
             String(product.pimCategoryId || product.categoryId || ""),
-            Number(product.salePrice) || 0,
+            salePrice,
             Number(product.listPrice) || 0,
-            Number(product.quantity) || 0,
+            quantity,
             Boolean(product.archived),
             Boolean(product.locked),
             Boolean(product.onSale),
             Boolean(product.approved),
             product.commission == null ? null : Number(product.commission),
+            active,
           ],
         );
         processed++;
       }
       if (data.last === true || products.length === 0) break;
       page++;
+    }
+    if (seenBarcodes.size) {
+      await this.db.query(
+        `UPDATE products
+         SET is_active=FALSE,on_sale=FALSE,updated_at=NOW()
+         WHERE marketplace='TRENDYOL' AND NOT (barcode=ANY($1::text[]))`,
+        [[...seenBarcodes]],
+      );
     }
     return { processed, successful: processed, failed: 0 };
   }
@@ -93,7 +114,7 @@ class SyncService {
     const products = (
       await this.db.query(
         `SELECT barcode,my_price,product_name,min_price,calculated_net_profit
-         FROM products WHERE marketplace='TRENDYOL' AND on_sale=TRUE
+         FROM products WHERE marketplace='TRENDYOL' AND is_active=TRUE
            ${requested ? "AND barcode=ANY($1::text[])" : ""}
          ORDER BY barcode`,
         requested ? [requested] : [],
