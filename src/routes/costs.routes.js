@@ -257,17 +257,11 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
   r.post(
     "/commissions/bulk",
     asyncRoute(async (req, res) => {
-      const data = await costs.saveCommissions(req.body.rows);
-      await costEngine.recalculate();
-      await logged(
-        req,
-        "COMMISSIONS_BULK_UPDATED",
-        "commission",
-        "TRENDYOL",
-        null,
-        data,
+      throw new AppError(
+        "Komisyon verisi Trendyol API'den gelir; manuel toplu giriş kapalı.",
+        410,
+        "COMMISSION_MANUAL_WRITE_DISABLED",
       );
-      res.json({ status: "ok", data });
     }),
   );
   r.delete(
@@ -307,60 +301,21 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
   r.post(
     "/commissions",
     asyncRoute(async (req, res) => {
-      numeric(requireFields(req.body, ["category_id", "commission_rate"]), [
-        "commission_rate",
-      ]);
-      if (
-        Number(req.body.commission_rate) <= 0 ||
-        Number(req.body.commission_rate) >= 100
-      )
-        throw new AppError(
-          "Komisyon oranı 0 ile 100 arasında olmalı",
-          400,
-          "VALIDATION_ERROR",
-        );
-      const data = await costs.saveCommission(req.body);
-      await costEngine.recalculate();
-      await logged(
-        req,
-        "COMMISSION_SAVED",
-        "commission",
-        data.category_id,
-        null,
-        data,
+      throw new AppError(
+        "Komisyon verisi Trendyol API'den gelir; manuel giriş kapalı.",
+        410,
+        "COMMISSION_MANUAL_WRITE_DISABLED",
       );
-      res.json({ status: "ok", data });
     }),
   );
   r.patch(
     "/commissions/:categoryId",
     asyncRoute(async (req, res) => {
-      numeric(requireFields(req.body, ["commission_rate"]), [
-        "commission_rate",
-      ]);
-      if (
-        Number(req.body.commission_rate) <= 0 ||
-        Number(req.body.commission_rate) >= 100
-      )
-        throw new AppError(
-          "Komisyon oranı 0 ile 100 arasında olmalı",
-          400,
-          "VALIDATION_ERROR",
-        );
-      const data = await costs.saveCommission({
-        ...req.body,
-        category_id: req.params.categoryId,
-      });
-      await costEngine.recalculate();
-      await logged(
-        req,
-        "COMMISSION_UPDATED",
-        "commission",
-        data.category_id,
-        null,
-        data,
+      throw new AppError(
+        "Komisyon verisi Trendyol API'den gelir; manuel güncelleme kapalı.",
+        410,
+        "COMMISSION_MANUAL_WRITE_DISABLED",
       );
-      res.json({ status: "ok", data });
     }),
   );
   r.get(

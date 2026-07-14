@@ -324,6 +324,7 @@ test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => 
             salePrice: 100,
             listPrice: 100,
             quantity: 2,
+            commission: 17,
             archived: false,
             locked: false,
             onSale: true,
@@ -367,6 +368,7 @@ test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => 
   const upserts = queries.filter((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
+  assert.equal(upserts[0].params[12], 17);
   assert.equal(upserts[0].params[13], true);
   assert.equal(upserts[1].params[13], false);
   assert.equal(upserts[2].params[13], false);

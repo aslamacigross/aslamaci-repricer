@@ -428,41 +428,8 @@ class SheetsSyncService {
       await client.query(
         "INSERT INTO product_cost_mappings(marketplace,barcode,cost_item_code,quantity,updated_at)SELECT marketplace,barcode,cost_item_code,quantity,NOW()FROM mapping_stage",
       );
-      for (const item of data.commissions) {
-        await client.query(
-          `INSERT INTO commission_rules(marketplace,category_id,category_name,commission_rate,note,updated_at)VALUES('TRENDYOL',$1,$2,$3,$4,NOW())ON CONFLICT(marketplace,category_id)DO UPDATE SET category_name=EXCLUDED.category_name,commission_rate=EXCLUDED.commission_rate,note=EXCLUDED.note,updated_at=NOW()`,
-          [
-            item.category_id,
-            item.category_name,
-            item.commission_rate,
-            item.note,
-          ],
-        );
-        await client.query(
-          `UPDATE products SET
-             commission_rate=$1,
-             base_commission_rate=$1,
-             special_commission_active=CASE
-               WHEN trendyol_commission_rate IS NOT NULL
-                 AND trendyol_commission_rate > 0
-                 AND $1::numeric > 0
-                 AND trendyol_commission_rate < $1::numeric - 0.0001
-               THEN TRUE
-               ELSE FALSE
-             END,
-             special_commission_note=CASE
-               WHEN trendyol_commission_rate IS NOT NULL
-                 AND trendyol_commission_rate > 0
-                 AND $1::numeric > 0
-                 AND trendyol_commission_rate < $1::numeric - 0.0001
-               THEN 'Trendyol API komisyonu manuel komisyondan düşük'
-               ELSE NULL
-             END,
-             updated_at=NOW()
-           WHERE marketplace='TRENDYOL' AND category_id=$2`,
-          [item.commission_rate, item.category_id],
-        );
-      }
+      // Komisyon verisinin tek kaynağı Trendyol ürün API'sidir.
+      // Sheet import eski geçiş alanlarını okuyabilir ama ürün komisyonlarını değiştirmez.
       await client.query(
         "CREATE TEMP TABLE shipping_stage(LIKE shipping_costs INCLUDING DEFAULTS)ON COMMIT DROP",
       );

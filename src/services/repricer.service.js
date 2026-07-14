@@ -102,15 +102,6 @@ class RepricerService {
         barcode: product.barcode,
         productName: product.product_name,
         netProfitBefore: Number(product.calculated_net_profit || 0),
-        specialCommissionActive: Boolean(product.special_commission_active),
-        trendyolCommissionRate:
-          product.trendyol_commission_rate == null
-            ? null
-            : Number(product.trendyol_commission_rate),
-        baseCommissionRate:
-          product.base_commission_rate == null
-            ? Number(product.commission_rate || 0)
-            : Number(product.base_commission_rate),
       });
     }
     return results;

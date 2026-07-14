@@ -11,7 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
-import DataTable, { money } from "../components/DataTable";
+import DataTable, { money, percent, date } from "../components/DataTable";
 import {
   PageHeader,
   SearchInput,
@@ -32,7 +32,10 @@ const titles = {
     "Ürün Mapping",
     "Barkodların hangi maliyet kalemlerinden oluştuğunu yönetin",
   ],
-  commissions: ["Komisyonlar", "Kategori bazlı Trendyol komisyon kuralları"],
+  commissions: [
+    "Komisyonlar",
+    "Trendyol API kaynaklı kategori komisyon raporu",
+  ],
   shipping: [
     "Kargo & Ambalaj",
     "KDV hariç tarifeler, sepet baremleri ve ambalaj kuralları",
@@ -98,9 +101,11 @@ export default function Costs({ mode, notify }) {
         description={d}
         actions={
           <>
-            <Button icon={Plus} onClick={() => setEditing({})}>
-              Yeni ekle
-            </Button>
+            {mode !== "commissions" && (
+              <Button icon={Plus} onClick={() => setEditing({})}>
+                Yeni ekle
+              </Button>
+            )}
             <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
           </>
         }
@@ -196,12 +201,36 @@ function ResourceTable({
             { key: "category_id", label: "Kategori ID" },
             { key: "category_name", label: "Kategori" },
             {
-              key: "commission_rate",
-              label: "Komisyon",
-              render: (r) => `%${r.commission_rate}`,
+              key: "average_commission_rate",
+              label: "Ortalama komisyon",
+              render: (r) => percent(r.average_commission_rate),
             },
-            { key: "product_count", label: "Etkilenen ürün" },
-            { key: "note", label: "Not" },
+            {
+              key: "min_commission_rate",
+              label: "Min",
+              render: (r) => percent(r.min_commission_rate),
+            },
+            {
+              key: "max_commission_rate",
+              label: "Maks",
+              render: (r) => percent(r.max_commission_rate),
+            },
+            { key: "product_count", label: "Toplam ürün" },
+            { key: "active_product_count", label: "Aktif ürün" },
+            {
+              key: "missing_commission_count",
+              label: "Eksik",
+              render: (r) => (
+                <Badge tone={r.missing_commission_count ? "warning" : "success"}>
+                  {r.missing_commission_count || 0}
+                </Badge>
+              ),
+            },
+            {
+              key: "last_api_check_at",
+              label: "Son API kontrolü",
+              render: (r) => date(r.last_api_check_at),
+            },
           ];
   const filtered = useMemo(
     () =>
@@ -247,16 +276,19 @@ function ResourceTable({
             Toplu maliyet
           </Button>
         )}
-        {mode === "commissions" && (
-          <Button
-            variant="secondary"
-            icon={Upload}
-            onClick={() => setEditing({ bulk: true })}
-          >
-            Toplu komisyon
-          </Button>
-        )}
       </div>
+      {mode === "commissions" && (
+        <div className="info-banner">
+          <TriangleAlert />
+          <div>
+            <strong>Komisyon verisi Trendyol API'den gelir</strong>
+            <p>
+              Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası
+              Trendyol'dan gelen barkod verileriyle güncellenir.
+            </p>
+          </div>
+        </div>
+      )}
       {mode === "commissions" && missingCommissions.length > 0 && (
         <div className="info-banner warning">
           <TriangleAlert />
@@ -280,7 +312,9 @@ function ResourceTable({
           rows={paged}
           exportRows={filtered}
           columnVisibilityKey={`costs-${mode}`}
-          onRowClick={(row) => setEditing(row)}
+          onRowClick={
+            mode === "commissions" ? undefined : (row) => setEditing(row)
+          }
         />
         <Pagination
           page={page}

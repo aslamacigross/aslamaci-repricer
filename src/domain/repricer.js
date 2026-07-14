@@ -205,8 +205,6 @@ function safetyCheck(context) {
   if (!parseBoolean(product.is_active)) failures.push("PRODUCT_INACTIVE");
   if (!parseBoolean(product.on_sale)) failures.push("PRODUCT_NOT_ON_SALE");
   if (parseBoolean(product.locked)) failures.push("PRODUCT_LOCKED");
-  if (!manual && parseBoolean(product.special_commission_active))
-    failures.push("SPECIAL_COMMISSION_DETECTED");
   if (parseNumber(product.stock_quantity) <= 0) failures.push("OUT_OF_STOCK");
   if (!parseBoolean(product.data_complete)) failures.push("COST_INCOMPLETE");
   if (parseNumber(product.commission_rate) <= 0)

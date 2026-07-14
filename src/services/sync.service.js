@@ -33,38 +33,23 @@ class SyncService {
         await this.db.query(
           `INSERT INTO products(
           marketplace,barcode,product_name,brand,category_name,category_id,my_price,list_price,stock_quantity,
-          archived,locked,on_sale,approved,trendyol_commission_rate,base_commission_rate,
+          archived,locked,on_sale,approved,commission_rate,trendyol_commission_rate,base_commission_rate,
           special_commission_active,special_commission_checked_at,special_commission_note,
           is_active,updated_at
         )VALUES(
-          'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,
+          'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,
           FALSE,CASE WHEN $13::numeric IS NULL THEN NULL ELSE NOW() END,NULL,$14,NOW()
         )
         ON CONFLICT(marketplace,barcode)DO UPDATE SET product_name=EXCLUDED.product_name,brand=EXCLUDED.brand,
         category_name=EXCLUDED.category_name,category_id=EXCLUDED.category_id,my_price=EXCLUDED.my_price,
         list_price=EXCLUDED.list_price,stock_quantity=EXCLUDED.stock_quantity,archived=EXCLUDED.archived,
         locked=EXCLUDED.locked,on_sale=EXCLUDED.on_sale,approved=EXCLUDED.approved,
+        commission_rate=EXCLUDED.commission_rate,
         trendyol_commission_rate=EXCLUDED.trendyol_commission_rate,
-        base_commission_rate=COALESCE(products.base_commission_rate,products.commission_rate),
+        base_commission_rate=EXCLUDED.base_commission_rate,
         special_commission_checked_at=EXCLUDED.special_commission_checked_at,
-        special_commission_active=CASE
-          WHEN EXCLUDED.trendyol_commission_rate IS NOT NULL
-            AND COALESCE(products.base_commission_rate,products.commission_rate) IS NOT NULL
-            AND EXCLUDED.trendyol_commission_rate > 0
-            AND COALESCE(products.base_commission_rate,products.commission_rate) > 0
-            AND EXCLUDED.trendyol_commission_rate < COALESCE(products.base_commission_rate,products.commission_rate) - 0.0001
-          THEN TRUE
-          ELSE FALSE
-        END,
-        special_commission_note=CASE
-          WHEN EXCLUDED.trendyol_commission_rate IS NOT NULL
-            AND COALESCE(products.base_commission_rate,products.commission_rate) IS NOT NULL
-            AND EXCLUDED.trendyol_commission_rate > 0
-            AND COALESCE(products.base_commission_rate,products.commission_rate) > 0
-            AND EXCLUDED.trendyol_commission_rate < COALESCE(products.base_commission_rate,products.commission_rate) - 0.0001
-          THEN 'Trendyol API komisyonu manuel komisyondan düşük'
-          ELSE NULL
-        END,
+        special_commission_active=FALSE,
+        special_commission_note=NULL,
         is_active=EXCLUDED.is_active,updated_at=NOW()`,
           [
             barcode,

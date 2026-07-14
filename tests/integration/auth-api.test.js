@@ -29,7 +29,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "007_active_product_guard" }],
+                  : [{ version: "008_api_commission_source" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },

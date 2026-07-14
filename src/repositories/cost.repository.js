@@ -419,9 +419,20 @@ class CostRepository {
   async listCommissions() {
     return (
       await this.db.query(
-        `SELECT cr.*, COUNT(p.id)::int AS product_count
-       FROM commission_rules cr LEFT JOIN products p ON p.marketplace=cr.marketplace AND p.category_id=cr.category_id
-       GROUP BY cr.id ORDER BY cr.category_name, cr.category_id`,
+        `SELECT
+           p.category_id,
+           MAX(p.category_name) AS category_name,
+           ROUND(AVG(p.commission_rate)::numeric, 4) AS average_commission_rate,
+           MIN(p.commission_rate) AS min_commission_rate,
+           MAX(p.commission_rate) AS max_commission_rate,
+           COUNT(*)::int AS product_count,
+           COUNT(*) FILTER (WHERE p.is_active)::int AS active_product_count,
+           COUNT(*) FILTER (WHERE p.commission_rate IS NULL OR p.commission_rate<=0)::int AS missing_commission_count,
+           MAX(p.special_commission_checked_at) AS last_api_check_at
+         FROM products p
+         WHERE p.marketplace='TRENDYOL' AND p.category_id IS NOT NULL
+         GROUP BY p.category_id
+         ORDER BY MAX(p.category_name), p.category_id`,
       )
     ).rows;
   }

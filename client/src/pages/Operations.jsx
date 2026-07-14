@@ -52,8 +52,6 @@ const SAFETY_REASON_LABELS = {
   PRODUCT_INACTIVE: "Ürün aktif değil.",
   PRODUCT_NOT_ON_SALE: "Ürün satışta görünmüyor.",
   PRODUCT_LOCKED: "Ürün kilitli.",
-  SPECIAL_COMMISSION_DETECTED:
-    "Trendyol API komisyonu manuel komisyondan düşük; özel komisyon süreci bitene kadar otomatik repricer devre dışı.",
   OUT_OF_STOCK: "Stok sıfır veya geçersiz.",
   COST_INCOMPLETE: "Maliyet verisi tamam değil.",
   COMMISSION_MISSING: "Komisyon oranı eksik.",
@@ -236,35 +234,9 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
     { key: "product_name", label: "Ürün" },
     { key: "strategy", label: "Öğrenilen strateji" },
     {
-      key: "special_commission_active",
-      label: "Komisyon",
-      render: (r) =>
-        r.special_commission_active ? (
-          <span
-            title={`API: ${percent(r.trendyol_commission_rate)} / Manuel: ${percent(r.base_commission_rate || r.commission_rate)}`}
-          >
-            <Badge tone="info">Özel komisyon</Badge>
-          </span>
-        ) : (
-          <span
-            title={`API: ${r.trendyol_commission_rate == null ? "-" : percent(r.trendyol_commission_rate)} / Manuel: ${percent(r.base_commission_rate || r.commission_rate)}`}
-          >
-            <Badge tone="neutral">Normal</Badge>
-          </span>
-        ),
-    },
-    {
-      key: "trendyol_commission_rate",
-      label: "API kom.",
-      render: (r) =>
-        r.trendyol_commission_rate == null
-          ? "-"
-          : percent(r.trendyol_commission_rate),
-    },
-    {
       key: "commission_rate",
-      label: "Manuel kom.",
-      render: (r) => percent(r.base_commission_rate || r.commission_rate),
+      label: "Komisyon",
+      render: (r) => percent(r.commission_rate),
     },
     { key: "my_price", label: "Mevcut", render: (r) => money(r.my_price) },
     {
@@ -397,7 +369,6 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
           <option value="mapping_missing">Mapping eksik</option>
           <option value="cost_missing">Maliyet eksik</option>
           <option value="commission_missing">Komisyon eksik</option>
-          <option value="special_commission">Özel komisyon</option>
           <option value="shipping_missing">Kargo eksik</option>
           <option value="loss">Zararda</option>
           <option value="below_min">Minimum fiyat altı</option>
@@ -485,9 +456,6 @@ function buyboxPreviewDetail(row) {
     effectiveUndercut: row.preview_effective_undercut,
     learnedUndercut: row.learned_price_cut_tl,
     confidence: row.confidence_score,
-    specialCommissionActive: row.special_commission_active,
-    trendyolCommissionRate: row.trendyol_commission_rate,
-    baseCommissionRate: row.base_commission_rate || row.commission_rate,
     blockedReasons: row.preview_blocked_reasons || [],
   };
 }
@@ -779,14 +747,6 @@ function RepricerPreviewDetail({ item, onClose }) {
           <div>
             <span>Strateji</span>
             <b>{item.strategy || "-"}</b>
-          </div>
-          <div>
-            <span>Komisyon durumu</span>
-            <b>
-              {item.specialCommissionActive
-                ? `Özel komisyon (${percent(item.trendyolCommissionRate)} / ${percent(item.baseCommissionRate)})`
-                : "Normal"}
-            </b>
           </div>
           <div>
             <span>Mevcut sıra</span>
