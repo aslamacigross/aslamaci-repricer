@@ -178,15 +178,20 @@ class CostRepository {
 
     const codes = [...new Set(normalized.map((row) => row.cost_item_code))];
     const barcodes = [...new Set(normalized.map((row) => row.barcode))];
+    const codePlaceholders = codes.map((_, index) => `$${index + 1}`).join(",");
+    const barcodePlaceholders = barcodes
+      .map((_, index) => `$${index + 1}`)
+      .join(",");
     const [costResult, productResult] = await Promise.all([
       queryable.query(
         `SELECT item_code,unit_cost,unit_desi FROM cost_items
-         WHERE item_code=ANY($1::text[])`,
-        [codes],
+         WHERE item_code IN (${codePlaceholders})`,
+        codes,
       ),
       queryable.query(
-        "SELECT barcode FROM products WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])",
-        [barcodes],
+        `SELECT barcode FROM products WHERE marketplace='TRENDYOL'
+         AND barcode IN (${barcodePlaceholders})`,
+        barcodes,
       ),
     ]);
     const existingCodes = new Set(costResult.rows.map((row) => row.item_code));

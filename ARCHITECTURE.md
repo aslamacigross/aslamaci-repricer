@@ -74,6 +74,23 @@ Başarılı bir aksiyon geri alınırken doğrudan API çağrısı yapılmaz. Es
 
 V2 Google Sheets import/export katmanına bağlı değildir. Maliyet kalemi, mapping, kargo ve ambalaj verileri panel API'leriyle PostgreSQL'e yazılır. Toplu işlemler doğrulama ve transaction kullanır; hatalı veri mevcut çalışan kaydı bozmaz.
 
+## Akıllı Mapping Akışı
+
+```mermaid
+flowchart LR
+  FILE["File Mac uygulaması"] --> POOL["File fiyat havuzu"]
+  HISTORY["Onaylı eski mappingler"] --> MATCH["Deterministik eşleştirme motoru"]
+  POOL --> MATCH
+  PRODUCTS["Aktif mapping eksiği ürünler"] --> MATCH
+  MATCH --> QUEUE["Güven skorlu öneri kuyruğu"]
+  QUEUE --> REVIEW["Kullanıcı inceleme ve onayı"]
+  REVIEW --> PREVIEW["Toplu güncel önizleme"]
+  PREVIEW --> TX["Transaction: mapping + maliyet + desi hesabı"]
+  TX --> DB[(PostgreSQL)]
+```
+
+Eşleştirme motoru ürün adlarını Türkçe karakterlerden bağımsız normalize eder; marka, kategori, hacim/gramaj ve paket adedi sinyallerini ayrı ağırlıklarla değerlendirir. Yüksek güven önerisi dahi kendiliğinden uygulanmaz. Onay, önizleme ve uygulama ayrı durumlardır; hedef ürünün hâlâ aktif ve mapping eksik olması, cost code'ların geçerli olması ve kullanılacak File fiyatının en fazla 30 günlük olması uygulama anında yeniden denetlenir.
+
 ## Operasyon Kontrolleri
 
 `/health` servis ve DB bağlantısını, `/ready` gerekli migration sürümünü denetler. Bakım modu açıkken ayarlar dışında veri değiştiren yönetim istekleri `503` ile durur; okuma ekranları erişilebilir kalır.

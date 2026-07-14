@@ -952,6 +952,192 @@ tbody tr.clickable:hover {
 .page-tabs button {
   flex: 0 1 auto;
 }
+.mapping-tabs {
+  margin-bottom: 12px;
+}
+.mapping-toolbar {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+.mapping-toolbar .filters {
+  margin: 0;
+}
+.mapping-toolbar-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.mapping-product-image {
+  background: #f5f8f6;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  height: 52px;
+  overflow: hidden;
+  place-items: center;
+  width: 52px;
+}
+.mapping-product-image img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+.mapping-product-image > span {
+  color: var(--muted);
+  display: none;
+  font-size: 8px;
+  padding: 4px;
+  text-align: center;
+}
+.confidence-cell {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.confidence-cell strong {
+  font-size: 12px;
+}
+.mapping-suggestion-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mapping-suggestion-detail section > h3 {
+  font-size: 12px;
+  margin: 0 0 9px;
+}
+.mapping-product-hero {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.mapping-product-hero > div {
+  min-width: 0;
+}
+.mapping-product-hero h3 {
+  font-size: 13px;
+  margin: 3px 0;
+}
+.mapping-product-hero span,
+.mapping-product-hero small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.suggestion-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.suggestion-items > div {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+.suggestion-item-heading {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.suggestion-item-heading strong {
+  font-size: 11px;
+}
+.suggestion-items .compact-kv {
+  margin-top: 10px;
+}
+.mapping-price-toggle {
+  align-items: flex-start;
+  background: var(--blue-soft);
+  border: 1px solid #cfe2eb;
+  border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+}
+.mapping-price-toggle > span {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  font-weight: 700;
+}
+.mapping-price-toggle small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+.evidence-list {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.evidence-list > div {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  font-size: 10px;
+  gap: 8px;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(100px, auto);
+  min-height: 38px;
+  padding: 7px 10px;
+}
+.evidence-list > div:last-child {
+  border-bottom: 0;
+}
+.evidence-list svg {
+  color: var(--green);
+}
+.evidence-list b {
+  max-width: 310px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggestion-decision {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.suggestion-decision > div {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.bulk-preview-list {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+.bulk-preview-list > div {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  font-size: 10px;
+  gap: 10px;
+  grid-template-columns: 140px minmax(0, 1fr);
+  padding: 9px 10px;
+}
+.bulk-preview-list > div:last-child {
+  border-bottom: 0;
+}
+.bulk-preview-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .formula {
   background: #f4f8f6;
   border-left: 3px solid var(--green);
@@ -1614,6 +1800,35 @@ tbody tr.clickable:hover {
   .filters select {
     flex: 1;
     min-width: 140px;
+  }
+  .mapping-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .mapping-toolbar-actions {
+    flex-wrap: wrap;
+  }
+  .mapping-toolbar-actions .btn {
+    flex: 1;
+  }
+  .mapping-product-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .mapping-product-hero > .badge {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .evidence-list > div {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .evidence-list b {
+    grid-column: 2;
+    max-width: none;
+    text-align: left;
+    white-space: normal;
+  }
+  .bulk-preview-list > div {
+    grid-template-columns: 1fr;
   }
   .drawer-body {
     padding: 13px;

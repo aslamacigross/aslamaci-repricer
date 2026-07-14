@@ -77,3 +77,41 @@ test("toplu maliyet, CSV ve öğrenme detayı", async ({ page }) => {
   await expect(page.getByText("Önerilen sonraki adım")).toBeVisible();
   await expect(page.getByText("Son fiyat denemeleri")).toBeVisible();
 });
+
+test("akıllı mapping önerisini inceleme ve güvenli onay", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Ürün Mapping" }).click();
+  await page.getByRole("button", { name: "Akıllı öneriler" }).click();
+
+  await expect(
+    page.getByRole("cell", {
+      name: "Daycare Sir Ağda Bandı 20'li",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("%94")).toBeVisible();
+  await page.getByRole("button", { name: "Öneriyi incele" }).click();
+  await expect(page.getByText("Bu öneri neden geldi?")).toBeVisible();
+  await page.getByRole("button", { name: "Öneriyi onayla" }).click();
+  await expect(
+    page.getByText("Öneri onaylandı; mapping henüz değiştirilmedi"),
+  ).toBeVisible();
+});
+
+test("mobil akıllı mapping kuyruğu", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByLabel("Menüyü aç").click();
+  await page.getByRole("button", { name: "Ürün Mapping" }).click();
+  await page.getByRole("button", { name: "Akıllı öneriler" }).click();
+
+  await expect(
+    page.getByPlaceholder("Barkod veya Trendyol ürünü ara"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Önerileri üret" }),
+  ).toBeVisible();
+  await expect(page.getByText("%94")).toBeVisible();
+  if (process.env.VISUAL_QA)
+    await page.screenshot({ path: "tmp/mapping-mobile.png", fullPage: true });
+});

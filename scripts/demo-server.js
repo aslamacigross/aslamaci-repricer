@@ -212,7 +212,6 @@ const actionRows = [
 const settingsItems = [
   { key: "global_dry_run", value: true },
   { key: "global_repricer_enabled", value: false },
-  { key: "google_sheets_sync_enabled", value: true },
   { key: "default_target_profit", value: 40 },
   { key: "default_price_cut_tl", value: 0.1 },
   { key: "default_max_increase_tl", value: 10 },
@@ -222,10 +221,70 @@ const settingsItems = [
   { key: "buybox_sync_cron_minutes", value: 10 },
   { key: "cost_calculation_cron_minutes", value: 30 },
   { key: "repricer_cron_minutes", value: 10 },
-  { key: "sheets_sync_cron_minutes", value: 1440 },
   { key: "log_retention_days", value: 90 },
   { key: "default_carrier", value: "TEX" },
   { key: "service_fee", value: 13.19 },
+];
+const fileMarketItems = [
+  {
+    id: 1,
+    source_key: "actisoft-menekse-1500",
+    product_name: "Actisoft Menekşe Bahçesi Konsantre 1500 ml",
+    normalized_name: "actisoft menekse bahcesi konsantre 1500 ml",
+    brand: "Actisoft",
+    size_value: 1500,
+    size_unit: "ml",
+    current_price: 112,
+    previous_price: 109.9,
+    availability: "AVAILABLE",
+    last_seen_at: now,
+    stale: false,
+  },
+];
+const mappingSuggestions = [
+  {
+    id: 14,
+    barcode: "86952556586",
+    product_name: "Vücut Sir Ağda Bandı 20'li X 4",
+    category_name: "Ağda Bandı",
+    confidence: 0.94,
+    confidence_band: "HIGH",
+    status: "PENDING",
+    source_type: "MANUAL_HISTORY_AND_FILE",
+    source_barcode: "86952556585",
+    update_file_price: true,
+    file_market_item_id: 1,
+    file_product_name: "Daycare Sir Ağda Bandı 20'li",
+    file_current_price: 119.9,
+    file_last_seen_at: now,
+    algorithm_version: "manual-history-file-v1",
+    fingerprint: "demo-suggestion",
+    updated_at: now,
+    evidence: {
+      sourceProductName: "Daycare Vücut Sir Ağda Bandı 20'li X 2",
+      reasons: [
+        { code: "NAME_SIMILARITY", value: 0.96 },
+        { code: "BRAND_MATCH", value: 1 },
+        { code: "SIZE_MATCH", value: 1 },
+      ],
+    },
+    items: [
+      {
+        id: 31,
+        cost_item_code: "DAYCARE_AGDA_BANDI_20LI",
+        item_name: "Daycare Sir Ağda Bandı 20'li",
+        quantity: 4,
+        current_unit_cost: 117.5,
+        unit_cost: 117.5,
+        suggested_unit_cost: 119.9,
+        unit_desi: 0.25,
+        file_market_item_id: 1,
+        file_product_name: "Daycare Sir Ağda Bandı 20'li",
+        file_current_price: 119.9,
+        file_last_seen_at: now,
+      },
+    ],
+  },
 ];
 const auth = new AuthService({
   username: "admin",
@@ -548,8 +607,7 @@ const jobItems = [
   "generate-repricer-actions",
   "run-auto-repricer",
   "check-action-outcomes-5m",
-  "sheets-import",
-  "sheets-export",
+  "generate-mapping-suggestions",
 ].map((name, i) => ({
   id: i + 1,
   name,
@@ -579,15 +637,59 @@ const container = {
       },
     ],
   },
-  sheets: {
-    health: () => ({ configured: true, circuitOpen: false }),
-    metadata: async () => ({ properties: { title: "Aşlamacı ERP" } }),
-  },
   trendyol: { configured: () => true },
   dashboard,
   products: productRepo,
   costEngine: { recalculate: async () => ({ processed: 1 }) },
   costs,
+  mappingAutomation: {
+    listFileItems: async () => ({
+      items: fileMarketItems,
+      total: fileMarketItems.length,
+      page: 1,
+      limit: 50,
+    }),
+    importFileItems: async (rows) => ({
+      processed: rows.length,
+      created: rows.length,
+      changed: 0,
+      items: rows,
+    }),
+    generate: async () => ({
+      processed: 1,
+      eligible: 1,
+      created: 1,
+      trainingProductCount: 304,
+      filePoolSize: fileMarketItems.length,
+    }),
+    listSuggestions: async () => ({
+      items: mappingSuggestions,
+      total: mappingSuggestions.length,
+      page: 1,
+      limit: 50,
+    }),
+    getSuggestion: async (id) =>
+      mappingSuggestions.find((item) => item.id === Number(id)),
+    approve: async (id) => {
+      const item = mappingSuggestions.find((row) => row.id === Number(id));
+      item.status = "APPROVED";
+      return item;
+    },
+    reject: async (id, actor, input) => {
+      const item = mappingSuggestions.find((row) => row.id === Number(id));
+      item.status = "REJECTED";
+      item.rejection_reason = input.reason;
+      return item;
+    },
+    bulkPreview: async (ids) => ({
+      token: "demo-preview-token",
+      suggestions: mappingSuggestions.filter((item) => ids.includes(item.id)),
+      productCount: ids.length,
+      mappingCount: ids.length,
+      priceUpdateCount: ids.length,
+    }),
+    bulkApply: async (ids) => ({ applied: ids.length, items: ids }),
+  },
   shippingService: {
     preview: async ({ sale_price, desi, carrier }) => ({
       salePrice: sale_price,

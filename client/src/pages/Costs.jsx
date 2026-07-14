@@ -9,6 +9,9 @@ import {
   Copy,
   Eye,
   TriangleAlert,
+  GitBranch,
+  Sparkles,
+  Store,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
 import DataTable, { money, percent, date } from "../components/DataTable";
@@ -26,6 +29,7 @@ import {
   Confirm,
   Pagination,
 } from "../components/ui";
+import MappingSuggestions from "./MappingSuggestions";
 const titles = {
   costs: ["Maliyet Kalemleri", "Birim maliyet ve desi bilgisini yönetin"],
   mappings: [
@@ -76,7 +80,8 @@ export default function Costs({ mode, notify }) {
   const [items, setItems] = useState(null),
     [search, setSearch] = useState(""),
     [error, setError] = useState(null),
-    [editing, setEditing] = useState(null);
+    [editing, setEditing] = useState(null),
+    [mappingView, setMappingView] = useState("manual");
   async function load() {
     setError(null);
     try {
@@ -101,17 +106,42 @@ export default function Costs({ mode, notify }) {
         description={d}
         actions={
           <>
-            {mode !== "commissions" && (
-              <Button icon={Plus} onClick={() => setEditing({})}>
-                Yeni ekle
-              </Button>
-            )}
+            {mode !== "commissions" &&
+              !(mode === "mappings" && mappingView !== "manual") && (
+                <Button icon={Plus} onClick={() => setEditing({})}>
+                  Yeni ekle
+                </Button>
+              )}
             <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
           </>
         }
       />
+      {mode === "mappings" && (
+        <div className="tabs page-tabs mapping-tabs">
+          <button
+            className={mappingView === "manual" ? "active" : ""}
+            onClick={() => setMappingView("manual")}
+          >
+            <GitBranch /> Mevcut mappingler
+          </button>
+          <button
+            className={mappingView === "suggestions" ? "active" : ""}
+            onClick={() => setMappingView("suggestions")}
+          >
+            <Sparkles /> Akıllı öneriler
+          </button>
+          <button
+            className={mappingView === "file" ? "active" : ""}
+            onClick={() => setMappingView("file")}
+          >
+            <Store /> File fiyat havuzu
+          </button>
+        </div>
+      )}
       {error ? (
         <ErrorState error={error} retry={load} />
+      ) : mode === "mappings" && mappingView !== "manual" ? (
+        <MappingSuggestions view={mappingView} notify={notify} />
       ) : mode === "shipping" ? (
         <Shipping
           data={items}
@@ -221,7 +251,9 @@ function ResourceTable({
               key: "missing_commission_count",
               label: "Eksik",
               render: (r) => (
-                <Badge tone={r.missing_commission_count ? "warning" : "success"}>
+                <Badge
+                  tone={r.missing_commission_count ? "warning" : "success"}
+                >
                   {r.missing_commission_count || 0}
                 </Badge>
               ),
@@ -824,8 +856,8 @@ function Shipping({ data, notify, reload, editing, setEditing }) {
         <div>
           <strong>Sistemin kullandığı maliyet</strong>
           <p>
-            Paneldeki kargo tutarı KDV hariçtir. Hesap motoru yüzde 20
-            KDV eklenmiş gerçek ödeme tutarını kullanır.
+            Paneldeki kargo tutarı KDV hariçtir. Hesap motoru yüzde 20 KDV
+            eklenmiş gerçek ödeme tutarını kullanır.
           </p>
         </div>
       </div>

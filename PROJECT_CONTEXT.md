@@ -62,10 +62,14 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Manuel aksiyon otomasyon kapılarından bağımsızdır; dry-run ve mali güvenlik kurallarını geçemez.
 - Mapping replace, kargo/ambalaj/komisyon güncellemesi ve ürün maliyet hesabı aynı DB transactionı içinde tamamlanır.
 - Orphan mappingler kaybolmaz; panel işlemlerinde uyarı olarak tutulup ilgili ürünü otomatik olarak eksik durumda tutar.
+- File fiyatları değişken operasyon verisidir; kaynak kod içine seed olarak gömülmez, tarihçeli PostgreSQL fiyat havuzunda tutulur.
+- Akıllı mapping motoru mevcut manuel mappingleri eğitim örneği olarak kullanır ve reçeteyi hedef paket adedine ölçekler.
+- Yüksek güven hiçbir zaman doğrudan uygulama yetkisi değildir; kullanıcı onayı, toplu önizleme ve uygulama üç ayrı adımdır.
+- File fiyatı 30 günden eskiyse mapping uygulanabilir ancak bu fiyatla maliyet kalemi güncellenemez; fiyat yenilenmeli veya fiyat güncellemesi kapatılmalıdır.
 
 ## Doğrulama Durumu
 
-- 72 backend unit/integration/regression ve 5 React bileşen testi geçiyor.
+- 86 backend unit/integration/regression, 7 React bileşen ve 5 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -89,3 +93,4 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Ürün CSV aktarımı API'nin talep edilen sayfa limitini küçültmesi durumunda dönen gerçek limiti izleyerek tüm sayfaları toplar; regresyon testi ve 768 kayıtlı Railway preview kataloğu üzerinde doğrulandı.
 - `009_remove_google_sheets_dependency` migrationı Sheets import/export joblarını ve ilgili sistem ayarlarını kaldırır.
 - GitHub PR #1 açık, draft, merge edilmemiş ve `main <- feature/aslamaci-erp-v2` yönünde birleştirilebilir durumdadır.
+- File Mac uygulamasındaki maliyet kalemleri alternatif arama ve kategori gezintisiyle tarandı; yalnız hedeflenen Harras, Actisoft ve Daycare markalarından 151 güncel ürün gözlemi preview fiyat havuzuna aktarılmak üzere toplandı.

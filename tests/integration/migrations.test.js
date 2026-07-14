@@ -33,6 +33,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "008_api_commission_source",
       "009_remove_google_sheets_dependency",
       "010_product_images",
+      "011_file_market_mapping_automation",
     ],
   );
   const safety = await db.query(
@@ -47,6 +48,12 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT name FROM jobs WHERE name IN('sheets-import','sheets-export')",
   );
   assert.equal(sheetJobs.rowCount, 0);
+  const mappingJob = await db.query(
+    "SELECT enabled,schedule_minutes FROM jobs WHERE name='generate-mapping-suggestions'",
+  );
+  assert.equal(mappingJob.rowCount, 1);
+  assert.equal(mappingJob.rows[0].enabled, false);
+  assert.equal(Number(mappingJob.rows[0].schedule_minutes), 1440);
   const contracts = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('buybox_history','price_change_outcomes','repricer_results')
@@ -100,17 +107,19 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "003_learning_contracts_and_operations",
       "004_market_price_verification",
       "005_operational_controls",
-	      "006_special_commission_guard",
-	      "007_active_product_guard",
-	      "008_api_commission_source",
-	      "009_remove_google_sheets_dependency",
-	    ],
-	  );
-	  await migrate("down", db, { compatibility: "pg-mem" });
-	  await migrate("down", db, { compatibility: "pg-mem" });
-	  await migrate("down", db, { compatibility: "pg-mem" });
-	  await migrate("down", db, { compatibility: "pg-mem" });
-	  const removedSpecialColumns = await db.query(
+      "006_special_commission_guard",
+      "007_active_product_guard",
+      "008_api_commission_source",
+      "009_remove_google_sheets_dependency",
+      "010_product_images",
+    ],
+  );
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedSpecialColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name='products'
        AND column_name IN('trendyol_commission_rate','base_commission_rate',

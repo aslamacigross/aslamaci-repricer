@@ -19,9 +19,12 @@ const { productsRoutes } = require("./routes/products.routes");
 const { costsRoutes } = require("./routes/costs.routes");
 const { repricerRoutes } = require("./routes/repricer.routes");
 const { systemRoutes } = require("./routes/system.routes");
+const {
+  mappingAutomationRoutes,
+} = require("./routes/mapping-automation.routes");
 
-const APP_VERSION = "2.0.0";
-const REQUIRED_MIGRATION = "010_product_images";
+const APP_VERSION = "2.1.0";
+const REQUIRED_MIGRATION = "011_file_market_mapping_automation";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);
@@ -117,6 +120,7 @@ function createApp(container = createContainer()) {
   app.use("/api/dashboard", dashboardRoutes(container));
   app.use("/api/products", productsRoutes(container));
   app.use("/api", costsRoutes(container));
+  app.use("/api", mappingAutomationRoutes(container));
   app.use("/api", repricerRoutes(container));
   app.use("/api", systemRoutes(container));
   const dist = path.resolve(__dirname, "../dist");

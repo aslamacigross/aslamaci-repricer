@@ -1,6 +1,6 @@
 # Implementation Status
 
-Son güncelleme: 2026-07-14 (Europe/Istanbul)
+Son güncelleme: 2026-07-15 (Europe/Istanbul)
 
 ## Tamamlanan
 
@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-14 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 78/78 başarılı
+- [x] Unit/integration/regression testleri: 86/86 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -53,9 +53,9 @@ Son güncelleme: 2026-07-14 (Europe/Istanbul)
 - [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
-- [x] React bileşen testleri: 5/5 başarılı
-- [x] Chrome masaüstü/mobil uçtan uca testleri: 3/3 başarılı
-- [x] Backend testleri: 78/78 başarılı
+- [x] React bileşen testleri: 7/7 başarılı
+- [x] Chrome masaüstü/mobil uçtan uca testleri: 5/5 başarılı
+- [x] Backend testleri: 86/86 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -71,6 +71,16 @@ Son güncelleme: 2026-07-14 (Europe/Istanbul)
 - [x] Maliyet, mapping, kargo, barem ve ambalaj silmelerinde onay penceresi
 - [x] `009_remove_google_sheets_dependency` migrationı ile Sheets import/export job ve ayarlarının kaldırılması
 - [x] GitHub draft pull request: [#1 Aşlamacı ERP V2 production web panel](https://github.com/aslamacigross/aslamaci-repricer/pull/1)
+- [x] `011_file_market_mapping_automation` migrationı ve geri alma migrationı
+- [x] File Market güncel/önceki fiyat havuzu ve gözlem geçmişi
+- [x] 65 hedef marka maliyet kalemi için alternatif arama ve kategori taraması
+- [x] İlk hedefli fiyat toplama turu: yalnız Harras, Actisoft ve Daycare markalarından 151 ürün
+- [x] Manuel mapping geçmişi, ürün adı, marka, kategori, gramaj ve paket adedi kullanan öneri motoru
+- [x] Yüksek / kontrol gerekli / düşük güven bantları ve açıklanabilir kanıtlar
+- [x] Onay ile uygulamayı ayıran toplu önizleme, parmak izi ve transaction güvenliği
+- [x] 30 günden eski File fiyatını maliyet güncellemesinde engelleme
+- [x] Akıllı mapping ve File havuzu için masaüstü/mobil panel
+- [x] Mapping önerisi üretme jobu; varsayılan kapalı
 
 ## PR Öncesi Kapsam Denetimi
 
@@ -82,7 +92,7 @@ Son güncelleme: 2026-07-14 (Europe/Istanbul)
 
 ## Devam Eden
 
-- Teknik geliştirme, preview kabulü ve draft PR teslimi tamamlandı.
+- File fiyat havuzu ve akıllı mapping özelliğinin branch push/preview kabulü sürüyor.
 
 ## Dış Ortamda Bekleyen
 
@@ -95,5 +105,6 @@ Son güncelleme: 2026-07-14 (Europe/Istanbul)
 - Production veritabanına migration veya write yapılmadı.
 - Preview'da Trendyol ürün/buybox verisi yalnızca read-only çekildi; manuel fiyat aksiyonu `DRY_RUN` durumunda tamamlandı ve fiyat değişmedi.
 - Preview'da `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false` bırakıldı; Sheets sync ayarı ve jobları V2'den kaldırıldı.
+- Akıllı mapping geliştirmesi Trendyol fiyat endpointlerini çağırmaz; öneri onayı tek başına mapping veya maliyet verisini değiştirmez.
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.

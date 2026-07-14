@@ -38,6 +38,22 @@
 - `maintenance_mode=false` sistem ayarını idempotent olarak ekler.
 - Yeni yazımlarda negatif maliyet/desi, sıfır mapping adedi, geçersiz komisyon, bozuk barem/ambalaj aralığı ve geçersiz aksiyon fiyatını engelleyen `NOT VALID` check constraintleri ekler; mevcut satırları migration sırasında reddetmez.
 - Mevcut ürün, mapping, aksiyon ve öğrenme kayıtlarına dokunmaz.
+
+### `006` - `010`
+
+- `006_special_commission_guard`: ürün komisyon gözlem alanlarını ekler.
+- `007_active_product_guard`: Trendyol satışa uygunluk alanlarından aktif ürün durumunu yeniden kurar.
+- `008_api_commission_source`: komisyonun tek kaynağını Trendyol API yapar.
+- `009_remove_google_sheets_dependency`: Sheet job ve ayarlarını V2 runtime'dan kaldırır.
+- `010_product_images`: Trendyol ürün görseli alanını ekler.
+
+### `011_file_market_mapping_automation`
+
+- `file_market_items` ve `file_market_price_history`: File ürünlerinin güncel/önceki fiyatını ve her gözlemi saklar.
+- `cost_item_file_links`: onaylı File ürünü ile maliyet kalemi bağını tutar.
+- `mapping_suggestions` ve `mapping_suggestion_items`: öneri, güven skoru, kanıt, durum ve reçete satırlarını saklar.
+- `cost_items` üzerine fiyat kaynağı, önceki maliyet ve kaynak kontrol zamanı ekler.
+- `generate-mapping-suggestions` jobunu kapalı varsayılanla kaydeder.
 - Uygulama readiness kontrolünün beklediği son migration sürümüdür.
 
 ## Ana İlişkiler
@@ -63,6 +79,9 @@
 - `price_change_outcomes(marketplace, barcode, checked_at)`
 - `competitor_price_observations(marketplace, barcode, observed_at)`
 - `job_runs(job_name, started_at)`
+- `file_market_price_history(file_market_item_id, observed_at)`
+- `mapping_suggestions(status, confidence, created_at)`
+- Mapping başına tek bekleyen/onaylı öneriyi koruyan partial unique index
 
 ## Atomic Mapping Replace
 
@@ -75,6 +94,8 @@
 7. Maliyetler tekrar hesaplanır.
 
 Okuma veya doğrulama hatasında mevcut mapping verisi değişmez.
+
+Akıllı öneri uygulamasında aynı prensip korunur: öneriler kilitlenir, önizleme parmak izi yeniden hesaplanır, hedef ürün ve maliyet kalemleri kilitlenir, mapping satırları eklenir ve tüm etkilenen ürün maliyetleri aynı transaction içinde hesaplanır. Herhangi bir çakışmada bütün işlem geri alınır.
 
 Panelden yapılan barkod kapsamlı toplu işlemde aynı doğrulama uygulanır; yalnızca gönderilen barkodların mappingleri transaction içinde silinip yeniden eklenir. Global replace endpointi ayrıca açık onay metni olmadan çalışmaz.
 

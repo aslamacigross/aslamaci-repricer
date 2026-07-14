@@ -23,6 +23,9 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - Mapping, Buybox ve fiyat aksiyonu listelerinde gerçek veri hacmine uygun sayfalama
 - Son fiyat denemeleri, strateji puanları ve açıklamalı sonraki adımla öğrenme detayı
 - Dashboard üzerinde dry-run, global repricer ve ayrı ürün/buybox sync durumu
+- File Market fiyat havuzu, fiyat değişim geçmişi ve 30 günlük güncellik koruması
+- Eski manuel mappinglerden öğrenen, paket adedini ölçekleyen güven skorlu mapping önerileri
+- Öneri onayı ile gerçek mapping uygulamasını ayıran toplu önizleme ve atomik uygulama akışı
 
 ## Gereksinimler
 
@@ -118,6 +121,12 @@ Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından 
 
 Mapping ekranı tüm mapping kümesini alıp 100 satırlık sayfalara böler. Buybox ve fiyat aksiyonları büyüyen katalog için server-side aranıp sayfalanır. Ürün ve Buybox CSV aktarımı gerekirse bütün API sayfalarını birleştirir; diğer tablolar seçili kolonları ve filtrelenmiş kayıt kümesini kullanır.
 
+### Akıllı Mapping ve File Market
+
+`Ürün Mapping` sayfası üç çalışma yüzeyi içerir: mevcut mappingler, akıllı öneriler ve File fiyat havuzu. File uygulamasından gözlenen ürün adı/fiyat kayıtları havuza yüklendikten sonra öneri motoru mevcut onaylı mapping reçetelerini eğitim örneği olarak kullanır; ürün adı, marka, gramaj/hacim, kategori ve paket adedini karşılaştırır. Örneğin iki adetlik eski reçete, aynı fiziksel ürünün dört adetlik Trendyol başlığında dört adede ölçeklenir.
+
+Öneriyi onaylamak veriyi değiştirmez. Yalnız `Onaylandı` durumundaki satırlar toplu önizleme ve ikinci bir uygulama adımından sonra transaction içinde mappinge çevrilir; ürün maliyetleri aynı transactionda yeniden hesaplanır. File fiyatı 30 günden eskiyse maliyet güncellemesi engellenir. Ayrıntılı işletim akışı [MAPPING_AUTOMATION.md](MAPPING_AUTOMATION.md) dosyasındadır.
+
 ## Railway
 
 Repo kökündeki `railway.toml` build, start ve health check ayarlarını içerir. Ayrıntılı akış [DEPLOYMENT.md](DEPLOYMENT.md), acil durum adımları [RUNBOOK.md](RUNBOOK.md) içindedir.
@@ -128,6 +137,7 @@ Repo kökündeki `railway.toml` build, start ve health check ayarlarını içeri
 - Trendyol yanıtında rakip satıcı puanı veya kupon ayrıntısı bulunmadığında bu alanlar gözlem tablosunda boş kalır ve karar motoru yalnız doğrulanabilen fiyat/sıra verisini kullanır.
 - Railway preview veritabanı production'dan ayrıdır; gerçek öğrenen pilot geçmişi preview'a kopyalanmamıştır. Migrationlar production'daki `price_war_log`, `buybox_snapshots` ve `repricer_learning` kayıtlarını koruyup backfill eder.
 - Hepsiburada adaptörü V2 veri modeline eklenebilir durumdadır ancak bu sürümde yalnız Trendyol entegrasyonu çalışır.
+- File Market resmi bir web/API yüzeyi sunmadığı için fiyat gözlemi Railway jobu tarafından doğrudan çekilemez. Mac uygulamasından toplanan gözlemler paneldeki fiyat havuzuna aktarılır; eşleştirme, geçmiş, güncellik ve maliyet uygulama adımları V2 içinde otomatik yürütülür.
 - Production migration/deploy, PR incelemesi ve ayrı DB snapshot sonrasında yapılmalıdır; preview kabulü production'a otomatik geçiş yapmaz.
 
 ## Dokümantasyon
@@ -138,3 +148,4 @@ Repo kökündeki `railway.toml` build, start ve health check ayarlarını içeri
 - [REPRICER_RULES.md](REPRICER_RULES.md)
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [RUNBOOK.md](RUNBOOK.md)
+- [MAPPING_AUTOMATION.md](MAPPING_AUTOMATION.md)
