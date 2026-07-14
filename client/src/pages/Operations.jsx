@@ -221,8 +221,13 @@ function Buybox({ notify }) {
 }
 function BuyboxTable({ payload, filters, setFilters, onExport }) {
   const [selected, setSelected] = useState(null);
+  const [previewDetail, setPreviewDetail] = useState(null);
   const updateFilter = (key, value) =>
     setFilters((current) => ({ ...current, [key]: value, page: 1 }));
+  const openPreviewDetail = (event, row) => {
+    event.stopPropagation();
+    setPreviewDetail(buyboxPreviewDetail(row));
+  };
   const cols = [
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
@@ -295,18 +300,39 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       label: "Engel",
       render: (r) =>
         r.preview_blocked_reasons?.length ? (
-          <Badge tone="danger">{r.preview_blocked_reasons.length} engel</Badge>
+          <button
+            type="button"
+            className="badge-button"
+            title={r.preview_blocked_reasons.map(safetyReasonText).join("\n")}
+            onClick={(event) => openPreviewDetail(event, r)}
+          >
+            <Badge tone="danger">
+              {r.preview_blocked_reasons.length} engel
+            </Badge>
+          </button>
         ) : (
-          <Badge tone="success">Uygun</Badge>
+          <button
+            type="button"
+            className="badge-button"
+            title="Güvenlik detayını aç"
+            onClick={(event) => openPreviewDetail(event, r)}
+          >
+            <Badge tone="success">Uygun</Badge>
+          </button>
         ),
     },
     {
       key: "preview_reason",
       label: "Neden",
       render: (r) => (
-        <span title={r.preview_reason} className="table-note">
+        <button
+          type="button"
+          title={r.preview_reason}
+          className="link-cell"
+          onClick={(event) => openPreviewDetail(event, r)}
+        >
           {r.preview_reason || "-"}
-        </span>
+        </button>
       ),
     },
   ];
@@ -395,9 +421,39 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
         />
       </div>
       <BuyboxHistory product={selected} onClose={() => setSelected(null)} />
+      <RepricerPreviewDetail
+        item={previewDetail}
+        onClose={() => setPreviewDetail(null)}
+      />
     </>
   );
 }
+
+function buyboxPreviewDetail(row) {
+  return {
+    barcode: row.barcode,
+    productName: row.product_name,
+    oldPrice: row.my_price,
+    proposedPrice: row.preview_proposed_price,
+    difference: row.preview_difference,
+    expectedProfit: row.preview_expected_profit,
+    action: row.preview_action,
+    strategy: row.strategy,
+    rank: row.rank,
+    targetRank: row.preview_target_rank,
+    reason: row.preview_reason,
+    minPrice: row.min_price,
+    maxPrice: row.maximum_price,
+    buyboxPrice: row.buybox_price,
+    secondPrice: row.second_price,
+    thirdPrice: row.third_price,
+    effectiveUndercut: row.preview_effective_undercut,
+    learnedUndercut: row.learned_price_cut_tl,
+    confidence: row.confidence_score,
+    blockedReasons: row.preview_blocked_reasons || [],
+  };
+}
+
 function BuyboxHistory({ product, onClose }) {
   const [items, setItems] = useState(null);
   useEffect(() => {
