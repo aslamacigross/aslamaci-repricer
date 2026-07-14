@@ -103,6 +103,7 @@ class ProductRepository {
     params.push(limit, offset);
     const data = await this.db.query(
       `SELECT p.*, COALESCE(ps.strategy, 'Manuel') AS strategy, COALESCE(ps.mode, 'MANUAL') AS repricer_mode,
+              COALESCE(ps.blacklisted, FALSE) AS blacklisted,
               COALESCE(rl.learned_price_cut_tl, 0) AS learned_price_cut_tl,
               la.action AS last_action,la.status AS last_action_status,
               la.proposed_price AS last_proposed_price,la.reason AS last_action_reason

@@ -65,7 +65,8 @@ const SAFETY_REASON_LABELS = {
   SINGLE_CHANGE_LIMIT: "Tek işlem fiyat değişim limiti aşılırdı.",
   DAILY_CHANGE_LIMIT: "Günlük fiyat değişim limiti aşılırdı.",
   DAILY_ACTION_LIMIT: "Günlük aksiyon sayısı limiti dolmuş.",
-  BLACKLISTED: "Ürün kara listede.",
+  BLACKLISTED:
+    "Üründe manuel fiyat kilidi aktif. Özel komisyon veya kampanya bitene kadar otomatik repricer devre dışı.",
   LEARNING_PAUSED: "Bu üründe öğrenme duraklatılmış.",
   AUTO_UPDATE_DISABLED: "Ürün auto update kapalı.",
   GLOBAL_REPRICER_DISABLED: "Global repricer kapalı.",

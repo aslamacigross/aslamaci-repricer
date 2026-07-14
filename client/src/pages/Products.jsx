@@ -142,6 +142,16 @@ const columns = [
   },
   { key: "data_status", label: "Veri", badge: true },
   { key: "repricer_mode", label: "Mod", badge: true },
+  {
+    key: "blacklisted",
+    label: "Fiyat kilidi",
+    render: (r) =>
+      r.blacklisted ? (
+        <Badge tone="danger">Kilitli</Badge>
+      ) : (
+        <Badge tone="neutral">Yok</Badge>
+      ),
+  },
   { key: "last_action", label: "Son aksiyon", badge: true },
   {
     key: "updated_at",
@@ -489,6 +499,8 @@ const bulkDefaults = {
   minimum_profit_tl: "",
   daily_action_limit: "",
   buybox_max_age_minutes: "",
+  blacklisted: false,
+  note: "",
 };
 
 function cleanFilters(filters) {
@@ -505,7 +517,9 @@ function cleanBulkSettings(form) {
     strategy: form.strategy,
     auto_update: Boolean(form.auto_update),
     learning_enabled: Boolean(form.learning_enabled),
+    blacklisted: Boolean(form.blacklisted),
   };
+  if (form.note !== "" && form.note != null) settings.note = form.note;
   for (const key of [
     "price_cut_tl",
     "max_increase_tl",
@@ -683,6 +697,22 @@ function BulkSettingsDrawer({
             <span />
             Öğrenmeye dahil
           </label>
+          <label className="toggle toggle-danger">
+            <input
+              type="checkbox"
+              checked={form.blacklisted}
+              onChange={(event) => update("blacklisted", event.target.checked)}
+            />
+            <span />
+            Özel komisyon kilidi
+          </label>
+          <Field label="Kilit notu">
+            <input
+              value={form.note}
+              placeholder="Örn. Trendyol özel komisyon"
+              onChange={(event) => update("note", event.target.value)}
+            />
+          </Field>
         </div>
         <div className="bulk-actions">
           <Button
@@ -924,8 +954,15 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
           onChange={(e) => update("blacklisted", e.target.checked)}
         />
         <span />
-        Kara liste
+        Özel komisyon kilidi
       </label>
+      <Field label="Kilit / not">
+        <input
+          value={s.note || ""}
+          placeholder="Örn. Trendyol özel komisyon"
+          onChange={(e) => update("note", e.target.value)}
+        />
+      </Field>
       <div className="manual-price">
         <Field label="Manuel fiyat aksiyonu">
           <input
