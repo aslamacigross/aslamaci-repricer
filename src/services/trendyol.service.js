@@ -81,6 +81,9 @@ class TrendyolService {
             product.category?.id || product.categoryId || variant.categoryId,
           salePrice: variant.price?.salePrice ?? variant.salePrice,
           listPrice: variant.price?.listPrice ?? variant.listPrice,
+          priceSeenByCustomer:
+            variant.price?.priceSeenByCustomer ?? variant.priceSeenByCustomer,
+          commission: variant.commission ?? product.commission,
           quantity: variant.stock?.quantity ?? variant.quantity,
           approved: variant.approved ?? product.approved ?? true,
           archived: variant.archived ?? product.archived ?? false,

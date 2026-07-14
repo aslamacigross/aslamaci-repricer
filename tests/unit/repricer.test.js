@@ -150,6 +150,29 @@ test("auto update kapali urun safety gate gecemez", () => {
   assert.equal(result.safe, false);
   assert.ok(result.failures.includes("AUTO_UPDATE_DISABLED"));
 });
+test("ozel komisyon otomatik repricer fiyatini kilitler", () => {
+  const proposal = proposePrice(base, settings);
+  const result = safetyCheck({
+    product: {
+      ...base,
+      special_commission_active: true,
+      trendyol_commission_rate: 12,
+      base_commission_rate: 17,
+    },
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 0.1,
+    },
+    proposal,
+    today: { actionCount: 0 },
+  });
+  assert.equal(result.safe, false);
+  assert.ok(result.failures.includes("SPECIAL_COMMISSION_DETECTED"));
+});
 test("manuel onay otomasyon kapilarini asar ama dry-run korumasini asamaz", () => {
   const proposal = proposePrice(base, settings);
   const result = safetyCheck({

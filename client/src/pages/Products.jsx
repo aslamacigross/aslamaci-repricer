@@ -49,6 +49,16 @@ const columns = [
     label: "Komisyon",
     render: (r) => percent(r.commission_rate),
   },
+  {
+    key: "special_commission_active",
+    label: "Komisyon durumu",
+    render: (r) =>
+      r.special_commission_active ? (
+        <Badge tone="info">Özel komisyon</Badge>
+      ) : (
+        <Badge tone="neutral">Normal</Badge>
+      ),
+  },
   { key: "desi", label: "Desi" },
   {
     key: "calculated_product_cost",

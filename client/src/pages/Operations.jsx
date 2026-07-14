@@ -52,6 +52,8 @@ const SAFETY_REASON_LABELS = {
   PRODUCT_INACTIVE: "Ürün aktif değil.",
   PRODUCT_NOT_ON_SALE: "Ürün satışta görünmüyor.",
   PRODUCT_LOCKED: "Ürün kilitli.",
+  SPECIAL_COMMISSION_DETECTED:
+    "Trendyol API komisyonu manuel komisyondan düşük; özel komisyon süreci bitene kadar otomatik repricer devre dışı.",
   OUT_OF_STOCK: "Stok sıfır veya geçersiz.",
   COST_INCOMPLETE: "Maliyet verisi tamam değil.",
   COMMISSION_MISSING: "Komisyon oranı eksik.",
@@ -232,6 +234,16 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Ürün" },
     { key: "strategy", label: "Öğrenilen strateji" },
+    {
+      key: "special_commission_active",
+      label: "Komisyon",
+      render: (r) =>
+        r.special_commission_active ? (
+          <Badge tone="info">Özel komisyon</Badge>
+        ) : (
+          <Badge tone="neutral">Normal</Badge>
+        ),
+    },
     { key: "my_price", label: "Mevcut", render: (r) => money(r.my_price) },
     {
       key: "buybox_price",
@@ -450,6 +462,9 @@ function buyboxPreviewDetail(row) {
     effectiveUndercut: row.preview_effective_undercut,
     learnedUndercut: row.learned_price_cut_tl,
     confidence: row.confidence_score,
+    specialCommissionActive: row.special_commission_active,
+    trendyolCommissionRate: row.trendyol_commission_rate,
+    baseCommissionRate: row.base_commission_rate || row.commission_rate,
     blockedReasons: row.preview_blocked_reasons || [],
   };
 }
@@ -741,6 +756,14 @@ function RepricerPreviewDetail({ item, onClose }) {
           <div>
             <span>Strateji</span>
             <b>{item.strategy || "-"}</b>
+          </div>
+          <div>
+            <span>Komisyon durumu</span>
+            <b>
+              {item.specialCommissionActive
+                ? `Özel komisyon (${percent(item.trendyolCommissionRate)} / ${percent(item.baseCommissionRate)})`
+                : "Normal"}
+            </b>
           </div>
           <div>
             <span>Mevcut sıra</span>

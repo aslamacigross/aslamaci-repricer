@@ -439,7 +439,27 @@ class SheetsSyncService {
           ],
         );
         await client.query(
-          "UPDATE products SET commission_rate=$1 WHERE marketplace='TRENDYOL' AND category_id=$2",
+          `UPDATE products SET
+             commission_rate=$1,
+             base_commission_rate=$1,
+             special_commission_active=CASE
+               WHEN trendyol_commission_rate IS NOT NULL
+                 AND trendyol_commission_rate > 0
+                 AND $1::numeric > 0
+                 AND trendyol_commission_rate < $1::numeric - 0.0001
+               THEN TRUE
+               ELSE FALSE
+             END,
+             special_commission_note=CASE
+               WHEN trendyol_commission_rate IS NOT NULL
+                 AND trendyol_commission_rate > 0
+                 AND $1::numeric > 0
+                 AND trendyol_commission_rate < $1::numeric - 0.0001
+               THEN 'Trendyol API komisyonu manuel komisyondan düşük'
+               ELSE NULL
+             END,
+             updated_at=NOW()
+           WHERE marketplace='TRENDYOL' AND category_id=$2`,
           [item.commission_rate, item.category_id],
         );
       }

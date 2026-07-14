@@ -455,7 +455,27 @@ class CostRepository {
       )
     ).rows[0];
     await this.db.query(
-      `UPDATE products SET commission_rate=$1,updated_at=NOW() WHERE marketplace='TRENDYOL' AND category_id=$2`,
+      `UPDATE products SET
+         commission_rate=$1,
+         base_commission_rate=$1,
+         special_commission_active=CASE
+           WHEN trendyol_commission_rate IS NOT NULL
+             AND trendyol_commission_rate > 0
+             AND $1::numeric > 0
+             AND trendyol_commission_rate < $1::numeric - 0.0001
+           THEN TRUE
+           ELSE FALSE
+         END,
+         special_commission_note=CASE
+           WHEN trendyol_commission_rate IS NOT NULL
+             AND trendyol_commission_rate > 0
+             AND $1::numeric > 0
+             AND trendyol_commission_rate < $1::numeric - 0.0001
+           THEN 'Trendyol API komisyonu manuel komisyondan düşük'
+           ELSE NULL
+         END,
+         updated_at=NOW()
+       WHERE marketplace='TRENDYOL' AND category_id=$2`,
       [input.commission_rate, input.category_id],
     );
     return row;
@@ -501,7 +521,26 @@ class CostRepository {
           ],
         );
         await client.query(
-          `UPDATE products SET commission_rate=$1,updated_at=NOW()
+          `UPDATE products SET
+             commission_rate=$1,
+             base_commission_rate=$1,
+             special_commission_active=CASE
+               WHEN trendyol_commission_rate IS NOT NULL
+                 AND trendyol_commission_rate > 0
+                 AND $1::numeric > 0
+                 AND trendyol_commission_rate < $1::numeric - 0.0001
+               THEN TRUE
+               ELSE FALSE
+             END,
+             special_commission_note=CASE
+               WHEN trendyol_commission_rate IS NOT NULL
+                 AND trendyol_commission_rate > 0
+                 AND $1::numeric > 0
+                 AND trendyol_commission_rate < $1::numeric - 0.0001
+               THEN 'Trendyol API komisyonu manuel komisyondan düşük'
+               ELSE NULL
+             END,
+             updated_at=NOW()
            WHERE marketplace='TRENDYOL' AND category_id=$2`,
           [Number(row.commission_rate), categoryId],
         );

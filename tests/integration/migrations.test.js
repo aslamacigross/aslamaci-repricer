@@ -28,6 +28,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "003_learning_contracts_and_operations",
       "004_market_price_verification",
       "005_operational_controls",
+      "006_special_commission_guard",
     ],
   );
   const safety = await db.query(
@@ -64,6 +65,14 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT value FROM system_settings WHERE key='maintenance_mode'",
   );
   assert.equal(maintenance.rows[0].value, false);
+  const specialCommissionColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='products'
+       AND column_name IN('trendyol_commission_rate','base_commission_rate',
+                          'special_commission_active','special_commission_checked_at',
+                          'special_commission_note')`,
+  );
+  assert.equal(specialCommissionColumns.rowCount, 5);
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(
@@ -82,8 +91,18 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "002_operations_and_learning",
       "003_learning_contracts_and_operations",
       "004_market_price_verification",
+      "005_operational_controls",
     ],
   );
+  const removedSpecialColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='products'
+       AND column_name IN('trendyol_commission_rate','base_commission_rate',
+                          'special_commission_active','special_commission_checked_at',
+                          'special_commission_note')`,
+  );
+  assert.equal(removedSpecialColumns.rowCount, 0);
+  await migrate("down", db, { compatibility: "pg-mem" });
   const removedMaintenance = await db.query(
     "SELECT value FROM system_settings WHERE key='maintenance_mode'",
   );
