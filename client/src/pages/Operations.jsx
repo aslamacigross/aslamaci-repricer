@@ -442,20 +442,30 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
 }
 
 function ProductThumb({ product }) {
-  if (!product?.product_image_url)
+  const [failed, setFailed] = useState(false);
+  const src = normalizeImageUrl(product?.product_image_url);
+  if (!src || failed)
     return <span className="product-thumb product-thumb-empty">-</span>;
   return (
     <img
       className="product-thumb"
-      src={product.product_image_url}
+      src={src}
       alt={product.product_name || "Ürün görseli"}
       loading="lazy"
       referrerPolicy="no-referrer"
-      onError={(event) => {
-        event.currentTarget.style.display = "none";
-      }}
+      onError={() => setFailed(true)}
     />
   );
+}
+
+function normalizeImageUrl(url) {
+  if (!url) return null;
+  const value = String(url).trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("//")) return `https:${value}`;
+  if (value.startsWith("/")) return `https://cdn.dsmcdn.com${value}`;
+  return `https://cdn.dsmcdn.com/${value.replace(/^\/+/, "")}`;
 }
 
 function buyboxPreviewDetail(row) {

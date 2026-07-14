@@ -77,7 +77,7 @@ test("Trendyol tekil urun fiyati barkod filtresiyle okunur", async () => {
 	                    onSale: true,
 	                    archived: false,
 	                    locked: false,
-	                    images: [{ url: "https://cdn.test/menekse.jpg" }],
+	                    images: [{ url: "/ty1/product/media/menekse.jpg" }],
 	                  },
                 ],
               },
@@ -93,7 +93,10 @@ test("Trendyol tekil urun fiyati barkod filtresiyle okunur", async () => {
   assert.equal(product.categoryId, 2354);
   assert.equal(product.commission, 17);
   assert.equal(product.onSale, true);
-  assert.equal(product.productImageUrl, "https://cdn.test/menekse.jpg");
+  assert.equal(
+    product.productImageUrl,
+    "https://cdn.dsmcdn.com/ty1/product/media/menekse.jpg",
+  );
   assert.match(requestedUrl, /barcode=8690609598109/);
   assert.match(requestedUrl, /products\/approved/);
 });

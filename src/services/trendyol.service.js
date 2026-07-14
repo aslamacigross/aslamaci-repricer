@@ -57,6 +57,15 @@ class TrendyolService {
     }
     throw lastError;
   }
+  normalizeImageUrl(url) {
+    if (!url) return null;
+    const value = String(url).trim();
+    if (!value) return null;
+    if (/^https?:\/\//i.test(value)) return value;
+    if (value.startsWith("//")) return `https:${value}`;
+    if (value.startsWith("/")) return `https://cdn.dsmcdn.com${value}`;
+    return `https://cdn.dsmcdn.com/${value.replace(/^\/+/, "")}`;
+  }
   firstImageUrl(product, variant = {}) {
     const sources = [
       variant.images,
@@ -73,10 +82,13 @@ class TrendyolService {
           typeof item === "string"
             ? item
             : item?.url || item?.imageUrl || item?.path || item?.thumbnailUrl;
-        if (url) return String(url);
+        const normalized = this.normalizeImageUrl(url);
+        if (normalized) return normalized;
       }
     }
-    return variant.imageUrl || product.imageUrl || product.image || null;
+    return this.normalizeImageUrl(
+      variant.imageUrl || product.imageUrl || product.image,
+    );
   }
   normalizeProductPage(data) {
     const content = [];
