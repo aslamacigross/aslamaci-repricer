@@ -66,6 +66,37 @@ class TrendyolService {
     if (value.startsWith("/")) return `https://cdn.dsmcdn.com${value}`;
     return `https://cdn.dsmcdn.com/${value.replace(/^\/+/, "")}`;
   }
+  collectImageCandidates(value, depth = 0, imageContext = false) {
+    if (depth > 5 || value == null) return [];
+    if (typeof value === "string") {
+      return imageContext ? [value] : [];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item) =>
+        this.collectImageCandidates(item, depth + 1, imageContext),
+      );
+    }
+    if (typeof value !== "object") return [];
+    const candidates = [];
+    for (const [key, child] of Object.entries(value)) {
+      const keyLooksImage = /(image|photo|media|thumbnail|picture)/i.test(key);
+      const keyLooksUrl = /^(url|path|href|src|imageUrl|thumbnailUrl)$/i.test(
+        key,
+      );
+      if (typeof child === "string" && (imageContext || keyLooksImage)) {
+        candidates.push(child);
+        continue;
+      }
+      candidates.push(
+        ...this.collectImageCandidates(
+          child,
+          depth + 1,
+          imageContext || keyLooksImage || keyLooksUrl,
+        ),
+      );
+    }
+    return candidates;
+  }
   firstImageUrl(product, variant = {}) {
     const sources = [
       variant.images,
@@ -87,8 +118,41 @@ class TrendyolService {
       }
     }
     return this.normalizeImageUrl(
-      variant.imageUrl || product.imageUrl || product.image,
+      variant.imageUrl ||
+        product.imageUrl ||
+        product.image ||
+        this.collectImageCandidates({ product, variant })[0],
     );
+  }
+  async imageDiagnostics(size = 10) {
+    const data = await this.request(
+      `/product/sellers/${env.trendyolSupplierId}/products/approved?page=0&size=${Math.min(Number(size) || 10, 20)}`,
+    );
+    const rows = [];
+    for (const product of data.content || []) {
+      const variants = product.variants || [product];
+      for (const variant of variants.slice(0, 3)) {
+        const candidate = this.firstImageUrl(product, variant);
+        rows.push({
+          barcode: variant.barcode || product.barcode || null,
+          productKeys: Object.keys(product).sort(),
+          variantKeys: Object.keys(variant).sort(),
+          hasProductImages: Array.isArray(product.images)
+            ? product.images.length
+            : 0,
+          hasVariantImages: Array.isArray(variant.images)
+            ? variant.images.length
+            : 0,
+          candidate,
+        });
+      }
+      if (rows.length >= 10) break;
+    }
+    return {
+      totalElements: data.totalElements ?? null,
+      contentCount: Array.isArray(data.content) ? data.content.length : 0,
+      rows,
+    };
   }
   normalizeProductPage(data) {
     const content = [];

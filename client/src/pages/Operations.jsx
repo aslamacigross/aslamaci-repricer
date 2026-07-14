@@ -443,7 +443,10 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
 
 function ProductThumb({ product }) {
   const [failed, setFailed] = useState(false);
-  const src = normalizeImageUrl(product?.product_image_url);
+  const src = product?.product_image_url
+    ? `/api/products/${encodeURIComponent(product.barcode)}/image`
+    : null;
+  useEffect(() => setFailed(false), [src]);
   if (!src || failed)
     return <span className="product-thumb product-thumb-empty">-</span>;
   return (
@@ -456,16 +459,6 @@ function ProductThumb({ product }) {
       onError={() => setFailed(true)}
     />
   );
-}
-
-function normalizeImageUrl(url) {
-  if (!url) return null;
-  const value = String(url).trim();
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  if (value.startsWith("//")) return `https:${value}`;
-  if (value.startsWith("/")) return `https://cdn.dsmcdn.com${value}`;
-  return `https://cdn.dsmcdn.com/${value.replace(/^\/+/, "")}`;
 }
 
 function buyboxPreviewDetail(row) {

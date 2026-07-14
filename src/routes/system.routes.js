@@ -270,16 +270,25 @@ function systemRoutes({
       }),
     ),
   );
-  r.post(
-    "/integrations/trendyol/test",
+	  r.post(
+	    "/integrations/trendyol/test",
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
         data: await sync.trendyol?.listProducts?.(0, 1),
       }),
-    ),
-  );
-  r.get(
+	    ),
+	  );
+	  r.get(
+	    "/integrations/trendyol/image-diagnostics",
+	    asyncRoute(async (req, res) =>
+	      res.json({
+	        status: "ok",
+	        data: await sync.trendyol?.imageDiagnostics?.(req.query.size),
+	      }),
+	    ),
+	  );
+	  r.get(
     "/logs",
     asyncRoute(async (req, res) => {
       const [items, total] = await Promise.all([
