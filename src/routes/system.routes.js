@@ -6,7 +6,6 @@ function systemRoutes({
   jobService,
   settings,
   audit,
-  sheets,
   sync,
   costEngine,
   repricer,
@@ -159,7 +158,6 @@ function systemRoutes({
       const allowed = new Set([
         "global_dry_run",
         "global_repricer_enabled",
-        "google_sheets_sync_enabled",
         "maintenance_mode",
         "default_target_profit",
         "default_price_cut_tl",
@@ -172,7 +170,6 @@ function systemRoutes({
         "buybox_sync_cron_minutes",
         "cost_calculation_cron_minutes",
         "repricer_cron_minutes",
-        "sheets_sync_cron_minutes",
         "log_retention_days",
       ]);
       const numeric = new Set([
@@ -186,13 +183,11 @@ function systemRoutes({
         "buybox_sync_cron_minutes",
         "cost_calculation_cron_minutes",
         "repricer_cron_minutes",
-        "sheets_sync_cron_minutes",
         "log_retention_days",
       ]);
       const booleanSettings = new Set([
         "global_dry_run",
         "global_repricer_enabled",
-        "google_sheets_sync_enabled",
         "maintenance_mode",
       ]);
       const jobForSetting = {
@@ -200,7 +195,6 @@ function systemRoutes({
         buybox_sync_cron_minutes: "sync-buybox",
         cost_calculation_cron_minutes: "calculate-costs",
         repricer_cron_minutes: "run-auto-repricer",
-        sheets_sync_cron_minutes: "sheets-import",
       };
       const positive = new Set([
         "buybox_max_age_minutes",
@@ -208,7 +202,6 @@ function systemRoutes({
         "buybox_sync_cron_minutes",
         "cost_calculation_cron_minutes",
         "repricer_cron_minutes",
-        "sheets_sync_cron_minutes",
         "log_retention_days",
       ]);
       const changed = [];
@@ -273,14 +266,8 @@ function systemRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: { google: sheets.health(), trendyol: await sync.health() },
+        data: { trendyol: await sync.health() },
       }),
-    ),
-  );
-  r.post(
-    "/integrations/google/test",
-    asyncRoute(async (req, res) =>
-      res.json({ status: "ok", data: await sheets.metadata() }),
     ),
   );
   r.post(
@@ -289,24 +276,6 @@ function systemRoutes({
       res.json({
         status: "ok",
         data: await sync.trendyol?.listProducts?.(0, 1),
-      }),
-    ),
-  );
-  r.post(
-    "/integrations/sheets/import",
-    asyncRoute(async (req, res) =>
-      res.json({
-        status: "ok",
-        data: await jobService.run("sheets-import", { source: "web" }),
-      }),
-    ),
-  );
-  r.post(
-    "/integrations/sheets/export",
-    asyncRoute(async (req, res) =>
-      res.json({
-        status: "ok",
-        data: await jobService.run("sheets-export", { source: "web" }),
       }),
     ),
   );

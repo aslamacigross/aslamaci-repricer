@@ -66,12 +66,12 @@
 
 ## Atomic Mapping Replace
 
-1. Sheet tamamen okunur.
+1. Panel/API isteği tamamen doğrulanır.
 2. Satır, duplicate ve zorunlu alan validation yapılır.
 3. Cost code ve barkod referansları doğrulanır.
 4. Transaction içinde temp staging tablo oluşturulur.
 5. Staging tekrar doğrulanır.
-6. Yalnızca doğrulama başarılıysa eski marketplace mappingleri değiştirilir.
+6. Yalnızca doğrulama başarılıysa ilgili barkodların marketplace mappingleri değiştirilir.
 7. Maliyetler tekrar hesaplanır.
 
 Okuma veya doğrulama hatasında mevcut mapping verisi değişmez.

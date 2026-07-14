@@ -1,10 +1,10 @@
 # Implementation Status
 
-Son güncelleme: 2026-07-13 (Europe/Istanbul)
+Son güncelleme: 2026-07-14 (Europe/Istanbul)
 
 ## Tamamlanan
 
-- [x] Repo, git geçmişi, canlı endpointler ve Sheet sekmeleri envanteri
+- [x] Repo, git geçmişi ve canlı endpoint envanteri
 - [x] `feature/aslamaci-erp-v2` branch oluşturulması
 - [x] V2 package script ve environment taslağı
 - [x] İnce `index.js` bootstrap
@@ -14,7 +14,7 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Kalıcı proje bağlamı ve durum dosyaları
 - [x] Geriye uyumlu, versioned ve down destekli migrationlar
 - [x] Repository/service katmanı
-- [x] Google Sheets retry, timeout, circuit breaker ve atomic import
+- [x] Google Sheets bağı V2 runtime'dan tamamen kaldırıldı
 - [x] Trendyol entegrasyonu ve dry-run action servisi
 - [x] Trendyol Product V2 ürün okuma uyumluluğu
 - [x] Gönderim öncesi gerçek pazar fiyatı eşleştirmesi
@@ -36,14 +36,14 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] README, mimari, DB, deploy, repricer ve runbook dokümantasyonu
 - [x] Railway build/start/health yapılandırması
 - [x] Railway `preview-v2` deployment ve ayrı PostgreSQL doğrulaması
-- [x] Canlı Sheet uyumluluk importu: 4.230 kayıt, atomik replace + hesaplama
+- [x] Panel kaynaklı transaction'lı mapping replace + hesaplama
 - [x] 768 ürün ve 717 buybox kaydıyla preview API kabul turu
 - [x] Menekşe manuel fiyat aksiyonu: `PENDING -> APPROVED -> DRY_RUN`, fiyat değişmedi
 - [x] Desktop ve 390x844 mobil görsel kabul turu
-- [x] Preview güvenlik anahtarlarının dry-run açık, repricer/job/Sheet otomasyonu kapalı bırakılması
+- [x] Preview güvenlik anahtarlarının dry-run açık, repricer/job otomasyonu kapalı bırakılması
 - [x] Product V2 Railway preview sync kabulü: 768 başarılı, 0 hatalı kayıt
 - [x] `004` migration alanlarının preview ürün detayında görsel doğrulaması
-- [x] Preview panel ayarlarında dry-run açık, repricer ve Sheets otomasyonu kapalı son kontrolü
+- [x] Preview panel ayarlarında dry-run açık, repricer otomasyonu kapalı son kontrolü
 - [x] Kuruş ve oran ölçekli tam sayı para motoru
 - [x] `005_operational_controls`, bakım modu ve migration-aware `/ready`
 - [x] Barkod kapsamlı güvenli toplu mapping önizleme ve benzer mapping çoğaltma
@@ -69,14 +69,14 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - [x] Ürünlerde manuel/sadece izle/otomatik mod ve ayrıntılı eksik veri filtreleri
 - [x] Dashboard dry-run, global repricer, ürün sync ve buybox sync görünürlüğü
 - [x] Maliyet, mapping, kargo, barem ve ambalaj silmelerinde onay penceresi
-- [x] Yeni kurulumlarda otomatik Google Sheets sync varsayılan kapalı
+- [x] `009_remove_google_sheets_dependency` migrationı ile Sheets import/export job ve ayarlarının kaldırılması
 - [x] GitHub draft pull request: [#1 Aşlamacı ERP V2 production web panel](https://github.com/aslamacigross/aslamaci-repricer/pull/1)
 
 ## PR Öncesi Kapsam Denetimi
 
 - [x] Şartnamedeki backend, migration, job, güvenlik ve entegrasyon maddeleri kaynak kod ve testlerle eşleştirildi
 - [x] Şartnamedeki panel sayfaları, kolonlar, filtreler, durumlar ve günlük yönetim akışları yeniden denetlendi
-- [x] Menekşe 312,28 TL, mapping atomic replace, Google hata koruması ve repricer safety regresyonları yeniden geçti
+- [x] Menekşe 312,28 TL, mapping atomic replace ve repricer safety regresyonları yeniden geçti
 - [x] Desktop, mobil, CSV, toplu maliyet ve öğrenme detayı Chrome akışları geçti
 - [x] Kullanıcı açık onayından sonra tek draft pull request oluşturulması
 
@@ -94,6 +94,6 @@ Son güncelleme: 2026-07-13 (Europe/Istanbul)
 - Gerçek Trendyol fiyat çağrısı yapılmadı.
 - Production veritabanına migration veya write yapılmadı.
 - Preview'da Trendyol ürün/buybox verisi yalnızca read-only çekildi; manuel fiyat aksiyonu `DRY_RUN` durumunda tamamlandı ve fiyat değişmedi.
-- Preview'da `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`, `GOOGLE_SHEETS_SYNC_ENABLED=false` bırakıldı; paneldeki Sheets sync ayarı da kapatıldı.
+- Preview'da `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false` bırakıldı; Sheets sync ayarı ve jobları V2'den kaldırıldı.
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.

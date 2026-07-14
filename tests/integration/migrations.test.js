@@ -31,6 +31,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "006_special_commission_guard",
       "007_active_product_guard",
       "008_api_commission_source",
+      "009_remove_google_sheets_dependency",
     ],
   );
   const safety = await db.query(
@@ -40,7 +41,11 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   const sheets = await db.query(
     "SELECT value FROM system_settings WHERE key='google_sheets_sync_enabled'",
   );
-  assert.equal(sheets.rows[0].value, false);
+  assert.equal(sheets.rowCount, 0);
+  const sheetJobs = await db.query(
+    "SELECT name FROM jobs WHERE name IN('sheets-import','sheets-export')",
+  );
+  assert.equal(sheetJobs.rowCount, 0);
   const contracts = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('buybox_history','price_change_outcomes','repricer_results')
@@ -96,8 +101,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "005_operational_controls",
       "006_special_commission_guard",
       "007_active_product_guard",
+      "008_api_commission_source",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedSpecialColumns = await db.query(
@@ -113,6 +120,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT value FROM system_settings WHERE key='maintenance_mode'",
   );
   assert.equal(removedMaintenance.rowCount, 0);
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedColumns = await db.query(
     `SELECT column_name FROM information_schema.columns

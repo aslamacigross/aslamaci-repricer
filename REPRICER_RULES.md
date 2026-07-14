@@ -27,7 +27,7 @@ Aksiyon etiketi matematiksel yönle merkezi domain fonksiyonunda üretilir.
                   (1 - komisyon / 100)
 ```
 
-Kargo tarifesi ve baremi Sheet/panelde KDV hariçtir; yüzde 20 eklenmiş tutar hesapta kullanılır. Diğer alış ve satış fiyatları KDV dahildir.
+Kargo tarifesi ve baremi panel/veritabanında KDV hariç tutulur; yüzde 20 eklenmiş tutar hesapta kullanılır. Diğer alış ve satış fiyatları KDV dahildir.
 
 ## Otomatik Aksiyon Safety Gate
 

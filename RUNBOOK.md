@@ -9,15 +9,6 @@ Panelde `Sistem Ayarları`:
 
 Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `global_repricer_enabled=false` yapılır. Railway'de ayrıca `DRY_RUN=true`, `REPRICER_ENABLED=false` tutulur.
 
-## Google Sheets Çökerse
-
-- Panel ve PostgreSQL ana akış çalışmaya devam eder.
-- `Entegrasyonlar` sağlık durumunda circuit breaker kontrol edilir.
-- Job geçmişinde `sheets-import` hata mesajı incelenir.
-- Token/timeout hatasında 60 saniyelik breaker süresi beklenip test yeniden çalıştırılır.
-- Sheet import hatasında DB mappinglerini manuel silmeyin; atomic import mevcut iyi veriyi korur.
-- Service account erişimi ve `GOOGLE_SERVICE_ACCOUNT_JSON` newline biçimi kontrol edilir.
-
 ## Trendyol API Hata Verirse
 
 - Global dry-run açılır ve repricer kapatılır.
@@ -29,7 +20,7 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 ## Fiyat Yanlış Giderse
 
 1. Global dry-run açılır, repricer kapatılır.
-2. İlgili barkod `Kara liste` yapılır.
+2. İlgili barkodda `Özel komisyon kilidi` veya ürün fiyat kilidi açılır.
 3. `Fiyat Aksiyonları`, audit log ve Trendyol batch ID kaydedilir.
 4. Trendyol panelindeki gerçek fiyat doğrulanır.
 5. Asıl aksiyon `SUCCESS` durumundaysa `Güvenli geri al` kullanılır; sistem eski fiyata bağlı yeni bir aksiyon oluşturur.
@@ -74,6 +65,3 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 
 Production'da backup olmadan down migration çalıştırılmaz.
 
-## Google Sheet Kaynak Kararı
-
-`KargoMaliyetleri` ve `KargoBarem` KDV hariç, diğer fiyatlar KDV dahildir. Bu karar değiştirilirse önce test fixture ve `REPRICER_RULES.md` güncellenir; sessiz hesap davranışı değişikliği yapılmaz.

@@ -824,7 +824,7 @@ function Shipping({ data, notify, reload, editing, setEditing }) {
         <div>
           <strong>Sistemin kullandığı maliyet</strong>
           <p>
-            Sheet ve paneldeki kargo tutarı KDV hariçtir. Hesap motoru yüzde 20
+            Paneldeki kargo tutarı KDV hariçtir. Hesap motoru yüzde 20
             KDV eklenmiş gerçek ödeme tutarını kullanır.
           </p>
         </div>

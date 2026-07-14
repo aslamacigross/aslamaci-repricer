@@ -13,7 +13,6 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - 5/15/60 dakika taze buybox sonuç ölçümü ve açıklanabilir öğrenme
 - Yeniden onay gerektiren izlenebilir fiyat geri alma akışı
 - PostgreSQL advisory lock kullanan job sistemi
-- Atomic Google Sheets importu ve geriye uyumlu export
 - Audit, entegrasyon ve job logları
 - Mobil uyumlu Türkçe React paneli
 - Kolon görünürlüğü, güvenli toplu mapping önizlemesi ve mapping çoğaltma
@@ -74,8 +73,6 @@ Mevcut zorunlu entegrasyon değişkenleri:
 - `TY_API_KEY`
 - `TY_API_SECRET`
 - `TY_SUPPLIER_ID`
-- `GOOGLE_SHEET_ID`
-- `GOOGLE_SERVICE_ACCOUNT_JSON`
 - `PORT`
 - `NODE_ENV`
 
@@ -89,7 +86,6 @@ V2 ile eklenenler:
 - `DRY_RUN`: varsayılan `true`
 - `REPRICER_ENABLED`: varsayılan `false`
 - `JOBS_ENABLED`: varsayılan `true`
-- `GOOGLE_SHEETS_SYNC_ENABLED`: varsayılan `false`; panel ayarıyla birlikte iki kapılı güvenlik
 - `DEFAULT_CARRIER`: varsayılan `TEX`
 - `DEFAULT_SERVICE_FEE`: varsayılan `13.19`
 - `DEFAULT_TARGET_PROFIT`: varsayılan `40`
@@ -112,13 +108,11 @@ Tam liste [.env.example](.env.example) dosyasındadır.
 
 Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canlı-mod onayı gerekir. Manuel aksiyonlar otomasyon kapalıyken kullanılabilir; yine de dry-run, minimum fiyat, maliyet, kâr, buybox güncelliği, tek işlem/günlük limit ve cooldown kontrollerini geçmek zorundadır. Canlı gönderim öncesinde Trendyol Product V2 üzerinden barkodun gerçek fiyatı yeniden okunur; DB fiyatıyla eşleşmezse istek gönderilmez. Batch kabulü ürün fiyatını kesinleştirmez; batch item sonucu ve pazaryerinde görülen fiyat doğrulanana kadar ürün kaydı değişmez.
 
-## Google Sheets
+## Veri Yönetimi
 
-PostgreSQL ana veri kaynağıdır. Sheets yalnızca geçiş, toplu düzenleme ve export katmanıdır. Import tüm sekmeleri önce okur ve doğrular; geçerli veri tamamlanmadan transaction veya silme başlamaz. Aynı değerli tekrarlar uyarıyla tekilleştirilir, boş mapping adedi `1` kabul edilir, eksik maliyet tutarı `0` olarak içe alınıp ilgili ürün eksik işaretlenir. Çelişkili tekrarlar transaction başlamadan reddedilir. Mapping replace ve maliyet hesaplama aynı transaction içinde tamamlanır. `KargoMaliyetleri` ve `KargoBarem` tutarlarına yüzde 20 KDV eklenir.
+PostgreSQL ana ve tek uygulama veri kaynağıdır. Trendyol ürün, fiyat, stok ve komisyon bilgileri Trendyol API üzerinden alınır. Maliyet kalemleri, mapping, kargo, ambalaj ve repricer ayarları web panelden yönetilir; V2 içinde Google Sheets import/export veya eski Sheet komutları kullanılmaz.
 
-Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister.
-Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz.
-Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebilir; tüm satırlar doğrulanmadan transaction başlamaz.
+Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister. Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz. Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebilir; tüm satırlar doğrulanmadan transaction başlamaz.
 
 Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından yönetilir. Böylece panelde yapılan değişiklikler servis yeniden başladığında korunur.
 

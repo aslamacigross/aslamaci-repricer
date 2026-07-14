@@ -29,7 +29,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "008_api_commission_source" }],
+                  : [{ version: "009_remove_google_sheets_dependency" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },
@@ -38,7 +38,6 @@ function container(options = {}) {
       record: async () => {},
       list: async () => [{ action: "LOGIN_SUCCESS" }],
     },
-    sheets: { health: () => ({ configured: false }) },
     trendyol: { configured: () => false },
     dashboard: { get: async () => ({ kpis: { total_products: 1 } }) },
     products: {
@@ -110,16 +109,12 @@ test("readiness eksik migrationda trafige hazir olmadigini bildirir", async () =
     .expect(503)
     .expect((res) => assert.equal(res.body.status, "not_ready"));
 });
-test(
-  "panel root istegi legacy koruma katmaninda beklemez",
-  { timeout: 1000 },
-  async () => {
-    await request(createApp(container()))
-      .get("/")
-      .expect(200)
-      .expect((res) => assert.match(res.headers["cache-control"], /no-store/));
-  },
-);
+test("panel root istegi uygulama kabugunu dondurur", { timeout: 1000 }, async () => {
+  await request(createApp(container()))
+    .get("/")
+    .expect(200)
+    .expect((res) => assert.match(res.headers["cache-control"], /no-store/));
+});
 test("mutasyon CSRF olmadan engellenir", async () => {
   const app = createApp(container());
   const login = await request(app)

@@ -22,15 +22,14 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 - URL: `https://aslamaci-repricer-preview-v2.up.railway.app`
 - Railway environment: `preview-v2`
 - Ayrı PostgreSQL servisi kullanılır; production DB'ye migration veya write yapılmamıştır.
-- Güvenlik: `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`, `GOOGLE_SHEETS_SYNC_ENABLED=false`.
+- Güvenlik: `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false`.
 - Product V2 ile 768 Trendyol varyantı ve buybox servisiyle 717 barkod read-only API çağrılarıyla senkronize edildi.
-- Google Sheet importu 4.230 kaydı transaction içinde işledi; import sonrası otomatik Sheet kapısı yeniden kapatıldı.
 - Menekşe (`8690609598109`) panelde 312,28 TL minimum fiyat ve `COMPLETE` durumuyla doğrulandı.
 - Manuel aksiyon `PENDING -> APPROVED -> DRY_RUN` akışını tamamladı; Trendyol fiyatı ve ürünün 322,00 TL mevcut fiyatı değişmedi.
 - Desktop ile 390x844 mobil dashboard/ürün ekranları görsel olarak doğrulandı.
 - `004_market_price_verification` migrationı uygulandı; ürün detayında ayrı tek işlem/günlük değişim alanları görüldü.
 - Product V2 ürün sync jobu 6,3 saniyede `SUCCESS`, 768 işlenen ve 0 hata sonucu verdi.
-- Panel güvenlik anahtarları tekrar doğrulandı: dry-run açık; global repricer ve Google Sheets otomatik sync kapalı.
+- Panel güvenlik anahtarları tekrar doğrulandı: dry-run açık; global repricer kapalı.
 
 ## Production Öncesi Yedek
 
@@ -71,7 +70,6 @@ NODE_ENV=production
 DRY_RUN=true
 REPRICER_ENABLED=false
 JOBS_ENABLED=true
-GOOGLE_SHEETS_SYNC_ENABLED=false
 DEFAULT_MAX_INCREASE_TL=10
 ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 ```
@@ -87,7 +85,7 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 ## Deploy Sonrası Smoke Test
 
 - `GET /health`: DB connected
-- `GET /ready`: `005_operational_controls` uygulanmış ve durum `ready`
+- `GET /ready`: son migration uygulanmış ve durum `ready`
 - Login ve logout
 - Dashboard KPI ve grafikler
 - Ürün arama, filtre ve detay drawer
@@ -101,12 +99,11 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Başarılı fixture aksiyonunda geri alma isteği: yeni `ROLLBACK/PENDING` kayıt, doğrudan API çağrısı yok
 - Dry-run kapatma denemesi: ikinci canlı-mod onayı olmadan `409`
 - Job geçmişi ve audit log
-- Google metadata test
 - Mobil sidebar ve tablolar
 - `pnpm test:ui` ve `pnpm test:e2e`
 
 ## Production'a Geçiş
 
-İlk production deploy da dry-run olarak yapılır. Sheet otomatik senkronu, ilk yedek ve manuel import kabulünden sonra ayrıca açılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır; otomatik gönderim için ayrıca global repricer ve ürün bazında `AUTOMATIC + auto_update` gerekir.
+İlk production deploy da dry-run olarak yapılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır; otomatik gönderim için ayrıca global repricer ve ürün bazında `AUTOMATIC + auto_update` gerekir.
 
 Preview ortamı Railway deneme planındadır. Deneme süresi/credit bitmeden preview kalıcı bir plana taşınmalı veya production geçişi tamamlandıktan sonra kapatılmalıdır.

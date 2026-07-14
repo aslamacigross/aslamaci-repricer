@@ -20,8 +20,6 @@ import {
   RotateCcw,
   Save,
   ShieldAlert,
-  CloudDownload,
-  CloudUpload,
   Activity,
   Pencil,
 } from "lucide-react";
@@ -1566,7 +1564,6 @@ function Settings({ notify, setDryRun }) {
   const bools = [
     ["global_dry_run", "Global dry-run"],
     ["global_repricer_enabled", "Global repricer"],
-    ["google_sheets_sync_enabled", "Google Sheets sync"],
     ["maintenance_mode", "Bakım modu"],
   ];
   return (
@@ -1608,7 +1605,6 @@ function Settings({ notify, setDryRun }) {
             ["buybox_sync_cron_minutes", "Buybox sync sıklığı (dk)"],
             ["cost_calculation_cron_minutes", "Maliyet hesabı sıklığı (dk)"],
             ["repricer_cron_minutes", "Repricer sıklığı (dk)"],
-            ["sheets_sync_cron_minutes", "Sheets import sıklığı (dk)"],
             ["log_retention_days", "Log saklama (gün)"],
           ].map(([key, label]) => (
             <Field key={key} label={label}>
@@ -1634,37 +1630,6 @@ function Settings({ notify, setDryRun }) {
         <div className="form-actions">
           <Button icon={Save} onClick={() => save(false)}>
             Ayarları kaydet
-          </Button>
-        </div>
-      </div>
-      <div className="panel integration-actions">
-        <h2>Google Sheets geçiş araçları</h2>
-        <p>
-          PostgreSQL ana veri kaynağıdır. Import önce tüm sekmeleri doğrular;
-          hata olursa çalışan DB verisine dokunmaz.
-        </p>
-        <div>
-          <Button
-            variant="secondary"
-            icon={CloudDownload}
-            onClick={() =>
-              post("/api/integrations/sheets/import")
-                .then(() => notify("Sheet import tamamlandı"))
-                .catch((e) => notify(e.message, "error"))
-            }
-          >
-            Sheet'ten içe aktar
-          </Button>
-          <Button
-            variant="secondary"
-            icon={CloudUpload}
-            onClick={() =>
-              post("/api/integrations/sheets/export")
-                .then(() => notify("Sheet export tamamlandı"))
-                .catch((e) => notify(e.message, "error"))
-            }
-          >
-            Sheet'e dışa aktar
           </Button>
         </div>
       </div>

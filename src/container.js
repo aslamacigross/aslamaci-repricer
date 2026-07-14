@@ -1,11 +1,9 @@
 const { pool, withTransaction } = require("./config/database");
 const { env } = require("./config/env");
 const { AuthService } = require("./services/auth.service");
-const { GoogleSheetsService } = require("./services/google-sheets.service");
 const { TrendyolService } = require("./services/trendyol.service");
 const { CostEngineService } = require("./services/cost-engine.service");
 const { SyncService } = require("./services/sync.service");
-const { SheetsSyncService } = require("./services/sheets-sync.service");
 const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
 const { ActionService } = require("./services/action.service");
@@ -42,7 +40,6 @@ function createContainer(overrides = {}) {
   const db = overrides.db || pool;
   const transaction = overrides.withTransaction || transactionFor(db);
   const auth = overrides.auth || new AuthService();
-  const sheets = overrides.sheets || new GoogleSheetsService();
   const trendyol = overrides.trendyol || new TrendyolService();
   const audit = overrides.audit || new AuditRepository(db);
   const settings = overrides.settings || new SettingsRepository(db);
@@ -55,15 +52,6 @@ function createContainer(overrides = {}) {
   const shippingService =
     overrides.shippingService || new ShippingService(costs);
   const sync = overrides.sync || new SyncService({ db, trendyol, audit });
-  const sheetsSync =
-    overrides.sheetsSync ||
-    new SheetsSyncService({
-      db,
-      withTransaction: transaction,
-      sheets,
-      costEngine,
-      audit,
-    });
   const repricer =
     overrides.repricer || new RepricerService({ db, actions, settings });
   const actionService =
@@ -132,27 +120,6 @@ function createContainer(overrides = {}) {
   jobService.register("check-action-outcomes-60m", () =>
     learning.checkOutcomes(60),
   );
-  const runSheets = async (operation) => {
-    const current = await settings.getAll();
-    if (
-      current.google_sheets_sync_enabled === false ||
-      !env.sheetsSyncEnabled
-    ) {
-      return {
-        processed: 0,
-        successful: 0,
-        failed: 0,
-        metadata: { skipped: "SHEETS_SYNC_DISABLED" },
-      };
-    }
-    return operation();
-  };
-  jobService.register("sheets-import", () =>
-    runSheets(() => sheetsSync.importAll()),
-  );
-  jobService.register("sheets-export", () =>
-    runSheets(() => sheetsSync.exportProducts()),
-  );
   jobService.register("cleanup-old-logs", async () => {
     const current = await settings.getAll();
     return maintenance.cleanup(current.log_retention_days);
@@ -161,7 +128,6 @@ function createContainer(overrides = {}) {
   return {
     db,
     auth,
-    sheets,
     trendyol,
     audit,
     settings,
@@ -173,7 +139,6 @@ function createContainer(overrides = {}) {
     costEngine,
     shippingService,
     sync,
-    sheetsSync,
     repricer,
     actionService,
     learning,

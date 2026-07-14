@@ -34,7 +34,6 @@ function createFixture() {
         },
       },
       audit: { record: async () => {} },
-      sheets: {},
       sync: {},
       costEngine: { recalculate: async () => ({ processed: 0 }) },
     }),

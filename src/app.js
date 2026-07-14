@@ -19,10 +19,9 @@ const { productsRoutes } = require("./routes/products.routes");
 const { costsRoutes } = require("./routes/costs.routes");
 const { repricerRoutes } = require("./routes/repricer.routes");
 const { systemRoutes } = require("./routes/system.routes");
-const { legacyRoutes } = require("./routes/legacy.routes");
 
 const APP_VERSION = "2.0.0";
-const REQUIRED_MIGRATION = "008_api_commission_source";
+const REQUIRED_MIGRATION = "009_remove_google_sheets_dependency";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);
@@ -82,7 +81,6 @@ function createApp(container = createContainer()) {
         database: "connected",
         responseMs: Date.now() - started,
         integrations: {
-          google: container.sheets.health(),
           trendyol: { configured: container.trendyol.configured() },
         },
       });
@@ -121,23 +119,6 @@ function createApp(container = createContainer()) {
   app.use("/api", costsRoutes(container));
   app.use("/api", repricerRoutes(container));
   app.use("/api", systemRoutes(container));
-  const legacyPaths = new Set([
-    "/products-summary",
-    "/products",
-    "/sync-products",
-    "/sync-buybox",
-    "/calculate-costs",
-    "/run-full-refresh",
-    "/export-products-to-sheet",
-    "/apply-approved-prices",
-  ]);
-  app.use((req, res, next) =>
-    legacyPaths.has(req.path) ? requireAuth(req, res, next) : next(),
-  );
-  app.use((req, res, next) =>
-    legacyPaths.has(req.path) ? csrfRequired(req, res, next) : next(),
-  );
-  app.use(legacyRoutes(container));
   const dist = path.resolve(__dirname, "../dist");
   if (fs.existsSync(dist)) {
     app.use(

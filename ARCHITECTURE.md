@@ -10,7 +10,6 @@ flowchart LR
   SERVICES --> REPOS[Repositories]
   REPOS --> DB[(PostgreSQL)]
   SERVICES --> TY[Trendyol Seller API]
-  SERVICES --> GS[Google Sheets API]
   JOBS[Job Scheduler + Advisory Lock] --> SERVICES
 ```
 
@@ -28,7 +27,7 @@ Frontend build'i Express tarafından sunulur; Railway'de tek servis yeterlidir.
 
 ## Veri Sahipliği
 
-PostgreSQL ürün, ayar, maliyet, buybox, aksiyon, öğrenme ve audit verilerinin tek gerçek kaynağıdır. Google Sheets import/export adaptörüdür. Panel ayarları `product_settings` ve `system_settings` tablolarına yazılır.
+PostgreSQL ürün, ayar, maliyet, buybox, aksiyon, öğrenme ve audit verilerinin tek gerçek kaynağıdır. Trendyol ürün, fiyat, stok ve komisyon verileri Trendyol Seller API üzerinden alınır. Panel ayarları `product_settings` ve `system_settings` tablolarına yazılır.
 
 Para hesapları JavaScript kayan nokta aritmetiğiyle biriktirilmez; tutarlar kuruşa, oranlar ölçekli tam sayıya çevrilip yuvarlanarak hesaplanır. PostgreSQL tarafında parasal alanlar `NUMERIC` olarak saklanır.
 
@@ -71,11 +70,9 @@ Repricer önce ekonomik olarak mümkün olan en iyi sırayı arar. Birinci sıra
 
 Başarılı bir aksiyon geri alınırken doğrudan API çağrısı yapılmaz. Eski fiyata bağlı `ROLLBACK` aksiyonu oluşturulur; bu kayıt yeniden onaylanır ve uygulama anında tüm safety kontrollerinden geçer. Batch ve pazar fiyatı doğrulandıktan sonra asıl aksiyon `REVERTED` olarak ilişkilendirilir.
 
-## Google Dayanıklılığı
+## Veri Yönetimi
 
-Tek token cache, exponential backoff, jitter, AbortController timeout ve circuit breaker kullanılır. Sheet okuma/validation bitmeden DB transactionı başlamaz. Mapping ve kural değişimleri temp tablolar üzerinden atomic replace edilir.
-
-Panel mapping önizlemesi cost code ve barkod referanslarını doğrular. Kaydetme yalnızca gönderilen barkodları transaction içinde yeniler; benzer ürün mappingi kaynak barkoddan en fazla 100 hedefe kontrollü çoğaltılır.
+V2 Google Sheets import/export katmanına bağlı değildir. Maliyet kalemi, mapping, kargo ve ambalaj verileri panel API'leriyle PostgreSQL'e yazılır. Toplu işlemler doğrulama ve transaction kullanır; hatalı veri mevcut çalışan kaydı bozmaz.
 
 ## Operasyon Kontrolleri
 
@@ -83,4 +80,4 @@ Panel mapping önizlemesi cost code ve barkod referanslarını doğrular. Kaydet
 
 ## Geriye Uyumluluk
 
-Read-only özet endpointleri korunur. Eski fiyat uygulama GET endpointi kasıtlı olarak `410` döndürür. Mutasyonlar auth + CSRF isteyen POST/PATCH/DELETE endpointlerine taşınmıştır.
+V2 panel ve `/api/*` REST sözleşmesi ana kullanım yüzeyidir. Eski Google Sheet ve URL komutları V2 runtime yüzeyinden kaldırılmıştır. Mutasyonlar auth + CSRF isteyen POST/PATCH/DELETE endpointleriyle yapılır.

@@ -1,6 +1,7 @@
 const { env } = require("../config/env");
-const { sleep } = require("./google-sheets.service");
 const { roundMoney } = require("../utils/numbers");
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class SyncService {
   constructor({ db, trendyol, audit }) {
