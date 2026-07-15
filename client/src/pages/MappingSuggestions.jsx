@@ -278,8 +278,9 @@ function SuggestionQueue({ notify }) {
       const response = await post("/api/mapping-suggestions/generate", {
         limit: 1000,
       });
+      const data = response.data;
       notify(
-        `${response.data.created} yeni öneri üretildi; ${response.data.trainingProductCount} eski mapping örnek alındı`,
+        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} File markası kapsamındaydı, ${data.withoutCandidate || 0} üründe güvenli aday kalmadı`,
       );
       setStatus("PENDING");
       await load();

@@ -237,10 +237,7 @@ class MappingAutomationService {
       ? supported.reduce((sum, item) => sum + item.file_match_score, 0) /
         items.length
       : 0;
-    const confidence = Math.min(
-      1,
-      comparison.score * 0.9 + fileSupport * 0.1,
-    );
+    const confidence = Math.min(1, comparison.score * 0.9 + fileSupport * 0.1);
     const variantPriceInferred = items.some(
       (item) => item.file_price_mode === "SIBLING_VARIANT",
     );
@@ -344,9 +341,7 @@ class MappingAutomationService {
     const baseConfidence = Number(candidate.confidence.toFixed(5));
     const fileIds = [
       ...new Set(
-        candidate.items
-          .map((item) => item.file_market_item_id)
-          .filter(Boolean),
+        candidate.items.map((item) => item.file_market_item_id).filter(Boolean),
       ),
     ];
     if (!fileIds.length) return null;
@@ -395,6 +390,9 @@ class MappingAutomationService {
     );
     const drafts = [];
     let scoped = 0;
+    let withoutCandidate = 0;
+    let withoutFileSupport = 0;
+    let rejectedCandidateCount = 0;
     for (const target of targets) {
       const targetBrand = normalizeText(target.brand);
       const targetName = normalizeText(target.product_name);
@@ -410,20 +408,36 @@ class MappingAutomationService {
         (candidate) =>
           candidate && candidate.confidence >= 0.3 && candidate.items.length,
       );
+      if (!candidates.length) {
+        withoutCandidate++;
+        continue;
+      }
+      let accepted = false;
       for (const candidate of candidates) {
         const suggestion = this.buildSuggestion(target, candidate);
-        if (!suggestion) continue;
+        if (!suggestion) {
+          withoutFileSupport++;
+          continue;
+        }
         if (
           rejectedFingerprints.has(
             `${suggestion.barcode}:${suggestion.fingerprint}`,
           )
-        )
+        ) {
+          rejectedCandidateCount++;
           continue;
-        if (rejectedRecipes.has(`${suggestion.barcode}:${suggestion.recipe_key}`))
+        }
+        if (
+          rejectedRecipes.has(`${suggestion.barcode}:${suggestion.recipe_key}`)
+        ) {
+          rejectedCandidateCount++;
           continue;
+        }
         drafts.push(suggestion);
+        accepted = true;
         break;
       }
+      if (!accepted && candidates.length) withoutCandidate++;
     }
     const profileRows = await this.repository.learningProfiles(
       drafts.map((suggestion) => suggestion.learning_key),
@@ -456,6 +470,9 @@ class MappingAutomationService {
       processed: targets.length,
       scoped,
       eligible: suggestions.length,
+      withoutCandidate,
+      withoutFileSupport,
+      rejectedCandidateCount,
       filePoolSize: fileItems.length,
       trainingProductCount: examples.length,
       ...saved,

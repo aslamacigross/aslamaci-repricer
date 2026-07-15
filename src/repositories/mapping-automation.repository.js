@@ -145,12 +145,22 @@ class MappingAutomationRepository {
   async targetProducts(limit = 500) {
     return (
       await this.db.query(
-        `SELECT barcode,product_name,brand,category_id,category_name,product_image_url,
-                data_status,is_active,stock_quantity
-         FROM products
-         WHERE marketplace='TRENDYOL' AND is_active=TRUE
-           AND data_status='MAPPING_MISSING'
-         ORDER BY product_name
+        `SELECT p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
+                p.product_image_url,p.data_status,p.is_active,p.stock_quantity,
+                p.needs_cost_mapping,p.calculated_product_cost,p.desi
+         FROM products p
+         LEFT JOIN (
+           SELECT marketplace,barcode,COUNT(*)::int AS mapping_count
+           FROM product_cost_mappings
+           GROUP BY marketplace,barcode
+         ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
+         WHERE p.marketplace='TRENDYOL' AND p.is_active=TRUE
+           AND p.product_name IS NOT NULL
+           AND (
+             p.data_status='MAPPING_MISSING'
+             OR COALESCE(mt.mapping_count,0)=0
+           )
+         ORDER BY p.product_name
          LIMIT $1`,
         [Math.min(Math.max(Number(limit) || 500, 1), 1000)],
       )
