@@ -483,7 +483,7 @@ function SuggestionQueue({ notify }) {
             variant="secondary"
             icon={Play}
             disabled={!selectedIds.length || bulkBusy}
-            onClick={previewSelected}
+            onClick={() => previewSelected(selectedIds)}
           >
             Seçilenleri önizle ({selectedIds.length})
           </Button>

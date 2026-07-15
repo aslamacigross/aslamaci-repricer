@@ -130,6 +130,42 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("seçili onaylı önerileri click eventi yerine id listesiyle önizler", async () => {
+    const user = userEvent.setup();
+    const approved = { ...suggestion, status: "APPROVED" };
+    get.mockResolvedValue({
+      data: { items: [approved], total: 1, page: 1, limit: 50 },
+    });
+    post.mockImplementation(async (path) => {
+      if (path === "/api/mapping-suggestions/bulk-preview")
+        return {
+          data: {
+            token: "preview-token",
+            productCount: 1,
+            mappingCount: 1,
+            priceUpdateCount: 1,
+            suggestions: [approved],
+          },
+        };
+      return { data: approved };
+    });
+
+    render(<MappingSuggestions view="suggestions" notify={vi.fn()} />);
+    await user.click(await screen.findByLabelText("Satırı seç"));
+    await user.click(
+      screen.getByRole("button", { name: /Seçilenleri önizle/ }),
+    );
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/mapping-suggestions/bulk-preview",
+        {
+          ids: [14],
+        },
+      ),
+    );
+  });
+
   test("kardeş varyant fiyatını tabloda ve detayda açıkça işaretler", async () => {
     const user = userEvent.setup();
     get.mockResolvedValue({
