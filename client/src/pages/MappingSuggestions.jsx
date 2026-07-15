@@ -63,7 +63,8 @@ function statusTone(status) {
 
 function formatMappingError(error) {
   const details = Array.isArray(error.details) ? error.details : [];
-  if (!details.length) return error.message;
+  if (!details.length)
+    return error.code ? `${error.message} (${error.code})` : error.message;
   const readable = details
     .slice(0, 4)
     .map((detail) => `${detail.code}${detail.value ? `: ${detail.value}` : ""}`)

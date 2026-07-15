@@ -178,6 +178,10 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     "admin",
     { update_file_price: true },
   );
+  await db.query(
+    "UPDATE mapping_suggestion_items SET unit_desi=NULL WHERE suggestion_id=$1",
+    [directApproved.id],
+  );
   const directPreview = await service.bulkPreview([directApproved.id]);
   await service.bulkApply([directApproved.id], directPreview.token, "admin");
   const directCostItem = await db.query(

@@ -1,5 +1,14 @@
 const { isFilePriceFresh } = require("../domain/file-market");
 const { buildMappingRecipeKey } = require("../domain/mapping-learning");
+const { extractSizes } = require("../domain/product-matching");
+
+function inferredUnitDesi(item) {
+  const current = Number(item.unit_desi);
+  if (Number.isFinite(current) && current > 0) return current;
+  const [size] = extractSizes(item.file_product_name || item.item_name || "");
+  if (!size) return 1;
+  return Number(Math.max(Number(size.value) / 1000, 0.1).toFixed(3));
+}
 
 class MappingAutomationRepository {
   constructor(db, withTransaction) {
@@ -648,10 +657,11 @@ class MappingAutomationRepository {
     );
     for (const item of suggestion.items) {
       if (existingCodes.has(item.cost_item_code)) continue;
+      const unitDesi = inferredUnitDesi(item);
       if (
         !item.file_market_item_id ||
         Number(item.suggested_unit_cost) <= 0 ||
-        Number(item.unit_desi) <= 0
+        unitDesi <= 0
       )
         continue;
       await client.query(
@@ -664,7 +674,7 @@ class MappingAutomationRepository {
           item.cost_item_code,
           item.file_product_name || item.item_name || item.cost_item_code,
           Number(item.suggested_unit_cost),
-          Number(item.unit_desi),
+          unitDesi,
           "Akıllı mapping File direkt eşleşmesiyle oluşturuldu",
         ],
       );
