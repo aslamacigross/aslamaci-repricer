@@ -237,6 +237,23 @@ class MappingAutomationRepository {
     ).rows.map((row) => `${row.barcode}:${buildMappingRecipeKey(row.items)}`);
   }
 
+  async rejectedFeedbackHints(barcodes = []) {
+    const unique = [...new Set((barcodes || []).filter(Boolean))];
+    if (!unique.length) return [];
+    return (
+      await this.db.query(
+        `SELECT barcode,reason,created_at FROM mapping_feedback_events
+         WHERE marketplace='TRENDYOL'
+           AND decision='REJECTED'
+           AND reason IS NOT NULL
+           AND reason<>''
+           AND barcode=ANY($1::text[])
+         ORDER BY barcode,created_at DESC`,
+        [unique],
+      )
+    ).rows;
+  }
+
   async saveSuggestions(suggestions, evaluatedBarcodes = []) {
     const evaluated = [
       ...new Set([

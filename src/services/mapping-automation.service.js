@@ -3,6 +3,7 @@ const { AppError } = require("../utils/errors");
 const {
   normalizeText,
   tokens,
+  diceCoefficient,
   extractPackCount,
   extractSizes,
   compareProducts,
@@ -19,7 +20,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "manual-history-file-v4";
+const ALGORITHM_VERSION = "manual-history-file-v5";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -149,8 +150,136 @@ function fileBackedQuantity(target, fileItem) {
   const fileInternal = extractInternalPackCount(fileItem.product_name);
   if (explicit && fileInternal && explicit === fileInternal) return 1;
   if (explicit) return explicit;
-  if (targetInternal && fileInternal && targetInternal === fileInternal) return 1;
+  if (targetInternal && fileInternal && targetInternal === fileInternal)
+    return 1;
   return extractPackCount(target.product_name);
+}
+
+const FEEDBACK_HINT_STOP_WORDS = new Set([
+  "bu",
+  "icin",
+  "ile",
+  "oldu",
+  "olan",
+  "olarak",
+  "olmali",
+  "urun",
+  "urunu",
+  "fiyat",
+  "fiyati",
+  "file",
+  "market",
+  "mapping",
+  "onerisi",
+  "sistem",
+  "yanlis",
+]);
+
+function extractHintFragment(text) {
+  const patterns = [
+    /\b(?:dogru urun|dogrusu|olmasi gereken|olması gereken)\s+(.+)$/,
+    /\b(?:aslinda|aslında)\s+(.+)$/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+
+function extractNegativeHintFragment(text) {
+  const patterns = [
+    /\b(.+?)\s+(?:degil|değil|yanlis|yanlış)\b/,
+    /\b(.+?)\s+(?:ile|le|la)\s+karistir/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+
+function noteTokens(value) {
+  return tokens(value).filter((token) => !FEEDBACK_HINT_STOP_WORDS.has(token));
+}
+
+function parseRejectionHint(row) {
+  const raw = String(row.reason || "");
+  const text = normalizeText(raw);
+  const positive = extractHintFragment(text);
+  const negative = extractNegativeHintFragment(text);
+  return {
+    barcode: row.barcode,
+    forceQuantityOne:
+      /\b(?:adet\s*1|1\s*adet|tek\s*adet|tekli|ic\s*paket|iç\s*paket|paket\s*icerigi|paketin\s*icerigi|iceriginde|içeriğinde)\b/.test(
+        text,
+      ),
+    preferredTokens: noteTokens(positive),
+    rejectedTokens: noteTokens(negative),
+    reason: raw,
+  };
+}
+
+function scoreTokensAgainstItems(hintTokens, candidate) {
+  if (!hintTokens.length) return 0;
+  return Math.max(
+    0,
+    ...candidate.items.map((item) =>
+      diceCoefficient(
+        hintTokens,
+        noteTokens(
+          `${item.file_product_name || ""} ${item.item_name || ""} ${item.cost_item_code || ""}`,
+        ),
+      ),
+    ),
+  );
+}
+
+function applyRejectionHints(candidate, hints = []) {
+  if (!hints.length) return candidate;
+  let quantityOne = false;
+  let boost = 0;
+  let penalty = 0;
+  const matched = [];
+  for (const hint of hints) {
+    if (hint.forceQuantityOne) quantityOne = true;
+    const preferredScore = scoreTokensAgainstItems(
+      hint.preferredTokens,
+      candidate,
+    );
+    const rejectedScore = scoreTokensAgainstItems(
+      hint.rejectedTokens,
+      candidate,
+    );
+    if (preferredScore >= 0.28) {
+      boost += Math.min(preferredScore * 0.22, 0.18);
+      matched.push("PREFERRED_PRODUCT_NOTE");
+    }
+    if (rejectedScore >= 0.28) {
+      penalty += Math.min(rejectedScore * 0.2, 0.16);
+      matched.push("REJECTED_PRODUCT_NOTE");
+    }
+  }
+  if (!quantityOne && boost === 0 && penalty === 0) return candidate;
+  return {
+    ...candidate,
+    confidence: Math.max(
+      0.3,
+      Math.min(0.95, candidate.confidence + boost - penalty),
+    ),
+    items: quantityOne
+      ? candidate.items.map((item) => ({ ...item, quantity: 1 }))
+      : candidate.items,
+    evidence: {
+      ...candidate.evidence,
+      rejectionNoteHints: {
+        quantityForcedToOne: quantityOne,
+        confidenceBoost: Number(boost.toFixed(5)),
+        confidencePenalty: Number(penalty.toFixed(5)),
+        matched: [...new Set(matched)],
+      },
+    },
+  };
 }
 
 class MappingAutomationService {
@@ -503,6 +632,23 @@ class MappingAutomationService {
           )
         : [],
     );
+    const feedbackHints = new Map();
+    if (this.repository.rejectedFeedbackHints) {
+      const rows = await this.repository.rejectedFeedbackHints(
+        targets.map((target) => target.barcode),
+      );
+      for (const row of rows) {
+        const hint = parseRejectionHint(row);
+        if (
+          !hint.forceQuantityOne &&
+          !hint.preferredTokens.length &&
+          !hint.rejectedTokens.length
+        )
+          continue;
+        if (!feedbackHints.has(row.barcode)) feedbackHints.set(row.barcode, []);
+        feedbackHints.get(row.barcode).push(hint);
+      }
+    }
     const drafts = [];
     let scoped = 0;
     let withoutCandidate = 0;
@@ -520,10 +666,15 @@ class MappingAutomationService {
         ...this.buildTrainingCandidates(target, examples, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
         ...this.buildFromFileItems(target, fileItems),
-      ].filter(
-        (candidate) =>
-          candidate && candidate.confidence >= 0.3 && candidate.items.length,
-      );
+      ]
+        .filter(
+          (candidate) =>
+            candidate && candidate.confidence >= 0.3 && candidate.items.length,
+        )
+        .map((candidate) =>
+          applyRejectionHints(candidate, feedbackHints.get(target.barcode)),
+        )
+        .sort((left, right) => right.confidence - left.confidence);
       if (!candidates.length) {
         withoutCandidate++;
         continue;
@@ -632,7 +783,7 @@ class MappingAutomationService {
           })
         : item.file_market_item_id || original.file_market_item_id
           ? estimateUnitDesi({})
-        : null;
+          : null;
       return {
         marketplace: "TRENDYOL",
         barcode: suggestion.barcode,
@@ -651,8 +802,7 @@ class MappingAutomationService {
               original.suggested_unit_cost ||
               original.file_current_price ||
               0,
-          ) ||
-          null,
+          ) || null,
         unit_desi:
           Number(item.unit_desi || original.unit_desi || inferredDesi || 0) ||
           null,

@@ -289,6 +289,54 @@ test("File ürünü 50'li paket ise Trendyol adındaki 50 adet içeriği maliyet
   assert.equal(saved[0].items[0].suggested_unit_cost, 89);
 });
 
+test("ret notu doğru File ürününü ve adet düzeltmesini sonraki öneriye taşır", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    rejectedFeedbackHints: async () => [
+      {
+        barcode: "DISIPI50NOTE",
+        reason:
+          "Bu ürün Daycare Diş İpi Ferah 50 m değil. Doğru ürün Daycare Bioçözünür Kürdanlı Diş İp 50'li. Adet 1 olmalı, 50 adet paket içeriği.",
+      },
+    ],
+    targetProducts: async () => [
+      {
+        barcode: "DISIPI50NOTE",
+        product_name: "Daycare Diş İpi 50 Adet",
+        brand: "Daycare",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 51,
+        product_name: "Daycare Diş İpi Ferah 50 m",
+        brand: "Daycare",
+        current_price: 75,
+      },
+      {
+        id: 50,
+        product_name: "Daycare Bioçözünür Kürdanlı Diş İp 50'li",
+        brand: "Daycare",
+        current_price: 89,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(
+    saved[0].items[0].file_product_name,
+    "Daycare Bioçözünür Kürdanlı Diş İp 50'li",
+  );
+  assert.equal(saved[0].items[0].quantity, 1);
+  assert.equal(saved[0].items[0].suggested_unit_cost, 89);
+  assert.equal(saved[0].evidence.rejectionNoteHints.quantityForcedToOne, true);
+});
+
 test("File ürünü iç paket, Trendyol başlığı çoklu paket ise adet çarpanı korunur", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],
