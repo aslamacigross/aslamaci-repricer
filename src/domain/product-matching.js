@@ -38,6 +38,9 @@ const TOKEN_ALIASES = {
   konst: "konsantre",
   mak: "makinesi",
   parfumu: "parfum",
+  sabunu: "sabun",
+  sabunlar: "sabun",
+  sabunlari: "sabun",
   tem: "temizleyici",
   yum: "yumusatici",
   yuz: "yuzey",
@@ -80,10 +83,11 @@ function extractPackCount(value) {
 function extractSizes(value) {
   const text = normalizeText(value);
   const sizes = [];
-  const pattern = /\b(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\b/g;
+  const pattern =
+    /\b(?:(\d+(?:[.,]\d+)?)\s*x\s*)?(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\b/g;
   for (const match of text.matchAll(pattern)) {
-    const amount = Number(match[1].replace(",", "."));
-    const rawUnit = match[2];
+    const amount = Number(match[2].replace(",", "."));
+    const rawUnit = match[3];
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const mass = rawUnit === "g" || rawUnit === "gr" || rawUnit === "kg";
     const baseValue =
@@ -98,6 +102,10 @@ function extractSizes(value) {
 function tokens(value) {
   const packCount = extractPackCount(value);
   return normalizeText(value)
+    .replace(
+      /\b\d+(?:[.,]\d+)?\s*x\s*\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\b/g,
+      " ",
+    )
     .replace(
       /\b\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg|adet|paket|li|lu|yikama)\b/g,
       " ",

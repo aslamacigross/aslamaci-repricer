@@ -223,6 +223,39 @@ test("geçmiş mapping yoksa güçlü File ürün eşleşmesinden yeni maliyet k
   assert.match(saved[0].items[0].cost_item_code, /HARRAS/);
 });
 
+test("Daycare banyo sabununu File kalıp sabun ürünüyle önerir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "TYBGRQD9451MF7S999",
+        product_name: "Doğal Beyaz Banyo Sabunu 4 X 200 Gr",
+        brand: "Daycare",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 77,
+        product_name: "Daycare Kalıp Sabun 4x200 g",
+        brand: "Daycare",
+        current_price: 69.5,
+      },
+    ],
+  });
+
+  const result = await service.generate({ limit: 100 });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+  assert.equal(saved[0].items[0].file_market_item_id, 77);
+  assert.equal(saved[0].items[0].quantity, 1);
+  assert.equal(saved[0].items[0].unit_desi, 0.8);
+});
+
 test("farklı File ürünlerinden oluşan setlerde çoklu maliyet kalemi önerir", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],

@@ -200,9 +200,25 @@ function remapEvidenceCostCodes(evidence = {}, items = []) {
 }
 
 function estimateUnitDesi(fileItem) {
+  const totalSize = extractTotalBundleSize(fileItem.product_name);
+  if (totalSize) return Number(Math.max(totalSize / 1000, 0.1).toFixed(3));
   const value = Number(fileItem.size_value || 0);
   if (!Number.isFinite(value) || value <= 0) return 1;
   return Number(Math.max(value / 1000, 0.1).toFixed(3));
+}
+
+function extractTotalBundleSize(value) {
+  const text = normalizeText(value);
+  const match = text.match(
+    /\b(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\b/,
+  );
+  if (!match) return null;
+  const count = Number(match[1].replace(",", "."));
+  const amount = Number(match[2].replace(",", "."));
+  if (!Number.isFinite(count) || !Number.isFinite(amount)) return null;
+  const unit = match[3];
+  const base = unit === "kg" || unit === "l" || unit === "lt" ? amount * 1000 : amount;
+  return count > 0 && amount > 0 ? count * base : null;
 }
 
 function extractExplicitBundleCount(value) {
@@ -230,8 +246,10 @@ function extractInternalPackCount(value) {
 
 function fileBackedQuantity(target, fileItem) {
   const explicit = extractExplicitBundleCount(target.product_name);
+  const fileExplicit = extractExplicitBundleCount(fileItem.product_name);
   const targetInternal = extractInternalPackCount(target.product_name);
   const fileInternal = extractInternalPackCount(fileItem.product_name);
+  if (explicit && fileExplicit && explicit === fileExplicit) return 1;
   if (explicit && fileInternal && explicit === fileInternal) return 1;
   if (explicit) return explicit;
   if (targetInternal && fileInternal && targetInternal === fileInternal)

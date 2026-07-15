@@ -30,6 +30,9 @@ test("ml litre gram ve kilogramı ortak temel birime çevirir", () => {
     { value: 1500, unit: "ml" },
   ]);
   assert.deepEqual(extractSizes("Çay 1 kg"), [{ value: 1000, unit: "g" }]);
+  assert.deepEqual(extractSizes("Daycare Kalıp Sabun 4x200 g"), [
+    { value: 200, unit: "g" },
+  ]);
 });
 
 test("aynı fiziksel ürünün farklı paket adetlerini yüksek güvenle eşleştirir", () => {
@@ -100,4 +103,21 @@ test("Diş ipi ve diş ip yazımlarını aynı ürün kökünde eşleştirir", (
   );
 
   assert.ok(result.score >= 0.6);
+});
+
+test("Daycare sabunu ve kalıp sabun adları aynı File ürününe yaklaşır", () => {
+  const result = compareProducts(
+    {
+      product_name: "Doğal Beyaz Banyo Sabunu 4 X 200 Gr",
+      brand: "Daycare",
+    },
+    {
+      product_name: "Daycare Kalıp Sabun 4x200 g",
+      brand: "Daycare",
+    },
+  );
+
+  assert.ok(result.score >= 0.4);
+  assert.equal(result.targetPackCount, 4);
+  assert.equal(result.candidatePackCount, 4);
 });
