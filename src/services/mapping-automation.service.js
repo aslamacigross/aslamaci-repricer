@@ -179,6 +179,30 @@ function splitCompositeFragments(value) {
     .slice(0, 6);
 }
 
+function sameSizeValue(left, right) {
+  if (!left || !right) return false;
+  return (
+    left.unit === right.unit &&
+    Math.abs(left.value - right.value) <= Math.max(left.value, right.value) * 0.03
+  );
+}
+
+function targetHasSize(targetSizes, itemSize) {
+  if (!itemSize) return true;
+  return targetSizes.some((size) => sameSizeValue(size, itemSize));
+}
+
+function productFamilySignature(value, brand = "") {
+  const sizeTokens = new Set(
+    extractSizes(value).map((size) => `${Math.round(size.value)}${size.unit}`),
+  );
+  const family = tokens(value)
+    .filter((token) => !tokens(brand).includes(token))
+    .filter((token) => PRODUCT_FAMILY_TOKENS.has(token) || sizeTokens.has(token))
+    .slice(0, 5);
+  return family.join("_") || normalizeText(brand) || "file";
+}
+
 function compositeSingleItemRisk(target, items) {
   if (items.length !== 1) return null;
   const text = normalizeText(target.product_name);
@@ -206,6 +230,21 @@ function compositeSingleItemRisk(target, items) {
     missingRatio: Number(missingRatio.toFixed(4)),
     fragments,
   };
+}
+
+function sortCandidatesForTarget(target, left, right) {
+  const targetComposite = COMPOSITE_MARKER_PATTERN.test(
+    normalizeText(target.product_name),
+  );
+  if (targetComposite) {
+    const leftComposite = Boolean(left.evidence?.compositeProduct) && left.items.length > 1;
+    const rightComposite =
+      Boolean(right.evidence?.compositeProduct) && right.items.length > 1;
+    if (leftComposite !== rightComposite) return rightComposite - leftComposite;
+    if (leftComposite && rightComposite && left.items.length !== right.items.length)
+      return right.items.length - left.items.length;
+  }
+  return right.confidence - left.confidence;
 }
 
 const FEEDBACK_HINT_STOP_WORDS = new Set([
@@ -721,6 +760,115 @@ class MappingAutomationService {
     };
   }
 
+  buildFromMultiVariantFileItems(target, fileItems) {
+    const targetText = normalizeText(target.product_name);
+    if (!COMPOSITE_MARKER_PATTERN.test(targetText)) return null;
+    const targetTokens = new Set(
+      significantProductTokens(target.product_name, target.brand),
+    );
+    const targetSizes = extractSizes(target.product_name);
+    const targetBrand = normalizeText(target.brand);
+    const candidates = fileItems
+      .map((fileItem) => {
+        const itemTokens = significantProductTokens(
+          fileItem.product_name,
+          fileItem.brand,
+        );
+        const itemSize = extractSizes(fileItem.product_name)[0];
+        const overlap = itemTokens.filter((token) => targetTokens.has(token));
+        const coverage = itemTokens.length ? overlap.length / itemTokens.length : 0;
+        const comparison = compareProducts(target, fileItem);
+        const brandMatches =
+          !targetBrand ||
+          normalizeText(fileItem.brand) === targetBrand ||
+          normalizeText(fileItem.product_name).includes(targetBrand);
+        return {
+          fileItem,
+          comparison,
+          itemTokens,
+          itemSize,
+          overlap,
+          coverage,
+          brandMatches,
+        };
+      })
+      .filter(
+        (candidate) =>
+          candidate.brandMatches &&
+          targetHasSize(targetSizes, candidate.itemSize) &&
+          candidate.overlap.length >= 2 &&
+          candidate.coverage >= 0.5 &&
+          candidate.comparison.score >= 0.42,
+      )
+      .sort((left, right) => {
+        if (right.overlap.length !== left.overlap.length)
+          return right.overlap.length - left.overlap.length;
+        return right.comparison.score - left.comparison.score;
+      });
+    if (candidates.length < 2) return null;
+
+    const selected = [];
+    const used = new Set();
+    for (const candidate of candidates) {
+      const key = String(candidate.fileItem.id);
+      if (used.has(key)) continue;
+      selected.push(candidate);
+      used.add(key);
+      if (selected.length >= 6) break;
+    }
+    if (selected.length < 2) return null;
+    const avgScore =
+      selected.reduce((sum, item) => sum + item.comparison.score, 0) /
+      selected.length;
+    const items = selected.map(({ fileItem, comparison }) => {
+      const unitDesi = estimateUnitDesi(fileItem);
+      return {
+        cost_item_code: generatedCostCode(fileItem),
+        item_name: fileItem.product_name,
+        quantity: 1,
+        current_unit_cost: Number(fileItem.current_price),
+        suggested_unit_cost: Number(fileItem.current_price),
+        unit_desi: unitDesi,
+        file_market_item_id: fileItem.id,
+        file_match_score: comparison.score,
+        file_product_name: fileItem.product_name,
+        file_price_mode: "DIRECT",
+        creates_cost_item: true,
+      };
+    });
+    return {
+      confidence: Math.min(0.84, avgScore * 0.9),
+      source_type: "FILE_MULTI_VARIANT_COST_ITEMS",
+      source_barcode: null,
+      items,
+      evidence: {
+        reasons: [{ code: "MULTI_VARIANT_FILE_MATCH" }],
+        targetPackCount: extractPackCount(target.product_name),
+        familySignature: productFamilySignature(
+          target.product_name,
+          target.brand,
+        ),
+        variantMatches: selected.map(({ fileItem, comparison, overlap }) => ({
+          fileProductName: fileItem.product_name,
+          score: comparison.score,
+          matchedTokens: overlap,
+        })),
+        fileMatches: items.map((item) => ({
+          costItemCode: item.cost_item_code,
+          fileProductName: item.file_product_name,
+          score: item.file_match_score,
+          priceMode: "DIRECT",
+          createsCostItem: true,
+          estimatedUnitDesi: item.unit_desi,
+        })),
+        variantPriceInferred: false,
+        createsCostItem: true,
+        compositeProduct: true,
+        multiVariantProduct: true,
+      },
+    };
+  }
+
   applyCompositeSafety(target, candidate) {
     const risk = compositeSingleItemRisk(target, candidate.items);
     if (!risk) return candidate;
@@ -819,6 +967,7 @@ class MappingAutomationService {
       const candidates = [
         ...this.buildTrainingCandidates(target, examples, fileItems),
         this.buildFromCompositeFileItems(target, fileItems),
+        this.buildFromMultiVariantFileItems(target, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
         ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
       ]
@@ -830,7 +979,7 @@ class MappingAutomationService {
           applyRejectionHints(candidate, feedbackHints.get(target.barcode)),
         )
         .map((candidate) => this.applyCompositeSafety(target, candidate))
-        .sort((left, right) => right.confidence - left.confidence);
+        .sort((left, right) => sortCandidatesForTarget(target, left, right));
       if (!candidates.length) {
         withoutCandidate++;
         continue;
@@ -953,6 +1102,7 @@ class MappingAutomationService {
       const candidates = [
         ...this.buildTrainingCandidates(target, examples, fileItems),
         this.buildFromCompositeFileItems(target, fileItems),
+        this.buildFromMultiVariantFileItems(target, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
         ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
       ]

@@ -300,6 +300,108 @@ test("farklı ürünlü set tek File ürününe indirgenirse yüksek güvene ç�
   assert.equal(saved[0].confidence_band, "LOW");
 });
 
+test("karabiber setinde değirmen kapak 50 g ve tane 100 g ayrı kalem olur", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "TYBNU3EM9A5KGJWA79",
+        product_name:
+          "Harras Değirmen Kapak Tane Karabiber 50 g ve Harras Tane Karabiber 100 g Set",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 41,
+        product_name: "Harras Değirmen Kapak Tane Karabiber 50g",
+        brand: "Harras",
+        current_price: 109,
+      },
+      {
+        id: 42,
+        product_name: "Harras Tane Karabiber 100g",
+        brand: "Harras",
+        current_price: 97.5,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].items.length, 2);
+  assert.deepEqual(
+    saved[0].items.map((item) => item.file_market_item_id).sort(),
+    [41, 42],
+  );
+  assert.deepEqual(
+    saved[0].items
+      .map((item) => Number(item.suggested_unit_cost))
+      .sort((left, right) => left - right),
+    [97.5, 109],
+  );
+});
+
+test("kahve varyant setinde dört File ürünü ayrı maliyet kalemi olur", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "528528268",
+        product_name:
+          "Harras Guatemala Colombia Colombia Medium Roast Special Blend Filtre Kahve 250 g 4'lü Set",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 51,
+        product_name: "Harras Guatemala Filtre Kahve 250g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 52,
+        product_name: "Harras Colombia Filtre Kahve 250g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 53,
+        product_name: "Harras Colombia Medium Roast Filtre Kahve 250g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 54,
+        product_name: "Harras Special Blend Filtre Kahve 250g",
+        brand: "Harras",
+        current_price: 199,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].source_type, "FILE_MULTI_VARIANT_COST_ITEMS");
+  assert.equal(saved[0].items.length, 4);
+  assert.deepEqual(
+    saved[0].items.map((item) => item.file_market_item_id).sort(),
+    [51, 52, 53, 54],
+  );
+  assert.equal(saved[0].evidence.multiVariantProduct, true);
+});
+
 test("eski File direkt önerisinde eksik desiyi ürün adından tamamlar", () => {
   const { service } = fixture();
   const [row] = service.normalizeDecisionItems(
