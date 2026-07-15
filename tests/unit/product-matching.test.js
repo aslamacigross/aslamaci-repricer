@@ -86,3 +86,18 @@ test("File kısaltmaları ve Dubai çikolatası adını ortak ürün diline çev
   assert.ok(dubai.score >= 0.9);
   assert.ok(perfume.score >= 0.7);
 });
+
+test("Diş ipi ve diş ip yazımlarını aynı ürün kökünde eşleştirir", () => {
+  const result = compareProducts(
+    {
+      product_name: "Kürdanlı Diş İpi 50 Adet",
+      brand: "Daycare",
+    },
+    {
+      product_name: "Daycare Bioçözünür Kürdanlı Diş İp 50'li",
+      brand: "Daycare",
+    },
+  );
+
+  assert.ok(result.score >= 0.6);
+});

@@ -249,6 +249,46 @@ test("File ürünü aynı iç paket adedini taşıyorsa ekstra adet çarpanı ü
   assert.equal(saved[0].items[0].suggested_unit_cost, 135);
 });
 
+test("File ürünü 50'li paket ise Trendyol adındaki 50 adet içeriği maliyet adedi sayılmaz", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "DISIPI50",
+        product_name: "Kürdanlı Diş İpi 50 Adet",
+        brand: "Daycare",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 50,
+        product_name: "Daycare Bioçözünür Kürdanlı Diş İp 50'li",
+        brand: "Daycare",
+        current_price: 89,
+      },
+      {
+        id: 51,
+        product_name: "Daycare Diş İpi Ferah 50 m",
+        brand: "Daycare",
+        current_price: 75,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved[0].items[0].quantity, 1);
+  assert.equal(
+    saved[0].items[0].file_product_name,
+    "Daycare Bioçözünür Kürdanlı Diş İp 50'li",
+  );
+  assert.equal(saved[0].items[0].suggested_unit_cost, 89);
+});
+
 test("File ürünü iç paket, Trendyol başlığı çoklu paket ise adet çarpanı korunur", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],

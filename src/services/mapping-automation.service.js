@@ -145,9 +145,10 @@ function extractInternalPackCount(value) {
 
 function fileBackedQuantity(target, fileItem) {
   const explicit = extractExplicitBundleCount(target.product_name);
-  if (explicit) return explicit;
   const targetInternal = extractInternalPackCount(target.product_name);
   const fileInternal = extractInternalPackCount(fileItem.product_name);
+  if (explicit && fileInternal && explicit === fileInternal) return 1;
+  if (explicit) return explicit;
   if (targetInternal && fileInternal && targetInternal === fileInternal) return 1;
   return extractPackCount(target.product_name);
 }

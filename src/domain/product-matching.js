@@ -34,6 +34,7 @@ const TOKEN_ALIASES = {
   deterj: "deterjani",
   dolg: "dolgulu",
   edp: "parfum",
+  ipi: "ip",
   konst: "konsantre",
   mak: "makinesi",
   parfumu: "parfum",
