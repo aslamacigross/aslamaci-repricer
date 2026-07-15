@@ -26,7 +26,10 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE is_active)::int active_products,
         COUNT(*) FILTER(WHERE stock_quantity>0)::int stocked_products,
         COUNT(*) FILTER(WHERE data_complete)::int complete_products,
-        COUNT(*) FILTER(WHERE data_status='MAPPING_MISSING')::int missing_mapping,
+        COUNT(*) FILTER(WHERE data_status='MAPPING_MISSING' OR NOT EXISTS(
+          SELECT 1 FROM product_cost_mappings pcm
+          WHERE pcm.marketplace=products.marketplace AND pcm.barcode=products.barcode
+        ))::int missing_mapping,
         COUNT(*) FILTER(WHERE needs_cost_mapping AND data_status<>'MAPPING_MISSING')::int cost_data_issue,
         COUNT(*) FILTER(WHERE commission_rate IS NULL OR commission_rate<=0)::int missing_commission,
         COUNT(*) FILTER(WHERE calculated_shipping_cost<=0)::int missing_shipping,
@@ -131,7 +134,10 @@ class DashboardRepository {
       total_products: "TRUE",
       active_products: "p.is_active=TRUE",
       complete_products: "p.data_complete=TRUE",
-      missing_mapping: "p.data_status='MAPPING_MISSING'",
+      missing_mapping: `(p.data_status='MAPPING_MISSING' OR NOT EXISTS(
+        SELECT 1 FROM product_cost_mappings pcm
+        WHERE pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
+      ))`,
       cost_data_issue:
         "p.needs_cost_mapping=TRUE AND p.data_status<>'MAPPING_MISSING'",
       missing_commission: "(p.commission_rate IS NULL OR p.commission_rate<=0)",
@@ -158,8 +164,25 @@ class DashboardRepository {
         `SELECT p.barcode,p.product_name,p.brand,p.category_name,p.is_active,
           p.stock_quantity,p.my_price,p.buybox_price,p.rank,p.min_price,
           p.calculated_net_profit,p.calculated_net_margin,p.data_status,
-          p.auto_update,p.buybox_updated_at
+          p.auto_update,p.buybox_updated_at,p.needs_cost_mapping,
+          p.calculated_product_cost,p.desi,p.calculated_shipping_cost,
+          p.packaging_cost,p.service_fee,p.commission_rate,
+          COALESCE(mt.mapping_count,0)::int AS mapping_count,
+          CASE
+            WHEN COALESCE(mt.mapping_count,0)=0 THEN 'Mapping reçetesi yok'
+            WHEN p.calculated_product_cost<=0 THEN 'Ürün maliyeti hesaplanmadı'
+            WHEN COALESCE(p.desi,0)<=0 THEN 'Desi eksik'
+            WHEN COALESCE(p.calculated_shipping_cost,0)<=0 THEN 'Kargo maliyeti eksik'
+            WHEN p.commission_rate IS NULL OR p.commission_rate<=0 THEN 'Komisyon eksik'
+            WHEN p.data_status='COMPLETE' THEN 'Tamam'
+            ELSE p.data_status
+          END AS data_issue_label
          FROM products p
+         LEFT JOIN (
+           SELECT marketplace,barcode,COUNT(*)::int AS mapping_count
+           FROM product_cost_mappings
+           GROUP BY marketplace,barcode
+         ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
          WHERE p.marketplace='TRENDYOL' AND ${productMetrics[metric]}
          ORDER BY
           CASE WHEN p.is_active THEN 0 ELSE 1 END,

@@ -361,6 +361,23 @@ function MetricDrawer({ detail, onClose }) {
     },
     { key: "stock_quantity", label: "Stok" },
     { key: "my_price", label: "Fiyat", render: (row) => money(row.my_price) },
+    { key: "mapping_count", label: "Mapping" },
+    {
+      key: "calculated_product_cost",
+      label: "Ürün maliyeti",
+      render: (row) => money(row.calculated_product_cost),
+    },
+    {
+      key: "desi",
+      label: "Desi",
+      render: (row) =>
+        row.desi == null ? "-" : Number(row.desi).toLocaleString("tr-TR"),
+    },
+    {
+      key: "calculated_shipping_cost",
+      label: "Kargo",
+      render: (row) => money(row.calculated_shipping_cost),
+    },
     { key: "min_price", label: "Min", render: (row) => money(row.min_price) },
     { key: "rank", label: "Sıra" },
     {
@@ -374,6 +391,7 @@ function MetricDrawer({ detail, onClose }) {
       render: (row) => percent(row.calculated_net_margin),
     },
     { key: "data_status", label: "Veri", badge: true },
+    { key: "data_issue_label", label: "Eksik nedeni", badge: true },
     {
       key: "auto_update",
       label: "Oto",
