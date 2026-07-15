@@ -36,7 +36,8 @@ class CostEngineService {
         FROM product_cost_mappings pcm LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
         WHERE pcm.marketplace='TRENDYOL' GROUP BY pcm.marketplace,pcm.barcode
       ), calculated AS (
-        SELECT p.marketplace,p.barcode,COALESCE(mt.product_cost,0) product_cost,COALESCE(mt.total_desi,0) total_desi,
+        SELECT p.marketplace,p.barcode,COALESCE(mt.product_cost,0) product_cost,
+          CEIL(COALESCE(mt.total_desi,0)) total_desi,
           COALESCE(sb.cost_inc_vat,sc.cost_inc_vat,0) shipping_cost,
           COALESCE(pr.packaging_cost,0) packaging_cost,
           COALESCE(mt.orphan_count,0) orphan_count,COALESCE(mt.mapping_count,0) mapping_count,

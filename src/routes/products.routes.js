@@ -122,7 +122,8 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
         actor: req.user.username,
       });
       if (settings.minimum_profit_tl !== undefined) {
-        for (const barcode of data.barcodes) await costEngine.recalculate(barcode);
+        for (const barcode of data.barcodes)
+          await costEngine.recalculate(barcode);
       }
       await audit.record({
         actor: req.user.username,
@@ -136,44 +137,41 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
       });
       res.json({ status: "ok", data: { ...data, preview } });
     }),
-	  );
-	  r.get(
-	    "/:barcode/image",
-	    asyncRoute(async (req, res) => {
-	      const item = await products.get(req.params.barcode);
-	      const imageUrl = normalizeImageUrl(item?.product_image_url);
-	      if (!imageUrl)
-	        throw new AppError("Ürün görseli bulunamadı", 404, "IMAGE_NOT_FOUND");
-	      const response = await fetch(imageUrl, {
-	        headers: {
-	          "User-Agent":
-	            "Mozilla/5.0 (compatible; AslamaciERP/2.0; +https://aslamaci-repricer-production.up.railway.app)",
-	          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-	        },
-	      });
-	      if (!response.ok)
-	        throw new AppError(
-	          "Ürün görseli alınamadı",
-	          502,
-	          "IMAGE_FETCH_FAILED",
-	        );
-	      const contentType = response.headers.get("content-type") || "image/jpeg";
-	      if (!contentType.startsWith("image/"))
-	        throw new AppError(
-	          "Ürün görseli geçersiz formatta",
-	          502,
-	          "IMAGE_INVALID_CONTENT_TYPE",
-	        );
-	      const buffer = Buffer.from(await response.arrayBuffer());
-	      res.set({
-	        "Content-Type": contentType,
-	        "Cache-Control": "private, max-age=86400",
-	      });
-	      res.send(buffer);
-	    }),
-	  );
-	  r.get(
-	    "/:barcode",
+  );
+  r.get(
+    "/:barcode/image",
+    asyncRoute(async (req, res) => {
+      const item = await products.get(req.params.barcode);
+      const imageUrl = normalizeImageUrl(item?.product_image_url);
+      if (!imageUrl)
+        throw new AppError("Ürün görseli bulunamadı", 404, "IMAGE_NOT_FOUND");
+      const response = await fetch(imageUrl, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (compatible; AslamaciERP/2.0; +https://aslamaci-repricer-production.up.railway.app)",
+          Accept:
+            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+      if (!response.ok)
+        throw new AppError("Ürün görseli alınamadı", 502, "IMAGE_FETCH_FAILED");
+      const contentType = response.headers.get("content-type") || "image/jpeg";
+      if (!contentType.startsWith("image/"))
+        throw new AppError(
+          "Ürün görseli geçersiz formatta",
+          502,
+          "IMAGE_INVALID_CONTENT_TYPE",
+        );
+      const buffer = Buffer.from(await response.arrayBuffer());
+      res.set({
+        "Content-Type": contentType,
+        "Cache-Control": "private, max-age=86400",
+      });
+      res.send(buffer);
+    }),
+  );
+  r.get(
+    "/:barcode",
     asyncRoute(async (req, res) => {
       const item = await products.get(req.params.barcode);
       if (!item)

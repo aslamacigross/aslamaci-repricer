@@ -121,15 +121,17 @@ Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından 
 
 Mapping ekranı tüm mapping kümesini alıp 100 satırlık sayfalara böler. Buybox ve fiyat aksiyonları büyüyen katalog için server-side aranıp sayfalanır. Ürün ve Buybox CSV aktarımı gerekirse bütün API sayfalarını birleştirir; diğer tablolar seçili kolonları ve filtrelenmiş kayıt kümesini kullanır.
 
-### Akıllı Mapping ve File Market
+### Akıllı Mapping ve Tedarikçi Fiyat Havuzları
 
-`Ürün Mapping` sayfası dört çalışma yüzeyi içerir: mevcut mappingler, akıllı öneriler, File fiyat havuzu ve karar geçmişi. File uygulamasından gözlenen ürün adı/fiyat kayıtları havuza yüklendikten sonra öneri motoru mevcut onaylı mapping reçetelerini eğitim örneği olarak kullanır; ürün adı, marka, gramaj/hacim, kategori ve paket adedini karşılaştırır. Örneğin iki adetlik eski reçete, aynı fiziksel ürünün dört adetlik Trendyol başlığında dört adede ölçeklenir.
+`Ürün Mapping` sayfası mevcut mappingler, akıllı öneriler, File Market, Bizim Toptan ve BİM fiyat havuzları, teşhis, manuel maliyet kuyruğu ve karar geçmişini birlikte yönetir. Her tedarikçinin havuzu ve fiyat geçmişi ayrıdır. Öneri motoru aynı tedarikçideki ürünleri ürün adı, marka, gramaj/hacim, kategori ve paket adediyle karşılaştırır; farklı tedarikçi ürünlerini tek reçetede karıştırmaz.
+
+File Market kendi canlı katalog kaynağından, Bizim Toptan herkese açık web kataloğundan yenilenebilir. BİM kataloğu lokasyon ve oturum bağımlı Yemeksepeti mağazasından tarayıcı destekli alınır ve JSON/toplu satır olarak içe aktarılır. Dondurma ve dondurulmuş gıda bu havuzların otomatik toplama kapsamı dışındadır.
 
 Aynı marka, ürün ailesi ve ölçüdeki farklı koku/aroma varyantları File'da aynı fiyatı taşıyorsa motor bunu `Varyant fiyatı` olarak açıkça işaretler. Yeni varyant örüntüleri `Kontrol gerekli` düzeyini aşmaz; en az 5 kullanıcı kararı ve yüzde 90 kabul oranından sonra yüksek güven kilidi açılabilir.
 
 Her onay ve ret `Karar geçmişi` ekranında kullanıcı, tarih, cost code, ret notu ve karar anındaki güvenle saklanır. Aynı marka/kategori/cost code/File eşleşme türündeki kararlar bir öğrenme profili oluşturur; sonraki öneri skoru kontrollü biçimde yükselir veya düşer. Öğrenme etkisi artı/eksi 25 puanla sınırlıdır ve hiçbir zaman kullanıcı onayı ile toplu uygulama güvenliğini atlamaz.
 
-Öneriyi onaylamak veriyi değiştirmez. Yalnız `Onaylandı` durumundaki satırlar toplu önizleme ve ikinci bir uygulama adımından sonra transaction içinde mappinge çevrilir; ürün maliyetleri aynı transactionda yeniden hesaplanır. File fiyatı 30 günden eskiyse maliyet güncellemesi engellenir. Ayrıntılı işletim akışı [MAPPING_AUTOMATION.md](MAPPING_AUTOMATION.md) dosyasındadır.
+Öneriyi onaylamak veriyi değiştirmez. Yalnız `Onaylandı` durumundaki satırlar toplu önizleme ve ikinci bir uygulama adımından sonra transaction içinde mappinge çevrilir; ürün maliyetleri aynı transactionda yeniden hesaplanır. Tedarikçi fiyatı 30 günden eskiyse maliyet güncellemesi engellenir. Birim desi kesirli saklanır; mapping reçetesinin nihai toplam desisi kargo ve ambalaj hesabından önce yukarı yuvarlanır (`0,25 → 1`, `1,5 → 2`). Ayrıntılı işletim akışı [MAPPING_AUTOMATION.md](MAPPING_AUTOMATION.md) dosyasındadır.
 
 ## Railway
 
@@ -141,7 +143,8 @@ Repo kökündeki `railway.toml` build, start ve health check ayarlarını içeri
 - Trendyol yanıtında rakip satıcı puanı veya kupon ayrıntısı bulunmadığında bu alanlar gözlem tablosunda boş kalır ve karar motoru yalnız doğrulanabilen fiyat/sıra verisini kullanır.
 - Railway preview veritabanı production'dan ayrıdır; gerçek öğrenen pilot geçmişi preview'a kopyalanmamıştır. Migrationlar production'daki `price_war_log`, `buybox_snapshots` ve `repricer_learning` kayıtlarını koruyup backfill eder.
 - Hepsiburada adaptörü V2 veri modeline eklenebilir durumdadır ancak bu sürümde yalnız Trendyol entegrasyonu çalışır.
-- File Market resmi bir web/API yüzeyi sunmadığı için fiyat gözlemi Railway jobu tarafından doğrudan çekilemez. Mac uygulamasından toplanan gözlemler paneldeki fiyat havuzuna aktarılır; eşleştirme, geçmiş, güncellik ve maliyet uygulama adımları V2 içinde otomatik yürütülür.
+- BİM/Yemeksepeti kataloğu lokasyon, oturum ve otomasyon korumasına bağlı olduğundan Railway tarafından sunucu jobuyla yenilenmez; tarayıcı destekli katalog aktarımı gerekir.
+- Bizim Toptan web fiyatları seçili mağaza/lokasyon kampanyalarından farklılaşabilir; maliyete uygulamadan önce havuzun kaynak zamanı ve fiyatı kontrol edilmelidir.
 - Production migration/deploy, PR incelemesi ve ayrı DB snapshot sonrasında yapılmalıdır; preview kabulü production'a otomatik geçiş yapmaz.
 
 ## Dokümantasyon

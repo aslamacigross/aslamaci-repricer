@@ -172,7 +172,10 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     status: "PENDING",
   });
   assert.equal(pendingAfterReject.total, 1);
-  assert.equal(pendingAfterReject.items[0].source_type, "FILE_DIRECT_COST_ITEM");
+  assert.equal(
+    pendingAfterReject.items[0].source_type,
+    "FILE_DIRECT_COST_ITEM",
+  );
   const directApproved = await service.approve(
     pendingAfterReject.items[0].id,
     "admin",

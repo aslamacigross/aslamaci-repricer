@@ -18,9 +18,7 @@ function detectBrand(value) {
   const text = String(value || "").toLocaleLowerCase("tr-TR");
   return (
     TARGET_BRANDS.find((brand) =>
-      new RegExp(`\\b${brand.toLocaleLowerCase("tr-TR")}\\b`, "iu").test(
-        text,
-      ),
+      new RegExp(`\\b${brand.toLocaleLowerCase("tr-TR")}\\b`, "iu").test(text),
     ) || ""
   );
 }

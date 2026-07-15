@@ -538,7 +538,8 @@ function cleanBulkSettings(form) {
     "daily_action_limit",
     "buybox_max_age_minutes",
   ]) {
-    if (form[key] !== "" && form[key] != null) settings[key] = Number(form[key]);
+    if (form[key] !== "" && form[key] != null)
+      settings[key] = Number(form[key]);
   }
   return settings;
 }

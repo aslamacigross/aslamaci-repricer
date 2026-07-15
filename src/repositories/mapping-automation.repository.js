@@ -1,16 +1,24 @@
-const { isFilePriceFresh } = require("../domain/file-market");
+const { isSupplierPriceFresh } = require("../domain/file-market");
+const {
+  estimatePackageDesi,
+  supplier,
+} = require("../domain/supplier-products");
 const {
   buildMappingLearningKey,
   buildMappingRecipeKey,
 } = require("../domain/mapping-learning");
-const { extractSizes } = require("../domain/product-matching");
 
 function inferredUnitDesi(item) {
   const current = Number(item.unit_desi);
   if (Number.isFinite(current) && current > 0) return current;
-  const [size] = extractSizes(item.file_product_name || item.item_name || "");
-  if (!size) return 1;
-  return Number(Math.max(Number(size.value) / 1000, 0.1).toFixed(3));
+  const stored = Number(item.supplier_estimated_unit_desi);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  return estimatePackageDesi(
+    item.supplier_product_name ||
+      item.file_product_name ||
+      item.item_name ||
+      "",
+  ).value;
 }
 
 class MappingAutomationRepository {
@@ -19,7 +27,11 @@ class MappingAutomationRepository {
     this.withTransaction = withTransaction;
   }
 
-  async importFileItems(rows) {
+  async importSupplierItems(
+    supplierCode,
+    rows,
+    { replaceAvailability = false } = {},
+  ) {
     return this.withTransaction(async (client) => {
       let created = 0;
       let changed = 0;
@@ -39,8 +51,10 @@ class MappingAutomationRepository {
             `INSERT INTO file_market_items(
               source_key,product_name,normalized_name,brand,size_value,size_unit,
               current_price,currency,availability,raw_data,first_seen_at,last_seen_at,
-              price_changed_at,created_at,updated_at
-            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,NOW(),NOW())
+              price_changed_at,created_at,updated_at,supplier_code,source_url,
+              source_category,estimated_unit_desi,desi_confidence
+            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,NOW(),NOW(),
+              $13,$14,$15,$16,$17)
             ON CONFLICT(source_key)DO UPDATE SET
               product_name=EXCLUDED.product_name,
               normalized_name=EXCLUDED.normalized_name,
@@ -55,6 +69,11 @@ class MappingAutomationRepository {
               currency=EXCLUDED.currency,
               availability=EXCLUDED.availability,
               raw_data=EXCLUDED.raw_data,
+              supplier_code=EXCLUDED.supplier_code,
+              source_url=EXCLUDED.source_url,
+              source_category=EXCLUDED.source_category,
+              estimated_unit_desi=EXCLUDED.estimated_unit_desi,
+              desi_confidence=EXCLUDED.desi_confidence,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
                 WHEN file_market_items.current_price<>EXCLUDED.current_price
@@ -79,6 +98,11 @@ class MappingAutomationRepository {
                   ? row.observed_at
                   : previous.price_changed_at
                 : row.observed_at,
+              supplierCode,
+              row.source_url || null,
+              row.source_category || null,
+              row.estimated_unit_desi || null,
+              row.desi_confidence || "LOW",
             ],
           )
         ).rows[0];
@@ -92,13 +116,36 @@ class MappingAutomationRepository {
         if (priceChanged) changed++;
         items.push(item);
       }
-      return { processed: rows.length, created, changed, items };
+      let unavailable = 0;
+      if (replaceAvailability && rows.length) {
+        const sourceKeys = rows.map((row) => row.source_key);
+        const result = await client.query(
+          `UPDATE file_market_items
+           SET availability='UNAVAILABLE',updated_at=NOW()
+           WHERE supplier_code=$1 AND availability='AVAILABLE'
+             AND NOT(source_key=ANY($2::text[]))`,
+          [supplierCode, sourceKeys],
+        );
+        unavailable = result.rowCount;
+      }
+      return { processed: rows.length, created, changed, unavailable, items };
     });
   }
 
-  async listFileItems({ search, availability, page = 1, limit = 50 } = {}) {
-    const params = [];
+  async importFileItems(rows) {
+    return this.importSupplierItems("FILE_MARKET", rows);
+  }
+
+  async listSupplierItems({
+    supplierCode = "FILE_MARKET",
+    search,
+    availability,
+    page = 1,
+    limit = 50,
+  } = {}) {
+    const params = [supplierCode];
     const where = ["1=1"];
+    where.push("f.supplier_code=$1");
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -130,11 +177,19 @@ class MappingAutomationRepository {
       params,
     );
     return {
-      items: items.rows,
+      items: items.rows.map((item) => ({
+        ...item,
+        supplier_label:
+          supplier(item.supplier_code)?.label || item.supplier_code,
+      })),
       total: count.rows[0].total,
       page: safePage,
       limit: safeLimit,
     };
+  }
+
+  async listFileItems(filters) {
+    return this.listSupplierItems({ ...filters, supplierCode: "FILE_MARKET" });
   }
 
   async trainingRows() {
@@ -190,12 +245,18 @@ class MappingAutomationRepository {
     ).rows;
   }
 
-  async fileItemsForMatching() {
+  async fileItemsForMatching(supplierCode = null) {
+    const params = [];
+    const supplierFilter = supplierCode
+      ? `AND supplier_code=$${params.push(supplierCode)}`
+      : "";
     return (
       await this.db.query(
         `SELECT * FROM file_market_items
          WHERE availability='AVAILABLE' AND current_price>0
+           ${supplierFilter}
          ORDER BY last_seen_at DESC LIMIT 5000`,
+        params,
       )
     ).rows;
   }
@@ -417,8 +478,9 @@ class MappingAutomationRepository {
               marketplace,barcode,status,confidence,base_confidence,
               learning_adjustment,confidence_band,learning_key,
               algorithm_version,source_type,source_barcode,file_market_item_id,
+              supplier_code,
               update_file_price,evidence,product_snapshot,fingerprint
-            )VALUES('TRENDYOL',$1,'PENDING',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            )VALUES('TRENDYOL',$1,'PENDING',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             RETURNING *`,
             [
               suggestion.barcode,
@@ -431,6 +493,7 @@ class MappingAutomationRepository {
               suggestion.source_type,
               suggestion.source_barcode,
               suggestion.file_market_item_id,
+              suggestion.supplier_code,
               suggestion.update_file_price,
               suggestion.evidence,
               suggestion.product_snapshot,
@@ -441,13 +504,14 @@ class MappingAutomationRepository {
         for (const item of suggestion.items) {
           await client.query(
             `INSERT INTO mapping_suggestion_items(
-              suggestion_id,cost_item_code,file_market_item_id,quantity,
+              suggestion_id,cost_item_code,file_market_item_id,supplier_code,quantity,
               current_unit_cost,suggested_unit_cost,unit_desi
-            )VALUES($1,$2,$3,$4,$5,$6,$7)`,
+            )VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
             [
               parent.id,
               item.cost_item_code,
               item.file_market_item_id,
+              item.supplier_code || suggestion.supplier_code,
               item.quantity,
               item.current_unit_cost,
               item.suggested_unit_cost,
@@ -474,7 +538,13 @@ class MappingAutomationRepository {
       await queryable.query(
         `SELECT msi.*,ci.item_name,ci.unit_cost,ci.unit_desi,
                 f.product_name AS file_product_name,f.current_price AS file_current_price,
-                f.last_seen_at AS file_last_seen_at
+                f.last_seen_at AS file_last_seen_at,
+                f.product_name AS supplier_product_name,
+                f.current_price AS supplier_current_price,
+                f.last_seen_at AS supplier_last_seen_at,
+                f.estimated_unit_desi AS supplier_estimated_unit_desi,
+                f.desi_confidence,f.source_url,f.source_category,
+                COALESCE(msi.supplier_code,f.supplier_code) AS supplier_code
          FROM mapping_suggestion_items msi
          LEFT JOIN cost_items ci ON ci.item_code=msi.cost_item_code
          LEFT JOIN file_market_items f ON f.id=msi.file_market_item_id
@@ -499,6 +569,7 @@ class MappingAutomationRepository {
     search,
     status,
     confidenceBand,
+    supplierCode,
     page = 1,
     limit = 50,
   } = {}) {
@@ -518,6 +589,10 @@ class MappingAutomationRepository {
       params.push(confidenceBand);
       where.push(`ms.confidence_band=$${params.length}`);
     }
+    if (supplierCode) {
+      params.push(String(supplierCode).toUpperCase());
+      where.push(`ms.supplier_code=$${params.length}`);
+    }
     const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const safePage = Math.max(Number(page) || 1, 1);
     const count = await this.db.query(
@@ -533,7 +608,10 @@ class MappingAutomationRepository {
               p.data_status,p.is_active,
               source.product_name AS source_product_name,
               f.product_name AS file_product_name,f.current_price AS file_current_price,
-              f.last_seen_at AS file_last_seen_at
+              f.last_seen_at AS file_last_seen_at,
+              f.product_name AS supplier_product_name,
+              f.current_price AS supplier_current_price,
+              f.last_seen_at AS supplier_last_seen_at
        FROM mapping_suggestions ms
        LEFT JOIN products p ON p.marketplace=ms.marketplace AND p.barcode=ms.barcode
        LEFT JOIN products source ON source.marketplace=ms.marketplace
@@ -564,7 +642,10 @@ class MappingAutomationRepository {
               p.data_status,p.is_active,
               source.product_name AS source_product_name,
               f.product_name AS file_product_name,f.current_price AS file_current_price,
-              f.last_seen_at AS file_last_seen_at
+              f.last_seen_at AS file_last_seen_at,
+              f.product_name AS supplier_product_name,
+              f.current_price AS supplier_current_price,
+              f.last_seen_at AS supplier_last_seen_at
        FROM mapping_suggestions ms
        LEFT JOIN products p ON p.marketplace=ms.marketplace AND p.barcode=ms.barcode
        LEFT JOIN products source ON source.marketplace=ms.marketplace
@@ -635,7 +716,10 @@ class MappingAutomationRepository {
     const result = await queryable.query(
       `SELECT ms.*,p.product_name,p.product_image_url,p.data_status,p.is_active,
               f.product_name AS file_product_name,f.current_price AS file_current_price,
-              f.last_seen_at AS file_last_seen_at
+              f.last_seen_at AS file_last_seen_at,
+              f.product_name AS supplier_product_name,
+              f.current_price AS supplier_current_price,
+              f.last_seen_at AS supplier_last_seen_at
        FROM mapping_suggestions ms
        LEFT JOIN products p ON p.marketplace=ms.marketplace AND p.barcode=ms.barcode
        LEFT JOIN file_market_items f ON f.id=ms.file_market_item_id
@@ -732,13 +816,14 @@ class MappingAutomationRepository {
         for (const item of input.items) {
           await client.query(
             `INSERT INTO mapping_suggestion_items(
-              suggestion_id,cost_item_code,file_market_item_id,quantity,
+              suggestion_id,cost_item_code,file_market_item_id,supplier_code,quantity,
               current_unit_cost,suggested_unit_cost,unit_desi
-            )VALUES($1::bigint,$2,$3::bigint,$4::numeric,$5::numeric,$6::numeric,$7::numeric)`,
+            )VALUES($1::bigint,$2,$3::bigint,$4,$5::numeric,$6::numeric,$7::numeric,$8::numeric)`,
             [
               id,
               item.cost_item_code,
               item.file_market_item_id || null,
+              item.supplier_code || suggestion.supplier_code || null,
               item.quantity,
               item.current_unit_cost || null,
               item.suggested_unit_cost || null,
@@ -786,7 +871,10 @@ class MappingAutomationRepository {
       suggestion.update_file_price &&
       suggestion.items.some(
         (item) =>
-          item.file_market_item_id && !isFilePriceFresh(item.file_last_seen_at),
+          item.file_market_item_id &&
+          !isSupplierPriceFresh(
+            item.supplier_last_seen_at || item.file_last_seen_at,
+          ),
       )
     )
       return { conflict: "FILE_PRICE_STALE" };
@@ -815,14 +903,18 @@ class MappingAutomationRepository {
         `INSERT INTO cost_items(
           item_code,item_name,unit_cost,unit_desi,unit,note,
           price_source,source_checked_at,updated_at
-        )VALUES($1,$2,$3,$4,'adet',$5,'FILE_MARKET',NOW(),NOW())
+        )VALUES($1,$2,$3,$4,'adet',$5,$6,NOW(),NOW())
         ON CONFLICT(item_code)DO NOTHING`,
         [
           item.cost_item_code,
-          item.file_product_name || item.item_name || item.cost_item_code,
+          item.supplier_product_name ||
+            item.file_product_name ||
+            item.item_name ||
+            item.cost_item_code,
           Number(item.suggested_unit_cost),
           unitDesi,
-          "Akıllı mapping File direkt eşleşmesiyle oluşturuldu",
+          `Akıllı mapping ${supplier(item.supplier_code || suggestion.supplier_code)?.label || "tedarikçi"} eşleşmesiyle oluşturuldu`,
+          item.supplier_code || suggestion.supplier_code || "FILE_MARKET",
         ],
       );
     }
@@ -845,16 +937,26 @@ class MappingAutomationRepository {
       if (
         suggestion.update_file_price &&
         item.file_market_item_id &&
-        Number(item.file_current_price || item.suggested_unit_cost) > 0
+        Number(
+          item.supplier_current_price ||
+            item.file_current_price ||
+            item.suggested_unit_cost,
+        ) > 0
       ) {
         const filePrice = Number(
-          item.file_current_price || item.suggested_unit_cost,
+          item.supplier_current_price ||
+            item.file_current_price ||
+            item.suggested_unit_cost,
         );
         await client.query(
           `UPDATE cost_items SET previous_unit_cost=unit_cost,unit_cost=$1,
-           price_source='FILE_MARKET',source_checked_at=NOW(),updated_at=NOW()
+           price_source=$3,source_checked_at=NOW(),updated_at=NOW()
            WHERE item_code=$2`,
-          [filePrice, item.cost_item_code],
+          [
+            filePrice,
+            item.cost_item_code,
+            item.supplier_code || suggestion.supplier_code || "FILE_MARKET",
+          ],
         );
         await client.query(
           `INSERT INTO cost_item_file_links(

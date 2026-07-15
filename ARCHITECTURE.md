@@ -78,9 +78,13 @@ V2 Google Sheets import/export katmanına bağlı değildir. Maliyet kalemi, map
 
 ```mermaid
 flowchart LR
-  FILE["File Mac uygulaması"] --> POOL["File fiyat havuzu"]
+  FILE["File canlı katalog"] --> FILEPOOL["File fiyat havuzu"]
+  BIZIM["Bizim Toptan web kataloğu"] --> BIZIMPOOL["Bizim fiyat havuzu"]
+  BIM["BİM / Yemeksepeti tarayıcı aktarımı"] --> BIMPOOL["BİM fiyat havuzu"]
   HISTORY["Onaylı eski mappingler"] --> MATCH["Deterministik eşleştirme motoru"]
-  POOL --> MATCH
+  FILEPOOL --> MATCH
+  BIZIMPOOL --> MATCH
+  BIMPOOL --> MATCH
   PRODUCTS["Aktif mapping eksiği ürünler"] --> MATCH
   MATCH --> QUEUE["Güven skorlu öneri kuyruğu"]
   QUEUE --> REVIEW["Kullanıcı inceleme ve onayı"]
@@ -91,7 +95,9 @@ flowchart LR
   TX --> DB[(PostgreSQL)]
 ```
 
-Eşleştirme motoru ürün adlarını Türkçe karakterlerden bağımsız normalize eder; marka, kategori, hacim/gramaj ve paket adedi sinyallerini ayrı ağırlıklarla değerlendirir. Her onay ve ret immutable geri bildirim olayına yazılır; marka, kategori, cost code ve File fiyat eşleşme türünden oluşan öğrenme profili sonraki güven skoruna Bayes tipi yumuşatılmış ve en fazla artı/eksi 25 puanlık etki yapar. Yüksek güven önerisi dahi kendiliğinden uygulanmaz. Onay, önizleme ve uygulama ayrı durumlardır; hedef ürünün hâlâ aktif ve mapping eksik olması, cost code'ların geçerli olması ve kullanılacak File fiyatının en fazla 30 günlük olması uygulama anında yeniden denetlenir.
+Eşleştirme motoru ürün adlarını Türkçe karakterlerden bağımsız normalize eder; marka, kategori, hacim/gramaj ve paket adedi sinyallerini ayrı ağırlıklarla değerlendirir. Adaylar tedarikçi havuzu içinde üretilir; farklı havuzlar tek reçetede birleşmez. Her onay ve ret immutable geri bildirim olayına yazılır. Yüksek güven önerisi dahi kendiliğinden uygulanmaz. Onay, önizleme ve uygulama ayrı durumlardır; hedef ürünün hâlâ aktif ve mapping eksik olması, cost code'ların geçerli olması ve kullanılacak tedarikçi fiyatının en fazla 30 günlük olması uygulama anında yeniden denetlenir.
+
+Maliyet kalemleri fiziksel ürünün kesirli birim desisini korur. Nihai ürün desisi `SUM(adet × birim desi)` sonrasında `CEIL` ile yukarı yuvarlanır ve kargo/ambalaj seçimi bu tam sayı üzerinden yapılır.
 
 ## Operasyon Kontrolleri
 

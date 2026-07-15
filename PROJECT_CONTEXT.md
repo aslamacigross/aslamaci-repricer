@@ -67,10 +67,13 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Yüksek güven hiçbir zaman doğrudan uygulama yetkisi değildir; kullanıcı onayı, toplu önizleme ve uygulama üç ayrı adımdır.
 - File'da yalnız kardeş varyantın fiyatı bulunursa satır `Varyant fiyatı` olarak işaretlenir ve güveni `Kontrol gerekli` düzeyini aşamaz.
 - File fiyatı 30 günden eskiyse mapping uygulanabilir ancak bu fiyatla maliyet kalemi güncellenemez; fiyat yenilenmeli veya fiyat güncellemesi kapatılmalıdır.
+- Tedarikçi havuzları File Market, Bizim Toptan ve BİM olarak ayrıdır; bir öneri reçetesi farklı tedarikçilerin ürünlerini karıştıramaz.
+- Bizim Toptan dondurulmuş gıda hariç herkese açık web kataloğundan yenilenir. BİM verisi lokasyon/oturum bağımlı Yemeksepeti mağazasından tarayıcı destekli alınır ve sunucu jobuna bağlanmaz.
+- Birim desiler gerçek paket büyüklüğünü korur. Nihai ürün desisi mapping toplamından sonra yukarı yuvarlanır: `0,25 → 1`, `1,5 → 2`, `2,01 → 3`.
 
 ## Doğrulama Durumu
 
-- 93 backend unit/integration/regression, 9 React bileşen ve 5 Chrome uçtan uca testi geçiyor.
+- 134 backend unit/integration/regression, 14 React bileşen ve 5 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.

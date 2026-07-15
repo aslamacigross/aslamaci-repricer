@@ -4,6 +4,7 @@ const {
   integerToDecimal,
   multiplyDecimals,
 } = require("../utils/numbers");
+const { roundProductDesi } = require("../domain/supplier-products");
 
 class CostRepository {
   constructor(db, withTransaction) {
@@ -291,7 +292,7 @@ class CostRepository {
         barcode,
         mapping_count: total.rows,
         product_cost: integerToDecimal(total.cost, 2),
-        desi: integerToDecimal(total.desi, 3),
+        desi: roundProductDesi(integerToDecimal(total.desi, 3)),
       })),
     };
   }

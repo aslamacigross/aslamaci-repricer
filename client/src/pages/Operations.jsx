@@ -427,9 +427,7 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
           page={payload.page}
           total={payload.total}
           limit={payload.limit}
-          onChange={(page) =>
-            setFilters((current) => ({ ...current, page }))
-          }
+          onChange={(page) => setFilters((current) => ({ ...current, page }))}
         />
       </div>
       <BuyboxHistory product={selected} onClose={() => setSelected(null)} />

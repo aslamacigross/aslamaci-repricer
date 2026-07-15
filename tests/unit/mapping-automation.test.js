@@ -115,6 +115,49 @@ test("File havuzundaki markalar dışındaki ürünlere öneri üretmez", async 
   assert.equal(saved.length, 0);
 });
 
+test("farklı tedarikçi havuzlarını tek mapping reçetesinde karıştırmaz", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "ULKER36",
+        product_name: "Ülker Çikolatalı Gofret 36 g 36'lı",
+        brand: "Ülker",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 101,
+        supplier_code: "BIZIM_MARKET",
+        product_name: "Ülker Çikolatalı Gofret 36 g 36'lı",
+        brand: "Ülker",
+        current_price: 475.21,
+        estimated_unit_desi: 1.296,
+      },
+      {
+        id: 202,
+        supplier_code: "BIM",
+        product_name: "Ülker Çikolatalı Gofret 36 g",
+        brand: "Ülker",
+        current_price: 16,
+        estimated_unit_desi: 0.036,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(
+    new Set(saved[0].items.map((item) => item.supplier_code)).size,
+    1,
+  );
+  assert.equal(saved[0].supplier_code, saved[0].items[0].supplier_code);
+});
+
 test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   const { service, saved } = fixture({
     fileItemsForMatching: async () => [
@@ -586,7 +629,7 @@ test("eski File direkt önerisinde eksik desiyi ürün adından tamamlar", () =>
   assert.equal(row.unit_desi, 0.35);
 });
 
-test("File destekli ölçüsüz öneride varsayılan desiyle cost item oluşturulabilir", () => {
+test("File destekli ölçüsüz öneride temkinli varsayılan desi kullanılır", () => {
   const { service } = fixture();
   const [row] = service.normalizeDecisionItems(
     {
@@ -612,7 +655,7 @@ test("File destekli ölçüsüz öneride varsayılan desiyle cost item oluşturu
 
   assert.equal(row.file_market_item_id, 262);
   assert.equal(row.suggested_unit_cost, 89);
-  assert.equal(row.unit_desi, 1);
+  assert.equal(row.unit_desi, 0.25);
 });
 
 test("File ürünü aynı iç paket adedini taşıyorsa ekstra adet çarpanı üretmez", async () => {

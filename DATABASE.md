@@ -60,7 +60,20 @@
 - `mapping_feedback_events`: her mapping onayını veya reddini karar anındaki reçete, kanıt, güven skoru, kullanıcı ve ret notuyla immutable olay olarak saklar.
 - `mapping_learning_profiles`: marka, kategori, cost code ve File eşleşme türü örüntüsünün toplam onay/ret sayısını tutar.
 - `mapping_suggestions` üzerine temel güven, öğrenme etkisi ve stabil öğrenme anahtarı ekler.
-- Uygulama readiness kontrolünün beklediği son migration sürümüdür.
+- Mapping geri bildirim sözleşmesini tamamlar; readiness kontrolü daha yeni migrationlar varsa en güncel sürümü bekler.
+
+### `013_file_market_live_sync`
+
+- File Market canlı katalog yenileme jobunu ve kaynak metadata alanlarını ekler.
+- Tam snapshot yenilemesinde artık görülmeyen File ürünlerini geçmişi silmeden pasif işaretler.
+
+### `014_supplier_price_pools`
+
+- Mevcut File tablolarını veri kaybetmeden çoklu tedarikçi fiyat havuzuna genişletir.
+- `FILE_MARKET`, `BIZIM_MARKET` ve `BIM` kaynaklarını ürün ve mapping önerisi düzeyinde ayırır.
+- Kaynak URL/kategori, tahmini birim desi ve desi güven alanlarını ekler.
+- Bizim Toptan yenileme jobunu güvenli varsayılanla kapalı oluşturur; BİM sunucu jobu oluşturmaz.
+- Nihai ürün desisi mapping toplamından sonra yukarı yuvarlanarak `products.desi` alanına yazılır.
 
 ## Ana İlişkiler
 

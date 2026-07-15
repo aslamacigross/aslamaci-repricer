@@ -39,6 +39,26 @@ const confidenceLabels = {
   LOW: "Düşük güven",
 };
 
+const supplierDefinitions = {
+  FILE_MARKET: { label: "File Market", shortLabel: "File", liveSync: true },
+  BIZIM_MARKET: {
+    label: "Bizim Toptan",
+    shortLabel: "Bizim",
+    liveSync: true,
+  },
+  BIM: { label: "BİM", shortLabel: "BİM", liveSync: false },
+};
+
+function supplierDefinition(code) {
+  return (
+    supplierDefinitions[code] || {
+      label: code || "Tedarikçi",
+      shortLabel: code || "Tedarikçi",
+      liveSync: false,
+    }
+  );
+}
+
 const reasonLabels = {
   NAME_SIMILARITY: "Ürün adı benzerliği",
   BRAND_MATCH: "Marka eşleşiyor",
@@ -129,7 +149,12 @@ function diagnosticRegenerateMessage(barcode, data = {}) {
 }
 
 export default function MappingSuggestions({ view, notify }) {
-  if (view === "file") return <FileMarketPool notify={notify} />;
+  if (view === "file")
+    return <SupplierPricePool supplierCode="FILE_MARKET" notify={notify} />;
+  if (view === "bizim")
+    return <SupplierPricePool supplierCode="BIZIM_MARKET" notify={notify} />;
+  if (view === "bim")
+    return <SupplierPricePool supplierCode="BIM" notify={notify} />;
   if (view === "learning") return <MappingLearningHistory />;
   if (view === "diagnostics") return <MappingDiagnostics notify={notify} />;
   if (view === "manual-costs") return <ManualCostQueue notify={notify} />;
@@ -371,7 +396,12 @@ function diagnosisTone(code) {
   if (code === "SUGGESTION_AVAILABLE" || code === "LOW_CONFIDENCE_AVAILABLE")
     return "success";
   if (code === "REJECTED_PATTERN" || code === "LOW_SCORE") return "warning";
-  if (code === "NO_FILE_CANDIDATE" || code === "FILE_POOL_EMPTY")
+  if (
+    code === "NO_FILE_CANDIDATE" ||
+    code === "FILE_POOL_EMPTY" ||
+    code === "NO_SUPPLIER_CANDIDATE" ||
+    code === "SUPPLIER_POOL_EMPTY"
+  )
     return "danger";
   return "neutral";
 }
@@ -412,7 +442,7 @@ function MappingDiagnostics({ notify }) {
         row.product_name,
         row.brand,
         row.diagnosis_label,
-        row.best_file_product_name,
+        row.best_supplier_product_name || row.best_file_product_name,
       ]
         .filter(Boolean)
         .join(" ")
@@ -471,15 +501,26 @@ function MappingDiagnostics({ notify }) {
         </Badge>
       ),
     },
-    { key: "best_file_product_name", label: "En yakın File ürünü", width: 300 },
+    {
+      key: "best_supplier_label",
+      label: "Tedarikçi",
+      render: (row) => row.best_supplier_label || "-",
+    },
+    {
+      key: "best_supplier_product_name",
+      label: "En yakın tedarikçi ürünü",
+      width: 300,
+      render: (row) =>
+        row.best_supplier_product_name || row.best_file_product_name || "-",
+    },
     {
       key: "best_file_price",
-      label: "File fiyatı",
+      label: "Tedarikçi fiyatı",
       render: (row) => (row.best_file_price ? money(row.best_file_price) : "-"),
     },
     {
       key: "best_file_score",
-      label: "File skoru",
+      label: "Eşleşme skoru",
       render: (row) =>
         row.best_file_score ? percent(Number(row.best_file_score) * 100) : "-",
     },
@@ -540,7 +581,7 @@ function MappingDiagnostics({ notify }) {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Barkod, ürün, teşhis veya File adayı ara"
+            placeholder="Barkod, ürün, teşhis veya tedarikçi adayı ara"
           />
         </div>
         <div className="mapping-toolbar-actions">
@@ -552,9 +593,9 @@ function MappingDiagnostics({ notify }) {
         <div>
           <strong>Öneri üretilememe nedenleri</strong>
           <p>
-            Bu ekran mapping hedeflerini File fiyat havuzu ve öğrenme geçmişiyle
-            karşılaştırır. Düşük güvenli adaylar onay/retle öğrenme verisine
-            dönüşebilir.
+            Bu ekran mapping hedeflerini tedarikçi fiyat havuzları ve öğrenme
+            geçmişiyle karşılaştırır. Düşük güvenli adaylar onay/retle öğrenme
+            verisine dönüşebilir.
           </p>
         </div>
       </div>
@@ -719,6 +760,7 @@ function SuggestionQueue({ notify }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("PENDING");
   const [confidence, setConfidence] = useState("");
+  const [supplierCode, setSupplierCode] = useState("");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState([]);
   const [detail, setDetail] = useState(null);
@@ -735,6 +777,7 @@ function SuggestionQueue({ notify }) {
       if (search) params.set("search", search);
       if (status) params.set("status", status);
       if (confidence) params.set("confidenceBand", confidence);
+      if (supplierCode) params.set("supplierCode", supplierCode);
       const response = await get(`/api/mapping-suggestions?${params}`);
       setResult(response.data);
       setSelectedIds([]);
@@ -748,9 +791,9 @@ function SuggestionQueue({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, status, confidence, page]);
+  }, [search, status, confidence, supplierCode, page]);
 
-  useEffect(() => setPage(1), [search, status, confidence]);
+  useEffect(() => setPage(1), [search, status, confidence, supplierCode]);
 
   async function generate() {
     setGenerating(true);
@@ -760,7 +803,7 @@ function SuggestionQueue({ notify }) {
       });
       const data = response.data;
       notify(
-        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} File markası kapsamındaydı, ${data.withoutCandidate || 0} üründe güvenli aday kalmadı, ${data.withoutFileSupport || 0} üründe File fiyat desteği yok`,
+        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} ürün tedarikçi kapsamındaydı, ${data.withoutCandidate || 0} üründe uygun aday kalmadı, ${data.withoutFileSupport || 0} üründe fiyat desteği yok`,
       );
       setStatus("PENDING");
       await load();
@@ -831,12 +874,17 @@ function SuggestionQueue({ notify }) {
         exportValue: suggestionSummary,
       },
       {
-        key: "file_product_name",
-        label: "File ürünü",
+        key: "supplier_product_name",
+        label: "Tedarikçi ürünü",
         render: (row) => (
           <div className="confidence-cell">
             <span>
-              {row.file_product_name ||
+              {row.supplier_product_name ||
+                row.file_product_name ||
+                row.items.find(
+                  (item) =>
+                    item.supplier_product_name || item.file_product_name,
+                )?.supplier_product_name ||
                 row.items.find((item) => item.file_product_name)
                   ?.file_product_name ||
                 "-"}
@@ -848,15 +896,24 @@ function SuggestionQueue({ notify }) {
         ),
       },
       {
-        key: "file_current_price",
-        label: "File fiyatı",
+        key: "supplier_current_price",
+        label: "Tedarikçi fiyatı",
         render: (row) => {
           const price =
+            row.supplier_current_price ||
             row.file_current_price ||
+            row.items.find(
+              (item) => item.supplier_current_price || item.file_current_price,
+            )?.supplier_current_price ||
             row.items.find((item) => item.file_current_price)
               ?.file_current_price;
           return price ? money(price) : "-";
         },
+      },
+      {
+        key: "supplier_code",
+        label: "Kaynak",
+        render: (row) => supplierDefinition(row.supplier_code).shortLabel,
       },
       {
         key: "confidence",
@@ -877,11 +934,11 @@ function SuggestionQueue({ notify }) {
           hasVariantPrice(row)
             ? "Eski mapping + kardeş varyant"
             : row.source_type === "MANUAL_HISTORY_AND_FILE"
-              ? "Eski mapping + File"
+              ? "Eski mapping + tedarikçi"
               : row.source_type === "MANUAL_HISTORY"
                 ? "Eski mapping"
                 : row.source_type === "FILE_MARKET"
-                  ? "File + maliyet kataloğu"
+                  ? "Tedarikçi + maliyet kataloğu"
                   : "Maliyet kataloğu",
       },
       {
@@ -957,6 +1014,15 @@ function SuggestionQueue({ notify }) {
             <option value="HIGH">Yüksek güven</option>
             <option value="REVIEW">Kontrol gerekli</option>
             <option value="LOW">Düşük güven</option>
+          </select>
+          <select
+            value={supplierCode}
+            onChange={(event) => setSupplierCode(event.target.value)}
+          >
+            <option value="">Tüm tedarikçiler</option>
+            <option value="FILE_MARKET">File Market</option>
+            <option value="BIZIM_MARKET">Bizim Toptan</option>
+            <option value="BIM">BİM</option>
           </select>
         </div>
         <div className="mapping-toolbar-actions">
@@ -1058,8 +1124,12 @@ function SuggestionDrawer({
         cost_item_code: item.cost_item_code,
         quantity: Number(item.quantity),
         file_market_item_id: item.file_market_item_id,
+        supplier_code: item.supplier_code || suggestion.supplier_code,
         suggested_unit_cost: Number(
-          item.file_current_price || item.suggested_unit_cost || 0,
+          item.supplier_current_price ||
+            item.file_current_price ||
+            item.suggested_unit_cost ||
+            0,
         ),
         unit_desi: Number(item.unit_desi || 0),
       })),
@@ -1139,8 +1209,8 @@ function SuggestionDrawer({
             <b>{suggestion.source_barcode || "Doğrudan eşleşme"}</b>
           </div>
           <div>
-            <span>File fiyat tarihi</span>
-            <b>{date(suggestion.file_last_seen_at)}</b>
+            <span>Fiyat kaynağı</span>
+            <b>{supplierDefinition(suggestion.supplier_code).label}</b>
           </div>
         </div>
         <section>
@@ -1158,7 +1228,7 @@ function SuggestionDrawer({
                             match.priceMode === "SIBLING_VARIANT",
                         )
                         ? "Varyant fiyatından türetildi"
-                        : "File fiyatı bulundu"
+                        : `${supplierDefinition(item.supplier_code || suggestion.supplier_code).shortLabel} fiyatı bulundu`
                       : "Mevcut fiyat"}
                   </Badge>
                 </div>
@@ -1188,20 +1258,54 @@ function SuggestionDrawer({
                       }
                     />
                   </Field>
+                  <Field
+                    label="Birim desi"
+                    hint={
+                      item.desi_confidence === "LOW"
+                        ? "Gramaj bulunamadı; onaydan önce kontrol edin"
+                        : "Gramaj / hacimden hesaplandı"
+                    }
+                  >
+                    <input
+                      type="number"
+                      min="0.0001"
+                      step="0.0001"
+                      value={form.items[index].unit_desi}
+                      disabled={suggestion.status !== "PENDING"}
+                      onChange={(event) =>
+                        updateItem(
+                          index,
+                          "unit_desi",
+                          Number(event.target.value),
+                        )
+                      }
+                    />
+                  </Field>
                 </div>
                 <div className="compact-kv">
                   <span>Mevcut birim maliyet</span>
                   <b>{money(item.unit_cost || item.current_unit_cost)}</b>
-                  <span>File ürünü</span>
-                  <b>{item.file_product_name || "Eşleşme yok"}</b>
-                  <span>File güncel fiyatı</span>
+                  <span>Tedarikçi ürünü</span>
                   <b>
-                    {item.file_current_price
-                      ? money(item.file_current_price)
+                    {item.supplier_product_name ||
+                      item.file_product_name ||
+                      "Eşleşme yok"}
+                  </b>
+                  <span>Güncel tedarikçi fiyatı</span>
+                  <b>
+                    {item.supplier_current_price || item.file_current_price
+                      ? money(
+                          item.supplier_current_price ||
+                            item.file_current_price,
+                        )
                       : "-"}
                   </b>
-                  <span>Birim desi</span>
-                  <b>{item.unit_desi || "-"}</b>
+                  <span>Desi güveni</span>
+                  <b>
+                    {item.desi_confidence === "HIGH"
+                      ? "Gramajdan hesaplandı"
+                      : "Kontrol gerekli"}
+                  </b>
                 </div>
               </div>
             ))}
@@ -1221,10 +1325,10 @@ function SuggestionDrawer({
               }
             />
             <span>
-              File fiyatını ilgili maliyet kalemine uygula
+              Tedarikçi fiyatını ilgili maliyet kalemine uygula
               <small>
-                Uygulama anındaki güncel File fiyatı kullanılır ve eski fiyat
-                geçmişte korunur.
+                Uygulama anındaki güncel tedarikçi fiyatı kullanılır ve eski
+                fiyat geçmişte korunur.
               </small>
             </span>
           </label>
@@ -1341,7 +1445,7 @@ function BulkApplyModal({ preview, busy, onClose, onApply }) {
             <b>{preview.mappingCount}</b>
           </div>
           <div>
-            <span>File fiyat güncellemesi</span>
+            <span>Tedarikçi fiyat güncellemesi</span>
             <b>{preview.priceUpdateCount}</b>
           </div>
         </div>
@@ -1370,8 +1474,14 @@ function BulkApplyModal({ preview, busy, onClose, onApply }) {
   );
 }
 
-function parseFileImport(text) {
-  return String(text || "")
+function parseSupplierImport(text) {
+  const input = String(text || "").trim();
+  if (input.startsWith("[")) {
+    const rows = JSON.parse(input);
+    if (!Array.isArray(rows)) throw new Error("JSON ürün listesi geçersiz");
+    return rows;
+  }
+  return input
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -1386,7 +1496,8 @@ function parseFileImport(text) {
     });
 }
 
-function FileMarketPool({ notify }) {
+function SupplierPricePool({ supplierCode, notify }) {
+  const definition = supplierDefinition(supplierCode);
   const [result, setResult] = useState(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -1403,7 +1514,9 @@ function FileMarketPool({ notify }) {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (search) params.set("search", search);
-      const response = await get(`/api/file-market/items?${params}`);
+      const response = await get(
+        `/api/supplier-price-pools/${supplierCode}/items?${params}`,
+      );
       setResult(response.data);
     } catch (nextError) {
       setError(nextError);
@@ -1415,17 +1528,18 @@ function FileMarketPool({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, page]);
+  }, [search, page, supplierCode]);
   useEffect(() => setPage(1), [search]);
 
   async function importItems() {
     setSaving(true);
     try {
-      const response = await post("/api/file-market/items/bulk", {
-        rows: parseFileImport(importText),
-      });
+      const response = await post(
+        `/api/supplier-price-pools/${supplierCode}/items/bulk`,
+        { rows: parseSupplierImport(importText) },
+      );
       notify(
-        `${response.data.processed} File ürünü işlendi; ${response.data.changed} fiyat değişikliği bulundu`,
+        `${response.data.processed} ${definition.shortLabel} ürünü işlendi; ${response.data.changed} fiyat değişikliği bulundu`,
       );
       setImportOpen(false);
       setImportText("");
@@ -1437,13 +1551,16 @@ function FileMarketPool({ notify }) {
     }
   }
 
-  async function syncLiveFileItems() {
+  async function syncLiveItems() {
     setSyncingLive(true);
     try {
-      const response = await post("/api/file-market/items/sync-live", {});
+      const response = await post(
+        `/api/supplier-price-pools/${supplierCode}/items/sync-live`,
+        {},
+      );
       const meta = response.data.metadata || {};
       notify(
-        `${response.data.processed} File ürünü işlendi; ${response.data.created} yeni, ${response.data.changed} fiyat değişikliği. ${meta.productsScanned || 0} ürün tarandı.`,
+        `${response.data.processed} ${definition.shortLabel} ürünü işlendi; ${response.data.created} yeni, ${response.data.changed} fiyat değişikliği. ${meta.productsScanned || meta.targetProducts || 0} ürün tarandı.`,
       );
       await load();
     } catch (nextError) {
@@ -1454,7 +1571,11 @@ function FileMarketPool({ notify }) {
   }
 
   const columns = [
-    { key: "product_name", label: "File ürünü", width: 330 },
+    {
+      key: "product_name",
+      label: `${definition.shortLabel} ürünü`,
+      width: 330,
+    },
     { key: "brand", label: "Marka" },
     {
       key: "current_price",
@@ -1478,6 +1599,20 @@ function FileMarketPool({ notify }) {
       key: "size",
       label: "Birim",
       render: (row) => `${row.size_value || "-"} ${row.size_unit || ""}`,
+    },
+    {
+      key: "estimated_unit_desi",
+      label: "Tahmini desi",
+      render: (row) => row.estimated_unit_desi || "-",
+    },
+    {
+      key: "desi_confidence",
+      label: "Desi güveni",
+      render: (row) => (
+        <Badge tone={row.desi_confidence === "HIGH" ? "success" : "warning"}>
+          {row.desi_confidence === "HIGH" ? "Gramajdan" : "Kontrol gerekli"}
+        </Badge>
+      ),
     },
     {
       key: "cost_item_code",
@@ -1507,19 +1642,23 @@ function FileMarketPool({ notify }) {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="File ürün veya marka ara"
+            placeholder={`${definition.shortLabel} ürün veya marka ara`}
           />
         </div>
         <div className="mapping-toolbar-actions">
-          <Button
-            icon={RefreshCw}
-            disabled={syncingLive}
-            onClick={syncLiveFileItems}
-          >
-            {syncingLive ? "File taranıyor" : "Canlı File'dan yenile"}
-          </Button>
+          {definition.liveSync && (
+            <Button
+              icon={RefreshCw}
+              disabled={syncingLive}
+              onClick={syncLiveItems}
+            >
+              {syncingLive
+                ? `${definition.shortLabel} taranıyor`
+                : `Canlı ${definition.shortLabel}'den yenile`}
+            </Button>
+          )}
           <Button icon={FileUp} onClick={() => setImportOpen(true)}>
-            File fiyatı içe aktar
+            {definition.shortLabel} fiyatı içe aktar
           </Button>
           <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
         </div>
@@ -1529,8 +1668,9 @@ function FileMarketPool({ notify }) {
         <div>
           <strong>Fiyat havuzu geçmişi silmez</strong>
           <p>
-            Aynı File ürünü yeniden geldiğinde güncel ve önceki fiyat birlikte
-            tutulur; mapping onayında en son gözlem kullanılır.
+            Aynı {definition.shortLabel} ürünü yeniden geldiğinde güncel ve
+            önceki fiyat birlikte tutulur; mapping onayında en son gözlem
+            kullanılır.
           </p>
         </div>
       </div>
@@ -1543,7 +1683,7 @@ function FileMarketPool({ notify }) {
           <DataTable
             columns={columns}
             rows={result.items}
-            columnVisibilityKey="file-market-price-pool"
+            columnVisibilityKey={`supplier-price-pool-${supplierCode}`}
           />
           <Pagination
             page={result.page}
@@ -1553,23 +1693,23 @@ function FileMarketPool({ notify }) {
           />
         </div>
       ) : (
-        <Empty label="File fiyat havuzu henüz boş" />
+        <Empty label={`${definition.label} fiyat havuzu henüz boş`} />
       )}
       <Modal
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        title="File fiyatlarını içe aktar"
+        title={`${definition.label} fiyatlarını içe aktar`}
       >
         <div className="modal-body">
           <Field
-            label="File ürün adı; fiyat; marka; durum"
-            hint="Her satırı tab veya noktalı virgülle ayırın. Marka ve durum isteğe bağlıdır."
+            label={`${definition.shortLabel} ürün adı; fiyat; marka; durum`}
+            hint="Satırları tab veya noktalı virgülle ayırın; tam kataloglar için JSON dizi de yapıştırabilirsiniz."
           >
             <textarea
               rows="14"
               value={importText}
               onChange={(event) => setImportText(event.target.value)}
-              placeholder="Actisoft Menekşe Bahçesi Konsantre 1500 ml;112;Actisoft;AVAILABLE"
+              placeholder={`${definition.shortLabel} ürünü;112;Marka;AVAILABLE`}
             />
           </Field>
         </div>

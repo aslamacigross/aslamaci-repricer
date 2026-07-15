@@ -1,7 +1,13 @@
 const express = require("express");
 const { asyncRoute } = require("../utils/errors");
+const { SUPPLIER_CODES, supplier } = require("../domain/supplier-products");
 
-function mappingAutomationRoutes({ mappingAutomation, fileMarket, audit }) {
+function mappingAutomationRoutes({
+  mappingAutomation,
+  fileMarket,
+  bizimMarket,
+  audit,
+}) {
   const router = express.Router();
   const log = (req, action, entityId, after) =>
     audit.record({
@@ -14,6 +20,68 @@ function mappingAutomationRoutes({ mappingAutomation, fileMarket, audit }) {
       ip: req.ip,
       requestId: req.id,
     });
+
+  const supplierSources = {
+    FILE_MARKET: fileMarket,
+    BIZIM_MARKET: bizimMarket,
+  };
+  const supplierCode = (value) => String(value || "").toUpperCase();
+
+  router.get(
+    "/supplier-price-pools/:supplierCode/items",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.listSupplierItems(
+          supplierCode(req.params.supplierCode),
+          req.query,
+        ),
+      }),
+    ),
+  );
+  router.post(
+    "/supplier-price-pools/:supplierCode/items/bulk",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      const data = await mappingAutomation.importSupplierItems(
+        code,
+        req.body.rows,
+        { replaceAvailability: Boolean(req.body.replaceAvailability) },
+      );
+      await log(req, "SUPPLIER_PRICES_IMPORTED", code, {
+        supplierCode: code,
+        processed: data.processed,
+        created: data.created,
+        changed: data.changed,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
+  router.post(
+    "/supplier-price-pools/:supplierCode/items/sync-live",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      if (!SUPPLIER_CODES.includes(code))
+        return res.status(400).json({
+          status: "error",
+          code: "INVALID_SUPPLIER_CODE",
+          message: "Tedarikçi havuzu geçersiz",
+        });
+      const data = await mappingAutomation.syncLiveSupplierItems(
+        code,
+        supplierSources[code],
+      );
+      await log(req, "SUPPLIER_LIVE_PRICES_SYNCED", code, {
+        supplierCode: code,
+        supplierLabel: supplier(code)?.label,
+        processed: data.processed,
+        created: data.created,
+        changed: data.changed,
+        metadata: data.metadata,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
 
   router.get(
     "/file-market/items",
@@ -82,7 +150,12 @@ function mappingAutomationRoutes({ mappingAutomation, fileMarket, audit }) {
       const data = await mappingAutomation.regenerateDiagnosticBarcode(
         req.params.barcode,
       );
-      await log(req, "MAPPING_DIAGNOSTIC_REGENERATED", req.params.barcode, data);
+      await log(
+        req,
+        "MAPPING_DIAGNOSTIC_REGENERATED",
+        req.params.barcode,
+        data,
+      );
       res.json({ status: "ok", data });
     }),
   );

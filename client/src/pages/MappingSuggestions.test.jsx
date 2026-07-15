@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { get, post } from "../lib/api";
@@ -226,6 +226,42 @@ describe("Akıllı mapping paneli", () => {
     expect(await screen.findByText("Onaylandı")).toBeVisible();
     expect(screen.getByText("3 onay / 1 ret")).toBeVisible();
     expect(screen.getByText("+2,5 puan")).toBeVisible();
+  });
+
+  test("BİM katalog JSON'unu ayrı fiyat havuzuna aktarır", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: { items: [], total: 0, page: 1, limit: 50 },
+    });
+    post.mockResolvedValue({ data: { processed: 1, changed: 0 } });
+
+    render(<MappingSuggestions view="bim" notify={notify} />);
+    await user.click(
+      await screen.findByRole("button", { name: "BİM fiyatı içe aktar" }),
+    );
+    const rows = [
+      {
+        source_key: "bim-yemeksepeti:1",
+        product_name: "BİM Test Ürünü 250 g",
+        current_price: 49.9,
+        brand: "Test",
+        availability: "AVAILABLE",
+      },
+    ];
+    fireEvent.change(screen.getByRole("textbox", { name: /BİM ürün adı/ }), {
+      target: { value: JSON.stringify(rows) },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Fiyatları içe aktar" }),
+    );
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/supplier-price-pools/BIM/items/bulk",
+        { rows },
+      ),
+    );
   });
 
   test("teşhis satırından öneri üretir ve manuel kuyruğa alır", async () => {

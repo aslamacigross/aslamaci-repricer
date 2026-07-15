@@ -1,6 +1,6 @@
 # Implementation Status
 
-Son güncelleme: 2026-07-15 (Europe/Istanbul)
+Son güncelleme: 2026-07-16 (Europe/Istanbul)
 
 ## Tamamlanan
 
@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 93/93 başarılı
+- [x] Unit/integration/regression testleri: 134/134 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -53,9 +53,9 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
-- [x] React bileşen testleri: 9/9 başarılı
+- [x] React bileşen testleri: 14/14 başarılı
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 5/5 başarılı
-- [x] Backend testleri: 93/93 başarılı
+- [x] Backend testleri: 134/134 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -88,6 +88,13 @@ Son güncelleme: 2026-07-15 (Europe/Istanbul)
 - [x] `012_mapping_feedback_learning` migrationı ve geri alma migrationı
 - [x] Immutable mapping onay/ret olay günlüğü ve panelde karar geçmişi
 - [x] Örüntü bazlı onay/ret profiliyle sınırlı ve açıklanabilir güven skoru öğrenmesi
+- [x] `014_supplier_price_pools` çoklu tedarikçi migrationı ve geri alma migrationı
+- [x] File Market, Bizim Toptan ve BİM için birbirinden bağımsız fiyat havuzları
+- [x] Bizim Toptan dondurulmuş gıda hariç canlı web katalog tarayıcısı
+- [x] BİM/Yemeksepeti dondurulmuş gıda hariç tarayıcı destekli katalog aktarımı
+- [x] Tedarikçi bazlı öneri filtresi ve farklı havuzların tek reçetede karışmasını engelleme
+- [x] Tedarikçi ürünlerinde tahmini kesirli birim desi ve güven göstergesi
+- [x] Nihai ürün desisinin toplam mapping sonrasında yukarı yuvarlanması
 
 ## PR Öncesi Kapsam Denetimi
 

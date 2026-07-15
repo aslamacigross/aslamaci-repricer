@@ -12,15 +12,20 @@ const {
 } = require("../domain/product-matching");
 const {
   FILE_PRICE_MAX_AGE_DAYS,
-  isFilePriceFresh,
+  isSupplierPriceFresh,
 } = require("../domain/file-market");
+const {
+  SUPPLIER_CODES,
+  estimatePackageDesi,
+  supplier,
+} = require("../domain/supplier-products");
 const {
   buildMappingLearningKey,
   buildMappingRecipeKey,
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "manual-history-file-v5";
+const ALGORITHM_VERSION = "multi-supplier-v1";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -113,6 +118,7 @@ function parseExplicitCorrectionItems(reason) {
 function canonicalSuggestion(suggestion) {
   return {
     barcode: suggestion.barcode,
+    supplierCode: suggestion.supplier_code || "FILE_MARKET",
     sourceType: suggestion.source_type,
     sourceBarcode: suggestion.source_barcode || null,
     algorithmVersion: suggestion.algorithm_version,
@@ -120,8 +126,13 @@ function canonicalSuggestion(suggestion) {
       code: item.cost_item_code,
       quantity: Number(item.quantity),
       fileItemId: item.file_market_item_id || null,
-      filePrice: Number(
-        item.file_current_price || item.suggested_unit_cost || 0,
+      supplierCode:
+        item.supplier_code || suggestion.supplier_code || "FILE_MARKET",
+      supplierPrice: Number(
+        item.supplier_current_price ||
+          item.file_current_price ||
+          item.suggested_unit_cost ||
+          0,
       ),
     })),
   };
@@ -149,7 +160,14 @@ function generatedCostCode(fileItem) {
           useGrouping: false,
         })}${String(fileItem.size_unit).toUpperCase()}`
       : "";
-  return `${raw || "FILE_URUN"}${size}`.replace(/[^A-Z0-9_]/g, "_");
+  const supplierPrefix =
+    fileItem.supplier_code && fileItem.supplier_code !== "FILE_MARKET"
+      ? `${fileItem.supplier_code}_`
+      : "";
+  return `${supplierPrefix}${raw || "TEDARIKCI_URUN"}${size}`.replace(
+    /[^A-Z0-9_]/g,
+    "_",
+  );
 }
 
 function uniqueCostCode(baseCode, item, index) {
@@ -203,26 +221,15 @@ function remapEvidenceCostCodes(evidence = {}, items = []) {
 }
 
 function estimateUnitDesi(fileItem) {
-  const totalSize = extractTotalBundleSize(fileItem.product_name);
-  if (totalSize) return Number(Math.max(totalSize / 1000, 0.1).toFixed(3));
-  const value = Number(fileItem.size_value || 0);
-  if (!Number.isFinite(value) || value <= 0) return 1;
-  return Number(Math.max(value / 1000, 0.1).toFixed(3));
-}
-
-function extractTotalBundleSize(value) {
-  const text = normalizeText(value);
-  const match = text.match(
-    /\b(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\b/,
-  );
-  if (!match) return null;
-  const count = Number(match[1].replace(",", "."));
-  const amount = Number(match[2].replace(",", "."));
-  if (!Number.isFinite(count) || !Number.isFinite(amount)) return null;
-  const unit = match[3];
-  const base =
-    unit === "kg" || unit === "l" || unit === "lt" ? amount * 1000 : amount;
-  return count > 0 && amount > 0 ? count * base : null;
+  const stored = Number(fileItem.estimated_unit_desi);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const sizeValue = Number(fileItem.size_value);
+  if (Number.isFinite(sizeValue) && sizeValue > 0)
+    return Number(Math.max(sizeValue / 1000, 0.02).toFixed(4));
+  return estimatePackageDesi(
+    fileItem.product_name || fileItem.item_name || "",
+    fileItem.unit_desi,
+  ).value;
 }
 
 function extractExplicitBundleCount(value) {
@@ -506,14 +513,25 @@ class MappingAutomationService {
     this.costEngine = costEngine;
   }
 
-  normalizeFileRows(rows) {
-    if (!Array.isArray(rows) || !rows.length)
-      throw new AppError("File ürün listesi boş", 400, "EMPTY_FILE_ITEMS");
-    if (rows.length > 1000)
+  normalizeSupplierRows(supplierCode, rows) {
+    const supplierDefinition = supplier(supplierCode);
+    if (!supplierDefinition)
       throw new AppError(
-        "Tek işlemde en fazla 1000 File ürünü yüklenebilir",
+        "Tedarikçi havuzu geçersiz",
         400,
-        "TOO_MANY_FILE_ITEMS",
+        "INVALID_SUPPLIER_CODE",
+      );
+    if (!Array.isArray(rows) || !rows.length)
+      throw new AppError(
+        `${supplierDefinition.label} ürün listesi boş`,
+        400,
+        "EMPTY_SUPPLIER_ITEMS",
+      );
+    if (rows.length > 10000)
+      throw new AppError(
+        "Tek işlemde en fazla 10000 tedarikçi ürünü yüklenebilir",
+        400,
+        "TOO_MANY_SUPPLIER_ITEMS",
       );
     const seen = new Set();
     return rows.map((row, index) => {
@@ -531,22 +549,31 @@ class MappingAutomationService {
         Number.isNaN(observedAt.getTime())
       )
         throw new AppError(
-          `${index + 1}. File ürün satırı geçersiz`,
+          `${index + 1}. ${supplierDefinition.label} ürün satırı geçersiz`,
           400,
-          "INVALID_FILE_ITEM",
+          "INVALID_SUPPLIER_ITEM",
         );
       const sourceKey = String(
         row.source_key ||
-          crypto.createHash("sha1").update(normalizedName).digest("hex"),
+          (supplierCode === "FILE_MARKET"
+            ? crypto.createHash("sha1").update(normalizedName).digest("hex")
+            : `${supplierCode.toLowerCase()}:${crypto
+                .createHash("sha1")
+                .update(normalizedName)
+                .digest("hex")}`),
       ).trim();
       if (seen.has(sourceKey))
         throw new AppError(
-          `${index + 1}. File ürünü aynı yüklemede tekrarlanmış`,
+          `${index + 1}. ${supplierDefinition.label} ürünü aynı yüklemede tekrarlanmış`,
           400,
-          "DUPLICATE_FILE_ITEM",
+          "DUPLICATE_SUPPLIER_ITEM",
         );
       seen.add(sourceKey);
       const size = extractSizes(productName)[0];
+      const desi = estimatePackageDesi(
+        productName,
+        row.estimated_unit_desi ?? row.unit_desi,
+      );
       return {
         source_key: sourceKey,
         product_name: productName,
@@ -559,17 +586,37 @@ class MappingAutomationService {
         availability: String(row.availability || "AVAILABLE").toUpperCase(),
         raw_data: row.raw_data || row,
         observed_at: observedAt.toISOString(),
+        supplier_code: supplierCode,
+        source_url: row.source_url || null,
+        source_category: row.source_category || null,
+        estimated_unit_desi: desi.value,
+        desi_confidence: row.desi_confidence || desi.confidence,
       };
     });
   }
 
+  normalizeFileRows(rows) {
+    return this.normalizeSupplierRows("FILE_MARKET", rows);
+  }
+
+  async importSupplierItems(supplierCode, rows, options = {}) {
+    const normalizedCode = String(supplierCode || "").toUpperCase();
+    return this.repository.importSupplierItems(
+      normalizedCode,
+      this.normalizeSupplierRows(normalizedCode, rows),
+      options,
+    );
+  }
+
   async importFileItems(rows) {
-    return this.repository.importFileItems(this.normalizeFileRows(rows));
+    return this.importSupplierItems("FILE_MARKET", rows);
   }
 
   async syncLiveFileItems(fileMarket) {
     const live = await fileMarket.livePriceRows();
-    const imported = await this.importFileItems(live.rows);
+    const imported = await this.importSupplierItems("FILE_MARKET", live.rows, {
+      replaceAvailability: Boolean(live.fullSnapshot),
+    });
     return {
       ...imported,
       metadata: {
@@ -580,7 +627,49 @@ class MappingAutomationService {
   }
 
   async listFileItems(filters) {
-    return this.repository.listFileItems(filters);
+    return this.listSupplierItems("FILE_MARKET", filters);
+  }
+
+  async syncLiveSupplierItems(supplierCode, sourceService) {
+    const normalizedCode = String(supplierCode || "").toUpperCase();
+    const definition = supplier(normalizedCode);
+    if (!definition)
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
+    if (!sourceService?.livePriceRows)
+      throw new AppError(
+        `${definition.label} için canlı katalog kaynağı yapılandırılmamış`,
+        409,
+        "SUPPLIER_LIVE_SOURCE_UNAVAILABLE",
+      );
+    const live = await sourceService.livePriceRows();
+    const imported = await this.importSupplierItems(normalizedCode, live.rows, {
+      replaceAvailability: Boolean(live.fullSnapshot),
+    });
+    return {
+      ...imported,
+      metadata: {
+        ...live.stats,
+        supplierCode: normalizedCode,
+      },
+    };
+  }
+
+  async listSupplierItems(supplierCode, filters) {
+    const normalizedCode = String(supplierCode || "").toUpperCase();
+    if (!SUPPLIER_CODES.includes(normalizedCode))
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
+    return this.repository.listSupplierItems({
+      ...filters,
+      supplierCode: normalizedCode,
+    });
   }
 
   groupTrainingRows(rows) {
@@ -638,6 +727,14 @@ class MappingAutomationService {
           : Number(item.current_unit_cost),
         file_match_score: fileMatch ? Number(fileMatch.score.toFixed(5)) : null,
         file_product_name: fileMatch?.item.product_name || null,
+        supplier_product_name: fileMatch?.item.product_name || null,
+        supplier_code: fileMatch?.item.supplier_code || null,
+        supplier_current_price: fileMatch
+          ? Number(fileMatch.item.current_price)
+          : null,
+        supplier_estimated_unit_desi:
+          fileMatch?.item.estimated_unit_desi || null,
+        desi_confidence: fileMatch?.item.desi_confidence || null,
         file_price_mode: fileMatch?.priceMode || null,
       };
     });
@@ -767,8 +864,13 @@ class MappingAutomationService {
         suggested_unit_cost: Number(fileItem.current_price || correction.price),
         unit_desi: unitDesi,
         file_market_item_id: fileItem.id,
+        supplier_code: fileItem.supplier_code || "FILE_MARKET",
         file_match_score: comparison.score,
         file_product_name: fileItem.product_name,
+        supplier_product_name: fileItem.product_name,
+        supplier_current_price: Number(fileItem.current_price),
+        supplier_estimated_unit_desi: fileItem.estimated_unit_desi || unitDesi,
+        desi_confidence: fileItem.desi_confidence || "LOW",
         file_price_mode: "DIRECT",
         creates_cost_item: true,
       };
@@ -896,8 +998,14 @@ class MappingAutomationService {
               suggested_unit_cost: Number(fileItem.current_price),
               unit_desi: unitDesi,
               file_market_item_id: fileItem.id,
+              supplier_code: fileItem.supplier_code || "FILE_MARKET",
               file_match_score: comparison.score,
               file_product_name: fileItem.product_name,
+              supplier_product_name: fileItem.product_name,
+              supplier_current_price: Number(fileItem.current_price),
+              supplier_estimated_unit_desi:
+                fileItem.estimated_unit_desi || unitDesi,
+              desi_confidence: fileItem.desi_confidence || "LOW",
               file_price_mode: "DIRECT",
               creates_cost_item: true,
             },
@@ -964,8 +1072,13 @@ class MappingAutomationService {
         suggested_unit_cost: Number(fileItem.current_price),
         unit_desi: unitDesi,
         file_market_item_id: fileItem.id,
+        supplier_code: fileItem.supplier_code || "FILE_MARKET",
         file_match_score: comparison.score,
         file_product_name: fileItem.product_name,
+        supplier_product_name: fileItem.product_name,
+        supplier_current_price: Number(fileItem.current_price),
+        supplier_estimated_unit_desi: fileItem.estimated_unit_desi || unitDesi,
+        desi_confidence: fileItem.desi_confidence || "LOW",
         file_price_mode: "DIRECT",
         creates_cost_item: true,
       };
@@ -1078,8 +1191,13 @@ class MappingAutomationService {
         suggested_unit_cost: Number(fileItem.current_price),
         unit_desi: unitDesi,
         file_market_item_id: fileItem.id,
+        supplier_code: fileItem.supplier_code || "FILE_MARKET",
         file_match_score: comparison.score,
         file_product_name: fileItem.product_name,
+        supplier_product_name: fileItem.product_name,
+        supplier_current_price: Number(fileItem.current_price),
+        supplier_estimated_unit_desi: fileItem.estimated_unit_desi || unitDesi,
+        desi_confidence: fileItem.desi_confidence || "LOW",
         file_price_mode: "DIRECT",
         creates_cost_item: true,
       };
@@ -1146,6 +1264,8 @@ class MappingAutomationService {
       source_type: candidate.source_type,
       source_barcode: candidate.source_barcode,
       file_market_item_id: fileIds.length === 1 ? fileIds[0] : null,
+      supplier_code:
+        candidate.supplier_code || items[0]?.supplier_code || "FILE_MARKET",
       update_file_price: fileIds.length > 0,
       evidence: remapEvidenceCostCodes(candidate.evidence, items),
       product_snapshot: target,
@@ -1157,17 +1277,69 @@ class MappingAutomationService {
     return suggestion;
   }
 
-  async generate({ limit = 500, barcode = null } = {}) {
+  supplierPools(items) {
+    const grouped = new Map();
+    for (const item of items) {
+      const code = item.supplier_code || "FILE_MARKET";
+      if (!grouped.has(code)) grouped.set(code, []);
+      grouped.get(code).push(item);
+    }
+    return [...grouped.entries()].map(([code, poolItems]) => ({
+      code,
+      items: poolItems,
+      brands: new Set(
+        poolItems.map((item) => normalizeText(item.brand)).filter(Boolean),
+      ),
+    }));
+  }
+
+  targetBelongsToPool(target, pool) {
+    const targetBrand = normalizeText(target.brand);
+    const targetName = normalizeText(target.product_name);
+    return (
+      pool.brands.has(targetBrand) ||
+      [...pool.brands].some(
+        (brand) => brand.length >= 3 && targetName.includes(brand),
+      )
+    );
+  }
+
+  candidatesForPool(target, examples, costItems, pool, targetHints) {
+    return [
+      this.buildFromFeedbackCorrection(target, targetHints, pool.items),
+      ...this.buildTrainingCandidates(target, examples, pool.items),
+      this.buildFromCompositeFileItems(target, pool.items),
+      this.buildFromMultiVariantFileItems(target, pool.items),
+      this.buildFromCostItems(target, costItems, pool.items),
+      ...this.buildFromFileItems(target, pool.items, { minScore: 0.3 }),
+    ]
+      .filter(
+        (candidate) =>
+          candidate && candidate.confidence >= 0.3 && candidate.items.length,
+      )
+      .map((candidate) => ({ ...candidate, supplier_code: pool.code }))
+      .map((candidate) => applyRejectionHints(candidate, targetHints))
+      .map((candidate) => this.applyCompositeSafety(target, candidate));
+  }
+
+  async generate({ limit = 500, barcode = null, supplier_code = null } = {}) {
+    const supplierCode = supplier_code
+      ? String(supplier_code).toUpperCase()
+      : null;
+    if (supplierCode && !SUPPLIER_CODES.includes(supplierCode))
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
     const [targets, trainingRows, fileItems, costItems] = await Promise.all([
       this.repository.targetProducts({ limit, barcode }),
       this.repository.trainingRows(),
-      this.repository.fileItemsForMatching(),
+      this.repository.fileItemsForMatching(supplierCode),
       this.repository.costItemsForMatching(),
     ]);
     const examples = this.groupTrainingRows(trainingRows);
-    const fileBrands = new Set(
-      fileItems.map((item) => normalizeText(item.brand)).filter(Boolean),
-    );
+    const pools = this.supplierPools(fileItems);
     const rejectedFingerprints = new Set(
       this.repository.rejectedFingerprints
         ? await this.repository.rejectedFingerprints(
@@ -1206,28 +1378,22 @@ class MappingAutomationService {
     let withoutFileSupport = 0;
     let rejectedCandidateCount = 0;
     for (const target of targets) {
-      const targetBrand = normalizeText(target.brand);
-      const targetName = normalizeText(target.product_name);
-      const belongsToFileBrand =
-        fileBrands.has(targetBrand) ||
-        [...fileBrands].some((brand) => targetName.includes(brand));
-      if (!belongsToFileBrand) continue;
+      const matchingPools = pools.filter((pool) =>
+        this.targetBelongsToPool(target, pool),
+      );
+      if (!matchingPools.length) continue;
       scoped++;
       const targetHints = feedbackHints.get(target.barcode);
-      const candidates = [
-        this.buildFromFeedbackCorrection(target, targetHints, fileItems),
-        ...this.buildTrainingCandidates(target, examples, fileItems),
-        this.buildFromCompositeFileItems(target, fileItems),
-        this.buildFromMultiVariantFileItems(target, fileItems),
-        this.buildFromCostItems(target, costItems, fileItems),
-        ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
-      ]
-        .filter(
-          (candidate) =>
-            candidate && candidate.confidence >= 0.3 && candidate.items.length,
+      const candidates = matchingPools
+        .flatMap((pool) =>
+          this.candidatesForPool(
+            target,
+            examples,
+            costItems,
+            pool,
+            targetHints,
+          ),
         )
-        .map((candidate) => applyRejectionHints(candidate, targetHints))
-        .map((candidate) => this.applyCompositeSafety(target, candidate))
         .sort((left, right) => sortCandidatesForTarget(target, left, right));
       if (!candidates.length) {
         withoutCandidate++;
@@ -1295,6 +1461,11 @@ class MappingAutomationService {
       withoutFileSupport,
       rejectedCandidateCount,
       filePoolSize: fileItems.length,
+      supplierPools: pools.map((pool) => ({
+        code: pool.code,
+        label: supplier(pool.code)?.label || pool.code,
+        productCount: pool.items.length,
+      })),
       trainingProductCount: examples.length,
       ...saved,
     };
@@ -1304,17 +1475,24 @@ class MappingAutomationService {
     return this.repository.listSuggestions(filters);
   }
 
-  async diagnostics({ limit = 1000 } = {}) {
+  async diagnostics({ limit = 1000, supplier_code = null } = {}) {
+    const supplierCode = supplier_code
+      ? String(supplier_code).toUpperCase()
+      : null;
+    if (supplierCode && !SUPPLIER_CODES.includes(supplierCode))
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
     const [targets, trainingRows, fileItems, costItems] = await Promise.all([
       this.repository.targetProducts(limit),
       this.repository.trainingRows(),
-      this.repository.fileItemsForMatching(),
+      this.repository.fileItemsForMatching(supplierCode),
       this.repository.costItemsForMatching(),
     ]);
     const examples = this.groupTrainingRows(trainingRows);
-    const fileBrands = new Set(
-      fileItems.map((item) => normalizeText(item.brand)).filter(Boolean),
-    );
+    const pools = this.supplierPools(fileItems);
     const rejectedFingerprints = new Set(
       this.repository.rejectedFingerprints
         ? await this.repository.rejectedFingerprints(
@@ -1330,41 +1508,31 @@ class MappingAutomationService {
         : [],
     );
     const items = targets.map((target) => {
-      const targetBrand = normalizeText(target.brand);
-      const targetName = normalizeText(target.product_name);
-      const belongsToFileBrand =
-        fileBrands.has(targetBrand) ||
-        [...fileBrands].some((brand) => targetName.includes(brand));
-      if (!belongsToFileBrand)
+      const matchingPools = pools.filter((pool) =>
+        this.targetBelongsToPool(target, pool),
+      );
+      if (!matchingPools.length)
         return {
           ...target,
-          diagnosis: "NOT_FILE_BRAND",
-          diagnosis_label: "File markası değil",
+          diagnosis: "NOT_SUPPLIER_BRAND",
+          diagnosis_label: "Tedarikçi havuzlarında marka bulunamadı",
         };
-      const fileMatches = fileItems
+      const scopedItems = matchingPools.flatMap((pool) => pool.items);
+      const fileMatches = scopedItems
         .map((fileItem) => ({
           fileItem,
           comparison: compareProducts(target, fileItem),
         }))
         .sort((left, right) => right.comparison.score - left.comparison.score);
       const bestFile = fileMatches[0] || null;
-      const candidates = [
-        ...this.buildTrainingCandidates(target, examples, fileItems),
-        this.buildFromCompositeFileItems(target, fileItems),
-        this.buildFromMultiVariantFileItems(target, fileItems),
-        this.buildFromCostItems(target, costItems, fileItems),
-        ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
-      ]
-        .filter(
-          (candidate) =>
-            candidate && candidate.confidence >= 0.3 && candidate.items.length,
-        )
-        .map((candidate) => this.applyCompositeSafety(target, candidate));
-      if (!fileItems.length)
+      const candidates = matchingPools.flatMap((pool) =>
+        this.candidatesForPool(target, examples, costItems, pool),
+      );
+      if (!scopedItems.length)
         return {
           ...target,
-          diagnosis: "FILE_POOL_EMPTY",
-          diagnosis_label: "File havuzu boş",
+          diagnosis: "SUPPLIER_POOL_EMPTY",
+          diagnosis_label: "Tedarikçi havuzu boş",
         };
       if (!candidates.length)
         return {
@@ -1372,12 +1540,16 @@ class MappingAutomationService {
           diagnosis:
             bestFile?.comparison?.score >= 0.18
               ? "LOW_SCORE"
-              : "NO_FILE_CANDIDATE",
+              : "NO_SUPPLIER_CANDIDATE",
           diagnosis_label:
             bestFile?.comparison?.score >= 0.18
               ? "Aday var ama skor çok düşük"
-              : "File havuzunda aday yok",
+              : "Tedarikçi havuzunda aday yok",
           best_file_product_name: bestFile?.fileItem?.product_name || null,
+          best_supplier_product_name: bestFile?.fileItem?.product_name || null,
+          best_supplier_code: bestFile?.fileItem?.supplier_code || null,
+          best_supplier_label:
+            supplier(bestFile?.fileItem?.supplier_code)?.label || null,
           best_file_score: bestFile?.comparison?.score || null,
           best_file_price: bestFile?.fileItem?.current_price || null,
         };
@@ -1416,6 +1588,19 @@ class MappingAutomationService {
               ?.file_product_name ||
             bestFile?.fileItem?.product_name ||
             null,
+          best_supplier_product_name:
+            available.items.find((item) => item.supplier_product_name)
+              ?.supplier_product_name ||
+            bestFile?.fileItem?.product_name ||
+            null,
+          best_supplier_code:
+            available.supplier_code ||
+            bestFile?.fileItem?.supplier_code ||
+            null,
+          best_supplier_label:
+            supplier(
+              available.supplier_code || bestFile?.fileItem?.supplier_code,
+            )?.label || null,
           best_file_score: bestFile?.comparison?.score || null,
           best_file_price:
             available.items.find((item) => item.suggested_unit_cost)
@@ -1426,11 +1611,15 @@ class MappingAutomationService {
         };
       return {
         ...target,
-        diagnosis: rejected ? "REJECTED_PATTERN" : "NO_FILE_SUPPORT",
+        diagnosis: rejected ? "REJECTED_PATTERN" : "NO_SUPPLIER_SUPPORT",
         diagnosis_label: rejected
           ? "Benzer öneri daha önce reddedilmiş"
-          : "File fiyat desteği yok",
+          : "Tedarikçi fiyat desteği yok",
         best_file_product_name: bestFile?.fileItem?.product_name || null,
+        best_supplier_product_name: bestFile?.fileItem?.product_name || null,
+        best_supplier_code: bestFile?.fileItem?.supplier_code || null,
+        best_supplier_label:
+          supplier(bestFile?.fileItem?.supplier_code)?.label || null,
         best_file_score: bestFile?.comparison?.score || null,
         best_file_price: bestFile?.fileItem?.current_price || null,
       };
@@ -1442,6 +1631,11 @@ class MappingAutomationService {
     return {
       processed: targets.length,
       filePoolSize: fileItems.length,
+      supplierPools: pools.map((pool) => ({
+        code: pool.code,
+        label: supplier(pool.code)?.label || pool.code,
+        productCount: pool.items.length,
+      })),
       summary,
       items,
     };
@@ -1626,6 +1820,8 @@ class MappingAutomationService {
     const rows = inputItems.map((item, index) => {
       const original = suggestion.items[index] || {};
       const fileProductName =
+        item.supplier_product_name ||
+        original.supplier_product_name ||
         item.file_product_name ||
         original.file_product_name ||
         original.item_name ||
@@ -1649,6 +1845,11 @@ class MappingAutomationService {
         quantity: Number(item.quantity),
         file_market_item_id:
           item.file_market_item_id || original.file_market_item_id || null,
+        supplier_code:
+          item.supplier_code ||
+          original.supplier_code ||
+          suggestion.supplier_code ||
+          "FILE_MARKET",
         current_unit_cost:
           Number(item.current_unit_cost || original.current_unit_cost || 0) ||
           null,
@@ -1656,6 +1857,7 @@ class MappingAutomationService {
           Number(
             item.suggested_unit_cost ||
               original.suggested_unit_cost ||
+              original.supplier_current_price ||
               original.file_current_price ||
               0,
           ) || null,
@@ -1802,7 +2004,9 @@ class MappingAutomationService {
         suggestion.items.some(
           (item) =>
             item.file_market_item_id &&
-            !isFilePriceFresh(item.file_last_seen_at),
+            !isSupplierPriceFresh(
+              item.supplier_last_seen_at || item.file_last_seen_at,
+            ),
         ),
     );
     if (staleFilePrice)

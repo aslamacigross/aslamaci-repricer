@@ -1,11 +1,17 @@
-const FILE_PRICE_MAX_AGE_DAYS = 30;
+const SUPPLIER_PRICE_MAX_AGE_DAYS = 30;
 
-function isFilePriceFresh(value, now = new Date()) {
+function isSupplierPriceFresh(value, now = new Date()) {
   const observedAt = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(observedAt.getTime())) return false;
   return (
-    now.getTime() - observedAt.getTime() <= FILE_PRICE_MAX_AGE_DAYS * 86400000
+    now.getTime() - observedAt.getTime() <=
+    SUPPLIER_PRICE_MAX_AGE_DAYS * 86400000
   );
 }
 
-module.exports = { FILE_PRICE_MAX_AGE_DAYS, isFilePriceFresh };
+module.exports = {
+  SUPPLIER_PRICE_MAX_AGE_DAYS,
+  isSupplierPriceFresh,
+  FILE_PRICE_MAX_AGE_DAYS: SUPPLIER_PRICE_MAX_AGE_DAYS,
+  isFilePriceFresh: isSupplierPriceFresh,
+};

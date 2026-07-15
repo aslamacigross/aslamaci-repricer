@@ -1,15 +1,15 @@
-# Akıllı Mapping ve File Market
+# Akıllı Mapping ve Tedarikçi Fiyat Havuzları
 
 ## Amaç
 
-Bu modül Trendyol'daki mapping eksiği ürünlere, daha önce elle doğrulanmış ürün reçetelerinden ve File Market fiyat gözlemlerinden yararlanarak maliyet mappingi önerir. Öneri motoru yardımcıdır; hiçbir öneri kullanıcı incelemesi olmadan mappinge veya maliyete dönüşmez.
+Bu modül Trendyol'daki mapping eksiği ürünlere, daha önce elle doğrulanmış ürün reçetelerinden ve File Market, Bizim Toptan veya BİM fiyat gözlemlerinden yararlanarak maliyet mappingi önerir. Fiyat havuzları ayrıdır ve farklı tedarikçiler tek öneri reçetesinde karışmaz. Öneri motoru yardımcıdır; hiçbir öneri kullanıcı incelemesi olmadan mappinge veya maliyete dönüşmez.
 
 ## Günlük Kullanım
 
-1. `Ürün Mapping > File fiyat havuzu` ekranını açın.
-2. Mac File uygulamasından toplanan `ürün adı; fiyat; marka; durum` satırlarını `File fiyatı içe aktar` ile yükleyin.
+1. `Ürün Mapping` altında ilgili tedarikçinin fiyat havuzunu açın.
+2. File ve Bizim havuzlarını canlı kaynaktan yenileyin; BİM için tarayıcıdan alınan JSON kataloğunu veya `ürün adı; fiyat; marka; durum` satırlarını içe aktarın.
 3. `Akıllı öneriler` ekranında `Önerileri üret` düğmesini kullanın veya Joblar ekranından `generate-mapping-suggestions` jobunu çalıştırın.
-4. Önerinin Trendyol ürünü, File ürünü, cost code, adet, güncel fiyat, kaynak ürün ve güven nedenlerini inceleyin.
+4. Önerinin Trendyol ürünü, tedarikçi ürünü, cost code, adet, güncel fiyat, kaynak ürün, desi ve güven nedenlerini inceleyin.
 5. Doğru öneride `Öneriyi onayla`, yanlış öneride ret notuyla `Reddet` seçin.
 6. Onaylananlar filtresine geçip uygulanacak satırları seçin.
 7. `Seçilenleri önizle` ile ürün/mapping/fiyat güncellemesi sayılarını doğrulayın.
@@ -27,7 +27,9 @@ Güven bandı otomatik uygulama izni değildir. Yüksek güven dahil bütün ön
 
 Motor önce mevcut `product_cost_mappings` kayıtlarından doğrulanmış reçeteleri çıkarır. Hedef ürünle eski ürün arasında ad, marka, kategori, gramaj/hacim ve paket adedi karşılaştırılır. İki adetlik eski ürün dört adetlik hedefle eşleşirse cost code korunur ve adet iki katına çıkarılır. Uygun eski örnek yoksa maliyet kalemi kataloğu daha düşük güvenli yedek kaynak olarak kullanılır.
 
-File ürünü eşleşmesi güncel birim maliyet önerir. Fiyat uygulanırsa `cost_items.previous_unit_cost` eski değeri, `price_source=FILE_MARKET` kaynağı ve gözlem zamanı saklanır.
+Tedarikçi ürünü eşleşmesi güncel birim maliyet önerir. Fiyat uygulanırsa `cost_items.previous_unit_cost` eski değeri, `price_source` kaynak kodunu ve gözlem zamanı saklar.
+
+Birim desi ürün gramajı/hacminden kesirli olarak tahmin edilir ve gerekiyorsa kullanıcı tarafından onay ekranında düzeltilir. Ürün seviyesinde nihai desi, bütün mapping satırları toplandıktan sonra yukarı yuvarlanır; `10 x 25 g` ürün önce `0,25` toplam desi olur, ardından kargo hesabında `1` desi kabul edilir.
 
 File'da aynı marka, ürün ailesi ve ölçüde yalnız kardeş varyant görünüyorsa bu fiyat kontrollü bir kanıt olarak kullanılabilir. Örneğin 100 ml Kiraz Çiçeği kolonyanın fiyatı aynı ailedeki 100 ml Zeytin Çiçeği için önerilebilir. Bu satır `Varyant fiyatı` rozeti taşır ve gerekçede açıkça belirtilir. Yeni varyant örüntüsü yüksek güvene çıkamaz; en az 5 karar ve yüzde 90 kabul oranından sonra kilit açılabilir.
 
@@ -40,20 +42,20 @@ Her `Öneriyi onayla` ve `Reddet` kararı `mapping_feedback_events` olay günlü
 ## Güvenlik Kuralları
 
 - Yalnız aktif ve `MAPPING_MISSING` durumundaki Trendyol ürünleri hedeflenir.
-- Yalnız File fiyat havuzunda bulunan marka kapsamı ve gerçek bir File fiyat desteği olan adaylar kaydedilir.
+- Yalnız tedarikçi fiyat havuzunda bulunan marka kapsamı ve gerçek bir fiyat desteği olan adaylar kaydedilir.
 - Kardeş varyanttan türetilen fiyat kullanıcı kontrolü gerektirir; doğrudan eşleşme gibi gösterilmez.
 - Öğrenme güven bandını değiştirebilir ancak öneriyi onaylama, toplu önizleme ve uygulama adımlarını atlayamaz.
 - Bekleyen öneriyi onaylamak hiçbir veriyi değiştirmez.
 - Yalnız onaylı öneriler toplu önizlenebilir.
-- Önizleme sonrasında öneri veya File fiyatı değişirse uygulama reddedilir.
+- Önizleme sonrasında öneri veya tedarikçi fiyatı değişirse uygulama reddedilir.
 - Hedef üründe arada mapping oluşmuşsa işlem reddedilir.
 - Maliyeti veya desisi sıfır cost code kullanılamaz.
-- File fiyatı 30 günden eskiyse maliyet güncellemesi yapılamaz.
+- Tedarikçi fiyatı 30 günden eskiyse maliyet güncellemesi yapılamaz.
 - Uygulama ve maliyet hesaplama tek transactiondır; hata olursa mevcut veri korunur.
 - Bu modül Trendyol fiyat gönderme endpointini çağırmaz.
 
-## File Fiyat Toplama Sınırı
+## Kaynak Sınırları
 
-File Market'in resmi web veya satıcı API yüzeyi yoktur. Bu nedenle Railway, File uygulamasına kendi başına bağlanamaz. V2; toplanan gözlemlerin içe alınması, tarihçesi, fiyat değişimi, güncellik kontrolü, eşleştirme ve maliyete uygulanması tarafını yönetir. Mac uygulamasındaki ekran okuma turu Codex Computer Use ile tekrarlanabilir; yeni gözlemler aynı ürün anahtarına yazılarak önceki fiyat korunur.
+File Market canlı katalog kaynağı ve Bizim Toptan herkese açık web kataloğu panelden yenilenebilir. BİM/Yemeksepeti lokasyon, oturum ve otomasyon korumasına bağlıdır; bu nedenle Railway jobu yerine tarayıcı destekli katalog aktarımı kullanılır. Yeni gözlemler aynı kaynak anahtarına yazılır, önceki fiyat ve geçmiş korunur.
 
 İlk toplama kapsamı kullanıcının tedarik modeline göre Harras, Actisoft ve Daycare ile sınırlandırılmıştır. Aramada bulunmayan ürünler alternatif varyant/gramaj kelimeleriyle ve uygulamadaki Atıştırmalık, Kişisel Bakım, Ev Temizliği ve İçecek kategorilerinde taranmıştır. Fiziksel mağazada olup uygulamada listelenmeyen ürünler yanlış fiyatla eşleştirilmez; düşük güven veya eşleşme yok durumunda kullanıcı incelemesinde kalır.

@@ -204,7 +204,11 @@ class ProductRepository {
         [marketplace, barcode],
       )
     ).rows[0];
-    const merged = { ...DEFAULT_PRODUCT_SETTINGS, ...(existing || {}), ...input };
+    const merged = {
+      ...DEFAULT_PRODUCT_SETTINGS,
+      ...(existing || {}),
+      ...input,
+    };
     const values = [
       marketplace,
       barcode,

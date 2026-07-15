@@ -140,6 +140,18 @@ export default function Costs({ mode, notify }) {
             <Store /> File fiyat havuzu
           </button>
           <button
+            className={mappingView === "bizim" ? "active" : ""}
+            onClick={() => setMappingView("bizim")}
+          >
+            <Store /> Bizim Toptan havuzu
+          </button>
+          <button
+            className={mappingView === "bim" ? "active" : ""}
+            onClick={() => setMappingView("bim")}
+          >
+            <Store /> BİM havuzu
+          </button>
+          <button
             className={mappingView === "diagnostics" ? "active" : ""}
             onClick={() => setMappingView("diagnostics")}
           >

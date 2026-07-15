@@ -180,14 +180,14 @@ class TrendyolService {
           listPrice: variant.price?.listPrice ?? variant.listPrice,
           priceSeenByCustomer:
             variant.price?.priceSeenByCustomer ?? variant.priceSeenByCustomer,
-	          commission: variant.commission ?? product.commission,
-	          quantity: variant.stock?.quantity ?? variant.quantity,
-	          approved: variant.approved ?? product.approved ?? true,
-	          archived: variant.archived ?? product.archived ?? false,
-	          locked: variant.locked ?? product.locked ?? false,
-	          onSale: variant.onSale ?? product.onSale ?? false,
-	          productImageUrl: this.firstImageUrl(product, variant),
-	        });
+          commission: variant.commission ?? product.commission,
+          quantity: variant.stock?.quantity ?? variant.quantity,
+          approved: variant.approved ?? product.approved ?? true,
+          archived: variant.archived ?? product.archived ?? false,
+          locked: variant.locked ?? product.locked ?? false,
+          onSale: variant.onSale ?? product.onSale ?? false,
+          productImageUrl: this.firstImageUrl(product, variant),
+        });
       }
     }
     const currentPage = Number(data.page || 0);

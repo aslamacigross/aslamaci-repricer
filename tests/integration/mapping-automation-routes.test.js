@@ -22,6 +22,26 @@ function appFixture() {
       metadata: { productsScanned: 20 },
     }),
     listFileItems: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
+    listSupplierItems: async (supplierCode) => ({
+      supplierCode,
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+    }),
+    importSupplierItems: async (supplierCode, rows) => ({
+      supplierCode,
+      processed: rows.length,
+      created: rows.length,
+      changed: 0,
+    }),
+    syncLiveSupplierItems: async (supplierCode) => ({
+      supplierCode,
+      processed: 3,
+      created: 3,
+      changed: 0,
+      metadata: { productsScanned: 3 },
+    }),
     generate: async () => ({ created: 3, trainingProductCount: 120 }),
     diagnostics: async () => ({ items: [], summary: {}, processed: 0 }),
     regenerateDiagnosticBarcode: async (barcode) => ({
@@ -66,6 +86,7 @@ function appFixture() {
     mappingAutomationRoutes({
       mappingAutomation,
       fileMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
+      bizimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       audit: { record: async () => {} },
     }),
   );
@@ -88,6 +109,20 @@ test("File fiyat havuzu canlı API üzerinden yenilenir", async () => {
     .expect(200);
   assert.equal(response.body.data.processed, 2);
   assert.equal(response.body.data.metadata.productsScanned, 20);
+});
+
+test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async () => {
+  const fixture = appFixture();
+  const bizim = await request(fixture.app)
+    .post("/api/supplier-price-pools/BIZIM_MARKET/items/sync-live")
+    .send({})
+    .expect(200);
+  assert.equal(bizim.body.data.supplierCode, "BIZIM_MARKET");
+  const bim = await request(fixture.app)
+    .post("/api/supplier-price-pools/BIM/items/bulk")
+    .send({ rows: [{ product_name: "BİM ürünü", current_price: 10 }] })
+    .expect(200);
+  assert.equal(bim.body.data.supplierCode, "BIM");
 });
 
 test("mapping önerisi onayı ile uygulaması ayrı endpointlerdir", async () => {

@@ -78,7 +78,10 @@ test("File Market canlı sync hedef markaları kategori hariçleriyle tekilleşt
   });
   const result = await service.livePriceRows();
 
-  assert.equal(calls.some((url) => url.includes("/A05/")), false);
+  assert.equal(
+    calls.some((url) => url.includes("/A05/")),
+    false,
+  );
   assert.equal(result.rows.length, 2);
   assert.equal(result.stats.categoriesSkipped, 1);
   assert.equal(result.stats.duplicates, 1);

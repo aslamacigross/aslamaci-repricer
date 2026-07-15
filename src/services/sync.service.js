@@ -25,14 +25,14 @@ class SyncService {
         const quantity = Number(product.quantity) || 0;
         const active = Boolean(
           product.approved &&
-            product.onSale &&
-            !product.archived &&
-            !product.locked &&
-            quantity > 0 &&
-            salePrice > 0,
+          product.onSale &&
+          !product.archived &&
+          !product.locked &&
+          quantity > 0 &&
+          salePrice > 0,
         );
-	        await this.db.query(
-	          `INSERT INTO products(
+        await this.db.query(
+          `INSERT INTO products(
 	          marketplace,barcode,product_name,brand,category_name,category_id,product_image_url,my_price,list_price,stock_quantity,
 	          archived,locked,on_sale,approved,commission_rate,trendyol_commission_rate,base_commission_rate,
 	          special_commission_active,special_commission_checked_at,special_commission_note,
@@ -53,14 +53,14 @@ class SyncService {
         special_commission_active=FALSE,
         special_commission_note=NULL,
         is_active=EXCLUDED.is_active,updated_at=NOW()`,
-	          [
-	            barcode,
-	            product.title || "",
-	            product.brand || "",
-	            product.categoryName || "",
-	            String(product.pimCategoryId || product.categoryId || ""),
-	            product.productImageUrl || null,
-	            salePrice,
+          [
+            barcode,
+            product.title || "",
+            product.brand || "",
+            product.categoryName || "",
+            String(product.pimCategoryId || product.categoryId || ""),
+            product.productImageUrl || null,
+            salePrice,
             Number(product.listPrice) || 0,
             quantity,
             Boolean(product.archived),

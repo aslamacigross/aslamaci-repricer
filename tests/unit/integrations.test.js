@@ -73,12 +73,12 @@ test("Trendyol tekil urun fiyati barkod filtresiyle okunur", async () => {
                       priceSeenByCustomer: 312.28,
                     },
                     stock: { quantity: 4 },
-	                    commission: 17,
-	                    onSale: true,
-	                    archived: false,
-	                    locked: false,
-	                    images: [{ url: "/ty1/product/media/menekse.jpg" }],
-	                  },
+                    commission: 17,
+                    onSale: true,
+                    archived: false,
+                    locked: false,
+                    images: [{ url: "/ty1/product/media/menekse.jpg" }],
+                  },
                 ],
               },
             ],
@@ -112,13 +112,13 @@ test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => 
           {
             barcode: "ACTIVE",
             title: "Aktif ürün",
-	            salePrice: 100,
-	            listPrice: 100,
-	            quantity: 2,
-	            commission: 17,
-	            productImageUrl: "https://cdn.test/active.jpg",
-	            archived: false,
-	            locked: false,
+            salePrice: 100,
+            listPrice: 100,
+            quantity: 2,
+            commission: 17,
+            productImageUrl: "https://cdn.test/active.jpg",
+            archived: false,
+            locked: false,
             onSale: true,
             approved: true,
           },
@@ -162,11 +162,11 @@ test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => 
   const upserts = queries.filter((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
-	  assert.equal(upserts[0].params[5], "https://cdn.test/active.jpg");
-	  assert.equal(upserts[0].params[13], 17);
-	  assert.equal(upserts[0].params[14], true);
-	  assert.equal(upserts[1].params[14], false);
-	  assert.equal(upserts[2].params[14], false);
+  assert.equal(upserts[0].params[5], "https://cdn.test/active.jpg");
+  assert.equal(upserts[0].params[13], 17);
+  assert.equal(upserts[0].params[14], true);
+  assert.equal(upserts[1].params[14], false);
+  assert.equal(upserts[2].params[14], false);
   const staleUpdate = queries.find((query) =>
     String(query.sql).includes("NOT (barcode=ANY"),
   );

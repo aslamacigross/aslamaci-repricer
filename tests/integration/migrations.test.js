@@ -36,6 +36,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "011_file_market_mapping_automation",
       "012_mapping_feedback_learning",
       "013_file_market_live_sync",
+      "014_supplier_price_pools",
     ],
   );
   const safety = await db.query(
@@ -62,6 +63,12 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   assert.equal(fileMarketJob.rowCount, 1);
   assert.equal(fileMarketJob.rows[0].enabled, false);
   assert.equal(Number(fileMarketJob.rows[0].schedule_minutes), 1440);
+  const bizimMarketJob = await db.query(
+    "SELECT enabled,schedule_minutes FROM jobs WHERE name='sync-bizim-market-prices'",
+  );
+  assert.equal(bizimMarketJob.rowCount, 1);
+  assert.equal(bizimMarketJob.rows[0].enabled, false);
+  assert.equal(Number(bizimMarketJob.rows[0].schedule_minutes), 1440);
   const mappingLearningTables = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('mapping_feedback_events','mapping_learning_profiles')
@@ -131,8 +138,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "010_product_images",
       "011_file_market_mapping_automation",
       "012_mapping_feedback_learning",
+      "013_file_market_live_sync",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
