@@ -1,4 +1,5 @@
 const { isFilePriceFresh } = require("../domain/file-market");
+const { buildMappingRecipeKey } = require("../domain/mapping-learning");
 
 class MappingAutomationRepository {
   constructor(db, withTransaction) {
@@ -187,6 +188,34 @@ class MappingAutomationRepository {
         unique,
       )
     ).rows;
+  }
+
+  async rejectedFingerprints(barcodes = []) {
+    const unique = [...new Set((barcodes || []).filter(Boolean))];
+    if (!unique.length) return [];
+    return (
+      await this.db.query(
+        `SELECT barcode,fingerprint FROM mapping_suggestions
+         WHERE marketplace='TRENDYOL'
+           AND status='REJECTED'
+           AND barcode=ANY($1::text[])`,
+        [unique],
+      )
+    ).rows.map((row) => `${row.barcode}:${row.fingerprint}`);
+  }
+
+  async rejectedRecipeKeys(barcodes = []) {
+    const unique = [...new Set((barcodes || []).filter(Boolean))];
+    if (!unique.length) return [];
+    return (
+      await this.db.query(
+        `SELECT barcode,items FROM mapping_feedback_events
+         WHERE marketplace='TRENDYOL'
+           AND decision='REJECTED'
+           AND barcode=ANY($1::text[])`,
+        [unique],
+      )
+    ).rows.map((row) => `${row.barcode}:${buildMappingRecipeKey(row.items)}`);
   }
 
   async saveSuggestions(suggestions, evaluatedBarcodes = []) {

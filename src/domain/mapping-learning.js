@@ -28,6 +28,20 @@ function buildMappingLearningKey(suggestion) {
     .digest("hex");
 }
 
+function buildMappingRecipeKey(items = []) {
+  const signature = [...items]
+    .map((item) => ({
+      code: String(item.cost_item_code || "").trim(),
+      quantity: Number(item.quantity || 0),
+    }))
+    .filter((item) => item.code && item.quantity > 0)
+    .sort((left, right) => left.code.localeCompare(right.code));
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(signature))
+    .digest("hex");
+}
+
 function mappingLearningAdjustment(
   baseConfidence,
   profile = {},
@@ -70,6 +84,7 @@ function mappingLearningAdjustment(
 
 module.exports = {
   buildMappingLearningKey,
+  buildMappingRecipeKey,
   mappingLearningAdjustment,
   MAX_LEARNING_ADJUSTMENT,
 };

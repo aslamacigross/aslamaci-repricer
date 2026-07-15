@@ -165,7 +165,6 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   assert.equal(Number(feedbackAfterReject.items[0].rejected_count), 1);
   const repeated = await service.generate({ limit: 20 });
   assert.equal(repeated.created, 0);
-  assert.equal(repeated.skippedRejected, 1);
   const pendingAfterReject = await service.listSuggestions({
     status: "PENDING",
   });

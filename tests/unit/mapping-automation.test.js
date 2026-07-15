@@ -42,6 +42,8 @@ function fixture(overrides = {}) {
     ],
     costItemsForMatching: async () => [],
     learningProfiles: async () => [],
+    rejectedFingerprints: async () => [],
+    rejectedRecipeKeys: async () => [],
     saveSuggestions: async (rows, barcodes = []) => {
       saved.push(...rows);
       evaluated.push(...barcodes);
@@ -121,6 +123,56 @@ test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   const result = await service.generate({ limit: 100 });
   assert.equal(result.eligible, 0);
   assert.equal(saved.length, 0);
+});
+
+test("reddedilen aynı öneriyi atlayıp sıradaki güvenilir adayı üretir", async () => {
+  const badSource = {
+    barcode: "BAD_SOURCE",
+    product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml X 2 Adet",
+    brand: "Actisoft",
+    category_id: "2354",
+    cost_item_code: "YANLIS_YUMUSATICI_1500ML",
+    item_name: "Actisoft Yanlış Yumuşatıcı 1500 ml",
+    quantity: 2,
+    unit_cost: 100,
+    unit_desi: 1.5,
+  };
+  const goodSource = {
+    barcode: "GOOD_SOURCE",
+    product_name: "Menekşe Kokulu Konsantre Yumuşatıcı 1500 ml X 2 Adet",
+    brand: "Actisoft",
+    category_id: "2354",
+    cost_item_code: "DOGRU_YUMUSATICI_1500ML",
+    item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+    quantity: 2,
+    unit_cost: 112,
+    unit_desi: 1.5,
+  };
+  const fileItem = {
+    id: 7,
+    product_name: "Actisoft Menekşe Bahçesi Konsantre 1500 ml",
+    brand: "Actisoft",
+    current_price: 112,
+  };
+  const { service, saved } = fixture({
+    trainingRows: async () => [badSource, goodSource],
+    fileItemsForMatching: async () => [fileItem],
+  });
+  const target = (await service.repository.targetProducts())[0];
+  const examples = service.groupTrainingRows([badSource, goodSource]);
+  const rejectedCandidate = service.buildTrainingCandidates(target, examples, [
+    fileItem,
+  ])[0];
+  const rejectedSuggestion = service.buildSuggestion(target, rejectedCandidate);
+  service.repository.rejectedFingerprints = async () => [
+    `${rejectedSuggestion.barcode}:${rejectedSuggestion.fingerprint}`,
+  ];
+
+  const result = await service.generate({ limit: 100 });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_barcode, "GOOD_SOURCE");
+  assert.equal(saved[0].items[0].cost_item_code, "DOGRU_YUMUSATICI_1500ML");
 });
 
 test("kardeş File varyantının fiyatını uyarılı ve kontrollü önerir", async () => {

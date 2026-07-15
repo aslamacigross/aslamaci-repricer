@@ -15,6 +15,7 @@ const {
 } = require("../domain/file-market");
 const {
   buildMappingLearningKey,
+  buildMappingRecipeKey,
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
@@ -227,15 +228,9 @@ class MappingAutomationService {
     });
   }
 
-  buildFromTraining(target, examples, fileItems) {
-    let best = null;
-    for (const example of examples) {
-      const comparison = compareProducts(target, example);
-      if (!best || comparison.score > best.comparison.score)
-        best = { example, comparison };
-    }
-    if (!best || best.comparison.score < 0.42) return null;
-    const scaled = scaleRecipe(best.example, target, best.example.recipe);
+  buildTrainingCandidate(target, example, comparison, fileItems) {
+    if (comparison.score < 0.42) return null;
+    const scaled = scaleRecipe(example, target, example.recipe);
     const items = this.enrichRecipe(target, scaled, fileItems);
     const supported = items.filter((item) => item.file_market_item_id);
     const fileSupport = supported.length
@@ -244,7 +239,7 @@ class MappingAutomationService {
       : 0;
     const confidence = Math.min(
       1,
-      best.comparison.score * 0.9 + fileSupport * 0.1,
+      comparison.score * 0.9 + fileSupport * 0.1,
     );
     const variantPriceInferred = items.some(
       (item) => item.file_price_mode === "SIBLING_VARIANT",
@@ -254,13 +249,13 @@ class MappingAutomationService {
       source_type: supported.length
         ? "MANUAL_HISTORY_AND_FILE"
         : "MANUAL_HISTORY",
-      source_barcode: best.example.barcode,
+      source_barcode: example.barcode,
       items,
       evidence: {
-        sourceProductName: best.example.product_name,
-        reasons: best.comparison.reasons,
-        sourcePackCount: best.comparison.candidatePackCount,
-        targetPackCount: best.comparison.targetPackCount,
+        sourceProductName: example.product_name,
+        reasons: comparison.reasons,
+        sourcePackCount: comparison.candidatePackCount,
+        targetPackCount: comparison.targetPackCount,
         fileMatches: items
           .filter((item) => item.file_market_item_id)
           .map((item) => ({
@@ -272,6 +267,23 @@ class MappingAutomationService {
         variantPriceInferred,
       },
     };
+  }
+
+  buildTrainingCandidates(target, examples, fileItems) {
+    return examples
+      .map((example) => ({
+        example,
+        comparison: compareProducts(target, example),
+      }))
+      .sort((left, right) => right.comparison.score - left.comparison.score)
+      .map(({ example, comparison }) =>
+        this.buildTrainingCandidate(target, example, comparison, fileItems),
+      )
+      .filter(Boolean);
+  }
+
+  buildFromTraining(target, examples, fileItems) {
+    return this.buildTrainingCandidates(target, examples, fileItems)[0] || null;
   }
 
   buildFromCostItems(target, costItems, fileItems) {
@@ -328,6 +340,34 @@ class MappingAutomationService {
     };
   }
 
+  buildSuggestion(target, candidate) {
+    const baseConfidence = Number(candidate.confidence.toFixed(5));
+    const fileIds = [
+      ...new Set(
+        candidate.items
+          .map((item) => item.file_market_item_id)
+          .filter(Boolean),
+      ),
+    ];
+    if (!fileIds.length) return null;
+    const suggestion = {
+      barcode: target.barcode,
+      base_confidence: baseConfidence,
+      algorithm_version: ALGORITHM_VERSION,
+      source_type: candidate.source_type,
+      source_barcode: candidate.source_barcode,
+      file_market_item_id: fileIds.length === 1 ? fileIds[0] : null,
+      update_file_price: fileIds.length > 0,
+      evidence: candidate.evidence,
+      product_snapshot: target,
+      items: candidate.items,
+    };
+    suggestion.learning_key = buildMappingLearningKey(suggestion);
+    suggestion.recipe_key = buildMappingRecipeKey(suggestion.items);
+    suggestion.fingerprint = hashValue(canonicalSuggestion(suggestion));
+    return suggestion;
+  }
+
   async generate({ limit = 500 } = {}) {
     const [targets, trainingRows, fileItems, costItems] = await Promise.all([
       this.repository.targetProducts(limit),
@@ -339,6 +379,20 @@ class MappingAutomationService {
     const fileBrands = new Set(
       fileItems.map((item) => normalizeText(item.brand)).filter(Boolean),
     );
+    const rejectedFingerprints = new Set(
+      this.repository.rejectedFingerprints
+        ? await this.repository.rejectedFingerprints(
+            targets.map((target) => target.barcode),
+          )
+        : [],
+    );
+    const rejectedRecipes = new Set(
+      this.repository.rejectedRecipeKeys
+        ? await this.repository.rejectedRecipeKeys(
+            targets.map((target) => target.barcode),
+          )
+        : [],
+    );
     const drafts = [];
     let scoped = 0;
     for (const target of targets) {
@@ -349,34 +403,27 @@ class MappingAutomationService {
         [...fileBrands].some((brand) => targetName.includes(brand));
       if (!belongsToFileBrand) continue;
       scoped++;
-      const fromTraining = this.buildFromTraining(target, examples, fileItems);
-      const candidate =
-        fromTraining || this.buildFromCostItems(target, costItems, fileItems);
-      if (!candidate || candidate.confidence < 0.3 || !candidate.items.length)
-        continue;
-      const baseConfidence = Number(candidate.confidence.toFixed(5));
-      const fileIds = [
-        ...new Set(
-          candidate.items
-            .map((item) => item.file_market_item_id)
-            .filter(Boolean),
-        ),
-      ];
-      if (!fileIds.length) continue;
-      const suggestion = {
-        barcode: target.barcode,
-        base_confidence: baseConfidence,
-        algorithm_version: ALGORITHM_VERSION,
-        source_type: candidate.source_type,
-        source_barcode: candidate.source_barcode,
-        file_market_item_id: fileIds.length === 1 ? fileIds[0] : null,
-        update_file_price: fileIds.length > 0,
-        evidence: candidate.evidence,
-        product_snapshot: target,
-        items: candidate.items,
-      };
-      suggestion.learning_key = buildMappingLearningKey(suggestion);
-      drafts.push(suggestion);
+      const candidates = [
+        ...this.buildTrainingCandidates(target, examples, fileItems),
+        this.buildFromCostItems(target, costItems, fileItems),
+      ].filter(
+        (candidate) =>
+          candidate && candidate.confidence >= 0.3 && candidate.items.length,
+      );
+      for (const candidate of candidates) {
+        const suggestion = this.buildSuggestion(target, candidate);
+        if (!suggestion) continue;
+        if (
+          rejectedFingerprints.has(
+            `${suggestion.barcode}:${suggestion.fingerprint}`,
+          )
+        )
+          continue;
+        if (rejectedRecipes.has(`${suggestion.barcode}:${suggestion.recipe_key}`))
+          continue;
+        drafts.push(suggestion);
+        break;
+      }
     }
     const profileRows = await this.repository.learningProfiles(
       drafts.map((suggestion) => suggestion.learning_key),
