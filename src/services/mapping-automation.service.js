@@ -119,6 +119,53 @@ function generatedCostCode(fileItem) {
   return `${raw || "FILE_URUN"}${size}`.replace(/[^A-Z0-9_]/g, "_");
 }
 
+function uniqueCostCode(baseCode, item, index) {
+  const suffix = item.file_market_item_id
+    ? `_F${item.file_market_item_id}`
+    : `_${index + 1}`;
+  const clean = `${baseCode}${suffix}`.replace(/[^A-Z0-9_]/g, "_");
+  return clean.length > 120 ? clean.slice(0, 120) : clean;
+}
+
+function ensureUniqueSuggestionItems(items) {
+  const counts = new Map();
+  for (const item of items)
+    counts.set(item.cost_item_code, (counts.get(item.cost_item_code) || 0) + 1);
+  const seen = new Map();
+  return items.map((item, index) => {
+    if ((counts.get(item.cost_item_code) || 0) <= 1) return item;
+    const previous = seen.get(item.cost_item_code) || 0;
+    seen.set(item.cost_item_code, previous + 1);
+    return {
+      ...item,
+      original_cost_item_code: item.original_cost_item_code || item.cost_item_code,
+      cost_item_code: uniqueCostCode(item.cost_item_code, item, index),
+    };
+  });
+}
+
+function remapEvidenceCostCodes(evidence = {}, items = []) {
+  const byFileId = new Map(
+    items
+      .filter((item) => item.file_market_item_id)
+      .map((item) => [String(item.file_market_item_id), item.cost_item_code]),
+  );
+  const byOriginalCode = new Map(
+    items.map((item) => [
+      item.original_cost_item_code || item.cost_item_code,
+      item.cost_item_code,
+    ]),
+  );
+  const fileMatches = (evidence.fileMatches || []).map((match) => {
+    const nextCode =
+      byFileId.get(String(match.fileMarketItemId || match.file_market_item_id)) ||
+      byOriginalCode.get(match.costItemCode) ||
+      match.costItemCode;
+    return { ...match, costItemCode: nextCode };
+  });
+  return { ...evidence, fileMatches };
+}
+
 function estimateUnitDesi(fileItem) {
   const value = Number(fileItem.size_value || 0);
   if (!Number.isFinite(value) || value <= 0) return 1;
@@ -547,6 +594,7 @@ class MappingAutomationService {
           .filter((item) => item.file_market_item_id)
           .map((item) => ({
             costItemCode: item.cost_item_code,
+            fileMarketItemId: item.file_market_item_id,
             fileProductName: item.file_product_name,
             score: item.file_match_score,
             priceMode: item.file_price_mode,
@@ -625,6 +673,7 @@ class MappingAutomationService {
           ? [
               {
                 costItemCode: items[0].cost_item_code,
+                fileMarketItemId: items[0].file_market_item_id,
                 fileProductName: items[0].file_product_name,
                 score: items[0].file_match_score,
                 priceMode: items[0].file_price_mode,
@@ -671,6 +720,7 @@ class MappingAutomationService {
             fileMatches: [
               {
                 costItemCode: generatedCostCode(fileItem),
+                fileMarketItemId: fileItem.id,
                 fileProductName: fileItem.product_name,
                 score: comparison.score,
                 priceMode: "DIRECT",
@@ -747,6 +797,7 @@ class MappingAutomationService {
         })),
         fileMatches: items.map((item) => ({
           costItemCode: item.cost_item_code,
+          fileMarketItemId: item.file_market_item_id,
           fileProductName: item.file_product_name,
           score: item.file_match_score,
           priceMode: "DIRECT",
@@ -855,6 +906,7 @@ class MappingAutomationService {
         })),
         fileMatches: items.map((item) => ({
           costItemCode: item.cost_item_code,
+          fileMarketItemId: item.file_market_item_id,
           fileProductName: item.file_product_name,
           score: item.file_match_score,
           priceMode: "DIRECT",
@@ -885,9 +937,10 @@ class MappingAutomationService {
 
   buildSuggestion(target, candidate) {
     const baseConfidence = Number(candidate.confidence.toFixed(5));
+    const items = ensureUniqueSuggestionItems(candidate.items);
     const fileIds = [
       ...new Set(
-        candidate.items.map((item) => item.file_market_item_id).filter(Boolean),
+        items.map((item) => item.file_market_item_id).filter(Boolean),
       ),
     ];
     if (!fileIds.length) return null;
@@ -899,9 +952,9 @@ class MappingAutomationService {
       source_barcode: candidate.source_barcode,
       file_market_item_id: fileIds.length === 1 ? fileIds[0] : null,
       update_file_price: fileIds.length > 0,
-      evidence: candidate.evidence,
+      evidence: remapEvidenceCostCodes(candidate.evidence, items),
       product_snapshot: target,
-      items: candidate.items,
+      items,
     };
     suggestion.learning_key = buildMappingLearningKey(suggestion);
     suggestion.recipe_key = buildMappingRecipeKey(suggestion.items);

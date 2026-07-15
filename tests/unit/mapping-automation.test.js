@@ -402,6 +402,57 @@ test("kahve varyant setinde dört File ürünü ayrı maliyet kalemi olur", asyn
   assert.equal(saved[0].evidence.multiVariantProduct, true);
 });
 
+test("aynı temizlenmiş cost code üreten çoklu File kalemleri benzersizleştirilir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "DUPLICATE_CODES",
+        product_name:
+          "Harras Guatemala Filtre Kahve 250 g ve Harras Guatemala Filtre Kahve 250 g Set",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 61,
+        product_name: "Harras Guatemala Filtre Kahve 250g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 62,
+        product_name: "Harras Guatemala Filtre Kahve 250g",
+        brand: "Harras",
+        current_price: 229,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].items.length, 2);
+  assert.equal(
+    new Set(saved[0].items.map((item) => item.cost_item_code)).size,
+    2,
+  );
+  assert.deepEqual(
+    saved[0].items
+      .map((item) => item.cost_item_code.match(/_F\d+$/)?.[0])
+      .sort(),
+    ["_F61", "_F62"],
+  );
+  assert.deepEqual(
+    saved[0].evidence.fileMatches.map((match) => match.costItemCode).sort(),
+    saved[0].items.map((item) => item.cost_item_code).sort(),
+  );
+});
+
 test("eski File direkt önerisinde eksik desiyi ürün adından tamamlar", () => {
   const { service } = fixture();
   const [row] = service.normalizeDecisionItems(
