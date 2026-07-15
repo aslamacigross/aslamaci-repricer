@@ -190,6 +190,35 @@ test("eski File direkt önerisinde eksik desiyi ürün adından tamamlar", () =>
   assert.equal(row.unit_desi, 0.35);
 });
 
+test("File destekli ölçüsüz öneride varsayılan desiyle cost item oluşturulabilir", () => {
+  const { service } = fixture();
+  const [row] = service.normalizeDecisionItems(
+    {
+      barcode: "8695026587958",
+      items: [
+        {
+          cost_item_code: "DAYCARE_DAYCARE_VUCUT_AGDA_BANDI_LI",
+          quantity: 5,
+          file_market_item_id: 262,
+          file_product_name: "Daycare Vücut Ağda Bandı 20'li",
+          file_current_price: 89,
+          unit_desi: null,
+        },
+      ],
+    },
+    [
+      {
+        cost_item_code: "DAYCARE_DAYCARE_VUCUT_AGDA_BANDI_LI",
+        quantity: 5,
+      },
+    ],
+  );
+
+  assert.equal(row.file_market_item_id, 262);
+  assert.equal(row.suggested_unit_cost, 89);
+  assert.equal(row.unit_desi, 1);
+});
+
 test("reddedilen aynı öneriyi atlayıp sıradaki güvenilir adayı üretir", async () => {
   const badSource = {
     barcode: "BAD_SOURCE",

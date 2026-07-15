@@ -588,6 +588,8 @@ class MappingAutomationService {
             size_value: inferredSize.value,
             size_unit: inferredSize.unit,
           })
+        : item.file_market_item_id || original.file_market_item_id
+          ? estimateUnitDesi({})
         : null;
       return {
         marketplace: "TRENDYOL",
