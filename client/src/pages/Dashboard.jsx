@@ -31,10 +31,11 @@ import {
   Badge,
   toneFor,
   Button,
+  Drawer,
   IconButton,
   useRemote,
 } from "../components/ui";
-import { money, percent, date } from "../components/DataTable";
+import DataTable, { money, percent, date } from "../components/DataTable";
 const cards = [
   ["total_products", "Toplam ürün", Boxes, "neutral"],
   ["active_products", "Aktif ürün", PackageCheck, "success"],
@@ -58,7 +59,8 @@ export default function Dashboard({ notify }) {
     () => get("/api/dashboard"),
     [],
   );
-  const [liveRefreshing, setLiveRefreshing] = useState(false);
+  const [liveRefreshing, setLiveRefreshing] = useState(false),
+    [metricDetail, setMetricDetail] = useState(null);
   async function refreshLiveData() {
     setLiveRefreshing(true);
     try {
@@ -77,6 +79,16 @@ export default function Dashboard({ notify }) {
       notify?.(nextError.message, "error");
     } finally {
       setLiveRefreshing(false);
+    }
+  }
+  async function openMetric([key, label]) {
+    setMetricDetail({ key, label, loading: true, items: [] });
+    try {
+      const response = await get(`/api/dashboard/metrics/${key}?limit=100`);
+      setMetricDetail({ key, label, loading: false, ...response.data });
+    } catch (nextError) {
+      setMetricDetail(null);
+      notify?.(nextError.message, "error");
     }
   }
   if (loading) return <Loading />;
@@ -107,20 +119,28 @@ export default function Dashboard({ notify }) {
         }
       />
       <section className="kpi-grid">
-        {cards.map(([key, label, Icon, tone]) => (
-          <article className={`kpi kpi-${tone}`} key={key}>
-            <div>
-              <span>{label}</span>
-              <strong>{k[key] ?? 0}</strong>
-              {key === "total_products" && (
-                <small>
-                  {k.stocked_products || 0} stoklu (platform verisi)
-                </small>
-              )}
-            </div>
-            <Icon />
-          </article>
-        ))}
+        {cards.map((card) => {
+          const [key, label, Icon, tone] = card;
+          return (
+            <button
+              type="button"
+              className={`kpi kpi-${tone} kpi-clickable`}
+              key={key}
+              onClick={() => openMetric(card)}
+            >
+              <div>
+                <span>{label}</span>
+                <strong>{k[key] ?? 0}</strong>
+                {key === "total_products" && (
+                  <small>
+                    {k.stocked_products || 0} stoklu (platform verisi)
+                  </small>
+                )}
+              </div>
+              <Icon />
+            </button>
+          );
+        })}
       </section>
       <section className="dashboard-grid">
         <div className="panel chart-panel">
@@ -317,6 +337,98 @@ export default function Dashboard({ notify }) {
           <small>{date(buyboxSync?.last_started_at)}</small>
         </div>
       </section>
+      <MetricDrawer
+        detail={metricDetail}
+        onClose={() => setMetricDetail(null)}
+      />
     </>
+  );
+}
+
+function MetricDrawer({ detail, onClose }) {
+  const open = Boolean(detail);
+  const productColumns = [
+    { key: "barcode", label: "Barkod" },
+    { key: "product_name", label: "Ürün" },
+    { key: "brand", label: "Marka" },
+    { key: "category_name", label: "Kategori" },
+    {
+      key: "is_active",
+      label: "Aktif",
+      render: (row) => (row.is_active ? "Evet" : "Hayır"),
+      badge: true,
+    },
+    { key: "stock_quantity", label: "Stok" },
+    { key: "my_price", label: "Fiyat", render: (row) => money(row.my_price) },
+    { key: "min_price", label: "Min", render: (row) => money(row.min_price) },
+    { key: "rank", label: "Sıra" },
+    {
+      key: "calculated_net_profit",
+      label: "Net kâr",
+      render: (row) => money(row.calculated_net_profit),
+    },
+    {
+      key: "calculated_net_margin",
+      label: "Marj",
+      render: (row) => percent(row.calculated_net_margin),
+    },
+    { key: "data_status", label: "Veri", badge: true },
+    {
+      key: "auto_update",
+      label: "Oto",
+      render: (row) => (row.auto_update ? "Açık" : "Kapalı"),
+      badge: true,
+    },
+    {
+      key: "buybox_updated_at",
+      label: "Buybox kontrol",
+      render: (row) => date(row.buybox_updated_at),
+    },
+  ];
+  const actionColumns = [
+    {
+      key: "created_at",
+      label: "Tarih",
+      render: (row) => date(row.created_at),
+    },
+    { key: "barcode", label: "Barkod" },
+    { key: "product_name", label: "Ürün" },
+    { key: "action", label: "Aksiyon", badge: true },
+    { key: "status", label: "Durum", badge: true },
+    { key: "old_price", label: "Eski", render: (row) => money(row.old_price) },
+    {
+      key: "proposed_price",
+      label: "Yeni",
+      render: (row) => money(row.proposed_price),
+    },
+    { key: "min_price", label: "Min", render: (row) => money(row.min_price) },
+    { key: "source", label: "Kaynak", badge: true },
+    { key: "reason", label: "Sebep" },
+  ];
+  const columns = detail?.type === "actions" ? actionColumns : productColumns;
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title={`${detail?.label || "Metrik"} detayı`}
+      wide
+    >
+      {detail?.loading ? (
+        <Loading label="Detay verisi yükleniyor" />
+      ) : (
+        <>
+          <p className="muted-note">
+            İlk {detail?.limit || 100} kayıt gösteriliyor. Tam liste için ilgili
+            ürün veya aksiyon ekranındaki filtreleri kullanabilirsiniz.
+          </p>
+          <DataTable
+            columns={columns}
+            rows={detail?.items || []}
+            columnVisibilityKey={`dashboard-metric-${detail?.key}`}
+            exportFileName={`dashboard-${detail?.key}`}
+          />
+        </>
+      )}
+    </Drawer>
   );
 }

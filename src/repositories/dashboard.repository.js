@@ -123,6 +123,64 @@ class DashboardRepository {
     );
     return { processed: 1, successful: 1, failed: 0 };
   }
+
+  async metricDetails(metric, { limit = 100 } = {}) {
+    const cappedLimit = Math.min(Math.max(Number(limit) || 100, 1), 200);
+    const productMetrics = {
+      total_products: "TRUE",
+      active_products: "p.is_active=TRUE",
+      complete_products: "p.data_complete=TRUE",
+      missing_mapping: "p.needs_cost_mapping=TRUE",
+      missing_commission: "(p.commission_rate IS NULL OR p.commission_rate<=0)",
+      missing_shipping: "p.calculated_shipping_cost<=0",
+      loss_products: "p.calculated_net_profit<0",
+      below_minimum: "p.min_price>0 AND p.my_price<p.min_price",
+      buybox_owned: "p.rank=1",
+      buybox_available:
+        "p.rank IS DISTINCT FROM 1 AND p.data_complete=TRUE AND p.buybox_price>0 AND p.min_price<=p.buybox_price",
+      buybox_outside: "p.rank IS DISTINCT FROM 1",
+      stale_buybox:
+        "p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes'",
+      auto_update_enabled: "p.auto_update=TRUE",
+    };
+    const actionMetrics = {
+      actions_24h: "ra.created_at>NOW()-INTERVAL '24 hours'",
+      successful_actions_24h:
+        "ra.created_at>NOW()-INTERVAL '24 hours' AND ra.status IN('SUCCESS','SENT','AWAITING_RESULT','DRY_RUN')",
+      failed_actions_24h:
+        "ra.created_at>NOW()-INTERVAL '24 hours' AND ra.status='FAILED'",
+    };
+    if (productMetrics[metric]) {
+      const data = await this.db.query(
+        `SELECT p.barcode,p.product_name,p.brand,p.category_name,p.is_active,
+          p.stock_quantity,p.my_price,p.buybox_price,p.rank,p.min_price,
+          p.calculated_net_profit,p.calculated_net_margin,p.data_status,
+          p.auto_update,p.buybox_updated_at
+         FROM products p
+         WHERE p.marketplace='TRENDYOL' AND ${productMetrics[metric]}
+         ORDER BY
+          CASE WHEN p.is_active THEN 0 ELSE 1 END,
+          p.product_name NULLS LAST
+         LIMIT $1`,
+        [cappedLimit],
+      );
+      return { type: "products", limit: cappedLimit, items: data.rows };
+    }
+    if (actionMetrics[metric]) {
+      const data = await this.db.query(
+        `SELECT ra.id,ra.created_at,ra.barcode,ra.product_name,ra.action,
+          ra.status,ra.old_price,ra.proposed_price,ra.min_price,ra.reason,
+          ra.source,ra.strategy
+         FROM repricer_actions ra
+         WHERE ${actionMetrics[metric]}
+         ORDER BY ra.created_at DESC
+         LIMIT $1`,
+        [cappedLimit],
+      );
+      return { type: "actions", limit: cappedLimit, items: data.rows };
+    }
+    return null;
+  }
 }
 
 module.exports = { DashboardRepository };

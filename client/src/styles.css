@@ -342,6 +342,21 @@ button:disabled {
   justify-content: space-between;
   box-shadow: var(--shadow);
 }
+.kpi-clickable {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.kpi-clickable:hover {
+  border-color: #9fc7b6;
+  box-shadow: 0 10px 26px rgba(20, 64, 48, 0.1);
+}
+.kpi-clickable:focus-visible {
+  outline: 3px solid #d8efe5;
+  outline-offset: 2px;
+}
 .kpi div {
   display: flex;
   flex-direction: column;

@@ -1,5 +1,5 @@
 const express = require("express");
-const { asyncRoute } = require("../utils/errors");
+const { asyncRoute, AppError } = require("../utils/errors");
 
 const LIVE_REFRESH_JOBS = [
   "sync-products",
@@ -51,6 +51,17 @@ function dashboardRoutes({ dashboard, jobService, audit }) {
         requestId: req.id,
       });
       res.json({ status: "ok", data: { dashboard: data, runs } });
+    }),
+  );
+  r.get(
+    "/metrics/:metric",
+    asyncRoute(async (req, res) => {
+      const data = await dashboard.metricDetails(req.params.metric, {
+        limit: req.query.limit,
+      });
+      if (!data)
+        throw new AppError("Dashboard metriği bulunamadı", 404, "NOT_FOUND");
+      res.json({ status: "ok", data });
     }),
   );
   return r;

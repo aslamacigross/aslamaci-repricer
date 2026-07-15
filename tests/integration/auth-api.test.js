@@ -45,6 +45,11 @@ function container(options = {}) {
         kpis: { total_products: 1 },
         jobs: runJobs.map((job_name) => ({ job_name, last_status: "SUCCESS" })),
       }),
+      metricDetails: async (metric) => ({
+        type: metric.includes("actions") ? "actions" : "products",
+        limit: 100,
+        items: [product],
+      }),
     },
     products: {
       list: async () => ({ items: [product], total: 1, page: 1, limit: 50 }),
@@ -120,12 +125,16 @@ test("readiness eksik migrationda trafige hazir olmadigini bildirir", async () =
     .expect(503)
     .expect((res) => assert.equal(res.body.status, "not_ready"));
 });
-test("panel root istegi uygulama kabugunu dondurur", { timeout: 1000 }, async () => {
-  await request(createApp(container()))
-    .get("/")
-    .expect(200)
-    .expect((res) => assert.match(res.headers["cache-control"], /no-store/));
-});
+test(
+  "panel root istegi uygulama kabugunu dondurur",
+  { timeout: 1000 },
+  async () => {
+    await request(createApp(container()))
+      .get("/")
+      .expect(200)
+      .expect((res) => assert.match(res.headers["cache-control"], /no-store/));
+  },
+);
 test("mutasyon CSRF olmadan engellenir", async () => {
   const app = createApp(container());
   const login = await request(app)
@@ -180,6 +189,20 @@ test("dashboard canlı yenileme güvenli veri joblarını sırayla çalıştır�
         ],
       );
       assert.equal(res.body.data.dashboard.kpis.total_products, 1);
+    });
+});
+test("dashboard metrik detayi drawer icin kayit dondurur", async () => {
+  const app = createApp(container());
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "password-12345" });
+  await request(app)
+    .get("/api/dashboard/metrics/missing_mapping")
+    .set({ Cookie: login.headers["set-cookie"] })
+    .expect(200)
+    .expect((res) => {
+      assert.equal(res.body.data.type, "products");
+      assert.equal(res.body.data.items[0].barcode, "8690609598109");
     });
 });
 test("bekleyen fiyat aksiyonu panelden duzenlenip onaylanabilir", async () => {
