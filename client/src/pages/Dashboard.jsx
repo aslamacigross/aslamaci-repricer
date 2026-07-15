@@ -41,6 +41,7 @@ const cards = [
   ["active_products", "Aktif ürün", PackageCheck, "success"],
   ["complete_products", "Verisi tam", ShieldCheck, "success"],
   ["missing_mapping", "Mapping eksik", GitBranch, "warning"],
+  ["cost_data_issue", "Maliyet sorunu", TriangleAlert, "warning"],
   ["missing_commission", "Komisyon eksik", Percent, "warning"],
   ["missing_shipping", "Kargo eksik", Package, "warning"],
   ["loss_products", "Zarardaki ürün", TrendingDown, "danger"],
