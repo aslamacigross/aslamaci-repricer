@@ -105,7 +105,239 @@ export default function MappingSuggestions({ view, notify }) {
   if (view === "file") return <FileMarketPool notify={notify} />;
   if (view === "learning") return <MappingLearningHistory />;
   if (view === "diagnostics") return <MappingDiagnostics notify={notify} />;
+  if (view === "manual-costs") return <ManualCostQueue notify={notify} />;
   return <SuggestionQueue notify={notify} />;
+}
+
+function ManualCostQueue({ notify }) {
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: "50" });
+      if (search) params.set("search", search);
+      const response = await get(`/api/manual-cost-queue?${params}`);
+      setResult(response.data);
+    } catch (nextError) {
+      setError(nextError);
+      notify?.(nextError.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const id = setTimeout(load, 250);
+    return () => clearTimeout(id);
+  }, [search, page]);
+  useEffect(() => setPage(1), [search]);
+
+  const columns = [
+    { key: "barcode", label: "Barkod" },
+    { key: "product_name", label: "Trendyol ürünü", width: 320 },
+    { key: "brand", label: "Marka" },
+    { key: "category_name", label: "Kategori" },
+    { key: "data_status", label: "Veri durumu", badge: true },
+    { key: "mapping_count", label: "Mapping" },
+    { key: "reason", label: "Ret notu", width: 360 },
+    {
+      key: "created_at",
+      label: "Not tarihi",
+      render: (row) => date(row.created_at),
+    },
+    {
+      key: "ops",
+      label: "İşlem",
+      sortable: false,
+      exportable: false,
+      render: (row) => (
+        <IconButton
+          icon={Check}
+          label="Manuel maliyet gir"
+          onClick={() => setEditing(row)}
+        />
+      ),
+    },
+  ];
+
+  if (loading && !result) return <Loading />;
+  if (error) return <ErrorState error={error} retry={load} />;
+
+  return (
+    <>
+      <div className="mapping-toolbar">
+        <div className="filters">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Barkod, ürün veya ret notu ara"
+          />
+        </div>
+        <div className="mapping-toolbar-actions">
+          <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
+        </div>
+      </div>
+      <div className="info-banner">
+        <DatabaseZap />
+        <div>
+          <strong>Manuel maliyet bekleyenler</strong>
+          <p>
+            Ret notunda uygulamada bulunmadığı veya manuel giriş yapılacağı
+            belirtilen ürünler burada toplanır. Tek form maliyet kalemini ve
+            mappingi birlikte oluşturur.
+          </p>
+        </div>
+      </div>
+      <DataTable
+        columns={columns}
+        rows={result?.items || []}
+        columnVisibilityKey="manual-cost-queue"
+        exportFileName="manuel-maliyet-bekleyenler"
+        onRowClick={setEditing}
+      />
+      <Pagination
+        page={result?.page || page}
+        total={result?.total || 0}
+        limit={result?.limit || 50}
+        onChange={setPage}
+      />
+      <ManualCostDrawer
+        item={editing}
+        onClose={() => setEditing(null)}
+        onSaved={async () => {
+          setEditing(null);
+          await load();
+        }}
+        notify={notify}
+      />
+    </>
+  );
+}
+
+function ManualCostDrawer({ item, onClose, onSaved, notify }) {
+  const [form, setForm] = useState({
+    item_name: "",
+    unit_cost: "",
+    unit_desi: "",
+    quantity: 1,
+    item_code: "",
+    note: "Manuel maliyet girişi",
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!item) return;
+    setForm({
+      item_name: item.product_name || "",
+      unit_cost: "",
+      unit_desi: "",
+      quantity: 1,
+      item_code: "",
+      note: item.reason || "Manuel maliyet girişi",
+    });
+  }, [item]);
+
+  function set(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await post(`/api/manual-cost-queue/${item.barcode}/apply`, {
+        ...form,
+        unit_cost: Number(form.unit_cost),
+        unit_desi: Number(form.unit_desi),
+        quantity: Number(form.quantity),
+      });
+      notify?.("Manuel maliyet ve mapping oluşturuldu");
+      await onSaved();
+    } catch (nextError) {
+      notify?.(nextError.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Drawer
+      open={Boolean(item)}
+      onClose={onClose}
+      title={item ? `${item.barcode} manuel maliyet` : "Manuel maliyet"}
+      wide
+    >
+      {item && (
+        <div className="form-grid">
+          <div className="detail-hero">
+            <ProductImage product={item} />
+            <div>
+              <strong>{item.product_name}</strong>
+              <small>{item.reason}</small>
+            </div>
+          </div>
+          <Field label="Maliyet kalemi adı">
+            <input
+              value={form.item_name}
+              onChange={(event) => set("item_name", event.target.value)}
+            />
+          </Field>
+          <Field label="Birim maliyet">
+            <input
+              type="number"
+              step="0.01"
+              value={form.unit_cost}
+              onChange={(event) => set("unit_cost", event.target.value)}
+            />
+          </Field>
+          <Field label="Birim desi">
+            <input
+              type="number"
+              step="0.0001"
+              value={form.unit_desi}
+              onChange={(event) => set("unit_desi", event.target.value)}
+            />
+          </Field>
+          <Field label="Mapping adedi">
+            <input
+              type="number"
+              step="0.0001"
+              value={form.quantity}
+              onChange={(event) => set("quantity", event.target.value)}
+            />
+          </Field>
+          <Field label="Cost code (boş kalırsa otomatik)">
+            <input
+              value={form.item_code}
+              onChange={(event) => set("item_code", event.target.value)}
+              placeholder="Otomatik üret"
+            />
+          </Field>
+          <Field label="Not">
+            <textarea
+              rows={3}
+              value={form.note}
+              onChange={(event) => set("note", event.target.value)}
+            />
+          </Field>
+          <div className="drawer-actions">
+            <Button variant="secondary" onClick={onClose}>
+              Vazgeç
+            </Button>
+            <Button icon={Check} disabled={saving} onClick={save}>
+              {saving ? "Kaydediliyor" : "Maliyeti oluştur"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Drawer>
+  );
 }
 
 function diagnosisTone(code) {

@@ -893,6 +893,112 @@ class MappingAutomationService {
     return this.repository.listLearningFeedback(filters);
   }
 
+  async manualCostQueue(filters) {
+    return this.repository.manualCostQueue(filters);
+  }
+
+  normalizeManualCostInput(barcode, input = {}) {
+    const itemName = String(input.item_name || input.product_name || "").trim();
+    const unitCost = Number(input.unit_cost);
+    const unitDesi = Number(input.unit_desi);
+    const quantity = Number(input.quantity || 1);
+    const itemCode = String(
+      input.item_code ||
+        generatedCostCode({ brand: "", product_name: itemName }),
+    )
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]/g, "_");
+    if (!String(barcode || "").trim())
+      throw new AppError("Barkod zorunlu", 400, "BARCODE_REQUIRED");
+    if (!itemName)
+      throw new AppError(
+        "Maliyet kalemi adı zorunlu",
+        400,
+        "ITEM_NAME_REQUIRED",
+      );
+    if (!Number.isFinite(unitCost) || unitCost <= 0)
+      throw new AppError("Birim maliyet pozitif olmalı", 400, "INVALID_COST");
+    if (!Number.isFinite(unitDesi) || unitDesi <= 0)
+      throw new AppError("Birim desi pozitif olmalı", 400, "INVALID_DESI");
+    if (!Number.isFinite(quantity) || quantity <= 0)
+      throw new AppError("Adet pozitif olmalı", 400, "INVALID_QUANTITY");
+    return {
+      marketplace: "TRENDYOL",
+      barcode: String(barcode).trim(),
+      item_code: itemCode,
+      item_name: itemName,
+      unit_cost: Number(unitCost.toFixed(2)),
+      unit_desi: Number(unitDesi.toFixed(4)),
+      unit: input.unit || "adet",
+      quantity,
+      note: input.note || "Manuel maliyet girişi",
+    };
+  }
+
+  async applyManualCost(barcode, actor, input = {}) {
+    const row = this.normalizeManualCostInput(barcode, input);
+    const result = await this.costs.withTransaction(async (client) => {
+      const product = (
+        await client.query(
+          "SELECT barcode FROM products WHERE marketplace='TRENDYOL' AND barcode=$1 FOR UPDATE",
+          [row.barcode],
+        )
+      ).rows[0];
+      if (!product)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const costItem = (
+        await client.query(
+          `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,unit,note)
+           VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT(item_code)DO UPDATE SET
+             item_name=EXCLUDED.item_name,
+             unit_cost=EXCLUDED.unit_cost,
+             unit_desi=EXCLUDED.unit_desi,
+             unit=EXCLUDED.unit,
+             note=EXCLUDED.note,
+             updated_at=NOW()
+           RETURNING *`,
+          [
+            row.item_code,
+            row.item_name,
+            row.unit_cost,
+            row.unit_desi,
+            row.unit,
+            row.note,
+          ],
+        )
+      ).rows[0];
+      const mapping = (
+        await client.query(
+          `INSERT INTO product_cost_mappings(marketplace,barcode,cost_item_code,quantity,updated_at)
+           VALUES('TRENDYOL',$1,$2,$3,NOW())
+           ON CONFLICT(marketplace,barcode,cost_item_code)
+           DO UPDATE SET quantity=EXCLUDED.quantity,updated_at=NOW()
+           RETURNING *`,
+          [row.barcode, row.item_code, row.quantity],
+        )
+      ).rows[0];
+      await client.query(
+        `INSERT INTO audit_logs(actor,action,entity_type,entity_id,after_data)
+         VALUES($1,'MANUAL_COST_APPLIED','product',$2,$3::jsonb)`,
+        [
+          actor || "system",
+          row.barcode,
+          JSON.stringify({
+            costItem: row.item_code,
+            unitCost: row.unit_cost,
+            unitDesi: row.unit_desi,
+            quantity: row.quantity,
+          }),
+        ],
+      );
+      return { costItem, mapping };
+    });
+    await this.costEngine.recalculate(row.barcode);
+    return { barcode: row.barcode, ...result };
+  }
+
   async getSuggestion(id) {
     const suggestion = (await this.repository.getSuggestionsByIds([id]))[0];
     if (!suggestion)

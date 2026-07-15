@@ -14,6 +14,7 @@ import {
   Sparkles,
   Store,
   SearchCheck,
+  PencilLine,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
 import DataTable, { money, percent, date } from "../components/DataTable";
@@ -143,6 +144,12 @@ export default function Costs({ mode, notify }) {
             onClick={() => setMappingView("diagnostics")}
           >
             <SearchCheck /> Teşhis
+          </button>
+          <button
+            className={mappingView === "manual-costs" ? "active" : ""}
+            onClick={() => setMappingView("manual-costs")}
+          >
+            <PencilLine /> Manuel bekleyenler
           </button>
           <button
             className={mappingView === "learning" ? "active" : ""}

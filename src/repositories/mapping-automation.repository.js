@@ -254,6 +254,57 @@ class MappingAutomationRepository {
     ).rows;
   }
 
+  async manualCostQueue({ search, page = 1, limit = 50 } = {}) {
+    const params = [];
+    const where = [
+      "mfe.decision='REJECTED'",
+      "mfe.reason IS NOT NULL",
+      "(LOWER(mfe.reason) LIKE '%manuel%' OR LOWER(mfe.reason) LIKE '%uygulamada bulunmuyor%' OR LOWER(mfe.reason) LIKE '%uygulamada yok%')",
+      "p.marketplace='TRENDYOL'",
+      "(p.data_status='MAPPING_MISSING' OR p.needs_cost_mapping=TRUE)",
+    ];
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(mfe.barcode ILIKE $${params.length} OR p.product_name ILIKE $${params.length} OR mfe.reason ILIKE $${params.length})`,
+      );
+    }
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safePage = Math.max(Number(page) || 1, 1);
+    const base = `FROM (
+        SELECT DISTINCT ON(barcode) *
+        FROM mapping_feedback_events
+        WHERE marketplace='TRENDYOL'
+        ORDER BY barcode,created_at DESC
+      ) mfe
+      JOIN products p ON p.marketplace=mfe.marketplace AND p.barcode=mfe.barcode
+      LEFT JOIN (
+        SELECT marketplace,barcode,COUNT(*)::int AS mapping_count
+        FROM product_cost_mappings GROUP BY marketplace,barcode
+      ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
+      WHERE ${where.join(" AND ")}`;
+    const count = await this.db.query(`SELECT COUNT(*)::int AS total ${base}`, [
+      ...params,
+    ]);
+    params.push(safeLimit, (safePage - 1) * safeLimit);
+    const items = await this.db.query(
+      `SELECT mfe.id AS feedback_id,mfe.barcode,mfe.reason,mfe.created_at,
+              p.product_name,p.product_image_url,p.brand,p.category_name,p.data_status,
+              p.needs_cost_mapping,p.calculated_product_cost,p.desi,
+              COALESCE(mt.mapping_count,0)::int AS mapping_count
+       ${base}
+       ORDER BY mfe.created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return {
+      items: items.rows,
+      total: count.rows[0].total,
+      page: safePage,
+      limit: safeLimit,
+    };
+  }
+
   async saveSuggestions(suggestions, evaluatedBarcodes = []) {
     const evaluated = [
       ...new Set([

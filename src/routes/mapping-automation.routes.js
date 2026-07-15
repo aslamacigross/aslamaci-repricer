@@ -72,6 +72,27 @@ function mappingAutomationRoutes({ mappingAutomation, audit }) {
       }),
     ),
   );
+  router.get(
+    "/manual-cost-queue",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.manualCostQueue(req.query),
+      }),
+    ),
+  );
+  router.post(
+    "/manual-cost-queue/:barcode/apply",
+    asyncRoute(async (req, res) => {
+      const data = await mappingAutomation.applyManualCost(
+        req.params.barcode,
+        req.user.username,
+        req.body,
+      );
+      await log(req, "MANUAL_COST_APPLIED", req.params.barcode, data);
+      res.json({ status: "ok", data });
+    }),
+  );
   router.post(
     "/mapping-suggestions/bulk-preview",
     asyncRoute(async (req, res) =>

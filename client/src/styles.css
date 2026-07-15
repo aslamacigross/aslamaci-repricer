@@ -1220,6 +1220,27 @@ tbody tr.clickable:hover {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+.detail-hero,
+.drawer-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.detail-hero {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f8fbf9;
+}
+.detail-hero small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.drawer-actions {
+  justify-content: flex-end;
+}
 .mapping-preview {
   margin-top: 14px;
   border: 1px solid var(--line);
