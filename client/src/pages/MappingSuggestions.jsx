@@ -61,6 +61,16 @@ function statusTone(status) {
   return "danger";
 }
 
+function formatMappingError(error) {
+  const details = Array.isArray(error.details) ? error.details : [];
+  if (!details.length) return error.message;
+  const readable = details
+    .slice(0, 4)
+    .map((detail) => `${detail.code}${detail.value ? `: ${detail.value}` : ""}`)
+    .join(", ");
+  return `${error.message} (${readable})`;
+}
+
 function ProductImage({ product }) {
   return (
     <span className="mapping-product-image">
@@ -584,6 +594,7 @@ function SuggestionDrawer({
         suggested_unit_cost: Number(
           item.file_current_price || item.suggested_unit_cost || 0,
         ),
+        unit_desi: Number(item.unit_desi || 0),
       })),
     });
     setRejectionReason("");
@@ -606,7 +617,7 @@ function SuggestionDrawer({
       await post(`/api/mapping-suggestions/${suggestion.id}/approve`, form);
       await onApproved();
     } catch (error) {
-      notify(error.message, "error");
+      notify(formatMappingError(error), "error");
     } finally {
       setBusy(false);
     }
