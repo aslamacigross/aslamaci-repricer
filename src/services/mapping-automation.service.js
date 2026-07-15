@@ -576,20 +576,42 @@ class MappingAutomationService {
     const inputItems = items?.length ? items : suggestion.items;
     const rows = inputItems.map((item, index) => {
       const original = suggestion.items[index] || {};
+      const fileProductName =
+        item.file_product_name ||
+        original.file_product_name ||
+        original.item_name ||
+        item.item_name ||
+        "";
+      const inferredSize = extractSizes(fileProductName)[0];
+      const inferredDesi = inferredSize
+        ? estimateUnitDesi({
+            size_value: inferredSize.value,
+            size_unit: inferredSize.unit,
+          })
+        : null;
       return {
         marketplace: "TRENDYOL",
         barcode: suggestion.barcode,
         cost_item_code: String(item.cost_item_code || "").trim(),
-        item_name: item.item_name || original.item_name || original.file_product_name,
+        item_name:
+          item.item_name || original.item_name || original.file_product_name,
         quantity: Number(item.quantity),
-        file_market_item_id: item.file_market_item_id || null,
+        file_market_item_id:
+          item.file_market_item_id || original.file_market_item_id || null,
         current_unit_cost:
           Number(item.current_unit_cost || original.current_unit_cost || 0) ||
           null,
         suggested_unit_cost:
-          Number(item.suggested_unit_cost || original.suggested_unit_cost || 0) ||
+          Number(
+            item.suggested_unit_cost ||
+              original.suggested_unit_cost ||
+              original.file_current_price ||
+              0,
+          ) ||
           null,
-        unit_desi: Number(item.unit_desi || original.unit_desi || 0) || null,
+        unit_desi:
+          Number(item.unit_desi || original.unit_desi || inferredDesi || 0) ||
+          null,
       };
     });
     if (

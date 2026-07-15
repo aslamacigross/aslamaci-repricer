@@ -161,6 +161,35 @@ test("geçmiş mapping yoksa güçlü File ürün eşleşmesinden yeni maliyet k
   assert.match(saved[0].items[0].cost_item_code, /HARRAS/);
 });
 
+test("eski File direkt önerisinde eksik desiyi ürün adından tamamlar", () => {
+  const { service } = fixture();
+  const [row] = service.normalizeDecisionItems(
+    {
+      barcode: "8690777453888",
+      items: [
+        {
+          cost_item_code: "HARRAS_HARRAS_BALLI_YER_FISTIK_EZMESI_G_350G",
+          quantity: 1,
+          file_market_item_id: 18,
+          file_product_name: "Harras Ballı Yer Fıstık Ezmesi 350 g",
+          file_current_price: 119.5,
+          unit_desi: null,
+        },
+      ],
+    },
+    [
+      {
+        cost_item_code: "HARRAS_HARRAS_BALLI_YER_FISTIK_EZMESI_G_350G",
+        quantity: 1,
+      },
+    ],
+  );
+
+  assert.equal(row.file_market_item_id, 18);
+  assert.equal(row.suggested_unit_cost, 119.5);
+  assert.equal(row.unit_desi, 0.35);
+});
+
 test("reddedilen aynı öneriyi atlayıp sıradaki güvenilir adayı üretir", async () => {
   const badSource = {
     barcode: "BAD_SOURCE",
