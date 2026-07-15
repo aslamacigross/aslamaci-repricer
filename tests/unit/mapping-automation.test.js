@@ -712,7 +712,14 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
       {
         barcode: "528528268",
         reason:
+          "DOĞRU: Harras Değirmen Kapak Tane Karabiber 50g - 109₺ ve Harras Tane Karabiber 100g - 97,5₺",
+        created_at: "2026-07-15T10:00:00.000Z",
+      },
+      {
+        barcode: "528528268",
+        reason:
           "DOĞRU: Harras Guatemala Filtre Kahve 250g - 229₺, Harras Colombia Filtre Kahve 250g - 229₺, Harras Colombia Medium Roast Filtre Kahve 250g - 229₺, Harras Special Blend Filtre Kahve 250g - 199₺",
+        created_at: "2026-07-15T11:00:00.000Z",
       },
     ],
     targetProducts: async () => [
@@ -728,6 +735,12 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
     fileItemsForMatching: async () => [
       {
         id: 61,
+        product_name: "Harras Guatemala Filtre Kahve 250 g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 65,
         product_name: "Harras Guatemala Filtre Kahve 250 g",
         brand: "Harras",
         current_price: 229,
@@ -751,6 +764,18 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
         current_price: 199,
       },
       {
+        id: 71,
+        product_name: "Harras Değirmen Kapak Tane Karabiber 50g",
+        brand: "Harras",
+        current_price: 109,
+      },
+      {
+        id: 72,
+        product_name: "Harras Tane Karabiber 100 g",
+        brand: "Harras",
+        current_price: 97.5,
+      },
+      {
         id: 561,
         product_name: "Harras Pratik Filtre Kahve Tekli",
         brand: "Harras",
@@ -772,6 +797,11 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
   assert.deepEqual(
     saved[0].items.map((item) => item.file_market_item_id).sort(),
     [61, 62, 63, 64],
+  );
+  assert.ok(
+    saved[0].items.every(
+      (item) => !item.file_product_name.toLowerCase().includes("karabiber"),
+    ),
   );
   assert.ok(
     saved[0].items.every(

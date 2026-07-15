@@ -392,6 +392,7 @@ function parseRejectionHint(row) {
   const negative = extractNegativeHintFragment(text);
   return {
     barcode: row.barcode,
+    created_at: row.created_at,
     forceQuantityOne:
       /\b(?:adet\s*1|1\s*adet|tek\s*adet|tekli|ic\s*paket|iç\s*paket|paket\s*icerigi|paketin\s*icerigi|iceriginde|içeriğinde)\b/.test(
         text,
@@ -693,11 +694,17 @@ class MappingAutomationService {
   }
 
   buildFromFeedbackCorrection(target, hints, fileItems) {
-    const corrections = (hints || [])
-      .flatMap((hint) => hint.explicitItems || [])
-      .filter(Boolean);
+    const latestExplicitHint = [...(hints || [])]
+      .filter((hint) => hint.explicitItems?.length)
+      .sort(
+        (left, right) =>
+          new Date(right.created_at || 0).getTime() -
+          new Date(left.created_at || 0).getTime(),
+      )[0];
+    const corrections = (latestExplicitHint?.explicitItems || []).filter(Boolean);
     if (!corrections.length) return null;
     const usedIds = new Set();
+    const usedProductIdentities = new Set();
     const matched = [];
     for (const correction of corrections) {
       const best = this.bestFileItemForExplicitCorrection(
@@ -706,7 +713,10 @@ class MappingAutomationService {
         usedIds,
       );
       if (!best) continue;
+      const identity = normalizedProductIdentity(best.fileItem);
+      if (identity && usedProductIdentities.has(identity)) continue;
       usedIds.add(best.fileItem.id);
+      if (identity) usedProductIdentities.add(identity);
       matched.push({ correction, ...best });
     }
     if (!matched.length) return null;
