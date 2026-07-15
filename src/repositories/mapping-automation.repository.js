@@ -618,12 +618,8 @@ class MappingAutomationRepository {
         [suggestion.barcode],
       )
     ).rows[0];
-    if (
-      !product ||
-      !product.is_active ||
-      product.data_status !== "MAPPING_MISSING"
-    )
-      return { conflict: "TARGET_NO_LONGER_MAPPING_MISSING" };
+    if (!product || !product.is_active)
+      return { conflict: "TARGET_NO_LONGER_ACTIVE" };
     const existing = await client.query(
       `SELECT id FROM product_cost_mappings
        WHERE marketplace='TRENDYOL' AND barcode=$1 LIMIT 1`,

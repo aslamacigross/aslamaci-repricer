@@ -106,6 +106,9 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   const preview = await service.bulkPreview([approved.id]);
   assert.equal(preview.productCount, 1);
   assert.equal(preview.priceUpdateCount, 1);
+  await db.query(
+    "UPDATE products SET data_status='COST_ITEM_INCOMPLETE' WHERE barcode='TARGET'",
+  );
   const applied = await service.bulkApply(
     [approved.id],
     preview.token,

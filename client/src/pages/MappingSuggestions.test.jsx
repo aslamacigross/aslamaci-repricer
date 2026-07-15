@@ -86,7 +86,7 @@ describe("Akıllı mapping paneli", () => {
       expect.anything(),
     );
     expect(notify).toHaveBeenCalledWith(
-      "Öneri onaylandı; Onaylananlar sekmesinden mappinge uygulanabilir",
+      "Öneri onaylandı; sıradaki öneriye geçebilirsiniz",
     );
   });
 

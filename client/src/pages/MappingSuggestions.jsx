@@ -329,7 +329,7 @@ function SuggestionQueue({ notify }) {
       setDetail(null);
       await load();
     } catch (nextError) {
-      notify(nextError.message, "error");
+      notify(formatMappingError(nextError), "error");
       setBulkPreview(null);
       setBulkApplyIds([]);
     } finally {
@@ -549,11 +549,8 @@ function SuggestionQueue({ notify }) {
         }}
         onApproved={async () => {
           setDetail(null);
-          setStatus("APPROVED");
-          setPage(1);
-          notify(
-            "Öneri onaylandı; Onaylananlar sekmesinden mappinge uygulanabilir",
-          );
+          notify("Öneri onaylandı; sıradaki öneriye geçebilirsiniz");
+          await load();
         }}
         onPreviewApply={(id) => {
           setDetail(null);
