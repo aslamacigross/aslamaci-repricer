@@ -47,8 +47,14 @@ function fixture(overrides = {}) {
     saveSuggestions: async (rows, barcodes = []) => {
       saved.push(...rows);
       evaluated.push(...barcodes);
-      return { created: rows.length, skippedApproved: 0, items: rows };
+      return {
+        created: rows.length,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        items: rows,
+      };
     },
+    latestSuggestionsForBarcode: async () => [],
     ...overrides,
   };
   return {
@@ -254,6 +260,54 @@ test("Daycare banyo sabununu File kalıp sabun ürünüyle önerir", async () =>
   assert.equal(saved[0].items[0].file_market_item_id, 77);
   assert.equal(saved[0].items[0].quantity, 1);
   assert.equal(saved[0].items[0].unit_desi, 0.8);
+});
+
+test("teşhis önerisi onaylı öneri yüzünden kaydedilmezse sebebini döndürür", async () => {
+  const approvedSuggestion = {
+    id: 91,
+    barcode: "TYBGRQD9451MF7S999",
+    status: "APPROVED",
+  };
+  const { service } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "TYBGRQD9451MF7S999",
+        product_name: "Doğal Beyaz Banyo Sabunu 4 X 200 Gr",
+        brand: "Daycare",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 77,
+        product_name: "Daycare Kalıp Sabun 4x200 g",
+        brand: "Daycare",
+        current_price: 69.5,
+      },
+    ],
+    saveSuggestions: async () => ({
+      created: 0,
+      skippedApproved: 1,
+      skippedRejected: 0,
+      items: [],
+    }),
+    latestSuggestionsForBarcode: async (barcode, statuses) => {
+      assert.equal(barcode, "TYBGRQD9451MF7S999");
+      assert.deepEqual(statuses, ["APPROVED"]);
+      return [approvedSuggestion];
+    },
+  });
+
+  const result =
+    await service.regenerateDiagnosticBarcode("TYBGRQD9451MF7S999");
+
+  assert.equal(result.created, 0);
+  assert.equal(result.reason, "APPROVED_EXISTS");
+  assert.deepEqual(result.existingSuggestions, [approvedSuggestion]);
 });
 
 test("farklı File ürünlerinden oluşan setlerde çoklu maliyet kalemi önerir", async () => {
@@ -842,7 +896,9 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
     ),
   );
   assert.deepEqual(
-    saved[0].items.map((item) => item.suggested_unit_cost).sort((a, b) => a - b),
+    saved[0].items
+      .map((item) => item.suggested_unit_cost)
+      .sort((a, b) => a - b),
     [199, 229, 229, 229],
   );
 });

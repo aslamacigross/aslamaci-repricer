@@ -101,6 +101,33 @@ function hasVariantPrice(row) {
   return Boolean(row.evidence?.variantPriceInferred);
 }
 
+function diagnosticRegenerateMessage(barcode, data = {}) {
+  if (data.created)
+    return {
+      text: `${barcode} için ${data.created} öneri üretildi`,
+      tone: "success",
+    };
+  if (data.reason === "APPROVED_EXISTS")
+    return {
+      text: `${barcode} için onaylı öneri zaten var; Onaylananlar filtresinden mappinge uygulayabilirsiniz`,
+      tone: "warning",
+    };
+  if (data.reason === "PENDING_EXISTS")
+    return {
+      text: `${barcode} için bekleyen öneri zaten var; Bekleyenler filtresinden inceleyebilirsiniz`,
+      tone: "warning",
+    };
+  if (data.reason === "REJECTED_PATTERN")
+    return {
+      text: `${barcode} için benzer öneri daha önce reddedilmiş; manuel kuyruğa alabilir veya ret notunu DOĞRU: formatıyla güncelleyebilirsiniz`,
+      tone: "warning",
+    };
+  return {
+    text: `${barcode} için yeni öneri bulunamadı`,
+    tone: "warning",
+  };
+}
+
 export default function MappingSuggestions({ view, notify }) {
   if (view === "file") return <FileMarketPool notify={notify} />;
   if (view === "learning") return <MappingLearningHistory />;
@@ -401,12 +428,8 @@ function MappingDiagnostics({ notify }) {
         `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/regenerate`,
         {},
       );
-      notify?.(
-        response.data.created
-          ? `${row.barcode} için ${response.data.created} öneri üretildi`
-          : `${row.barcode} için yeni öneri bulunamadı`,
-        response.data.created ? "success" : "warning",
-      );
+      const message = diagnosticRegenerateMessage(row.barcode, response.data);
+      notify?.(message.text, message.tone);
       await load();
     } catch (nextError) {
       notify?.(nextError.message, "error");
@@ -481,7 +504,10 @@ function MappingDiagnostics({ notify }) {
         ].includes(row.diagnosis);
         const busy = busyBarcode === row.barcode;
         return (
-          <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="row-actions"
+            onClick={(event) => event.stopPropagation()}
+          >
             <Button
               variant="secondary"
               icon={Sparkles}

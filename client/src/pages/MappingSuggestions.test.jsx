@@ -278,4 +278,50 @@ describe("Akıllı mapping paneli", () => {
       ),
     );
   });
+
+  test("teşhis önerisi zaten onaylıysa yeni öneri yok demek yerine sebebini gösterir", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: {
+        processed: 1,
+        summary: { SUGGESTION_AVAILABLE: 1 },
+        items: [
+          {
+            barcode: "TYBGRQD9451MF7S999",
+            product_name: "Doğal Beyaz Banyo Sabunu 4 X 200 Gr",
+            brand: "Daycare",
+            diagnosis: "SUGGESTION_AVAILABLE",
+            diagnosis_label: "Öneri üretilebilir",
+            best_file_product_name: "Daycare Kalıp Sabun 4x200 g",
+            best_file_price: 69.5,
+            best_file_score: 0.61,
+            confidence: 0.57,
+            data_status: "MAPPING_MISSING",
+          },
+        ],
+      },
+    });
+    post.mockResolvedValue({
+      data: {
+        barcode: "TYBGRQD9451MF7S999",
+        created: 0,
+        skippedApproved: 1,
+        reason: "APPROVED_EXISTS",
+      },
+    });
+
+    render(<MappingSuggestions view="diagnostics" notify={notify} />);
+    expect(
+      await screen.findByText("Doğal Beyaz Banyo Sabunu 4 X 200 Gr"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Öner" }));
+
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        "TYBGRQD9451MF7S999 için onaylı öneri zaten var; Onaylananlar filtresinden mappinge uygulayabilirsiniz",
+        "warning",
+      ),
+    );
+  });
 });

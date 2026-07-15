@@ -553,6 +553,34 @@ class MappingAutomationRepository {
     };
   }
 
+  async latestSuggestionsForBarcode(
+    barcode,
+    statuses = ["PENDING", "APPROVED"],
+  ) {
+    const normalizedBarcode = String(barcode || "").trim();
+    if (!normalizedBarcode) return [];
+    const result = await this.db.query(
+      `SELECT ms.*,p.product_name,p.product_image_url,p.brand,p.category_name,
+              p.data_status,p.is_active,
+              source.product_name AS source_product_name,
+              f.product_name AS file_product_name,f.current_price AS file_current_price,
+              f.last_seen_at AS file_last_seen_at
+       FROM mapping_suggestions ms
+       LEFT JOIN products p ON p.marketplace=ms.marketplace AND p.barcode=ms.barcode
+       LEFT JOIN products source ON source.marketplace=ms.marketplace
+         AND source.barcode=ms.source_barcode
+       LEFT JOIN file_market_items f ON f.id=ms.file_market_item_id
+       WHERE ms.marketplace='TRENDYOL'
+         AND ms.barcode=$1
+         AND ms.status=ANY($2::text[])
+       ORDER BY CASE ms.status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,
+                ms.updated_at DESC,ms.created_at DESC
+       LIMIT 10`,
+      [normalizedBarcode, statuses],
+    );
+    return this.attachItems(result.rows);
+  }
+
   async listLearningFeedback({ search, decision, page = 1, limit = 50 } = {}) {
     const params = [];
     const where = ["1=1"];

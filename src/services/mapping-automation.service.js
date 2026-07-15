@@ -171,7 +171,8 @@ function ensureUniqueSuggestionItems(items) {
     seen.set(item.cost_item_code, previous + 1);
     return {
       ...item,
-      original_cost_item_code: item.original_cost_item_code || item.cost_item_code,
+      original_cost_item_code:
+        item.original_cost_item_code || item.cost_item_code,
       cost_item_code: uniqueCostCode(item.cost_item_code, item, index),
     };
   });
@@ -191,7 +192,9 @@ function remapEvidenceCostCodes(evidence = {}, items = []) {
   );
   const fileMatches = (evidence.fileMatches || []).map((match) => {
     const nextCode =
-      byFileId.get(String(match.fileMarketItemId || match.file_market_item_id)) ||
+      byFileId.get(
+        String(match.fileMarketItemId || match.file_market_item_id),
+      ) ||
       byOriginalCode.get(match.costItemCode) ||
       match.costItemCode;
     return { ...match, costItemCode: nextCode };
@@ -217,7 +220,8 @@ function extractTotalBundleSize(value) {
   const amount = Number(match[2].replace(",", "."));
   if (!Number.isFinite(count) || !Number.isFinite(amount)) return null;
   const unit = match[3];
-  const base = unit === "kg" || unit === "l" || unit === "lt" ? amount * 1000 : amount;
+  const base =
+    unit === "kg" || unit === "l" || unit === "lt" ? amount * 1000 : amount;
   return count > 0 && amount > 0 ? count * base : null;
 }
 
@@ -281,7 +285,8 @@ function sameSizeValue(left, right) {
   if (!left || !right) return false;
   return (
     left.unit === right.unit &&
-    Math.abs(left.value - right.value) <= Math.max(left.value, right.value) * 0.03
+    Math.abs(left.value - right.value) <=
+      Math.max(left.value, right.value) * 0.03
   );
 }
 
@@ -296,7 +301,9 @@ function productFamilySignature(value, brand = "") {
   );
   const family = tokens(value)
     .filter((token) => !tokens(brand).includes(token))
-    .filter((token) => PRODUCT_FAMILY_TOKENS.has(token) || sizeTokens.has(token))
+    .filter(
+      (token) => PRODUCT_FAMILY_TOKENS.has(token) || sizeTokens.has(token),
+    )
     .slice(0, 5);
   return family.join("_") || normalizeText(brand) || "file";
 }
@@ -313,7 +320,10 @@ function compositeSingleItemRisk(target, items) {
   const text = normalizeText(target.product_name);
   if (!COMPOSITE_MARKER_PATTERN.test(text)) return null;
   const fragments = splitCompositeFragments(target.product_name);
-  const targetTokens = significantProductTokens(target.product_name, target.brand);
+  const targetTokens = significantProductTokens(
+    target.product_name,
+    target.brand,
+  );
   if (targetTokens.length < 3) return null;
   const candidateTokens = new Set(
     significantProductTokens(
@@ -345,11 +355,16 @@ function sortCandidatesForTarget(target, left, right) {
     normalizeText(target.product_name),
   );
   if (targetComposite) {
-    const leftComposite = Boolean(left.evidence?.compositeProduct) && left.items.length > 1;
+    const leftComposite =
+      Boolean(left.evidence?.compositeProduct) && left.items.length > 1;
     const rightComposite =
       Boolean(right.evidence?.compositeProduct) && right.items.length > 1;
     if (leftComposite !== rightComposite) return rightComposite - leftComposite;
-    if (leftComposite && rightComposite && left.items.length !== right.items.length)
+    if (
+      leftComposite &&
+      rightComposite &&
+      left.items.length !== right.items.length
+    )
       return right.items.length - left.items.length;
   }
   return right.confidence - left.confidence;
@@ -719,7 +734,9 @@ class MappingAutomationService {
           new Date(right.created_at || 0).getTime() -
           new Date(left.created_at || 0).getTime(),
       )[0];
-    const corrections = (latestExplicitHint?.explicitItems || []).filter(Boolean);
+    const corrections = (latestExplicitHint?.explicitItems || []).filter(
+      Boolean,
+    );
     if (!corrections.length) return null;
     const usedIds = new Set();
     const usedProductIdentities = new Set();
@@ -914,9 +931,7 @@ class MappingAutomationService {
     for (const fragment of fragments) {
       const fragmentTarget = {
         ...target,
-        product_name: target.brand
-          ? `${target.brand} ${fragment}`
-          : fragment,
+        product_name: target.brand ? `${target.brand} ${fragment}` : fragment,
       };
       const best = fileItems
         .map((fileItem) => ({
@@ -927,7 +942,9 @@ class MappingAutomationService {
           ({ fileItem, comparison }) =>
             comparison.score >= 0.54 && !used.has(fileItem.id),
         )
-        .sort((left, right) => right.comparison.score - left.comparison.score)[0];
+        .sort(
+          (left, right) => right.comparison.score - left.comparison.score,
+        )[0];
       if (!best) continue;
       used.add(best.fileItem.id);
       matched.push({ fragment, ...best });
@@ -961,11 +978,13 @@ class MappingAutomationService {
       evidence: {
         reasons: [{ code: "COMPOSITE_FILE_MATCH" }],
         targetPackCount: extractPackCount(target.product_name),
-        compositeFragments: matched.map(({ fragment, fileItem, comparison }) => ({
-          fragment,
-          fileProductName: fileItem.product_name,
-          score: comparison.score,
-        })),
+        compositeFragments: matched.map(
+          ({ fragment, fileItem, comparison }) => ({
+            fragment,
+            fileProductName: fileItem.product_name,
+            score: comparison.score,
+          }),
+        ),
         fileMatches: items.map((item) => ({
           costItemCode: item.cost_item_code,
           fileMarketItemId: item.file_market_item_id,
@@ -998,7 +1017,9 @@ class MappingAutomationService {
         );
         const itemSize = extractSizes(fileItem.product_name)[0];
         const overlap = itemTokens.filter((token) => targetTokens.has(token));
-        const coverage = itemTokens.length ? overlap.length / itemTokens.length : 0;
+        const coverage = itemTokens.length
+          ? overlap.length / itemTokens.length
+          : 0;
         const comparison = compareProducts(target, fileItem);
         const brandMatches =
           !targetBrand ||
@@ -1115,9 +1136,7 @@ class MappingAutomationService {
     const baseConfidence = Number(candidate.confidence.toFixed(5));
     const items = ensureUniqueSuggestionItems(candidate.items);
     const fileIds = [
-      ...new Set(
-        items.map((item) => item.file_market_item_id).filter(Boolean),
-      ),
+      ...new Set(items.map((item) => item.file_market_item_id).filter(Boolean)),
     ];
     if (!fileIds.length) return null;
     const suggestion = {
@@ -1207,9 +1226,7 @@ class MappingAutomationService {
           (candidate) =>
             candidate && candidate.confidence >= 0.3 && candidate.items.length,
         )
-        .map((candidate) =>
-          applyRejectionHints(candidate, targetHints),
-        )
+        .map((candidate) => applyRejectionHints(candidate, targetHints))
         .map((candidate) => this.applyCompositeSafety(target, candidate))
         .sort((left, right) => sortCandidatesForTarget(target, left, right));
       if (!candidates.length) {
@@ -1446,7 +1463,36 @@ class MappingAutomationService {
         404,
         "DIAGNOSTIC_TARGET_NOT_FOUND",
       );
-    return result;
+    if (result.created > 0)
+      return { ...result, reason: "CREATED", existingSuggestions: [] };
+    if (result.skippedApproved > 0) {
+      const existingSuggestions =
+        await this.repository.latestSuggestionsForBarcode?.(barcode, [
+          "APPROVED",
+        ]);
+      return {
+        ...result,
+        reason: "APPROVED_EXISTS",
+        existingSuggestions: existingSuggestions || [],
+      };
+    }
+    if (result.skippedRejected > 0)
+      return { ...result, reason: "REJECTED_PATTERN", existingSuggestions: [] };
+    const existingSuggestions =
+      await this.repository.latestSuggestionsForBarcode?.(barcode, [
+        "PENDING",
+        "APPROVED",
+      ]);
+    if (existingSuggestions?.length)
+      return {
+        ...result,
+        reason:
+          existingSuggestions[0].status === "APPROVED"
+            ? "APPROVED_EXISTS"
+            : "PENDING_EXISTS",
+        existingSuggestions,
+      };
+    return { ...result, reason: "NO_CANDIDATE", existingSuggestions: [] };
   }
 
   async markDiagnosticManualCost(barcode, actor, input = {}) {
@@ -1458,8 +1504,7 @@ class MappingAutomationService {
       actor,
       reason,
     );
-    if (!row)
-      throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+    if (!row) throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
     return row;
   }
 
