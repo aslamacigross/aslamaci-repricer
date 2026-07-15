@@ -15,6 +15,12 @@ function appFixture() {
       created: rows.length,
       changed: 0,
     }),
+    syncLiveFileItems: async () => ({
+      processed: 2,
+      created: 1,
+      changed: 1,
+      metadata: { productsScanned: 20 },
+    }),
     listFileItems: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
     generate: async () => ({ created: 3, trainingProductCount: 120 }),
     listSuggestions: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
@@ -48,6 +54,7 @@ function appFixture() {
     "/api",
     mappingAutomationRoutes({
       mappingAutomation,
+      fileMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       audit: { record: async () => {} },
     }),
   );
@@ -61,6 +68,15 @@ test("File fiyat havuzu toplu ürün kabul eder", async () => {
     .send({ rows: [{ product_name: "Actisoft", current_price: 112 }] })
     .expect(200);
   assert.equal(response.body.data.processed, 1);
+});
+
+test("File fiyat havuzu canlı API üzerinden yenilenir", async () => {
+  const response = await request(appFixture().app)
+    .post("/api/file-market/items/sync-live")
+    .send({})
+    .expect(200);
+  assert.equal(response.body.data.processed, 2);
+  assert.equal(response.body.data.metadata.productsScanned, 20);
 });
 
 test("mapping önerisi onayı ile uygulaması ayrı endpointlerdir", async () => {

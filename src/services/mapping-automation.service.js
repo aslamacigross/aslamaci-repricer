@@ -350,6 +350,18 @@ class MappingAutomationService {
     return this.repository.importFileItems(this.normalizeFileRows(rows));
   }
 
+  async syncLiveFileItems(fileMarket) {
+    const live = await fileMarket.livePriceRows();
+    const imported = await this.importFileItems(live.rows);
+    return {
+      ...imported,
+      metadata: {
+        ...live.stats,
+        provider: "file-market-api",
+      },
+    };
+  }
+
   async listFileItems(filters) {
     return this.repository.listFileItems(filters);
   }

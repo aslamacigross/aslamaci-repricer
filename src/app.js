@@ -23,8 +23,8 @@ const {
   mappingAutomationRoutes,
 } = require("./routes/mapping-automation.routes");
 
-const APP_VERSION = "2.2.0";
-const REQUIRED_MIGRATION = "012_mapping_feedback_learning";
+const APP_VERSION = "2.3.0";
+const REQUIRED_MIGRATION = "013_file_market_live_sync";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);

@@ -10,6 +10,7 @@ const { ActionService } = require("./services/action.service");
 const { LearningService } = require("./services/learning.service");
 const { JobService } = require("./services/job.service");
 const { MaintenanceService } = require("./services/maintenance.service");
+const { FileMarketService } = require("./services/file-market.service");
 const {
   MappingAutomationService,
 } = require("./services/mapping-automation.service");
@@ -87,6 +88,10 @@ function createContainer(overrides = {}) {
   const maintenance = new MaintenanceService(db, env.logRetentionDays);
   const jobService =
     overrides.jobService || new JobService({ db, repository: jobs });
+  const fileMarket = overrides.fileMarket || new FileMarketService();
+  jobService.register("sync-file-market-prices", () =>
+    mappingAutomation.syncLiveFileItems(fileMarket),
+  );
   jobService.register("sync-products", () => sync.products());
   jobService.register("sync-buybox", () => sync.buybox());
   jobService.register("calculate-costs", () => costEngine.recalculate());
@@ -152,6 +157,7 @@ function createContainer(overrides = {}) {
     settings,
     products,
     costs,
+    fileMarket,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

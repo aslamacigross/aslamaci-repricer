@@ -1,7 +1,7 @@
 const express = require("express");
 const { asyncRoute } = require("../utils/errors");
 
-function mappingAutomationRoutes({ mappingAutomation, audit }) {
+function mappingAutomationRoutes({ mappingAutomation, fileMarket, audit }) {
   const router = express.Router();
   const log = (req, action, entityId, after) =>
     audit.record({
@@ -32,6 +32,19 @@ function mappingAutomationRoutes({ mappingAutomation, audit }) {
         processed: data.processed,
         created: data.created,
         changed: data.changed,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
+  router.post(
+    "/file-market/items/sync-live",
+    asyncRoute(async (req, res) => {
+      const data = await mappingAutomation.syncLiveFileItems(fileMarket);
+      await log(req, "FILE_MARKET_LIVE_PRICES_SYNCED", "file-market", {
+        processed: data.processed,
+        created: data.created,
+        changed: data.changed,
+        metadata: data.metadata,
       });
       res.json({ status: "ok", data });
     }),

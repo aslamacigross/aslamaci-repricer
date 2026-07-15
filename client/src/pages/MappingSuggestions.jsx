@@ -1292,6 +1292,7 @@ function FileMarketPool({ notify }) {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [syncingLive, setSyncingLive] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -1330,6 +1331,22 @@ function FileMarketPool({ notify }) {
       notify(nextError.message, "error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function syncLiveFileItems() {
+    setSyncingLive(true);
+    try {
+      const response = await post("/api/file-market/items/sync-live", {});
+      const meta = response.data.metadata || {};
+      notify(
+        `${response.data.processed} File ürünü işlendi; ${response.data.created} yeni, ${response.data.changed} fiyat değişikliği. ${meta.productsScanned || 0} ürün tarandı.`,
+      );
+      await load();
+    } catch (nextError) {
+      notify(nextError.message, "error");
+    } finally {
+      setSyncingLive(false);
     }
   }
 
@@ -1391,6 +1408,13 @@ function FileMarketPool({ notify }) {
           />
         </div>
         <div className="mapping-toolbar-actions">
+          <Button
+            icon={RefreshCw}
+            disabled={syncingLive}
+            onClick={syncLiveFileItems}
+          >
+            {syncingLive ? "File taranıyor" : "Canlı File'dan yenile"}
+          </Button>
           <Button icon={FileUp} onClick={() => setImportOpen(true)}>
             File fiyatı içe aktar
           </Button>
