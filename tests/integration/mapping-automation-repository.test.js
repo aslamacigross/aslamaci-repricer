@@ -163,5 +163,12 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   assert.equal(feedbackAfterReject.items[0].reason, "Varyant yanlış");
   assert.equal(Number(feedbackAfterReject.items[0].accepted_count), 1);
   assert.equal(Number(feedbackAfterReject.items[0].rejected_count), 1);
+  const repeated = await service.generate({ limit: 20 });
+  assert.equal(repeated.created, 0);
+  assert.equal(repeated.skippedRejected, 1);
+  const pendingAfterReject = await service.listSuggestions({
+    status: "PENDING",
+  });
+  assert.equal(pendingAfterReject.total, 0);
   await db.end();
 });

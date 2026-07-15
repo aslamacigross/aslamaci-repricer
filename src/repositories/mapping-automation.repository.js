@@ -196,7 +196,8 @@ class MappingAutomationRepository {
         ...suggestions.map((suggestion) => suggestion.barcode),
       ]),
     ];
-    if (!evaluated.length) return { created: 0, skippedApproved: 0, items: [] };
+    if (!evaluated.length)
+      return { created: 0, skippedApproved: 0, skippedRejected: 0, items: [] };
     return this.withTransaction(async (client) => {
       const barcodes = suggestions.map((suggestion) => suggestion.barcode);
       const approved = new Set(
@@ -211,6 +212,23 @@ class MappingAutomationRepository {
             ).rows.map((row) => row.barcode)
           : [],
       );
+      const rejectedFingerprints = new Set(
+        suggestions.length
+          ? (
+              await client.query(
+                `SELECT barcode,fingerprint FROM mapping_suggestions
+                 WHERE marketplace='TRENDYOL'
+                   AND status='REJECTED'
+                   AND barcode=ANY($1::text[])
+                   AND fingerprint=ANY($2::text[])`,
+                [
+                  barcodes,
+                  suggestions.map((suggestion) => suggestion.fingerprint),
+                ],
+              )
+            ).rows.map((row) => `${row.barcode}:${row.fingerprint}`)
+          : [],
+      );
       await client.query(
         `UPDATE mapping_suggestions SET status='STALE',updated_at=NOW()
          WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
@@ -220,6 +238,12 @@ class MappingAutomationRepository {
       const saved = [];
       for (const suggestion of suggestions) {
         if (approved.has(suggestion.barcode)) continue;
+        if (
+          rejectedFingerprints.has(
+            `${suggestion.barcode}:${suggestion.fingerprint}`,
+          )
+        )
+          continue;
         const parent = (
           await client.query(
             `INSERT INTO mapping_suggestions(
@@ -269,6 +293,7 @@ class MappingAutomationRepository {
       return {
         created: saved.length,
         skippedApproved: approved.size,
+        skippedRejected: rejectedFingerprints.size,
         items: saved,
       };
     });
