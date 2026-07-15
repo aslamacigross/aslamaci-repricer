@@ -20,6 +20,7 @@ function container(options = {}) {
     my_price: 329.9,
   };
   const action = { id: 1, status: "PENDING", barcode: product.barcode };
+  const runJobs = [];
   return {
     auth,
     db: {
@@ -39,7 +40,12 @@ function container(options = {}) {
       list: async () => [{ action: "LOGIN_SUCCESS" }],
     },
     trendyol: { configured: () => false },
-    dashboard: { get: async () => ({ kpis: { total_products: 1 } }) },
+    dashboard: {
+      get: async () => ({
+        kpis: { total_products: 1 },
+        jobs: runJobs.map((job_name) => ({ job_name, last_status: "SUCCESS" })),
+      }),
+    },
     products: {
       list: async () => ({ items: [product], total: 1, page: 1, limit: 50 }),
       get: async () => product,
@@ -72,7 +78,12 @@ function container(options = {}) {
       apply: async () => ({ ...action, status: "DRY_RUN" }),
     },
     jobs: {},
-    jobService: { run: async () => ({ status: "SUCCESS" }) },
+    jobService: {
+      run: async (name) => {
+        runJobs.push(name);
+        return { job_name: name, status: "SUCCESS", processed_count: 1 };
+      },
+    },
     settings: {
       list: no,
       getAll: async () => ({ maintenance_mode: Boolean(options.maintenance) }),
@@ -144,6 +155,32 @@ test("bakim modu ayarlar disindaki mutasyonlari durdurur", async () => {
     .get("/api/dashboard")
     .set("Cookie", login.headers["set-cookie"])
     .expect(200);
+});
+test("dashboard canlı yenileme güvenli veri joblarını sırayla çalıştırır", async () => {
+  const app = createApp(container());
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "password-12345" });
+  await request(app)
+    .post("/api/dashboard/live-refresh")
+    .set({
+      Cookie: login.headers["set-cookie"],
+      "X-CSRF-Token": login.body.csrfToken,
+    })
+    .send({})
+    .expect(200)
+    .expect((res) => {
+      assert.deepEqual(
+        res.body.data.runs.map((run) => run.job_name),
+        [
+          "sync-products",
+          "calculate-costs",
+          "sync-buybox",
+          "dashboard-cache-refresh",
+        ],
+      );
+      assert.equal(res.body.data.dashboard.kpis.total_products, 1);
+    });
 });
 test("bekleyen fiyat aksiyonu panelden duzenlenip onaylanabilir", async () => {
   const app = createApp(container());

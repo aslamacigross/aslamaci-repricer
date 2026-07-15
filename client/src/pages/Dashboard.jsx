@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Package,
   PackageCheck,
@@ -23,13 +23,14 @@ import {
   LineChart,
   Line,
 } from "recharts";
-import { get } from "../lib/api";
+import { get, post } from "../lib/api";
 import {
   PageHeader,
   Loading,
   ErrorState,
   Badge,
   toneFor,
+  Button,
   IconButton,
   useRemote,
 } from "../components/ui";
@@ -52,11 +53,32 @@ const cards = [
   ["successful_actions_24h", "Başarılı aksiyon", ShieldCheck, "success"],
   ["failed_actions_24h", "Başarısız aksiyon", TriangleAlert, "danger"],
 ];
-export default function Dashboard() {
+export default function Dashboard({ notify }) {
   const { data, loading, error, reload } = useRemote(
     () => get("/api/dashboard"),
     [],
   );
+  const [liveRefreshing, setLiveRefreshing] = useState(false);
+  async function refreshLiveData() {
+    setLiveRefreshing(true);
+    try {
+      const response = await post("/api/dashboard/live-refresh");
+      await reload();
+      const failed = (response.data?.runs || []).filter(
+        (run) => run.status === "FAILED",
+      ).length;
+      notify?.(
+        failed
+          ? `Canlı veri yenilendi; ${failed} job hata verdi`
+          : "Canlı veri yenilendi",
+        failed ? "warning" : "success",
+      );
+    } catch (nextError) {
+      notify?.(nextError.message, "error");
+    } finally {
+      setLiveRefreshing(false);
+    }
+  }
   if (loading) return <Loading />;
   if (error) return <ErrorState error={error} retry={reload} />;
   const d = data.data,
@@ -71,7 +93,17 @@ export default function Dashboard() {
         title="Genel Bakış"
         description="Mağaza sağlığı, kârlılık ve repricer operasyonlarının güncel özeti"
         actions={
-          <IconButton icon={RefreshCw} label="Yenile" onClick={reload} />
+          <>
+            <Button
+              variant="secondary"
+              icon={RefreshCw}
+              onClick={refreshLiveData}
+              disabled={liveRefreshing}
+            >
+              {liveRefreshing ? "Canlı veri çekiliyor" : "Canlı veriyi çek"}
+            </Button>
+            <IconButton icon={RefreshCw} label="Yenile" onClick={reload} />
+          </>
         }
       />
       <section className="kpi-grid">
