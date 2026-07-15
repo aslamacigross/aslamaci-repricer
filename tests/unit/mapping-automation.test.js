@@ -629,6 +629,127 @@ test("ret notu doğru File ürününü ve adet düzeltmesini sonraki öneriye ta
   assert.equal(saved[0].evidence.rejectionNoteHints.quantityForcedToOne, true);
 });
 
+test("ret notundaki çoklu doğru reçeteyi File destekli mapping önerisine çevirir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    rejectedFeedbackHints: async () => [
+      {
+        barcode: "TYBNU3EM9A5KGJWA79",
+        reason:
+          "DOĞRU: Harras Değirmen Kapak Tane Karabiber 50g - 109₺ ve Harras Tane Karabiber 100g - 97,5₺",
+      },
+    ],
+    targetProducts: async () => [
+      {
+        barcode: "TYBNU3EM9A5KGJWA79",
+        product_name: "Harras Karabiber Seti",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 41,
+        product_name: "Harras Değirmen Kapak Tane Karabiber 50 g",
+        brand: "Harras",
+        current_price: 109,
+      },
+      {
+        id: 42,
+        product_name: "Harras Tane Karabiber 100 g",
+        brand: "Harras",
+        current_price: 97.5,
+      },
+      {
+        id: 43,
+        product_name: "Harras Karabiber 40 g",
+        brand: "Harras",
+        current_price: 69,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved[0].source_type, "FEEDBACK_EXPLICIT_FILE_RECIPE");
+  assert.equal(saved[0].items.length, 2);
+  assert.deepEqual(
+    saved[0].items.map((item) => item.file_market_item_id).sort(),
+    [41, 42],
+  );
+  assert.deepEqual(
+    saved[0].items.map((item) => item.quantity),
+    [1, 1],
+  );
+  assert.equal(saved[0].evidence.explicitFeedbackRecipe, true);
+});
+
+test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    rejectedFeedbackHints: async () => [
+      {
+        barcode: "528528268",
+        reason:
+          "DOĞRU: Harras Guatemala Filtre Kahve 250g - 229₺, Harras Colombia Filtre Kahve 250g - 229₺, Harras Colombia Medium Roast Filtre Kahve 250g - 229₺, Harras Special Blend Filtre Kahve 250g - 199₺",
+      },
+    ],
+    targetProducts: async () => [
+      {
+        barcode: "528528268",
+        product_name: "Harras Filtre Kahve 4'lü Deneme Seti",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 61,
+        product_name: "Harras Guatemala Filtre Kahve 250 g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 62,
+        product_name: "Harras Colombia Filtre Kahve 250 g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 63,
+        product_name: "Harras Colombia Medium Roast Filtre Kahve 250 g",
+        brand: "Harras",
+        current_price: 229,
+      },
+      {
+        id: 64,
+        product_name: "Harras Special Blend Filtre Kahve 250 g",
+        brand: "Harras",
+        current_price: 199,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved[0].source_type, "FEEDBACK_EXPLICIT_FILE_RECIPE");
+  assert.equal(saved[0].items.length, 4);
+  assert.deepEqual(
+    saved[0].items.map((item) => item.file_market_item_id).sort(),
+    [61, 62, 63, 64],
+  );
+  assert.deepEqual(
+    saved[0].items.map((item) => item.suggested_unit_cost).sort((a, b) => a - b),
+    [199, 229, 229, 229],
+  );
+});
+
 test("File ürünü iç paket, Trendyol başlığı çoklu paket ise adet çarpanı korunur", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],

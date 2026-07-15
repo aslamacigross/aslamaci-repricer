@@ -77,6 +77,36 @@ function parsePrice(value) {
   return Number(normalized);
 }
 
+function cleanExplicitCorrectionName(value) {
+  return String(value || "")
+    .replace(
+      /^(?:dogru|doğru|correct|olmasi gereken|olması gereken|urun|ürün)\s*[:\-–]\s*/i,
+      "",
+    )
+    .replace(/^(?:ve|ile|,|;)\s*/i, "")
+    .trim();
+}
+
+function parseExplicitCorrectionItems(reason) {
+  const text = String(reason || "").replace(/\r/g, "\n");
+  const matches = [];
+  const pattern =
+    /(.+?)\s*[-–:]\s*(\d+(?:[.,]\d{1,2})?)\s*(?:₺|tl|try)?(?=$|[;\n]|\s+ve\s+|,\s+(?!\d))/giu;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const productName = cleanExplicitCorrectionName(match[1]);
+    const price = parsePrice(match[2]);
+    if (
+      productName &&
+      productName.length >= 4 &&
+      Number.isFinite(price) &&
+      price > 0
+    )
+      matches.push({ productName, price });
+  }
+  return matches;
+}
+
 function canonicalSuggestion(suggestion) {
   return {
     barcode: suggestion.barcode,
@@ -280,6 +310,9 @@ function compositeSingleItemRisk(target, items) {
 }
 
 function sortCandidatesForTarget(target, left, right) {
+  const leftExplicit = Boolean(left.evidence?.explicitFeedbackRecipe);
+  const rightExplicit = Boolean(right.evidence?.explicitFeedbackRecipe);
+  if (leftExplicit !== rightExplicit) return rightExplicit - leftExplicit;
   const targetComposite = COMPOSITE_MARKER_PATTERN.test(
     normalizeText(target.product_name),
   );
@@ -355,6 +388,7 @@ function parseRejectionHint(row) {
       ),
     preferredTokens: noteTokens(positive),
     rejectedTokens: noteTokens(negative),
+    explicitItems: parseExplicitCorrectionItems(raw),
     reason: raw,
   };
 }
@@ -619,6 +653,105 @@ class MappingAutomationService {
 
   buildFromTraining(target, examples, fileItems) {
     return this.buildTrainingCandidates(target, examples, fileItems)[0] || null;
+  }
+
+  bestFileItemForExplicitCorrection(correction, fileItems, usedIds) {
+    let best = null;
+    const correctionTarget = {
+      product_name: correction.productName,
+      brand: tokens(correction.productName)[0] || "",
+    };
+    for (const fileItem of fileItems) {
+      if (usedIds.has(fileItem.id)) continue;
+      const comparison = compareProducts(correctionTarget, fileItem);
+      const filePrice = Number(fileItem.current_price);
+      const priceDistance =
+        Number.isFinite(filePrice) && filePrice > 0
+          ? Math.abs(filePrice - correction.price)
+          : Number.POSITIVE_INFINITY;
+      const priceTolerance = Math.max(1, correction.price * 0.08);
+      const priceScore =
+        priceDistance <= priceTolerance
+          ? 1 - priceDistance / priceTolerance
+          : 0;
+      const score = comparison.score * 0.78 + priceScore * 0.22;
+      if (comparison.score < 0.38 && priceScore < 0.65) continue;
+      if (!best || score > best.score)
+        best = { fileItem, comparison, priceScore, score };
+    }
+    return best;
+  }
+
+  buildFromFeedbackCorrection(target, hints, fileItems) {
+    const corrections = (hints || [])
+      .flatMap((hint) => hint.explicitItems || [])
+      .filter(Boolean);
+    if (!corrections.length) return null;
+    const usedIds = new Set();
+    const matched = [];
+    for (const correction of corrections) {
+      const best = this.bestFileItemForExplicitCorrection(
+        correction,
+        fileItems,
+        usedIds,
+      );
+      if (!best) continue;
+      usedIds.add(best.fileItem.id);
+      matched.push({ correction, ...best });
+    }
+    if (!matched.length) return null;
+    const avgScore =
+      matched.reduce((sum, item) => sum + item.score, 0) / matched.length;
+    const items = matched.map(({ correction, fileItem, comparison }) => {
+      const unitDesi = estimateUnitDesi(fileItem);
+      return {
+        cost_item_code: generatedCostCode(fileItem),
+        item_name: fileItem.product_name,
+        quantity: 1,
+        current_unit_cost: Number(fileItem.current_price || correction.price),
+        suggested_unit_cost: Number(fileItem.current_price || correction.price),
+        unit_desi: unitDesi,
+        file_market_item_id: fileItem.id,
+        file_match_score: comparison.score,
+        file_product_name: fileItem.product_name,
+        file_price_mode: "DIRECT",
+        creates_cost_item: true,
+      };
+    });
+    return {
+      confidence: Math.min(0.94, Math.max(0.74, avgScore)),
+      source_type: "FEEDBACK_EXPLICIT_FILE_RECIPE",
+      source_barcode: null,
+      items,
+      evidence: {
+        reasons: [{ code: "EXPLICIT_REJECTION_NOTE_RECIPE" }],
+        explicitFeedbackRecipe: true,
+        targetPackCount: extractPackCount(target.product_name),
+        correctedItems: matched.map(
+          ({ correction, fileItem, comparison, priceScore }) => ({
+            noteProductName: correction.productName,
+            notePrice: correction.price,
+            fileMarketItemId: fileItem.id,
+            fileProductName: fileItem.product_name,
+            fileCurrentPrice: Number(fileItem.current_price),
+            score: comparison.score,
+            priceScore,
+          }),
+        ),
+        fileMatches: items.map((item) => ({
+          costItemCode: item.cost_item_code,
+          fileMarketItemId: item.file_market_item_id,
+          fileProductName: item.file_product_name,
+          score: item.file_match_score,
+          priceMode: "DIRECT",
+          createsCostItem: true,
+          estimatedUnitDesi: item.unit_desi,
+        })),
+        variantPriceInferred: false,
+        createsCostItem: true,
+        compositeProduct: items.length > 1,
+      },
+    };
   }
 
   buildFromCostItems(target, costItems, fileItems) {
@@ -997,7 +1130,8 @@ class MappingAutomationService {
         if (
           !hint.forceQuantityOne &&
           !hint.preferredTokens.length &&
-          !hint.rejectedTokens.length
+          !hint.rejectedTokens.length &&
+          !hint.explicitItems.length
         )
           continue;
         if (!feedbackHints.has(row.barcode)) feedbackHints.set(row.barcode, []);
@@ -1017,7 +1151,9 @@ class MappingAutomationService {
         [...fileBrands].some((brand) => targetName.includes(brand));
       if (!belongsToFileBrand) continue;
       scoped++;
+      const targetHints = feedbackHints.get(target.barcode);
       const candidates = [
+        this.buildFromFeedbackCorrection(target, targetHints, fileItems),
         ...this.buildTrainingCandidates(target, examples, fileItems),
         this.buildFromCompositeFileItems(target, fileItems),
         this.buildFromMultiVariantFileItems(target, fileItems),
@@ -1029,7 +1165,7 @@ class MappingAutomationService {
             candidate && candidate.confidence >= 0.3 && candidate.items.length,
         )
         .map((candidate) =>
-          applyRejectionHints(candidate, feedbackHints.get(target.barcode)),
+          applyRejectionHints(candidate, targetHints),
         )
         .map((candidate) => this.applyCompositeSafety(target, candidate))
         .sort((left, right) => sortCandidatesForTarget(target, left, right));
