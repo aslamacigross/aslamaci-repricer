@@ -13,6 +13,7 @@ import {
   BrainCircuit,
   Sparkles,
   Store,
+  SearchCheck,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
 import DataTable, { money, percent, date } from "../components/DataTable";
@@ -136,6 +137,12 @@ export default function Costs({ mode, notify }) {
             onClick={() => setMappingView("file")}
           >
             <Store /> File fiyat havuzu
+          </button>
+          <button
+            className={mappingView === "diagnostics" ? "active" : ""}
+            onClick={() => setMappingView("diagnostics")}
+          >
+            <SearchCheck /> Teşhis
           </button>
           <button
             className={mappingView === "learning" ? "active" : ""}

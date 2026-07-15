@@ -55,6 +55,15 @@ function mappingAutomationRoutes({ mappingAutomation, audit }) {
     ),
   );
   router.get(
+    "/mapping-suggestions/diagnostics",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.diagnostics(req.query),
+      }),
+    ),
+  );
+  router.get(
     "/mapping-learning/feedback",
     asyncRoute(async (req, res) =>
       res.json({

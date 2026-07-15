@@ -125,6 +125,68 @@ test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   assert.equal(saved.length, 0);
 });
 
+test("güvenli aday kalmadığında düşük güvenli File adayını manuel kontrole önerir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "LOWFILE",
+        product_name: "Actisoft Bez",
+        brand: "Actisoft",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 82,
+        product_name: "Actisoft Bulaşık Süngeri",
+        brand: "Actisoft",
+        current_price: 24,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].confidence_band, "LOW");
+  assert.equal(saved[0].items[0].file_product_name, "Actisoft Bulaşık Süngeri");
+});
+
+test("mapping teşhisi düşük güvenli üretilebilir adayı görünür yapar", async () => {
+  const { service } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "LOWDIAG",
+        product_name: "Actisoft Bez",
+        brand: "Actisoft",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 82,
+        product_name: "Actisoft Bulaşık Süngeri",
+        brand: "Actisoft",
+        current_price: 24,
+      },
+    ],
+  });
+
+  const result = await service.diagnostics({ limit: 100 });
+
+  assert.equal(result.processed, 1);
+  assert.equal(result.items[0].diagnosis, "LOW_CONFIDENCE_AVAILABLE");
+  assert.equal(result.summary.LOW_CONFIDENCE_AVAILABLE, 1);
+});
+
 test("geçmiş mapping yoksa güçlü File ürün eşleşmesinden yeni maliyet kalemi önerir", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],

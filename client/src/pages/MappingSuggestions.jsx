@@ -104,7 +104,141 @@ function hasVariantPrice(row) {
 export default function MappingSuggestions({ view, notify }) {
   if (view === "file") return <FileMarketPool notify={notify} />;
   if (view === "learning") return <MappingLearningHistory />;
+  if (view === "diagnostics") return <MappingDiagnostics notify={notify} />;
   return <SuggestionQueue notify={notify} />;
+}
+
+function diagnosisTone(code) {
+  if (code === "SUGGESTION_AVAILABLE" || code === "LOW_CONFIDENCE_AVAILABLE")
+    return "success";
+  if (code === "REJECTED_PATTERN" || code === "LOW_SCORE") return "warning";
+  if (code === "NO_FILE_CANDIDATE" || code === "FILE_POOL_EMPTY")
+    return "danger";
+  return "neutral";
+}
+
+function MappingDiagnostics({ notify }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await get(
+        "/api/mapping-suggestions/diagnostics?limit=1000",
+      );
+      setData(response.data);
+    } catch (nextError) {
+      setError(nextError);
+      notify?.(nextError.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const rows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return data?.items || [];
+    return (data?.items || []).filter((row) =>
+      [
+        row.barcode,
+        row.product_name,
+        row.brand,
+        row.diagnosis_label,
+        row.best_file_product_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(term),
+    );
+  }, [data, search]);
+
+  const columns = [
+    { key: "barcode", label: "Barkod" },
+    { key: "product_name", label: "Trendyol ürünü", width: 320 },
+    { key: "brand", label: "Marka" },
+    {
+      key: "diagnosis_label",
+      label: "Teşhis",
+      render: (row) => (
+        <Badge tone={diagnosisTone(row.diagnosis)}>
+          {row.diagnosis_label || row.diagnosis}
+        </Badge>
+      ),
+    },
+    { key: "best_file_product_name", label: "En yakın File ürünü", width: 300 },
+    {
+      key: "best_file_price",
+      label: "File fiyatı",
+      render: (row) => (row.best_file_price ? money(row.best_file_price) : "-"),
+    },
+    {
+      key: "best_file_score",
+      label: "File skoru",
+      render: (row) =>
+        row.best_file_score ? percent(Number(row.best_file_score) * 100) : "-",
+    },
+    {
+      key: "confidence",
+      label: "Öneri güveni",
+      render: (row) =>
+        row.confidence ? percent(Number(row.confidence) * 100) : "-",
+    },
+    { key: "data_status", label: "Veri durumu", badge: true },
+  ];
+
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorState error={error} retry={load} />;
+
+  return (
+    <>
+      <div className="mapping-toolbar">
+        <div className="filters">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Barkod, ürün, teşhis veya File adayı ara"
+          />
+        </div>
+        <div className="mapping-toolbar-actions">
+          <IconButton icon={RefreshCw} label="Yenile" onClick={load} />
+        </div>
+      </div>
+      <div className="info-banner">
+        <DatabaseZap />
+        <div>
+          <strong>Öneri üretilememe nedenleri</strong>
+          <p>
+            Bu ekran mapping hedeflerini File fiyat havuzu ve öğrenme geçmişiyle
+            karşılaştırır. Düşük güvenli adaylar onay/retle öğrenme verisine
+            dönüşebilir.
+          </p>
+        </div>
+      </div>
+      <section className="diagnostic-summary">
+        {Object.entries(data?.summary || {}).map(([key, value]) => (
+          <article key={key}>
+            <span>{key}</span>
+            <strong>{value}</strong>
+          </article>
+        ))}
+      </section>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        columnVisibilityKey="mapping-diagnostics"
+        exportFileName="mapping-teshis"
+      />
+    </>
+  );
 }
 
 function learningImpact(value) {

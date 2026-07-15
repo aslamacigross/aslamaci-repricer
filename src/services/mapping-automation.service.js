@@ -532,13 +532,13 @@ class MappingAutomationService {
     };
   }
 
-  buildFromFileItems(target, fileItems) {
+  buildFromFileItems(target, fileItems, { minScore = 0.54 } = {}) {
     return fileItems
       .map((fileItem) => ({
         fileItem,
         comparison: compareProducts(target, fileItem),
       }))
-      .filter(({ comparison }) => comparison.score >= 0.54)
+      .filter(({ comparison }) => comparison.score >= minScore)
       .sort((left, right) => right.comparison.score - left.comparison.score)
       .map(({ fileItem, comparison }) => {
         const unitDesi = estimateUnitDesi(fileItem);
@@ -665,7 +665,7 @@ class MappingAutomationService {
       const candidates = [
         ...this.buildTrainingCandidates(target, examples, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
-        ...this.buildFromFileItems(target, fileItems),
+        ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
       ]
         .filter(
           (candidate) =>
@@ -748,6 +748,145 @@ class MappingAutomationService {
 
   async listSuggestions(filters) {
     return this.repository.listSuggestions(filters);
+  }
+
+  async diagnostics({ limit = 1000 } = {}) {
+    const [targets, trainingRows, fileItems, costItems] = await Promise.all([
+      this.repository.targetProducts(limit),
+      this.repository.trainingRows(),
+      this.repository.fileItemsForMatching(),
+      this.repository.costItemsForMatching(),
+    ]);
+    const examples = this.groupTrainingRows(trainingRows);
+    const fileBrands = new Set(
+      fileItems.map((item) => normalizeText(item.brand)).filter(Boolean),
+    );
+    const rejectedFingerprints = new Set(
+      this.repository.rejectedFingerprints
+        ? await this.repository.rejectedFingerprints(
+            targets.map((target) => target.barcode),
+          )
+        : [],
+    );
+    const rejectedRecipes = new Set(
+      this.repository.rejectedRecipeKeys
+        ? await this.repository.rejectedRecipeKeys(
+            targets.map((target) => target.barcode),
+          )
+        : [],
+    );
+    const items = targets.map((target) => {
+      const targetBrand = normalizeText(target.brand);
+      const targetName = normalizeText(target.product_name);
+      const belongsToFileBrand =
+        fileBrands.has(targetBrand) ||
+        [...fileBrands].some((brand) => targetName.includes(brand));
+      if (!belongsToFileBrand)
+        return {
+          ...target,
+          diagnosis: "NOT_FILE_BRAND",
+          diagnosis_label: "File markası değil",
+        };
+      const fileMatches = fileItems
+        .map((fileItem) => ({
+          fileItem,
+          comparison: compareProducts(target, fileItem),
+        }))
+        .sort((left, right) => right.comparison.score - left.comparison.score);
+      const bestFile = fileMatches[0] || null;
+      const candidates = [
+        ...this.buildTrainingCandidates(target, examples, fileItems),
+        this.buildFromCostItems(target, costItems, fileItems),
+        ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
+      ].filter(
+        (candidate) =>
+          candidate && candidate.confidence >= 0.3 && candidate.items.length,
+      );
+      if (!fileItems.length)
+        return {
+          ...target,
+          diagnosis: "FILE_POOL_EMPTY",
+          diagnosis_label: "File havuzu boş",
+        };
+      if (!candidates.length)
+        return {
+          ...target,
+          diagnosis:
+            bestFile?.comparison?.score >= 0.18
+              ? "LOW_SCORE"
+              : "NO_FILE_CANDIDATE",
+          diagnosis_label:
+            bestFile?.comparison?.score >= 0.18
+              ? "Aday var ama skor çok düşük"
+              : "File havuzunda aday yok",
+          best_file_product_name: bestFile?.fileItem?.product_name || null,
+          best_file_score: bestFile?.comparison?.score || null,
+          best_file_price: bestFile?.fileItem?.current_price || null,
+        };
+      const suggestions = candidates
+        .map((candidate) => this.buildSuggestion(target, candidate))
+        .filter(Boolean);
+      const rejected = suggestions.find(
+        (suggestion) =>
+          rejectedFingerprints.has(
+            `${suggestion.barcode}:${suggestion.fingerprint}`,
+          ) ||
+          rejectedRecipes.has(`${suggestion.barcode}:${suggestion.recipe_key}`),
+      );
+      const available = suggestions.find(
+        (suggestion) =>
+          !rejectedFingerprints.has(
+            `${suggestion.barcode}:${suggestion.fingerprint}`,
+          ) &&
+          !rejectedRecipes.has(
+            `${suggestion.barcode}:${suggestion.recipe_key}`,
+          ),
+      );
+      if (available)
+        return {
+          ...target,
+          diagnosis:
+            available.base_confidence >= 0.54
+              ? "SUGGESTION_AVAILABLE"
+              : "LOW_CONFIDENCE_AVAILABLE",
+          diagnosis_label:
+            available.base_confidence >= 0.54
+              ? "Öneri üretilebilir"
+              : "Düşük güvenli öneri üretilebilir",
+          best_file_product_name:
+            available.items.find((item) => item.file_product_name)
+              ?.file_product_name ||
+            bestFile?.fileItem?.product_name ||
+            null,
+          best_file_score: bestFile?.comparison?.score || null,
+          best_file_price:
+            available.items.find((item) => item.suggested_unit_cost)
+              ?.suggested_unit_cost ||
+            bestFile?.fileItem?.current_price ||
+            null,
+          confidence: available.base_confidence,
+        };
+      return {
+        ...target,
+        diagnosis: rejected ? "REJECTED_PATTERN" : "NO_FILE_SUPPORT",
+        diagnosis_label: rejected
+          ? "Benzer öneri daha önce reddedilmiş"
+          : "File fiyat desteği yok",
+        best_file_product_name: bestFile?.fileItem?.product_name || null,
+        best_file_score: bestFile?.comparison?.score || null,
+        best_file_price: bestFile?.fileItem?.current_price || null,
+      };
+    });
+    const summary = items.reduce((acc, item) => {
+      acc[item.diagnosis] = (acc[item.diagnosis] || 0) + 1;
+      return acc;
+    }, {});
+    return {
+      processed: targets.length,
+      filePoolSize: fileItems.length,
+      summary,
+      items,
+    };
   }
 
   async listLearningFeedback(filters) {
