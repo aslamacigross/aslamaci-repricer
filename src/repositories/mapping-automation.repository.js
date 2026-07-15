@@ -578,14 +578,15 @@ class MappingAutomationRepository {
             `INSERT INTO mapping_suggestion_items(
               suggestion_id,cost_item_code,file_market_item_id,quantity,
               current_unit_cost,suggested_unit_cost,unit_desi
-            )SELECT $1::bigint,$2,$3::bigint,$4::numeric,ci.unit_cost,$5::numeric,ci.unit_desi
-             FROM cost_items ci WHERE ci.item_code=$2`,
+            )VALUES($1::bigint,$2,$3::bigint,$4::numeric,$5::numeric,$6::numeric,$7::numeric)`,
             [
               id,
               item.cost_item_code,
               item.file_market_item_id || null,
               item.quantity,
+              item.current_unit_cost || null,
               item.suggested_unit_cost || null,
+              item.unit_desi || null,
             ],
           );
         }
@@ -639,6 +640,39 @@ class MappingAutomationRepository {
       return { conflict: "FILE_PRICE_STALE" };
     const codes = suggestion.items.map((item) => item.cost_item_code);
     const codePlaceholders = codes.map((_, index) => `$${index + 1}`).join(",");
+    const existingBeforeCreate = (
+      await client.query(
+        `SELECT item_code FROM cost_items
+         WHERE item_code IN (${codePlaceholders}) FOR UPDATE`,
+        codes,
+      )
+    ).rows;
+    const existingCodes = new Set(
+      existingBeforeCreate.map((item) => item.item_code),
+    );
+    for (const item of suggestion.items) {
+      if (existingCodes.has(item.cost_item_code)) continue;
+      if (
+        !item.file_market_item_id ||
+        Number(item.suggested_unit_cost) <= 0 ||
+        Number(item.unit_desi) <= 0
+      )
+        continue;
+      await client.query(
+        `INSERT INTO cost_items(
+          item_code,item_name,unit_cost,unit_desi,unit,note,
+          price_source,source_checked_at,updated_at
+        )VALUES($1,$2,$3,$4,'adet',$5,'FILE_MARKET',NOW(),NOW())
+        ON CONFLICT(item_code)DO NOTHING`,
+        [
+          item.cost_item_code,
+          item.file_product_name || item.item_name || item.cost_item_code,
+          Number(item.suggested_unit_cost),
+          Number(item.unit_desi),
+          "Akıllı mapping File direkt eşleşmesiyle oluşturuldu",
+        ],
+      );
+    }
     const costItems = (
       await client.query(
         `SELECT item_code,unit_cost,unit_desi FROM cost_items

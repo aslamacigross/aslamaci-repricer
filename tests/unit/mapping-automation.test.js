@@ -125,6 +125,42 @@ test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   assert.equal(saved.length, 0);
 });
 
+test("geçmiş mapping yoksa güçlü File ürün eşleşmesinden yeni maliyet kalemi önerir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "FISTIK",
+        product_name: "Harras Fıstık Ezmesi 350 g",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 18,
+        product_name: "Harras Fıstık Ezmesi 350 g",
+        brand: "Harras",
+        size_value: 350,
+        size_unit: "g",
+        current_price: 89.95,
+      },
+    ],
+  });
+
+  const result = await service.generate({ limit: 100 });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+  assert.equal(saved[0].items[0].file_market_item_id, 18);
+  assert.equal(saved[0].items[0].suggested_unit_cost, 89.95);
+  assert.equal(saved[0].items[0].unit_desi, 0.35);
+  assert.match(saved[0].items[0].cost_item_code, /HARRAS/);
+});
+
 test("reddedilen aynı öneriyi atlayıp sıradaki güvenilir adayı üretir", async () => {
   const badSource = {
     barcode: "BAD_SOURCE",

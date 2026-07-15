@@ -96,6 +96,30 @@ function hashValue(value) {
     .digest("hex");
 }
 
+function generatedCostCode(fileItem) {
+  const raw = normalizeText(`${fileItem.brand || ""} ${fileItem.product_name}`)
+    .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8)
+    .join("_")
+    .toUpperCase();
+  const size =
+    fileItem.size_value && fileItem.size_unit
+      ? `_${Number(fileItem.size_value).toLocaleString("tr-TR", {
+          maximumFractionDigits: 0,
+          useGrouping: false,
+        })}${String(fileItem.size_unit).toUpperCase()}`
+      : "";
+  return `${raw || "FILE_URUN"}${size}`.replace(/[^A-Z0-9_]/g, "_");
+}
+
+function estimateUnitDesi(fileItem) {
+  const value = Number(fileItem.size_value || 0);
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  return Number(Math.max(value / 1000, 0.1).toFixed(3));
+}
+
 class MappingAutomationService {
   constructor({ repository, costs, costEngine }) {
     this.repository = repository;
@@ -337,6 +361,55 @@ class MappingAutomationService {
     };
   }
 
+  buildFromFileItems(target, fileItems) {
+    return fileItems
+      .map((fileItem) => ({
+        fileItem,
+        comparison: compareProducts(target, fileItem),
+      }))
+      .filter(({ comparison }) => comparison.score >= 0.54)
+      .sort((left, right) => right.comparison.score - left.comparison.score)
+      .map(({ fileItem, comparison }) => {
+        const unitDesi = estimateUnitDesi(fileItem);
+        return {
+          confidence: Math.min(0.88, comparison.score),
+          source_type: "FILE_DIRECT_COST_ITEM",
+          source_barcode: null,
+          items: [
+            {
+              cost_item_code: generatedCostCode(fileItem),
+              item_name: fileItem.product_name,
+              quantity: extractPackCount(target.product_name),
+              current_unit_cost: Number(fileItem.current_price),
+              suggested_unit_cost: Number(fileItem.current_price),
+              unit_desi: unitDesi,
+              file_market_item_id: fileItem.id,
+              file_match_score: comparison.score,
+              file_product_name: fileItem.product_name,
+              file_price_mode: "DIRECT",
+              creates_cost_item: true,
+            },
+          ],
+          evidence: {
+            reasons: comparison.reasons,
+            targetPackCount: comparison.targetPackCount,
+            fileMatches: [
+              {
+                costItemCode: generatedCostCode(fileItem),
+                fileProductName: fileItem.product_name,
+                score: comparison.score,
+                priceMode: "DIRECT",
+                createsCostItem: true,
+                estimatedUnitDesi: unitDesi,
+              },
+            ],
+            variantPriceInferred: false,
+            createsCostItem: true,
+          },
+        };
+      });
+  }
+
   buildSuggestion(target, candidate) {
     const baseConfidence = Number(candidate.confidence.toFixed(5));
     const fileIds = [
@@ -404,6 +477,7 @@ class MappingAutomationService {
       const candidates = [
         ...this.buildTrainingCandidates(target, examples, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
+        ...this.buildFromFileItems(target, fileItems),
       ].filter(
         (candidate) =>
           candidate && candidate.confidence >= 0.3 && candidate.items.length,
@@ -499,14 +573,25 @@ class MappingAutomationService {
   }
 
   normalizeDecisionItems(suggestion, items) {
-    const rows = (items?.length ? items : suggestion.items).map((item) => ({
-      marketplace: "TRENDYOL",
-      barcode: suggestion.barcode,
-      cost_item_code: String(item.cost_item_code || "").trim(),
-      quantity: Number(item.quantity),
-      file_market_item_id: item.file_market_item_id || null,
-      suggested_unit_cost: Number(item.suggested_unit_cost || 0) || null,
-    }));
+    const inputItems = items?.length ? items : suggestion.items;
+    const rows = inputItems.map((item, index) => {
+      const original = suggestion.items[index] || {};
+      return {
+        marketplace: "TRENDYOL",
+        barcode: suggestion.barcode,
+        cost_item_code: String(item.cost_item_code || "").trim(),
+        item_name: item.item_name || original.item_name || original.file_product_name,
+        quantity: Number(item.quantity),
+        file_market_item_id: item.file_market_item_id || null,
+        current_unit_cost:
+          Number(item.current_unit_cost || original.current_unit_cost || 0) ||
+          null,
+        suggested_unit_cost:
+          Number(item.suggested_unit_cost || original.suggested_unit_cost || 0) ||
+          null,
+        unit_desi: Number(item.unit_desi || original.unit_desi || 0) || null,
+      };
+    });
     if (
       rows.length < 1 ||
       rows.length > 20 ||
@@ -525,6 +610,14 @@ class MappingAutomationService {
     return rows;
   }
 
+  isCreatableCostItem(row) {
+    return (
+      row.file_market_item_id &&
+      Number(row.suggested_unit_cost) > 0 &&
+      Number(row.unit_desi) > 0
+    );
+  }
+
   async approve(id, actor, input = {}) {
     const suggestion = await this.getSuggestion(id);
     if (suggestion.status !== "PENDING")
@@ -535,12 +628,23 @@ class MappingAutomationService {
       );
     const items = this.normalizeDecisionItems(suggestion, input.items);
     const validation = await this.costs.validateMappings(items);
-    if (!validation.valid)
+    const blockingErrors = validation.valid
+      ? []
+      : validation.errors.filter(
+          (error) =>
+            error.code !== "ORPHAN_COST_CODE" ||
+            !items.some(
+              (item) =>
+                item.cost_item_code === error.value &&
+                this.isCreatableCostItem(item),
+            ),
+        );
+    if (blockingErrors.length)
       throw new AppError(
         "Öneri mapping doğrulamasından geçmedi",
         422,
         "SUGGESTION_MAPPING_INVALID",
-        validation.errors,
+        blockingErrors,
       );
     const result = await this.repository.decide(id, "APPROVED", actor, {
       items,

@@ -164,10 +164,26 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   assert.equal(Number(feedbackAfterReject.items[0].accepted_count), 1);
   assert.equal(Number(feedbackAfterReject.items[0].rejected_count), 1);
   const repeated = await service.generate({ limit: 20 });
-  assert.equal(repeated.created, 0);
+  assert.equal(repeated.created, 1);
   const pendingAfterReject = await service.listSuggestions({
     status: "PENDING",
   });
-  assert.equal(pendingAfterReject.total, 0);
+  assert.equal(pendingAfterReject.total, 1);
+  assert.equal(pendingAfterReject.items[0].source_type, "FILE_DIRECT_COST_ITEM");
+  const directApproved = await service.approve(
+    pendingAfterReject.items[0].id,
+    "admin",
+    { update_file_price: true },
+  );
+  const directPreview = await service.bulkPreview([directApproved.id]);
+  await service.bulkApply([directApproved.id], directPreview.token, "admin");
+  const directCostItem = await db.query(
+    "SELECT unit_cost,unit_desi,price_source FROM cost_items WHERE item_code=$1",
+    [pendingAfterReject.items[0].items[0].cost_item_code],
+  );
+  assert.equal(directCostItem.rowCount, 1);
+  assert.equal(Number(directCostItem.rows[0].unit_cost), 112);
+  assert.equal(Number(directCostItem.rows[0].unit_desi), 1.5);
+  assert.equal(directCostItem.rows[0].price_source, "FILE_MARKET");
   await db.end();
 });

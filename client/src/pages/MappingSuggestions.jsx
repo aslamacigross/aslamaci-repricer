@@ -280,7 +280,7 @@ function SuggestionQueue({ notify }) {
       });
       const data = response.data;
       notify(
-        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} File markası kapsamındaydı, ${data.withoutCandidate || 0} üründe güvenli aday kalmadı`,
+        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} File markası kapsamındaydı, ${data.withoutCandidate || 0} üründe güvenli aday kalmadı, ${data.withoutFileSupport || 0} üründe File fiyat desteği yok`,
       );
       setStatus("PENDING");
       await load();
