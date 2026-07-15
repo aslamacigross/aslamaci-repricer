@@ -354,6 +354,7 @@ function MappingDiagnostics({ notify }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [busyBarcode, setBusyBarcode] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -393,6 +394,47 @@ function MappingDiagnostics({ notify }) {
     );
   }, [data, search]);
 
+  async function regenerate(row) {
+    setBusyBarcode(row.barcode);
+    try {
+      const response = await post(
+        `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/regenerate`,
+        {},
+      );
+      notify?.(
+        response.data.created
+          ? `${row.barcode} için ${response.data.created} öneri üretildi`
+          : `${row.barcode} için yeni öneri bulunamadı`,
+        response.data.created ? "success" : "warning",
+      );
+      await load();
+    } catch (nextError) {
+      notify?.(nextError.message, "error");
+    } finally {
+      setBusyBarcode(null);
+    }
+  }
+
+  async function moveToManual(row) {
+    setBusyBarcode(row.barcode);
+    try {
+      await post(
+        `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/manual-cost`,
+        {
+          reason: `Teşhis ekranından manuel maliyet kuyruğuna alındı: ${
+            row.diagnosis_label || row.diagnosis
+          }`,
+        },
+      );
+      notify?.(`${row.barcode} manuel maliyet kuyruğuna alındı`, "success");
+      await load();
+    } catch (nextError) {
+      notify?.(nextError.message, "error");
+    } finally {
+      setBusyBarcode(null);
+    }
+  }
+
   const columns = [
     { key: "barcode", label: "Barkod" },
     { key: "product_name", label: "Trendyol ürünü", width: 320 },
@@ -425,6 +467,41 @@ function MappingDiagnostics({ notify }) {
         row.confidence ? percent(Number(row.confidence) * 100) : "-",
     },
     { key: "data_status", label: "Veri durumu", badge: true },
+    {
+      key: "ops",
+      label: "İşlem",
+      sortable: false,
+      exportable: false,
+      render: (row) => {
+        const canRegenerate = [
+          "SUGGESTION_AVAILABLE",
+          "LOW_CONFIDENCE_AVAILABLE",
+          "REJECTED_PATTERN",
+          "LOW_SCORE",
+        ].includes(row.diagnosis);
+        const busy = busyBarcode === row.barcode;
+        return (
+          <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+            <Button
+              variant="secondary"
+              icon={Sparkles}
+              disabled={busy || !canRegenerate}
+              onClick={() => regenerate(row)}
+            >
+              Öner
+            </Button>
+            <Button
+              variant="ghost"
+              icon={FileUp}
+              disabled={busy}
+              onClick={() => moveToManual(row)}
+            >
+              Manuel
+            </Button>
+          </div>
+        );
+      },
+    },
   ];
 
   if (loading && !data) return <Loading />;

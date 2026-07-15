@@ -1120,9 +1120,9 @@ class MappingAutomationService {
     return suggestion;
   }
 
-  async generate({ limit = 500 } = {}) {
+  async generate({ limit = 500, barcode = null } = {}) {
     const [targets, trainingRows, fileItems, costItems] = await Promise.all([
-      this.repository.targetProducts(limit),
+      this.repository.targetProducts({ limit, barcode }),
       this.repository.trainingRows(),
       this.repository.fileItemsForMatching(),
       this.repository.costItemsForMatching(),
@@ -1418,6 +1418,31 @@ class MappingAutomationService {
 
   async manualCostQueue(filters) {
     return this.repository.manualCostQueue(filters);
+  }
+
+  async regenerateDiagnosticBarcode(barcode) {
+    const result = await this.generate({ barcode, limit: 1 });
+    if (!result.processed)
+      throw new AppError(
+        "Bu barkod öneri üretimi için uygun aktif mapping hedefi değil",
+        404,
+        "DIAGNOSTIC_TARGET_NOT_FOUND",
+      );
+    return result;
+  }
+
+  async markDiagnosticManualCost(barcode, actor, input = {}) {
+    const reason = String(
+      input.reason || "Teşhis ekranından manuel maliyet kuyruğuna alındı",
+    ).trim();
+    const row = await this.repository.markManualCostNeeded(
+      barcode,
+      actor,
+      reason,
+    );
+    if (!row)
+      throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+    return row;
   }
 
   normalizeManualCostInput(barcode, input = {}) {

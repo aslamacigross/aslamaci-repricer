@@ -1,5 +1,8 @@
 const { isFilePriceFresh } = require("../domain/file-market");
-const { buildMappingRecipeKey } = require("../domain/mapping-learning");
+const {
+  buildMappingLearningKey,
+  buildMappingRecipeKey,
+} = require("../domain/mapping-learning");
 const { extractSizes } = require("../domain/product-matching");
 
 function inferredUnitDesi(item) {
@@ -151,7 +154,23 @@ class MappingAutomationRepository {
     ).rows;
   }
 
-  async targetProducts(limit = 500) {
+  async targetProducts(options = 500) {
+    const normalized =
+      typeof options === "object" && options !== null
+        ? options
+        : { limit: options };
+    const params = [];
+    const where = [
+      "p.marketplace='TRENDYOL'",
+      "p.is_active=TRUE",
+      "p.product_name IS NOT NULL",
+      `(p.data_status='MAPPING_MISSING' OR COALESCE(mt.mapping_count,0)=0)`,
+    ];
+    if (normalized.barcode) {
+      params.push(String(normalized.barcode).trim());
+      where.push(`p.barcode=$${params.length}`);
+    }
+    params.push(Math.min(Math.max(Number(normalized.limit) || 500, 1), 1000));
     return (
       await this.db.query(
         `SELECT p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
@@ -163,15 +182,10 @@ class MappingAutomationRepository {
            FROM product_cost_mappings
            GROUP BY marketplace,barcode
          ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
-         WHERE p.marketplace='TRENDYOL' AND p.is_active=TRUE
-           AND p.product_name IS NOT NULL
-           AND (
-             p.data_status='MAPPING_MISSING'
-             OR COALESCE(mt.mapping_count,0)=0
-           )
+         WHERE ${where.join(" AND ")}
          ORDER BY p.product_name
-         LIMIT $1`,
-        [Math.min(Math.max(Number(limit) || 500, 1), 1000)],
+         LIMIT $${params.length}`,
+        params,
       )
     ).rows;
   }
@@ -303,6 +317,43 @@ class MappingAutomationRepository {
       page: safePage,
       limit: safeLimit,
     };
+  }
+
+  async markManualCostNeeded(barcode, actor, reason) {
+    const normalizedBarcode = String(barcode || "").trim();
+    const product = (
+      await this.db.query(
+        `SELECT barcode,product_name,brand,category_id,category_name
+         FROM products
+         WHERE marketplace='TRENDYOL' AND barcode=$1`,
+        [normalizedBarcode],
+      )
+    ).rows[0];
+    if (!product) return null;
+    const learningKey = buildMappingLearningKey({
+      barcode: normalizedBarcode,
+      source_type: "DIAGNOSTIC_MANUAL_COST",
+      product_snapshot: product,
+      items: [],
+    });
+    return (
+      await this.db.query(
+        `INSERT INTO mapping_feedback_events(
+          marketplace,barcode,learning_key,decision,actor,
+          base_confidence,confidence,confidence_band,learning_adjustment,
+          source_type,items,evidence,reason
+        )VALUES('TRENDYOL',$1,$2,'REJECTED',$3,0,0,'LOW',0,
+          'DIAGNOSTIC_MANUAL_COST','[]'::jsonb,$4::jsonb,$5)
+        RETURNING *`,
+        [
+          normalizedBarcode,
+          learningKey,
+          actor,
+          JSON.stringify({ source: "mapping_diagnostics", product }),
+          reason || "Manuel maliyet girişi gerekli",
+        ],
+      )
+    ).rows[0];
   }
 
   async saveSuggestions(suggestions, evaluatedBarcodes = []) {

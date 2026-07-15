@@ -23,6 +23,17 @@ function appFixture() {
     }),
     listFileItems: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
     generate: async () => ({ created: 3, trainingProductCount: 120 }),
+    diagnostics: async () => ({ items: [], summary: {}, processed: 0 }),
+    regenerateDiagnosticBarcode: async (barcode) => ({
+      barcode,
+      processed: 1,
+      created: 1,
+    }),
+    markDiagnosticManualCost: async (barcode, actor, body) => ({
+      barcode,
+      actor,
+      reason: body.reason,
+    }),
     listSuggestions: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
     listLearningFeedback: async () => ({
       items: [{ id: 1, decision: "APPROVED" }],
@@ -99,4 +110,22 @@ test("mapping karar geçmişi API üzerinden listelenir", async () => {
     .expect(200);
   assert.equal(response.body.data.total, 1);
   assert.equal(response.body.data.items[0].decision, "APPROVED");
+});
+
+test("teşhis satırından tek barkod önerisi yeniden üretilebilir", async () => {
+  const response = await request(appFixture().app)
+    .post("/api/mapping-suggestions/diagnostics/528528268/regenerate")
+    .send({})
+    .expect(200);
+  assert.equal(response.body.data.barcode, "528528268");
+  assert.equal(response.body.data.created, 1);
+});
+
+test("teşhis satırı manuel maliyet kuyruğuna alınabilir", async () => {
+  const response = await request(appFixture().app)
+    .post("/api/mapping-suggestions/diagnostics/528528268/manual-cost")
+    .send({ reason: "manuel giriş yapacağım" })
+    .expect(200);
+  assert.equal(response.body.data.barcode, "528528268");
+  assert.equal(response.body.data.reason, "manuel giriş yapacağım");
 });

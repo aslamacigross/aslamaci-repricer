@@ -227,4 +227,55 @@ describe("Akıllı mapping paneli", () => {
     expect(screen.getByText("3 onay / 1 ret")).toBeVisible();
     expect(screen.getByText("+2,5 puan")).toBeVisible();
   });
+
+  test("teşhis satırından öneri üretir ve manuel kuyruğa alır", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: {
+        processed: 1,
+        summary: { LOW_CONFIDENCE_AVAILABLE: 1 },
+        items: [
+          {
+            barcode: "528528268",
+            product_name: "Harras Filtre Kahve Seti",
+            brand: "Harras",
+            diagnosis: "LOW_CONFIDENCE_AVAILABLE",
+            diagnosis_label: "Düşük güvenli öneri üretilebilir",
+            best_file_product_name: "Harras Guatemala Filtre Kahve 250 g",
+            best_file_price: 229,
+            best_file_score: 0.52,
+            confidence: 0.41,
+            data_status: "MAPPING_MISSING",
+          },
+        ],
+      },
+    });
+    post.mockImplementation(async (path) => {
+      if (path.endsWith("/regenerate"))
+        return { data: { barcode: "528528268", created: 1 } };
+      if (path.endsWith("/manual-cost"))
+        return { data: { barcode: "528528268" } };
+      return { data: {} };
+    });
+
+    render(<MappingSuggestions view="diagnostics" notify={notify} />);
+    expect(await screen.findByText("Harras Filtre Kahve Seti")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Öner" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/mapping-suggestions/diagnostics/528528268/regenerate",
+        {},
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Manuel" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/mapping-suggestions/diagnostics/528528268/manual-cost",
+        expect.objectContaining({
+          reason: expect.stringContaining("Teşhis ekranından"),
+        }),
+      ),
+    );
+  });
 });

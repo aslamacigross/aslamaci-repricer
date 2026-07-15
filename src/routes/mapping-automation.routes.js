@@ -76,6 +76,30 @@ function mappingAutomationRoutes({ mappingAutomation, fileMarket, audit }) {
       }),
     ),
   );
+  router.post(
+    "/mapping-suggestions/diagnostics/:barcode/regenerate",
+    asyncRoute(async (req, res) => {
+      const data = await mappingAutomation.regenerateDiagnosticBarcode(
+        req.params.barcode,
+      );
+      await log(req, "MAPPING_DIAGNOSTIC_REGENERATED", req.params.barcode, data);
+      res.json({ status: "ok", data });
+    }),
+  );
+  router.post(
+    "/mapping-suggestions/diagnostics/:barcode/manual-cost",
+    asyncRoute(async (req, res) => {
+      const data = await mappingAutomation.markDiagnosticManualCost(
+        req.params.barcode,
+        req.user.username,
+        req.body,
+      );
+      await log(req, "MAPPING_DIAGNOSTIC_MANUAL_COST", req.params.barcode, {
+        reason: data.reason,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
   router.get(
     "/mapping-learning/feedback",
     asyncRoute(async (req, res) =>
