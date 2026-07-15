@@ -36,6 +36,8 @@ const PRODUCT_FAMILY_TOKENS = new Set([
   "jeli",
   "kolonya",
   "konsantre",
+  "filtre",
+  "kahve",
   "kokulu",
   "kokusu",
   "makinesi",
@@ -45,6 +47,7 @@ const PRODUCT_FAMILY_TOKENS = new Set([
   "sabun",
   "sivi",
   "suyu",
+  "tekli",
   "temizleyici",
   "yumusatici",
   "yuzey",
@@ -278,6 +281,13 @@ function productFamilySignature(value, brand = "") {
     .filter((token) => PRODUCT_FAMILY_TOKENS.has(token) || sizeTokens.has(token))
     .slice(0, 5);
   return family.join("_") || normalizeText(brand) || "file";
+}
+
+function normalizedProductIdentity(fileItem) {
+  return normalizeText(fileItem.product_name)
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function compositeSingleItemRisk(target, items) {
@@ -980,9 +990,10 @@ class MappingAutomationService {
         (candidate) =>
           candidate.brandMatches &&
           targetHasSize(targetSizes, candidate.itemSize) &&
-          candidate.overlap.length >= 2 &&
+          candidate.overlap.length >= 1 &&
           candidate.coverage >= 0.5 &&
-          candidate.comparison.score >= 0.42,
+          (candidate.comparison.score >= 0.42 ||
+            (candidate.coverage >= 0.9 && candidate.comparison.score >= 0.32)),
       )
       .sort((left, right) => {
         if (right.overlap.length !== left.overlap.length)
@@ -993,11 +1004,15 @@ class MappingAutomationService {
 
     const selected = [];
     const used = new Set();
+    const usedProductIdentities = new Set();
     for (const candidate of candidates) {
       const key = String(candidate.fileItem.id);
+      const identity = normalizedProductIdentity(candidate.fileItem);
       if (used.has(key)) continue;
+      if (identity && usedProductIdentities.has(identity)) continue;
       selected.push(candidate);
       used.add(key);
+      if (identity) usedProductIdentities.add(identity);
       if (selected.length >= 6) break;
     }
     if (selected.length < 2) return null;

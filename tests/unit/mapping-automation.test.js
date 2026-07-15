@@ -387,6 +387,18 @@ test("kahve varyant setinde dört File ürünü ayrı maliyet kalemi olur", asyn
         brand: "Harras",
         current_price: 199,
       },
+      {
+        id: 561,
+        product_name: "Harras Pratik Filtre Kahve Tekli",
+        brand: "Harras",
+        current_price: 11.5,
+      },
+      {
+        id: 377,
+        product_name: "Harras Pratik Filtre Kahve Tekli",
+        brand: "Harras",
+        current_price: 11.5,
+      },
     ],
   });
 
@@ -398,6 +410,11 @@ test("kahve varyant setinde dört File ürünü ayrı maliyet kalemi olur", asyn
   assert.deepEqual(
     saved[0].items.map((item) => item.file_market_item_id).sort(),
     [51, 52, 53, 54],
+  );
+  assert.ok(
+    saved[0].items.every(
+      (item) => !item.file_product_name.toLowerCase().includes("pratik"),
+    ),
   );
   assert.equal(saved[0].evidence.multiVariantProduct, true);
 });
@@ -733,6 +750,18 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
         brand: "Harras",
         current_price: 199,
       },
+      {
+        id: 561,
+        product_name: "Harras Pratik Filtre Kahve Tekli",
+        brand: "Harras",
+        current_price: 11.5,
+      },
+      {
+        id: 377,
+        product_name: "Harras Pratik Filtre Kahve Tekli",
+        brand: "Harras",
+        current_price: 11.5,
+      },
     ],
   });
 
@@ -743,6 +772,11 @@ test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", a
   assert.deepEqual(
     saved[0].items.map((item) => item.file_market_item_id).sort(),
     [61, 62, 63, 64],
+  );
+  assert.ok(
+    saved[0].items.every(
+      (item) => !item.file_product_name.toLowerCase().includes("pratik"),
+    ),
   );
   assert.deepEqual(
     saved[0].items.map((item) => item.suggested_unit_cost).sort((a, b) => a - b),
