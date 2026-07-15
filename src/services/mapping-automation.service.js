@@ -50,6 +50,10 @@ const PRODUCT_FAMILY_TOKENS = new Set([
   "yuzey",
 ]);
 
+const COMPOSITE_SPLIT_PATTERN = /\s+(?:ve|\+|\/|,)\s+/i;
+const COMPOSITE_MARKER_PATTERN =
+  /\b(?:set|karma|karisik|karışık|cesit|çeşit|cesitleri|çeşitleri|mix|ve)\b|(?:\s[+/,]\s)/i;
+
 function filePriceMode(target, fileItem) {
   const targetVariants = tokens(target.product_name || target.item_name).filter(
     (token) => !PRODUCT_FAMILY_TOKENS.has(token),
@@ -153,6 +157,55 @@ function fileBackedQuantity(target, fileItem) {
   if (targetInternal && fileInternal && targetInternal === fileInternal)
     return 1;
   return extractPackCount(target.product_name);
+}
+
+function significantProductTokens(value, brand = "") {
+  const brandTokens = new Set(tokens(brand));
+  return tokens(value).filter(
+    (token) =>
+      token.length > 2 &&
+      !brandTokens.has(token) &&
+      !PRODUCT_FAMILY_TOKENS.has(token),
+  );
+}
+
+function splitCompositeFragments(value) {
+  const normalized = normalizeText(value);
+  if (!COMPOSITE_MARKER_PATTERN.test(normalized)) return [];
+  return String(value || "")
+    .split(COMPOSITE_SPLIT_PATTERN)
+    .map((part) => part.trim())
+    .filter((part) => significantProductTokens(part).length >= 1)
+    .slice(0, 6);
+}
+
+function compositeSingleItemRisk(target, items) {
+  if (items.length !== 1) return null;
+  const text = normalizeText(target.product_name);
+  if (!COMPOSITE_MARKER_PATTERN.test(text)) return null;
+  const fragments = splitCompositeFragments(target.product_name);
+  const targetTokens = significantProductTokens(target.product_name, target.brand);
+  if (targetTokens.length < 3) return null;
+  const candidateTokens = new Set(
+    significantProductTokens(
+      `${items[0].file_product_name || ""} ${items[0].item_name || ""} ${items[0].cost_item_code || ""}`,
+      target.brand,
+    ),
+  );
+  const missing = targetTokens.filter((token) => !candidateTokens.has(token));
+  const missingRatio = missing.length / targetTokens.length;
+  if (fragments.length >= 2 && missing.length >= 1)
+    return {
+      missingTokens: missing.slice(0, 8),
+      missingRatio: Number(missingRatio.toFixed(4)),
+      fragments,
+    };
+  if (missing.length < 2 && missingRatio < 0.45) return null;
+  return {
+    missingTokens: missing.slice(0, 8),
+    missingRatio: Number(missingRatio.toFixed(4)),
+    fragments,
+  };
 }
 
 const FEEDBACK_HINT_STOP_WORDS = new Set([
@@ -593,6 +646,95 @@ class MappingAutomationService {
       });
   }
 
+  buildFromCompositeFileItems(target, fileItems) {
+    const fragments = splitCompositeFragments(target.product_name);
+    if (fragments.length < 2) return null;
+    const used = new Set();
+    const matched = [];
+    for (const fragment of fragments) {
+      const fragmentTarget = {
+        ...target,
+        product_name: target.brand
+          ? `${target.brand} ${fragment}`
+          : fragment,
+      };
+      const best = fileItems
+        .map((fileItem) => ({
+          fileItem,
+          comparison: compareProducts(fragmentTarget, fileItem),
+        }))
+        .filter(
+          ({ fileItem, comparison }) =>
+            comparison.score >= 0.54 && !used.has(fileItem.id),
+        )
+        .sort((left, right) => right.comparison.score - left.comparison.score)[0];
+      if (!best) continue;
+      used.add(best.fileItem.id);
+      matched.push({ fragment, ...best });
+    }
+    if (matched.length < 2) return null;
+    const avgScore =
+      matched.reduce((sum, item) => sum + item.comparison.score, 0) /
+      matched.length;
+    const confidence = Math.min(0.86, avgScore * 0.92);
+    const items = matched.map(({ fragment, fileItem, comparison }) => {
+      const unitDesi = estimateUnitDesi(fileItem);
+      return {
+        cost_item_code: generatedCostCode(fileItem),
+        item_name: fileItem.product_name,
+        quantity: fileBackedQuantity({ product_name: fragment }, fileItem),
+        current_unit_cost: Number(fileItem.current_price),
+        suggested_unit_cost: Number(fileItem.current_price),
+        unit_desi: unitDesi,
+        file_market_item_id: fileItem.id,
+        file_match_score: comparison.score,
+        file_product_name: fileItem.product_name,
+        file_price_mode: "DIRECT",
+        creates_cost_item: true,
+      };
+    });
+    return {
+      confidence,
+      source_type: "FILE_COMPOSITE_COST_ITEMS",
+      source_barcode: null,
+      items,
+      evidence: {
+        reasons: [{ code: "COMPOSITE_FILE_MATCH" }],
+        targetPackCount: extractPackCount(target.product_name),
+        compositeFragments: matched.map(({ fragment, fileItem, comparison }) => ({
+          fragment,
+          fileProductName: fileItem.product_name,
+          score: comparison.score,
+        })),
+        fileMatches: items.map((item) => ({
+          costItemCode: item.cost_item_code,
+          fileProductName: item.file_product_name,
+          score: item.file_match_score,
+          priceMode: "DIRECT",
+          createsCostItem: true,
+          estimatedUnitDesi: item.unit_desi,
+        })),
+        variantPriceInferred: false,
+        createsCostItem: true,
+        compositeProduct: true,
+      },
+    };
+  }
+
+  applyCompositeSafety(target, candidate) {
+    const risk = compositeSingleItemRisk(target, candidate.items);
+    if (!risk) return candidate;
+    return {
+      ...candidate,
+      confidence: Math.min(candidate.confidence, 0.69),
+      evidence: {
+        ...candidate.evidence,
+        compositeReviewNeeded: true,
+        compositeRisk: risk,
+      },
+    };
+  }
+
   buildSuggestion(target, candidate) {
     const baseConfidence = Number(candidate.confidence.toFixed(5));
     const fileIds = [
@@ -676,6 +818,7 @@ class MappingAutomationService {
       scoped++;
       const candidates = [
         ...this.buildTrainingCandidates(target, examples, fileItems),
+        this.buildFromCompositeFileItems(target, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
         ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
       ]
@@ -686,6 +829,7 @@ class MappingAutomationService {
         .map((candidate) =>
           applyRejectionHints(candidate, feedbackHints.get(target.barcode)),
         )
+        .map((candidate) => this.applyCompositeSafety(target, candidate))
         .sort((left, right) => right.confidence - left.confidence);
       if (!candidates.length) {
         withoutCandidate++;
@@ -808,12 +952,15 @@ class MappingAutomationService {
       const bestFile = fileMatches[0] || null;
       const candidates = [
         ...this.buildTrainingCandidates(target, examples, fileItems),
+        this.buildFromCompositeFileItems(target, fileItems),
         this.buildFromCostItems(target, costItems, fileItems),
         ...this.buildFromFileItems(target, fileItems, { minScore: 0.3 }),
-      ].filter(
-        (candidate) =>
-          candidate && candidate.confidence >= 0.3 && candidate.items.length,
-      );
+      ]
+        .filter(
+          (candidate) =>
+            candidate && candidate.confidence >= 0.3 && candidate.items.length,
+        )
+        .map((candidate) => this.applyCompositeSafety(target, candidate));
       if (!fileItems.length)
         return {
           ...target,

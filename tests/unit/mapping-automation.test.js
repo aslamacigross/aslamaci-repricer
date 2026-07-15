@@ -223,6 +223,83 @@ test("geçmiş mapping yoksa güçlü File ürün eşleşmesinden yeni maliyet k
   assert.match(saved[0].items[0].cost_item_code, /HARRAS/);
 });
 
+test("farklı File ürünlerinden oluşan setlerde çoklu maliyet kalemi önerir", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "KARMA_SET",
+        product_name:
+          "Harras Fındık Kremalı Bisküvi ve Çilek Kremalı Bisküvi Seti",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 31,
+        product_name: "Harras Fındık Kremalı Bisküvi 240 g",
+        brand: "Harras",
+        current_price: 119,
+      },
+      {
+        id: 32,
+        product_name: "Harras Çilek Kremalı Bisküvi 240 g",
+        brand: "Harras",
+        current_price: 119,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].source_type, "FILE_COMPOSITE_COST_ITEMS");
+  assert.equal(saved[0].items.length, 2);
+  assert.deepEqual(
+    saved[0].items.map((item) => item.file_market_item_id).sort(),
+    [31, 32],
+  );
+  assert.equal(saved[0].evidence.compositeProduct, true);
+});
+
+test("farklı ürünlü set tek File ürününe indirgenirse yüksek güvene çıkmaz", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "YARIM_SET",
+        product_name:
+          "Harras Fındık Kremalı Bisküvi ve Çilek Kremalı Bisküvi Seti",
+        brand: "Harras",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 31,
+        product_name: "Harras Fındık Kremalı Bisküvi 240 g",
+        brand: "Harras",
+        current_price: 119,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].items.length, 1);
+  assert.equal(saved[0].evidence.compositeReviewNeeded, true);
+  assert.ok(saved[0].confidence <= 0.69);
+  assert.equal(saved[0].confidence_band, "LOW");
+});
+
 test("eski File direkt önerisinde eksik desiyi ürün adından tamamlar", () => {
   const { service } = fixture();
   const [row] = service.normalizeDecisionItems(
