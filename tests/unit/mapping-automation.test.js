@@ -219,6 +219,66 @@ test("File destekli ölçüsüz öneride varsayılan desiyle cost item oluşturu
   assert.equal(row.unit_desi, 1);
 });
 
+test("File ürünü aynı iç paket adedini taşıyorsa ekstra adet çarpanı üretmez", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "BEZ2",
+        product_name: "Kurulama Gerektirmeyen Bez 2'li",
+        brand: "Actisoft",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 33,
+        product_name: "Actisoft Kurulama Gerektirmeyen Bez 2'li",
+        brand: "Actisoft",
+        current_price: 135,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved[0].items[0].quantity, 1);
+  assert.equal(saved[0].items[0].suggested_unit_cost, 135);
+});
+
+test("File ürünü iç paket, Trendyol başlığı çoklu paket ise adet çarpanı korunur", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    targetProducts: async () => [
+      {
+        barcode: "COP3",
+        product_name: "Küçük Boy Çöp Torbası 40'lı x 3 Paket",
+        brand: "Actisoft",
+        category_id: "900",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 34,
+        product_name: "Actisoft Küçük Boy Çöp Torbası 40'lı",
+        brand: "Actisoft",
+        current_price: 49.5,
+      },
+    ],
+  });
+
+  await service.generate({ limit: 100 });
+
+  assert.equal(saved[0].items[0].quantity, 3);
+  assert.equal(saved[0].items[0].suggested_unit_cost, 49.5);
+});
+
 test("reddedilen aynı öneriyi atlayıp sıradaki güvenilir adayı üretir", async () => {
   const badSource = {
     barcode: "BAD_SOURCE",

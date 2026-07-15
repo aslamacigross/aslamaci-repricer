@@ -120,6 +120,38 @@ function estimateUnitDesi(fileItem) {
   return Number(Math.max(value / 1000, 0.1).toFixed(3));
 }
 
+function extractExplicitBundleCount(value) {
+  const text = normalizeText(value);
+  const patterns = [
+    /\b(\d+(?:[.,]\d+)?)\s*(?:adet|paket)\b/,
+    /\b(\d+(?:[.,]\d+)?)\s*x\s*\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\b/,
+    /\b\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\s*x\s*(\d+(?:[.,]\d+)?)\s*(?:adet|paket)?\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const count = Number(String(match[1]).replace(",", "."));
+    if (Number.isFinite(count) && count > 0 && count <= 1000) return count;
+  }
+  return null;
+}
+
+function extractInternalPackCount(value) {
+  const match = normalizeText(value).match(/\b(\d+)\s*(?:li|lu)\b/);
+  if (!match) return null;
+  const count = Number(match[1]);
+  return Number.isFinite(count) && count > 0 && count <= 1000 ? count : null;
+}
+
+function fileBackedQuantity(target, fileItem) {
+  const explicit = extractExplicitBundleCount(target.product_name);
+  if (explicit) return explicit;
+  const targetInternal = extractInternalPackCount(target.product_name);
+  const fileInternal = extractInternalPackCount(fileItem.product_name);
+  if (targetInternal && fileInternal && targetInternal === fileInternal) return 1;
+  return extractPackCount(target.product_name);
+}
+
 class MappingAutomationService {
   constructor({ repository, costs, costEngine }) {
     this.repository = repository;
@@ -329,6 +361,15 @@ class MappingAutomationService {
         },
       ],
       fileItems,
+    ).map((item) =>
+      item.file_market_item_id
+        ? {
+            ...item,
+            quantity: fileBackedQuantity(target, {
+              product_name: item.file_product_name || "",
+            }),
+          }
+        : item,
     );
     const fileSupport = items[0].file_match_score || 0;
     const variantPriceInferred = items[0].file_price_mode === "SIBLING_VARIANT";
@@ -379,7 +420,7 @@ class MappingAutomationService {
             {
               cost_item_code: generatedCostCode(fileItem),
               item_name: fileItem.product_name,
-              quantity: extractPackCount(target.product_name),
+              quantity: fileBackedQuantity(target, fileItem),
               current_unit_cost: Number(fileItem.current_price),
               suggested_unit_cost: Number(fileItem.current_price),
               unit_desi: unitDesi,
