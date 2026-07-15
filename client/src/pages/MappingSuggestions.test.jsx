@@ -69,7 +69,8 @@ describe("Akıllı mapping paneli", () => {
 
   test("onay öneriyi uygulatmadan yalnızca onay endpointini çağırır", async () => {
     const user = userEvent.setup();
-    render(<MappingSuggestions view="suggestions" notify={vi.fn()} />);
+    const notify = vi.fn();
+    render(<MappingSuggestions view="suggestions" notify={notify} />);
     await user.click(
       await screen.findByRole("button", { name: "Öneriyi incele" }),
     );
@@ -83,6 +84,49 @@ describe("Akıllı mapping paneli", () => {
     expect(post).not.toHaveBeenCalledWith(
       "/api/mapping-suggestions/bulk-apply",
       expect.anything(),
+    );
+    expect(notify).toHaveBeenCalledWith(
+      "Öneri onaylandı; Onaylananlar sekmesinden mappinge uygulanabilir",
+    );
+  });
+
+  test("onaylı öneriyi önizleyip gerçek mappinge uygular", async () => {
+    const user = userEvent.setup();
+    const approved = { ...suggestion, status: "APPROVED" };
+    get.mockResolvedValue({
+      data: { items: [approved], total: 1, page: 1, limit: 50 },
+    });
+    post.mockImplementation(async (path) => {
+      if (path === "/api/mapping-suggestions/bulk-preview")
+        return {
+          data: {
+            token: "preview-token",
+            productCount: 1,
+            mappingCount: 1,
+            priceUpdateCount: 1,
+            suggestions: [approved],
+          },
+        };
+      if (path === "/api/mapping-suggestions/bulk-apply")
+        return { data: { applied: 1 } };
+      return { data: approved };
+    });
+
+    render(<MappingSuggestions view="suggestions" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Mapping uygulama önizlemesi",
+      }),
+    );
+    expect(await screen.findByText("Onaylı mappingleri uygula")).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "Mappingleri uygula" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/mapping-suggestions/bulk-apply", {
+        ids: [14],
+        previewToken: "preview-token",
+      }),
     );
   });
 

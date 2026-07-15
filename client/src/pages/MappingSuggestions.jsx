@@ -244,6 +244,7 @@ function SuggestionQueue({ notify }) {
   const [detail, setDetail] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkApplyIds, setBulkApplyIds] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
 
   async function load() {
@@ -289,12 +290,13 @@ function SuggestionQueue({ notify }) {
     }
   }
 
-  async function previewSelected() {
+  async function previewSelected(ids = selectedIds) {
     setBulkBusy(true);
     try {
       const response = await post("/api/mapping-suggestions/bulk-preview", {
-        ids: selectedIds,
+        ids,
       });
+      setBulkApplyIds(ids);
       setBulkPreview(response.data);
     } catch (nextError) {
       notify(nextError.message, "error");
@@ -307,19 +309,26 @@ function SuggestionQueue({ notify }) {
     setBulkBusy(true);
     try {
       const response = await post("/api/mapping-suggestions/bulk-apply", {
-        ids: selectedIds,
+        ids: bulkApplyIds,
         previewToken: bulkPreview.token,
       });
       notify(`${response.data.applied} ürünün mappingi güvenle uygulandı`);
       setBulkPreview(null);
+      setBulkApplyIds([]);
       setDetail(null);
       await load();
     } catch (nextError) {
       notify(nextError.message, "error");
       setBulkPreview(null);
+      setBulkApplyIds([]);
     } finally {
       setBulkBusy(false);
     }
+  }
+
+  function closeBulkPreview() {
+    setBulkPreview(null);
+    setBulkApplyIds([]);
   }
 
   const columns = useMemo(
@@ -425,6 +434,13 @@ function SuggestionQueue({ notify }) {
                 onClick={() => setDetail(row)}
               />
             )}
+            {row.status === "APPROVED" && (
+              <IconButton
+                icon={Play}
+                label="Mapping uygulama önizlemesi"
+                onClick={() => previewSelected([Number(row.id)])}
+              />
+            )}
           </div>
         ),
       },
@@ -482,8 +498,8 @@ function SuggestionQueue({ notify }) {
         <div>
           <strong>Öneri onayı mappingi değiştirmez</strong>
           <p>
-            Yalnızca onaylanan satırlar ayrıca toplu önizlenip uygulandığında
-            ürün maliyetine geçer.
+            Onay kararları öğrenme verisi olarak kaydedilir. Gerçek maliyet
+            mappingi için onaylanan satırları ayrıca önizleyip uygulayın.
           </p>
         </div>
       </div>
@@ -520,19 +536,38 @@ function SuggestionQueue({ notify }) {
           setDetail(null);
           await load();
         }}
+        onApproved={async () => {
+          setDetail(null);
+          setStatus("APPROVED");
+          setPage(1);
+          notify(
+            "Öneri onaylandı; Onaylananlar sekmesinden mappinge uygulanabilir",
+          );
+        }}
+        onPreviewApply={(id) => {
+          setDetail(null);
+          previewSelected([Number(id)]);
+        }}
         notify={notify}
       />
       <BulkApplyModal
         preview={bulkPreview}
         busy={bulkBusy}
-        onClose={() => setBulkPreview(null)}
+        onClose={closeBulkPreview}
         onApply={applySelected}
       />
     </>
   );
 }
 
-function SuggestionDrawer({ suggestion, onClose, onChanged, notify }) {
+function SuggestionDrawer({
+  suggestion,
+  onClose,
+  onChanged,
+  onApproved,
+  onPreviewApply,
+  notify,
+}) {
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -568,8 +603,7 @@ function SuggestionDrawer({ suggestion, onClose, onChanged, notify }) {
     setBusy(true);
     try {
       await post(`/api/mapping-suggestions/${suggestion.id}/approve`, form);
-      notify("Öneri onaylandı; mapping henüz değiştirilmedi");
-      await onChanged();
+      await onApproved();
     } catch (error) {
       notify(error.message, "error");
     } finally {
@@ -788,6 +822,24 @@ function SuggestionDrawer({ suggestion, onClose, onChanged, notify }) {
                 Öneriyi onayla
               </Button>
             </div>
+          </section>
+        )}
+        {suggestion.status === "APPROVED" && (
+          <section className="suggestion-decision">
+            <div>
+              <strong>Onaylandı, henüz mappinge uygulanmadı</strong>
+              <p className="muted-note">
+                Bu adım gerçek ürün maliyet mappingini değiştirir ve maliyet
+                hesabını yeniden çalıştırır.
+              </p>
+            </div>
+            <Button
+              icon={Play}
+              disabled={busy}
+              onClick={() => onPreviewApply(suggestion.id)}
+            >
+              Mappinge uygulama önizlemesi
+            </Button>
           </section>
         )}
       </div>
