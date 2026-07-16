@@ -1632,12 +1632,22 @@ function SupplierPricePool({ supplierCode, notify }) {
           {
             key: "price_tiers",
             label: "Çoklu fiyat",
-            render: (row) =>
-              priceTiers(row).length ? (
-                <Badge tone="info">{priceTierSummary(row)}</Badge>
-              ) : (
-                "-"
-              ),
+            render: (row) => {
+              const tiers = priceTiers(row);
+              return (
+                <button
+                  type="button"
+                  className="supplier-tier-edit-btn"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditing(row);
+                  }}
+                >
+                  <span>{tiers.length ? priceTierSummary(row) : "Ekle"}</span>
+                  <Pencil size={14} />
+                </button>
+              );
+            },
           },
         ]
       : []),
