@@ -3,6 +3,9 @@ const assert = require("node:assert/strict");
 const {
   estimatePackageDesi,
   extractTotalPackageSize,
+  normalizePriceTiers,
+  parsePriceTiersFromText,
+  priceTierForQuantity,
   roundProductDesi,
 } = require("../../src/domain/supplier-products");
 
@@ -70,4 +73,25 @@ test("nihai ürün desisini daima bir sonraki tam sayıya yuvarlar", () => {
   assert.equal(roundProductDesi(1), 1);
   assert.equal(roundProductDesi(1.5), 2);
   assert.equal(roundProductDesi(2.01), 3);
+});
+
+test("çoklu alım fiyat kademesini normalize eder ve adede göre seçer", () => {
+  const tiers = normalizePriceTiers([
+    { minQuantity: 12, unitPrice: "36,50" },
+    { min_quantity: 6, unit_price: "38,90 TL" },
+  ]);
+  assert.deepEqual(tiers, [
+    { min_quantity: 6, unit_price: 38.9, label: "6+ adet" },
+    { min_quantity: 12, unit_price: 36.5, label: "12+ adet" },
+  ]);
+  assert.equal(priceTierForQuantity(42.5, tiers, 1).unitPrice, 42.5);
+  assert.equal(priceTierForQuantity(42.5, tiers, 6).unitPrice, 38.9);
+  assert.equal(priceTierForQuantity(42.5, tiers, 18).unitPrice, 36.5);
+});
+
+test("metinden çoklu fiyat kademesi yakalar", () => {
+  assert.deepEqual(
+    parsePriceTiersFromText("6 adet ve üzeri birim fiyat 38,90 TL", 42.5),
+    [{ min_quantity: 6, unit_price: 38.9, label: "6+ adet" }],
+  );
 });

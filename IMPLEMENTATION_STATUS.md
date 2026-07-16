@@ -97,6 +97,9 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] Nihai ürün desisinin toplam mapping sonrasında yukarı yuvarlanması
 - [x] Bebek bezi kilo aralığı ve kâğıt gramajını desi ağırlığı sanmayan korumalar
 - [x] Bizim canlı katalogda dondurulmuş kategori satırlarının güvenli dışlanması
+- [x] `015_supplier_bulk_price_tiers` migrationı ile tedarikçi bazlı çoklu alım fiyat kademeleri
+- [x] Bizim Toptan HTML'inden çoklu fiyat kademesi otomatik yakalama ve panelden manuel kademe düzenleme
+- [x] Mapping önerisi ve uygulamasında ürün adedine göre uygun çoklu birim fiyatın seçilmesi
 
 ## PR Öncesi Kapsam Denetimi
 
@@ -122,5 +125,6 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - Preview'da Trendyol ürün/buybox verisi yalnızca read-only çekildi; manuel fiyat aksiyonu `DRY_RUN` durumunda tamamlandı ve fiyat değişmedi.
 - Preview'da `DRY_RUN=true`, `REPRICER_ENABLED=false`, `JOBS_ENABLED=false` bırakıldı; Sheets sync ayarı ve jobları V2'den kaldırıldı.
 - Akıllı mapping geliştirmesi Trendyol fiyat endpointlerini çağırmaz; öneri onayı tek başına mapping veya maliyet verisini değiştirmez.
+- Çoklu tedarikçi fiyat kademeleri yalnız maliyet havuzu ve mapping maliyet kalemi hesabını etkiler; Trendyol fiyat gönderimi yapmaz.
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.

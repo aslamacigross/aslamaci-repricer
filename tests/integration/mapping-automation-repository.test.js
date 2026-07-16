@@ -80,6 +80,7 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     {
       product_name: "Actisoft Menekşe Bahçesi Konsantre 1500 ml",
       current_price: 112,
+      price_tiers: [{ min_quantity: 4, unit_price: 108 }],
       brand: "Actisoft",
     },
   ]);
@@ -127,7 +128,7 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     `SELECT unit_cost,previous_unit_cost,price_source FROM cost_items
      WHERE item_code='YUMUSATICI_ACTISOFT_1500ML'`,
   );
-  assert.equal(Number(cost.rows[0].unit_cost), 112);
+  assert.equal(Number(cost.rows[0].unit_cost), 108);
   assert.equal(Number(cost.rows[0].previous_unit_cost), 110);
   assert.equal(cost.rows[0].price_source, "FILE_MARKET");
   const status = await db.query(
@@ -192,7 +193,7 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     [pendingAfterReject.items[0].items[0].cost_item_code],
   );
   assert.equal(directCostItem.rowCount, 1);
-  assert.equal(Number(directCostItem.rows[0].unit_cost), 112);
+  assert.equal(Number(directCostItem.rows[0].unit_cost), 108);
   assert.equal(Number(directCostItem.rows[0].unit_desi), 1.5);
   assert.equal(directCostItem.rows[0].price_source, "FILE_MARKET");
   await db.end();

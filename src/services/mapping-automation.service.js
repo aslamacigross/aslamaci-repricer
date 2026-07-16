@@ -17,6 +17,8 @@ const {
 const {
   SUPPLIER_CODES,
   estimatePackageDesi,
+  normalizePriceTiers,
+  priceTierForQuantity,
   supplier,
 } = require("../domain/supplier-products");
 const {
@@ -129,7 +131,8 @@ function canonicalSuggestion(suggestion) {
       supplierCode:
         item.supplier_code || suggestion.supplier_code || "FILE_MARKET",
       supplierPrice: Number(
-        item.supplier_current_price ||
+        item.supplier_effective_unit_price ||
+          item.supplier_current_price ||
           item.file_current_price ||
           item.suggested_unit_cost ||
           0,
@@ -230,6 +233,27 @@ function estimateUnitDesi(fileItem) {
     fileItem.product_name || fileItem.item_name || "",
     fileItem.unit_desi,
   ).value;
+}
+
+function supplierPriceForQuantity(fileItem, quantity = 1) {
+  return priceTierForQuantity(
+    fileItem.current_price,
+    fileItem.price_tiers || [],
+    quantity,
+  );
+}
+
+function withSupplierPrice(item, fileItem, quantity = item.quantity || 1) {
+  const price = supplierPriceForQuantity(fileItem, quantity);
+  return {
+    ...item,
+    current_unit_cost: price.unitPrice,
+    suggested_unit_cost: price.unitPrice,
+    supplier_current_price: Number(fileItem.current_price),
+    supplier_effective_unit_price: price.unitPrice,
+    supplier_price_tiers: price.tiers,
+    selected_price_tier: price.tier,
+  };
 }
 
 function extractExplicitBundleCount(value) {
@@ -574,6 +598,16 @@ class MappingAutomationService {
         productName,
         row.estimated_unit_desi ?? row.unit_desi,
       );
+      const priceTiers = normalizePriceTiers(
+        row.price_tiers ||
+          row.priceTiers ||
+          row.bulk_prices ||
+          row.bulkPrices ||
+          row.tier_prices ||
+          row.tierPrices ||
+          row.raw_data?.price_tiers ||
+          [],
+      );
       return {
         source_key: sourceKey,
         product_name: productName,
@@ -591,7 +625,39 @@ class MappingAutomationService {
         source_category: row.source_category || null,
         estimated_unit_desi: desi.value,
         desi_confidence: row.desi_confidence || desi.confidence,
+        price_tiers: priceTiers,
       };
+    });
+  }
+
+  async updateSupplierItemPricing(supplierCode, id, input = {}) {
+    const normalizedCode = String(supplierCode || "").toUpperCase();
+    if (!SUPPLIER_CODES.includes(normalizedCode))
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
+    const currentPrice =
+      input.current_price === undefined
+        ? undefined
+        : parsePrice(input.current_price);
+    if (
+      currentPrice !== undefined &&
+      (!Number.isFinite(currentPrice) || currentPrice <= 0)
+    )
+      throw new AppError(
+        "Güncel fiyat pozitif olmalı",
+        400,
+        "INVALID_SUPPLIER_PRICE",
+      );
+    const priceTiers = normalizePriceTiers(input.price_tiers || []);
+    return this.repository.updateSupplierItemPricing(normalizedCode, id, {
+      current_price:
+        currentPrice === undefined
+          ? undefined
+          : Number(currentPrice.toFixed(2)),
+      price_tiers: priceTiers,
     });
   }
 
@@ -723,7 +789,7 @@ class MappingAutomationService {
         ...item,
         file_market_item_id: fileMatch?.item.id || null,
         suggested_unit_cost: fileMatch
-          ? Number(fileMatch.item.current_price)
+          ? supplierPriceForQuantity(fileMatch.item, item.quantity).unitPrice
           : Number(item.current_unit_cost),
         file_match_score: fileMatch ? Number(fileMatch.score.toFixed(5)) : null,
         file_product_name: fileMatch?.item.product_name || null,
@@ -731,6 +797,15 @@ class MappingAutomationService {
         supplier_code: fileMatch?.item.supplier_code || null,
         supplier_current_price: fileMatch
           ? Number(fileMatch.item.current_price)
+          : null,
+        supplier_effective_unit_price: fileMatch
+          ? supplierPriceForQuantity(fileMatch.item, item.quantity).unitPrice
+          : null,
+        supplier_price_tiers: fileMatch
+          ? normalizePriceTiers(fileMatch.item.price_tiers || [])
+          : [],
+        selected_price_tier: fileMatch
+          ? supplierPriceForQuantity(fileMatch.item, item.quantity).tier
           : null,
         supplier_estimated_unit_desi:
           fileMatch?.item.estimated_unit_desi || null,
@@ -856,24 +931,26 @@ class MappingAutomationService {
       matched.reduce((sum, item) => sum + item.score, 0) / matched.length;
     const items = matched.map(({ correction, fileItem, comparison }) => {
       const unitDesi = estimateUnitDesi(fileItem);
-      return {
-        cost_item_code: generatedCostCode(fileItem),
-        item_name: fileItem.product_name,
-        quantity: 1,
-        current_unit_cost: Number(fileItem.current_price || correction.price),
-        suggested_unit_cost: Number(fileItem.current_price || correction.price),
-        unit_desi: unitDesi,
-        file_market_item_id: fileItem.id,
-        supplier_code: fileItem.supplier_code || "FILE_MARKET",
-        file_match_score: comparison.score,
-        file_product_name: fileItem.product_name,
-        supplier_product_name: fileItem.product_name,
-        supplier_current_price: Number(fileItem.current_price),
-        supplier_estimated_unit_desi: fileItem.estimated_unit_desi || unitDesi,
-        desi_confidence: fileItem.desi_confidence || "LOW",
-        file_price_mode: "DIRECT",
-        creates_cost_item: true,
-      };
+      return withSupplierPrice(
+        {
+          cost_item_code: generatedCostCode(fileItem),
+          item_name: fileItem.product_name,
+          quantity: 1,
+          unit_desi: unitDesi,
+          file_market_item_id: fileItem.id,
+          supplier_code: fileItem.supplier_code || "FILE_MARKET",
+          file_match_score: comparison.score,
+          file_product_name: fileItem.product_name,
+          supplier_product_name: fileItem.product_name,
+          supplier_estimated_unit_desi:
+            fileItem.estimated_unit_desi || unitDesi,
+          desi_confidence: fileItem.desi_confidence || "LOW",
+          file_price_mode: "DIRECT",
+          creates_cost_item: true,
+        },
+        fileItem,
+        1,
+      );
     });
     return {
       confidence: Math.min(0.94, Math.max(0.74, avgScore)),
@@ -933,16 +1010,18 @@ class MappingAutomationService {
         },
       ],
       fileItems,
-    ).map((item) =>
-      item.file_market_item_id
-        ? {
-            ...item,
-            quantity: fileBackedQuantity(target, {
-              product_name: item.file_product_name || "",
-            }),
-          }
-        : item,
-    );
+    ).map((item) => {
+      if (!item.file_market_item_id) return item;
+      const fileItem = fileItems.find(
+        (candidate) => candidate.id === item.file_market_item_id,
+      );
+      const quantity = fileBackedQuantity(target, {
+        product_name: item.file_product_name || "",
+      });
+      return fileItem
+        ? withSupplierPrice({ ...item, quantity }, fileItem, quantity)
+        : { ...item, quantity };
+    });
     const fileSupport = items[0].file_match_score || 0;
     const variantPriceInferred = items[0].file_price_mode === "SIBLING_VARIANT";
     const confidence = Math.min(
@@ -985,30 +1064,32 @@ class MappingAutomationService {
       .sort((left, right) => right.comparison.score - left.comparison.score)
       .map(({ fileItem, comparison }) => {
         const unitDesi = estimateUnitDesi(fileItem);
+        const quantity = fileBackedQuantity(target, fileItem);
         return {
           confidence: Math.min(0.88, comparison.score),
           source_type: "FILE_DIRECT_COST_ITEM",
           source_barcode: null,
           items: [
-            {
-              cost_item_code: generatedCostCode(fileItem),
-              item_name: fileItem.product_name,
-              quantity: fileBackedQuantity(target, fileItem),
-              current_unit_cost: Number(fileItem.current_price),
-              suggested_unit_cost: Number(fileItem.current_price),
-              unit_desi: unitDesi,
-              file_market_item_id: fileItem.id,
-              supplier_code: fileItem.supplier_code || "FILE_MARKET",
-              file_match_score: comparison.score,
-              file_product_name: fileItem.product_name,
-              supplier_product_name: fileItem.product_name,
-              supplier_current_price: Number(fileItem.current_price),
-              supplier_estimated_unit_desi:
-                fileItem.estimated_unit_desi || unitDesi,
-              desi_confidence: fileItem.desi_confidence || "LOW",
-              file_price_mode: "DIRECT",
-              creates_cost_item: true,
-            },
+            withSupplierPrice(
+              {
+                cost_item_code: generatedCostCode(fileItem),
+                item_name: fileItem.product_name,
+                quantity,
+                unit_desi: unitDesi,
+                file_market_item_id: fileItem.id,
+                supplier_code: fileItem.supplier_code || "FILE_MARKET",
+                file_match_score: comparison.score,
+                file_product_name: fileItem.product_name,
+                supplier_product_name: fileItem.product_name,
+                supplier_estimated_unit_desi:
+                  fileItem.estimated_unit_desi || unitDesi,
+                desi_confidence: fileItem.desi_confidence || "LOW",
+                file_price_mode: "DIRECT",
+                creates_cost_item: true,
+              },
+              fileItem,
+              quantity,
+            ),
           ],
           evidence: {
             reasons: comparison.reasons,
@@ -1064,24 +1145,27 @@ class MappingAutomationService {
     const confidence = Math.min(0.86, avgScore * 0.92);
     const items = matched.map(({ fragment, fileItem, comparison }) => {
       const unitDesi = estimateUnitDesi(fileItem);
-      return {
-        cost_item_code: generatedCostCode(fileItem),
-        item_name: fileItem.product_name,
-        quantity: fileBackedQuantity({ product_name: fragment }, fileItem),
-        current_unit_cost: Number(fileItem.current_price),
-        suggested_unit_cost: Number(fileItem.current_price),
-        unit_desi: unitDesi,
-        file_market_item_id: fileItem.id,
-        supplier_code: fileItem.supplier_code || "FILE_MARKET",
-        file_match_score: comparison.score,
-        file_product_name: fileItem.product_name,
-        supplier_product_name: fileItem.product_name,
-        supplier_current_price: Number(fileItem.current_price),
-        supplier_estimated_unit_desi: fileItem.estimated_unit_desi || unitDesi,
-        desi_confidence: fileItem.desi_confidence || "LOW",
-        file_price_mode: "DIRECT",
-        creates_cost_item: true,
-      };
+      const quantity = fileBackedQuantity({ product_name: fragment }, fileItem);
+      return withSupplierPrice(
+        {
+          cost_item_code: generatedCostCode(fileItem),
+          item_name: fileItem.product_name,
+          quantity,
+          unit_desi: unitDesi,
+          file_market_item_id: fileItem.id,
+          supplier_code: fileItem.supplier_code || "FILE_MARKET",
+          file_match_score: comparison.score,
+          file_product_name: fileItem.product_name,
+          supplier_product_name: fileItem.product_name,
+          supplier_estimated_unit_desi:
+            fileItem.estimated_unit_desi || unitDesi,
+          desi_confidence: fileItem.desi_confidence || "LOW",
+          file_price_mode: "DIRECT",
+          creates_cost_item: true,
+        },
+        fileItem,
+        quantity,
+      );
     });
     return {
       confidence,
@@ -1183,24 +1267,26 @@ class MappingAutomationService {
       selected.length;
     const items = selected.map(({ fileItem, comparison }) => {
       const unitDesi = estimateUnitDesi(fileItem);
-      return {
-        cost_item_code: generatedCostCode(fileItem),
-        item_name: fileItem.product_name,
-        quantity: 1,
-        current_unit_cost: Number(fileItem.current_price),
-        suggested_unit_cost: Number(fileItem.current_price),
-        unit_desi: unitDesi,
-        file_market_item_id: fileItem.id,
-        supplier_code: fileItem.supplier_code || "FILE_MARKET",
-        file_match_score: comparison.score,
-        file_product_name: fileItem.product_name,
-        supplier_product_name: fileItem.product_name,
-        supplier_current_price: Number(fileItem.current_price),
-        supplier_estimated_unit_desi: fileItem.estimated_unit_desi || unitDesi,
-        desi_confidence: fileItem.desi_confidence || "LOW",
-        file_price_mode: "DIRECT",
-        creates_cost_item: true,
-      };
+      return withSupplierPrice(
+        {
+          cost_item_code: generatedCostCode(fileItem),
+          item_name: fileItem.product_name,
+          quantity: 1,
+          unit_desi: unitDesi,
+          file_market_item_id: fileItem.id,
+          supplier_code: fileItem.supplier_code || "FILE_MARKET",
+          file_match_score: comparison.score,
+          file_product_name: fileItem.product_name,
+          supplier_product_name: fileItem.product_name,
+          supplier_estimated_unit_desi:
+            fileItem.estimated_unit_desi || unitDesi,
+          desi_confidence: fileItem.desi_confidence || "LOW",
+          file_price_mode: "DIRECT",
+          creates_cost_item: true,
+        },
+        fileItem,
+        1,
+      );
     });
     return {
       confidence: Math.min(0.84, avgScore * 0.9),
@@ -1819,6 +1905,12 @@ class MappingAutomationService {
     const inputItems = items?.length ? items : suggestion.items;
     const rows = inputItems.map((item, index) => {
       const original = suggestion.items[index] || {};
+      const quantity = Number(item.quantity);
+      const tierPrice = priceTierForQuantity(
+        original.supplier_current_price || original.file_current_price,
+        original.supplier_price_tiers || [],
+        quantity,
+      );
       const fileProductName =
         item.supplier_product_name ||
         original.supplier_product_name ||
@@ -1855,12 +1947,19 @@ class MappingAutomationService {
           null,
         suggested_unit_cost:
           Number(
-            item.suggested_unit_cost ||
+            (tierPrice.tier ? tierPrice.unitPrice : null) ||
+              item.suggested_unit_cost ||
+              tierPrice.unitPrice ||
+              original.supplier_effective_unit_price ||
               original.suggested_unit_cost ||
               original.supplier_current_price ||
               original.file_current_price ||
               0,
           ) || null,
+        selected_price_tier:
+          item.selected_price_tier ||
+          (tierPrice.tier ? tierPrice.tier : original.selected_price_tier) ||
+          null,
         unit_desi:
           Number(item.unit_desi || original.unit_desi || inferredDesi || 0) ||
           null,

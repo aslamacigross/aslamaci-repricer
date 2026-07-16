@@ -57,6 +57,29 @@ function mappingAutomationRoutes({
       res.json({ status: "ok", data });
     }),
   );
+  router.patch(
+    "/supplier-price-pools/:supplierCode/items/:id",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      const data = await mappingAutomation.updateSupplierItemPricing(
+        code,
+        req.params.id,
+        req.body || {},
+      );
+      if (!data)
+        return res.status(404).json({
+          status: "error",
+          code: "SUPPLIER_ITEM_NOT_FOUND",
+          message: "Tedarikçi ürünü bulunamadı",
+        });
+      await log(req, "SUPPLIER_PRICE_TIERS_UPDATED", data.id, {
+        supplierCode: code,
+        currentPrice: data.current_price,
+        priceTiers: data.price_tiers,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
   router.post(
     "/supplier-price-pools/:supplierCode/items/sync-live",
     asyncRoute(async (req, res) => {

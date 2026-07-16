@@ -101,6 +101,100 @@ function roundProductDesi(value) {
   return Number.isFinite(desi) && desi > 0 ? Math.ceil(desi) : 0;
 }
 
+function parseSupplierPrice(value) {
+  if (typeof value === "number") return value;
+  const normalized = String(value || "")
+    .replace(/\s/g, "")
+    .replace(/₺|TL|TRY/gi, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  return Number(normalized);
+}
+
+function normalizePriceTiers(tiers = []) {
+  if (!Array.isArray(tiers)) return [];
+  const normalized = tiers
+    .map((tier) => {
+      const minQuantity = Number(
+        tier.min_quantity ?? tier.minQuantity ?? tier.quantity ?? tier.qty,
+      );
+      const unitPrice = parseSupplierPrice(
+        tier.unit_price ?? tier.unitPrice ?? tier.price,
+      );
+      if (
+        !Number.isFinite(minQuantity) ||
+        minQuantity <= 1 ||
+        !Number.isFinite(unitPrice) ||
+        unitPrice <= 0
+      )
+        return null;
+      return {
+        min_quantity: Number(minQuantity.toFixed(4)),
+        unit_price: Number(unitPrice.toFixed(2)),
+        label:
+          String(tier.label || "").trim() ||
+          `${Number(minQuantity.toFixed(4)).toLocaleString("tr-TR")}+ adet`,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.min_quantity - right.min_quantity);
+  const byQuantity = new Map();
+  for (const tier of normalized)
+    byQuantity.set(String(tier.min_quantity), tier);
+  return [...byQuantity.values()];
+}
+
+function priceTierForQuantity(basePrice, tiers = [], quantity = 1) {
+  const currentPrice = Number(basePrice);
+  const qty = Number(quantity);
+  const normalizedTiers = normalizePriceTiers(tiers);
+  const defaultResult = {
+    unitPrice: Number.isFinite(currentPrice) ? currentPrice : 0,
+    tier: null,
+    tiers: normalizedTiers,
+  };
+  if (!Number.isFinite(qty) || qty <= 0 || !normalizedTiers.length)
+    return defaultResult;
+  const matching = normalizedTiers
+    .filter((tier) => qty >= tier.min_quantity)
+    .sort((left, right) => right.min_quantity - left.min_quantity)[0];
+  if (!matching) return defaultResult;
+  return {
+    unitPrice: matching.unit_price,
+    tier: matching,
+    tiers: normalizedTiers,
+  };
+}
+
+function parsePriceTiersFromText(value, basePrice = null) {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return [];
+  const tiers = [];
+  const patterns = [
+    /(\d+(?:[.,]\d+)?)\s*(?:adet|ad|paket)?\s*(?:ve\s*uzeri|ve\s*üzeri|\+|üstü|ustu|sonrasi|sonrası)\D{0,80}?(\d+(?:[.,]\d{1,2})?)\s*(?:₺|tl|try)/giu,
+    /(\d+(?:[.,]\d+)?)\s*(?:adet|ad|paket)\D{0,80}?(?:birim|adet)\s*fiyat\D{0,40}?(\d+(?:[.,]\d{1,2})?)\s*(?:₺|tl|try)/giu,
+    /(\d+(?:[.,]\d+)?)\s*(?:adet|ad|paket)\D{0,40}?(\d+(?:[.,]\d{1,2})?)\s*(?:₺|tl|try)\s*(?:\/\s*)?(?:adet|ad|birim)/giu,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text))) {
+      const minQuantity = Number(String(match[1]).replace(",", "."));
+      const unitPrice = parseSupplierPrice(match[2]);
+      if (!Number.isFinite(minQuantity) || !Number.isFinite(unitPrice))
+        continue;
+      if (Number(basePrice) > 0 && unitPrice >= Number(basePrice)) continue;
+      tiers.push({
+        min_quantity: minQuantity,
+        unit_price: unitPrice,
+        label: `${minQuantity.toLocaleString("tr-TR")}+ adet`,
+      });
+    }
+  }
+  return normalizePriceTiers(tiers);
+}
+
 module.exports = {
   SUPPLIERS,
   SUPPLIER_CODES,
@@ -110,4 +204,7 @@ module.exports = {
   extractTotalPackageSize,
   estimatePackageDesi,
   roundProductDesi,
+  normalizePriceTiers,
+  parsePriceTiersFromText,
+  priceTierForQuantity,
 };

@@ -4,12 +4,13 @@ import {
   DatabaseZap,
   Eye,
   FileUp,
+  Pencil,
   Play,
   RefreshCw,
   Sparkles,
   X,
 } from "lucide-react";
-import { get, post } from "../lib/api";
+import { get, patch, post } from "../lib/api";
 import DataTable, { date, money, percent } from "../components/DataTable";
 import {
   Badge,
@@ -119,6 +120,25 @@ function suggestionSummary(row) {
 
 function hasVariantPrice(row) {
   return Boolean(row.evidence?.variantPriceInferred);
+}
+
+function priceTiers(row) {
+  return Array.isArray(row?.price_tiers)
+    ? row.price_tiers
+    : Array.isArray(row?.supplier_price_tiers)
+      ? row.supplier_price_tiers
+      : [];
+}
+
+function priceTierSummary(row) {
+  const tiers = priceTiers(row);
+  if (!tiers.length) return "-";
+  return tiers
+    .map(
+      (tier) =>
+        `${Number(tier.min_quantity).toLocaleString("tr-TR")}+ ${money(tier.unit_price)}`,
+    )
+    .join(", ");
 }
 
 function diagnosticRegenerateMessage(barcode, data = {}) {
@@ -1126,11 +1146,13 @@ function SuggestionDrawer({
         file_market_item_id: item.file_market_item_id,
         supplier_code: item.supplier_code || suggestion.supplier_code,
         suggested_unit_cost: Number(
-          item.supplier_current_price ||
+          item.suggested_unit_cost ||
+            item.supplier_effective_unit_price ||
+            item.supplier_current_price ||
             item.file_current_price ||
-            item.suggested_unit_cost ||
             0,
         ),
+        selected_price_tier: item.selected_price_tier || null,
         unit_desi: Number(item.unit_desi || 0),
       })),
     });
@@ -1299,6 +1321,18 @@ function SuggestionDrawer({
                             item.file_current_price,
                         )
                       : "-"}
+                  </b>
+                  <span>Kullanılan birim fiyat</span>
+                  <b>
+                    {item.suggested_unit_cost
+                      ? money(item.suggested_unit_cost)
+                      : "-"}
+                  </b>
+                  <span>Çoklu fiyat kademesi</span>
+                  <b>
+                    {item.selected_price_tier
+                      ? `${Number(item.selected_price_tier.min_quantity).toLocaleString("tr-TR")}+ adet: ${money(item.selected_price_tier.unit_price)}`
+                      : priceTierSummary(item)}
                   </b>
                   <span>Desi güveni</span>
                   <b>
@@ -1507,6 +1541,7 @@ function SupplierPricePool({ supplierCode, notify }) {
   const [importText, setImportText] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncingLive, setSyncingLive] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -1583,6 +1618,16 @@ function SupplierPricePool({ supplierCode, notify }) {
       render: (row) => money(row.current_price),
     },
     {
+      key: "price_tiers",
+      label: "Çoklu fiyat",
+      render: (row) =>
+        priceTiers(row).length ? (
+          <Badge tone="info">{priceTierSummary(row)}</Badge>
+        ) : (
+          "-"
+        ),
+    },
+    {
       key: "previous_price",
       label: "Önceki fiyat",
       render: (row) => (row.previous_price ? money(row.previous_price) : "-"),
@@ -1631,6 +1676,19 @@ function SupplierPricePool({ supplierCode, notify }) {
         <Badge tone={row.stale ? "warning" : "success"}>
           {row.stale ? "Güncelliğini kontrol et" : "Güncel"}
         </Badge>
+      ),
+    },
+    {
+      key: "ops",
+      label: "İşlem",
+      sortable: false,
+      exportable: false,
+      render: (row) => (
+        <IconButton
+          icon={Pencil}
+          label="Fiyat kademelerini düzenle"
+          onClick={() => setEditing(row)}
+        />
       ),
     },
   ];
@@ -1684,6 +1742,7 @@ function SupplierPricePool({ supplierCode, notify }) {
             columns={columns}
             rows={result.items}
             columnVisibilityKey={`supplier-price-pool-${supplierCode}`}
+            onRowClick={setEditing}
           />
           <Pagination
             page={result.page}
@@ -1726,6 +1785,197 @@ function SupplierPricePool({ supplierCode, notify }) {
           </Button>
         </footer>
       </Modal>
+      <SupplierPriceDrawer
+        item={editing}
+        supplierCode={supplierCode}
+        definition={definition}
+        onClose={() => setEditing(null)}
+        onSaved={async () => {
+          setEditing(null);
+          await load();
+        }}
+        notify={notify}
+      />
     </>
+  );
+}
+
+function SupplierPriceDrawer({
+  item,
+  supplierCode,
+  definition,
+  onClose,
+  onSaved,
+  notify,
+}) {
+  const [form, setForm] = useState({
+    current_price: "",
+    price_tiers: [],
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!item) return;
+    setForm({
+      current_price: item.current_price || "",
+      price_tiers: priceTiers(item).map((tier) => ({
+        min_quantity: Number(tier.min_quantity),
+        unit_price: Number(tier.unit_price),
+        label: tier.label || "",
+      })),
+    });
+  }, [item]);
+
+  if (!item) return null;
+
+  function updateTier(index, field, value) {
+    setForm((current) => ({
+      ...current,
+      price_tiers: current.price_tiers.map((tier, tierIndex) =>
+        tierIndex === index ? { ...tier, [field]: value } : tier,
+      ),
+    }));
+  }
+
+  function removeTier(index) {
+    setForm((current) => ({
+      ...current,
+      price_tiers: current.price_tiers.filter(
+        (_, tierIndex) => tierIndex !== index,
+      ),
+    }));
+  }
+
+  function addTier() {
+    setForm((current) => ({
+      ...current,
+      price_tiers: [
+        ...current.price_tiers,
+        { min_quantity: 6, unit_price: "", label: "6+ adet" },
+      ],
+    }));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await patch(
+        `/api/supplier-price-pools/${supplierCode}/items/${item.id}`,
+        {
+          current_price: Number(form.current_price),
+          price_tiers: form.price_tiers
+            .map((tier) => ({
+              min_quantity: Number(tier.min_quantity),
+              unit_price: Number(tier.unit_price),
+              label: tier.label,
+            }))
+            .filter(
+              (tier) =>
+                Number.isFinite(tier.min_quantity) &&
+                tier.min_quantity > 1 &&
+                Number.isFinite(tier.unit_price) &&
+                tier.unit_price > 0,
+            ),
+        },
+      );
+      notify?.(`${definition.shortLabel} fiyat kademesi kaydedildi`);
+      await onSaved();
+    } catch (error) {
+      notify?.(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Drawer
+      open
+      wide
+      onClose={onClose}
+      title={`${definition.shortLabel} fiyat kademesi`}
+    >
+      <div className="form-grid supplier-tier-drawer">
+        <div className="detail-hero">
+          <div>
+            <strong>{item.product_name}</strong>
+            <small>{item.brand || definition.label}</small>
+          </div>
+          <Badge tone={priceTiers(item).length ? "info" : "neutral"}>
+            {priceTiers(item).length ? "Çoklu fiyat var" : "Tek fiyat"}
+          </Badge>
+        </div>
+        <Field label="Normal birim fiyat">
+          <input
+            type="number"
+            step="0.01"
+            value={form.current_price}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                current_price: event.target.value,
+              }))
+            }
+          />
+        </Field>
+        <section>
+          <h3>Çoklu alım fiyatları</h3>
+          <div className="supplier-tier-list">
+            {form.price_tiers.map((tier, index) => (
+              <div key={`${index}:${tier.min_quantity}`}>
+                <Field label="Min adet">
+                  <input
+                    type="number"
+                    min="2"
+                    step="1"
+                    value={tier.min_quantity}
+                    onChange={(event) =>
+                      updateTier(index, "min_quantity", event.target.value)
+                    }
+                  />
+                </Field>
+                <Field label="Birim fiyat">
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={tier.unit_price}
+                    onChange={(event) =>
+                      updateTier(index, "unit_price", event.target.value)
+                    }
+                  />
+                </Field>
+                <Field label="Etiket">
+                  <input
+                    value={tier.label}
+                    onChange={(event) =>
+                      updateTier(index, "label", event.target.value)
+                    }
+                    placeholder={`${tier.min_quantity || "x"}+ adet`}
+                  />
+                </Field>
+                <Button
+                  variant="ghost"
+                  icon={X}
+                  onClick={() => removeTier(index)}
+                >
+                  Sil
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button variant="secondary" icon={Sparkles} onClick={addTier}>
+            Kademe ekle
+          </Button>
+        </section>
+        <div className="drawer-actions">
+          <Button variant="secondary" onClick={onClose}>
+            Vazgeç
+          </Button>
+          <Button icon={Check} disabled={saving} onClick={save}>
+            {saving ? "Kaydediliyor" : "Kaydet"}
+          </Button>
+        </div>
+      </div>
+    </Drawer>
   );
 }

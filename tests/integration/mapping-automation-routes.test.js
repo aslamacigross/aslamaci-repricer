@@ -35,6 +35,12 @@ function appFixture() {
       created: rows.length,
       changed: 0,
     }),
+    updateSupplierItemPricing: async (supplierCode, id, body) => ({
+      id: Number(id),
+      supplier_code: supplierCode,
+      current_price: body.current_price || 10,
+      price_tiers: body.price_tiers || [],
+    }),
     syncLiveSupplierItems: async (supplierCode) => ({
       supplierCode,
       processed: 3,
@@ -123,6 +129,18 @@ test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async ()
     .send({ rows: [{ product_name: "BİM ürünü", current_price: 10 }] })
     .expect(200);
   assert.equal(bim.body.data.supplierCode, "BIM");
+});
+
+test("tedarikçi havuzu çoklu fiyat kademesi güncellenebilir", async () => {
+  const response = await request(appFixture().app)
+    .patch("/api/supplier-price-pools/BIZIM_MARKET/items/7")
+    .send({
+      current_price: 42.5,
+      price_tiers: [{ min_quantity: 6, unit_price: 38.9 }],
+    })
+    .expect(200);
+  assert.equal(response.body.data.supplier_code, "BIZIM_MARKET");
+  assert.equal(response.body.data.price_tiers[0].unit_price, 38.9);
 });
 
 test("mapping önerisi onayı ile uygulaması ayrı endpointlerdir", async () => {

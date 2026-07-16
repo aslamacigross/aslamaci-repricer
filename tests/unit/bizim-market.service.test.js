@@ -15,6 +15,7 @@ const productHtml = `
       data-enhanced-productclick='{"item_id":"13856","item_name":"&#220;lker Gofret 36 g 36&apos;lı","item_brand":"&#220;LKER","item_category":"Temel Gıda","item_category2":"Atıştırmalık","item_category3":"Gofret","price":"475.21"}'>
       <img data-src="/gofret.jpg">
     </a>
+    <span>6 adet ve üzeri birim fiyat 450,00 TL</span>
   </div>`;
 
 test("Bizim Toptan HTML karakterlerini ve ürün kartını ayrıştırır", () => {
@@ -26,6 +27,9 @@ test("Bizim Toptan HTML karakterlerini ve ürün kartını ayrıştırır", () =
   assert.equal(row.estimated_unit_desi, 1.296);
   assert.equal(row.desi_confidence, "HIGH");
   assert.equal(row.raw_data.stock, 12);
+  assert.deepEqual(row.price_tiers, [
+    { min_quantity: 6, unit_price: 450, label: "6+ adet" },
+  ]);
 });
 
 test("Bizim Toptan sonraki sayfa adresini bulur", () => {

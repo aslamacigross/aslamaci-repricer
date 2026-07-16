@@ -1116,6 +1116,31 @@ tbody tr.clickable:hover {
   line-height: 1.5;
   margin-top: 3px;
 }
+.supplier-tier-drawer section {
+  grid-column: 1 / -1;
+}
+.supplier-tier-list {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.supplier-tier-list > div {
+  align-items: end;
+  background: #f7faf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns:
+    minmax(110px, 0.6fr) minmax(140px, 0.8fr) minmax(160px, 1fr)
+    auto;
+  padding: 12px;
+}
+@media (max-width: 760px) {
+  .supplier-tier-list > div {
+    grid-template-columns: 1fr;
+  }
+}
 .evidence-list {
   border: 1px solid var(--line);
   border-radius: 6px;

@@ -52,9 +52,9 @@ class MappingAutomationRepository {
               source_key,product_name,normalized_name,brand,size_value,size_unit,
               current_price,currency,availability,raw_data,first_seen_at,last_seen_at,
               price_changed_at,created_at,updated_at,supplier_code,source_url,
-              source_category,estimated_unit_desi,desi_confidence
+              source_category,estimated_unit_desi,desi_confidence,price_tiers
             )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,NOW(),NOW(),
-              $13,$14,$15,$16,$17)
+              $13,$14,$15,$16,$17,$18)
             ON CONFLICT(source_key)DO UPDATE SET
               product_name=EXCLUDED.product_name,
               normalized_name=EXCLUDED.normalized_name,
@@ -74,6 +74,7 @@ class MappingAutomationRepository {
               source_category=EXCLUDED.source_category,
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
               desi_confidence=EXCLUDED.desi_confidence,
+              price_tiers=EXCLUDED.price_tiers,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
                 WHEN file_market_items.current_price<>EXCLUDED.current_price
@@ -103,6 +104,7 @@ class MappingAutomationRepository {
               row.source_category || null,
               row.estimated_unit_desi || null,
               row.desi_confidence || "LOW",
+              JSON.stringify(row.price_tiers || []),
             ],
           )
         ).rows[0];
@@ -134,6 +136,30 @@ class MappingAutomationRepository {
 
   async importFileItems(rows) {
     return this.importSupplierItems("FILE_MARKET", rows);
+  }
+
+  async updateSupplierItemPricing(supplierCode, id, input = {}) {
+    const result = await this.db.query(
+      `UPDATE file_market_items SET
+         previous_price=CASE
+           WHEN $3::numeric IS NOT NULL AND current_price<>$3::numeric
+           THEN current_price ELSE previous_price END,
+         current_price=COALESCE($3::numeric,current_price),
+         price_tiers=$4::jsonb,
+         price_changed_at=CASE
+           WHEN $3::numeric IS NOT NULL AND current_price<>$3::numeric
+           THEN NOW() ELSE price_changed_at END,
+         updated_at=NOW()
+       WHERE supplier_code=$1 AND id=$2
+       RETURNING *`,
+      [
+        supplierCode,
+        Number(id),
+        input.current_price === undefined ? null : input.current_price,
+        JSON.stringify(input.price_tiers || []),
+      ],
+    );
+    return result.rows[0] || null;
   }
 
   async listSupplierItems({
@@ -505,8 +531,8 @@ class MappingAutomationRepository {
           await client.query(
             `INSERT INTO mapping_suggestion_items(
               suggestion_id,cost_item_code,file_market_item_id,supplier_code,quantity,
-              current_unit_cost,suggested_unit_cost,unit_desi
-            )VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+              current_unit_cost,suggested_unit_cost,unit_desi,selected_price_tier
+            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
             [
               parent.id,
               item.cost_item_code,
@@ -516,6 +542,7 @@ class MappingAutomationRepository {
               item.current_unit_cost,
               item.suggested_unit_cost,
               item.unit_desi,
+              JSON.stringify(item.selected_price_tier || null),
             ],
           );
         }
@@ -543,6 +570,7 @@ class MappingAutomationRepository {
                 f.current_price AS supplier_current_price,
                 f.last_seen_at AS supplier_last_seen_at,
                 f.estimated_unit_desi AS supplier_estimated_unit_desi,
+                f.price_tiers AS supplier_price_tiers,
                 f.desi_confidence,f.source_url,f.source_category,
                 COALESCE(msi.supplier_code,f.supplier_code) AS supplier_code
          FROM mapping_suggestion_items msi
@@ -817,8 +845,8 @@ class MappingAutomationRepository {
           await client.query(
             `INSERT INTO mapping_suggestion_items(
               suggestion_id,cost_item_code,file_market_item_id,supplier_code,quantity,
-              current_unit_cost,suggested_unit_cost,unit_desi
-            )VALUES($1::bigint,$2,$3::bigint,$4,$5::numeric,$6::numeric,$7::numeric,$8::numeric)`,
+              current_unit_cost,suggested_unit_cost,unit_desi,selected_price_tier
+            )VALUES($1::bigint,$2,$3::bigint,$4,$5::numeric,$6::numeric,$7::numeric,$8::numeric,$9::jsonb)`,
             [
               id,
               item.cost_item_code,
@@ -828,6 +856,7 @@ class MappingAutomationRepository {
               item.current_unit_cost || null,
               item.suggested_unit_cost || null,
               item.unit_desi || null,
+              JSON.stringify(item.selected_price_tier || null),
             ],
           );
         }
@@ -944,9 +973,11 @@ class MappingAutomationRepository {
         ) > 0
       ) {
         const filePrice = Number(
-          item.supplier_current_price ||
+          item.suggested_unit_cost ||
+            item.supplier_effective_unit_price ||
+            item.supplier_current_price ||
             item.file_current_price ||
-            item.suggested_unit_cost,
+            0,
         );
         await client.query(
           `UPDATE cost_items SET previous_unit_cost=unit_cost,unit_cost=$1,

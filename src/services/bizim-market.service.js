@@ -1,4 +1,7 @@
-const { estimatePackageDesi } = require("../domain/supplier-products");
+const {
+  estimatePackageDesi,
+  parsePriceTiersFromText,
+} = require("../domain/supplier-products");
 
 const BIZIM_BASE_URL = "https://www.bizimtoptan.com.tr";
 const BIZIM_CATEGORY_PATHS = Object.freeze([
@@ -71,6 +74,8 @@ function parseProductRows(html, { baseUrl = BIZIM_BASE_URL } = {}) {
       /<img\s+[^>]*(?:data-src|src)=["']([^"']+)["'][^>]*>/i,
     );
     const desi = estimatePackageDesi(productName);
+    const blockText = decodeHtml(block.replace(/<[^>]+>/g, " "));
+    const priceTiers = parsePriceTiersFromText(blockText, price);
     rows.push({
       source_key: `bizim-web:${id}`,
       product_name: productName,
@@ -82,6 +87,7 @@ function parseProductRows(html, { baseUrl = BIZIM_BASE_URL } = {}) {
       desi_confidence: desi.confidence,
       source_url: hrefMatch ? absoluteUrl(hrefMatch[1], baseUrl) : null,
       source_category: decodeHtml(payload.item_category).trim(),
+      price_tiers: priceTiers,
       raw_data: {
         provider: "bizim-toptan-web",
         product_id: id,
@@ -92,6 +98,7 @@ function parseProductRows(html, { baseUrl = BIZIM_BASE_URL } = {}) {
         product_group: decodeHtml(payload.item_category3) || null,
         stock: stockMatch ? Number(stockMatch[1]) : null,
         desi_basis: desi.basis,
+        price_tiers: priceTiers,
       },
     });
   }
