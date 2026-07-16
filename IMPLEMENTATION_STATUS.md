@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 134/134 başarılı
+- [x] Unit/integration/regression testleri: 138/138 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -55,7 +55,7 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
 - [x] React bileşen testleri: 14/14 başarılı
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 6/6 başarılı
-- [x] Backend testleri: 134/134 başarılı
+- [x] Backend testleri: 138/138 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -95,6 +95,8 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] Tedarikçi bazlı öneri filtresi ve farklı havuzların tek reçetede karışmasını engelleme
 - [x] Tedarikçi ürünlerinde tahmini kesirli birim desi ve güven göstergesi
 - [x] Nihai ürün desisinin toplam mapping sonrasında yukarı yuvarlanması
+- [x] Bebek bezi kilo aralığı ve kâğıt gramajını desi ağırlığı sanmayan korumalar
+- [x] Bizim canlı katalogda dondurulmuş kategori satırlarının güvenli dışlanması
 
 ## PR Öncesi Kapsam Denetimi
 

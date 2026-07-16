@@ -20,13 +20,30 @@ function supplier(code) {
   return SUPPLIERS[String(code || "").toUpperCase()] || null;
 }
 
+function hasBodyWeightRange(value) {
+  const text = String(value || "").toLocaleLowerCase("tr-TR");
+  return /\b(?:\d+(?:[.,]\d+)?\s*[-–]\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*\+)\s*kg\b/.test(
+    text,
+  );
+}
+
+function hasMaterialGrammage(value) {
+  const text = normalizeText(value);
+  return (
+    /\b(?:fotok|fotokopi|kagit|kagid)\b/.test(text) &&
+    /\b\d+(?:[.,]\d+)?\s*(?:gr|g)\s+\d+(?:[.,]\d+)?\s*(?:li|lu|adet|paket)\b/.test(
+      text,
+    )
+  );
+}
+
 function extractTotalPackageSize(value) {
   const text = normalizeText(value);
   const prefixed = text.match(
     /\b(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\b/,
   );
   const suffixed = text.match(
-    /\b(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\s+(\d+(?:[.,]\d+)?)\s*(?:li|adet|paket)\b/,
+    /\b(\d+(?:[.,]\d+)?)\s*(ml|lt|l|gr|g|kg)\s+(\d+(?:[.,]\d+)?)\s*(?:li|lu|adet|paket)\b/,
   );
   const count = Number(
     (prefixed?.[1] || suffixed?.[3] || "").replace(",", "."),
@@ -53,6 +70,12 @@ function estimatePackageDesi(value, explicitDesi = null) {
       confidence: "HIGH",
       basis: "SOURCE",
     };
+
+  if (hasBodyWeightRange(value))
+    return { value: 0.25, confidence: "LOW", basis: "BODY_WEIGHT_RANGE" };
+
+  if (hasMaterialGrammage(value))
+    return { value: 0.25, confidence: "LOW", basis: "MATERIAL_GRAMMAGE" };
 
   const bundled = extractTotalPackageSize(value);
   if (bundled)
@@ -82,6 +105,8 @@ module.exports = {
   SUPPLIERS,
   SUPPLIER_CODES,
   supplier,
+  hasBodyWeightRange,
+  hasMaterialGrammage,
   extractTotalPackageSize,
   estimatePackageDesi,
   roundProductDesi,

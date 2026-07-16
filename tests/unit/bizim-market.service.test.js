@@ -56,3 +56,17 @@ test("canlı tarama tekrar eden ürünleri tekilleştirir", async () => {
   assert.equal(result.rows.length, 1);
   assert.equal(result.stats.duplicates, 1);
 });
+
+test("canlı tarama dondurulmuş kategori satırlarını dışlar", async () => {
+  const frozenHtml = productHtml
+    .replace(/<link[^>]+>/, "")
+    .replace(/Temel Gıda/g, "Dondurulmuş Gıda");
+  const service = new BizimMarketService({
+    baseUrl: "https://example.test",
+    categoryPaths: ["/temel"],
+    fetchImpl: async () => ({ ok: true, text: async () => frozenHtml }),
+  });
+  const result = await service.livePriceRows();
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.stats.productsSkippedFrozen, 1);
+});

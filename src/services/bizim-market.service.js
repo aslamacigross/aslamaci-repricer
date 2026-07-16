@@ -98,6 +98,19 @@ function parseProductRows(html, { baseUrl = BIZIM_BASE_URL } = {}) {
   return rows;
 }
 
+function isFrozenRow(row) {
+  return [
+    row.source_category,
+    row.raw_data?.category,
+    row.raw_data?.subcategory,
+    row.raw_data?.product_group,
+  ].some((value) =>
+    String(value || "")
+      .toLocaleLowerCase("tr-TR")
+      .includes("dondur"),
+  );
+}
+
 async function fetchText(
   url,
   { fetchImpl = fetch, timeoutMs = 20000, retries = 2 } = {},
@@ -178,8 +191,13 @@ class BizimMarketService {
     );
     const rowsBySource = new Map();
     let duplicates = 0;
+    let productsSkippedFrozen = 0;
     for (const result of results)
       for (const row of result.rows) {
+        if (isFrozenRow(row)) {
+          productsSkippedFrozen++;
+          continue;
+        }
         if (rowsBySource.has(row.source_key)) duplicates++;
         rowsBySource.set(row.source_key, row);
       }
@@ -202,6 +220,7 @@ class BizimMarketService {
         ),
         targetProducts: rows.length,
         duplicates,
+        productsSkippedFrozen,
       },
     };
   }
@@ -214,4 +233,5 @@ module.exports = {
   decodeHtml,
   parseNextUrl,
   parseProductRows,
+  isFrozenRow,
 };

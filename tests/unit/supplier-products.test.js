@@ -29,6 +29,34 @@ test("gramajdan sonra yazılan koli adedini toplam pakete dahil eder", () => {
   );
 });
 
+test("farklı eklerle yazılan çoklu paketlerin toplam desisini bulur", () => {
+  assert.equal(estimatePackageDesi("Su 500 ml 24'lü").value, 12);
+  assert.equal(estimatePackageDesi("Gofret 25 g 24'lü").value, 0.6);
+});
+
+test("bebek bezi kilo aralığını ürün ağırlığı saymaz", () => {
+  assert.deepEqual(
+    estimatePackageDesi("Bebek Bezi Midi 3 Beden 5-9 kg 50'li"),
+    { value: 0.25, confidence: "LOW", basis: "BODY_WEIGHT_RANGE" },
+  );
+  assert.deepEqual(
+    estimatePackageDesi("Bebek Bezi Extra Large Beden 17+ kg 30'lu"),
+    { value: 0.25, confidence: "LOW", basis: "BODY_WEIGHT_RANGE" },
+  );
+});
+
+test("kâğıt gramajını paket ağırlığı saymaz", () => {
+  assert.deepEqual(estimatePackageDesi("Fotokopi Kağıdı A4 80 gr 500'lü"), {
+    value: 0.25,
+    confidence: "LOW",
+    basis: "MATERIAL_GRAMMAGE",
+  });
+  assert.deepEqual(
+    estimatePackageDesi("Sveto Copy Fotok.Kağıd. A4 80 Gr 500 Lü"),
+    { value: 0.25, confidence: "LOW", basis: "MATERIAL_GRAMMAGE" },
+  );
+});
+
 test("ölçüsüz ürünü düşük güvenle işaretler", () => {
   assert.deepEqual(estimatePackageDesi("Daycare Vücut Ağda Bandı 20'li"), {
     value: 0.25,
