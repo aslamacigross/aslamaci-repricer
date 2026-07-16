@@ -141,6 +141,15 @@ function priceTierSummary(row) {
     .join(", ");
 }
 
+function parseLocaleDecimal(value) {
+  const normalized = String(value || "")
+    .replace(/\s/g, "")
+    .replace(/₺|TL|TRY/gi, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  return Number(normalized);
+}
+
 function diagnosticRegenerateMessage(barcode, data = {}) {
   if (data.created)
     return {
@@ -1873,11 +1882,11 @@ function SupplierPriceDrawer({
       await patch(
         `/api/supplier-price-pools/${supplierCode}/items/${item.id}`,
         {
-          current_price: Number(form.current_price),
+          current_price: parseLocaleDecimal(form.current_price),
           price_tiers: form.price_tiers
             .map((tier) => ({
-              min_quantity: Number(tier.min_quantity),
-              unit_price: Number(tier.unit_price),
+              min_quantity: parseLocaleDecimal(tier.min_quantity),
+              unit_price: parseLocaleDecimal(tier.unit_price),
               label: tier.label,
             }))
             .filter(
@@ -1917,9 +1926,9 @@ function SupplierPriceDrawer({
         </div>
         <Field label="Normal birim fiyat">
           <input
-            type="number"
-            step="0.01"
+            inputMode="decimal"
             value={form.current_price}
+            placeholder="16,90"
             onChange={(event) =>
               setForm((current) => ({
                 ...current,
@@ -1935,10 +1944,9 @@ function SupplierPriceDrawer({
               <div key={`${index}:${tier.min_quantity}`}>
                 <Field label="Min adet">
                   <input
-                    type="number"
-                    min="2"
-                    step="1"
+                    inputMode="numeric"
                     value={tier.min_quantity}
+                    placeholder="32"
                     onChange={(event) =>
                       updateTier(index, "min_quantity", event.target.value)
                     }
@@ -1946,10 +1954,9 @@ function SupplierPriceDrawer({
                 </Field>
                 <Field label="Birim fiyat">
                   <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
+                    inputMode="decimal"
                     value={tier.unit_price}
+                    placeholder="15,90"
                     onChange={(event) =>
                       updateTier(index, "unit_price", event.target.value)
                     }
