@@ -139,27 +139,98 @@ class MappingAutomationRepository {
   }
 
   async updateSupplierItemPricing(supplierCode, id, input = {}) {
-    const result = await this.db.query(
-      `UPDATE file_market_items SET
-         previous_price=CASE
-           WHEN $3::numeric IS NOT NULL AND current_price<>$3::numeric
-           THEN current_price ELSE previous_price END,
-         current_price=COALESCE($3::numeric,current_price),
-         price_tiers=$4::jsonb,
-         price_changed_at=CASE
-           WHEN $3::numeric IS NOT NULL AND current_price<>$3::numeric
-           THEN NOW() ELSE price_changed_at END,
-         updated_at=NOW()
-       WHERE supplier_code=$1 AND id=$2
-       RETURNING *`,
-      [
-        supplierCode,
-        Number(id),
-        input.current_price === undefined ? null : input.current_price,
-        JSON.stringify(input.price_tiers || []),
-      ],
-    );
-    return result.rows[0] || null;
+    return this.withTransaction(async (client) => {
+      const existing = (
+        await client.query(
+          `SELECT id,supplier_code FROM file_market_items WHERE id=$1`,
+          [Number(id)],
+        )
+      ).rows[0];
+      if (!existing || existing.supplier_code !== supplierCode) return null;
+      const item = (
+        await client.query(
+          `UPDATE file_market_items SET
+             previous_price=CASE
+               WHEN $2::numeric IS NOT NULL AND current_price<>$2::numeric
+               THEN current_price ELSE previous_price END,
+             current_price=COALESCE($2::numeric,current_price),
+             price_tiers=$3::jsonb,
+             price_changed_at=CASE
+               WHEN $2::numeric IS NOT NULL AND current_price<>$2::numeric
+               THEN NOW() ELSE price_changed_at END,
+             updated_at=NOW()
+           WHERE id=$1
+           RETURNING *`,
+          [
+            Number(id),
+            input.current_price === undefined ? null : input.current_price,
+            JSON.stringify(input.price_tiers || []),
+          ],
+        )
+      ).rows[0];
+      if (!item) return null;
+      const tiers = [...(input.price_tiers || [])]
+        .map((tier) => ({
+          ...tier,
+          min_quantity: Number(tier.min_quantity),
+          unit_price: Number(tier.unit_price),
+        }))
+        .filter((tier) => tier.min_quantity > 1 && tier.unit_price > 0)
+        .sort((left, right) => right.min_quantity - left.min_quantity);
+      const affected = [];
+      if (tiers.length) {
+        const linkedMappings = (
+          await client.query(
+            `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
+                    pcm.quantity,ci.unit_cost AS previous_unit_cost
+             FROM cost_item_file_links l
+             JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
+             JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+             WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+             ORDER BY pcm.barcode,pcm.cost_item_code`,
+            [item.id],
+          )
+        ).rows;
+        const updatedCostCodes = new Set();
+        for (const mapping of linkedMappings) {
+          if (updatedCostCodes.has(mapping.cost_item_code)) continue;
+          const selected = tiers.find(
+            (tier) => Number(mapping.quantity) >= tier.min_quantity,
+          );
+          if (!selected) continue;
+          const updatedCost = (
+            await client.query(
+              `UPDATE cost_items SET
+                 previous_unit_cost=unit_cost,
+                 unit_cost=$2,
+                 price_source=$3,
+                 source_checked_at=NOW(),
+                 updated_at=NOW()
+               WHERE item_code=$1 AND unit_cost<>$2
+               RETURNING previous_unit_cost,unit_cost`,
+              [mapping.cost_item_code, selected.unit_price, supplierCode],
+            )
+          ).rows[0];
+          if (!updatedCost) continue;
+          updatedCostCodes.add(mapping.cost_item_code);
+          for (const affectedMapping of linkedMappings.filter(
+            (row) => row.cost_item_code === mapping.cost_item_code,
+          )) {
+            affected.push({
+              marketplace: affectedMapping.marketplace,
+              barcode: affectedMapping.barcode,
+              cost_item_code: affectedMapping.cost_item_code,
+              quantity: affectedMapping.quantity,
+              previous_unit_cost: updatedCost.previous_unit_cost,
+              unit_cost: updatedCost.unit_cost,
+              min_quantity: selected.min_quantity,
+              selected_price_tier: selected,
+            });
+          }
+        }
+      }
+      return { ...item, tier_price_updates: affected };
+    });
   }
 
   async listSupplierItems({

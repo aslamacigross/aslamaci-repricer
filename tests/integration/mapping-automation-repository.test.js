@@ -209,3 +209,104 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   assert.equal(directCostItem.rows[0].price_source, "BIZIM_MARKET");
   await db.end();
 });
+
+test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyetini günceller", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => value.length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+  await migrate("up", db, { compatibility: "pg-mem" });
+  const withTransaction = async (work) => {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  await db.query(
+    `INSERT INTO products(
+      marketplace,barcode,product_name,brand,category_id,is_active,data_status,
+      stock_quantity,my_price,commission_rate
+    )VALUES(
+      'TRENDYOL','HSTOBA6202101','Teno Ekonomik Peçete 100lü X 32 Adet',
+      'Teno','123',TRUE,'COMPLETE',10,999,17
+    )`,
+  );
+  await db.query(
+    `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,price_source)
+     VALUES('BIZIM_TENO_PECETE_100LU','Teno Ekonomik Peçete 100lü',249,1,'BIZIM_MARKET')`,
+  );
+  const item = (
+    await db.query(
+      `INSERT INTO file_market_items(
+        source_key,product_name,normalized_name,brand,current_price,
+        supplier_code,price_tiers
+      )VALUES(
+        'bizim:teno-pecete-100','Teno Ekonomik Peçete 100lü',
+        'teno ekonomik pecete 100lu','Teno',249,'BIZIM_MARKET','[]'::jsonb
+      ) RETURNING id`,
+    )
+  ).rows[0];
+  await db.query(
+    `INSERT INTO cost_item_file_links(
+      cost_item_code,file_market_item_id,confidence,status,approved_by,approved_at
+    )VALUES('BIZIM_TENO_PECETE_100LU',$1,0.95,'APPROVED','admin',NOW())`,
+    [item.id],
+  );
+  await db.query(
+    `INSERT INTO product_cost_mappings(
+      marketplace,barcode,cost_item_code,quantity
+    )VALUES('TRENDYOL','HSTOBA6202101','BIZIM_TENO_PECETE_100LU',6)`,
+  );
+
+  const repository = new MappingAutomationRepository(db, withTransaction);
+  const recalculated = [];
+  const service = new MappingAutomationService({
+    repository,
+    costs: new CostRepository(db, withTransaction),
+    costEngine: {
+      recalculate: async (barcode) => {
+        recalculated.push(barcode);
+        return { processed: 1 };
+      },
+    },
+  });
+
+  const updated = await service.updateSupplierItemPricing(
+    "BIZIM_MARKET",
+    item.id,
+    {
+      current_price: 249,
+      price_tiers: [{ min_quantity: 6, unit_price: 230 }],
+    },
+  );
+
+  assert.deepEqual(updated.recalculated_barcodes, ["HSTOBA6202101"]);
+  assert.deepEqual(recalculated, ["HSTOBA6202101"]);
+  const cost = await db.query(
+    `SELECT unit_cost,previous_unit_cost,price_source FROM cost_items
+     WHERE item_code='BIZIM_TENO_PECETE_100LU'`,
+  );
+  assert.equal(Number(cost.rows[0].unit_cost), 230);
+  assert.equal(Number(cost.rows[0].previous_unit_cost), 249);
+  assert.equal(cost.rows[0].price_source, "BIZIM_MARKET");
+  assert.equal(Number(updated.tier_price_updates[0].quantity), 6);
+  assert.equal(Number(updated.tier_price_updates[0].min_quantity), 6);
+
+  await db.end();
+});

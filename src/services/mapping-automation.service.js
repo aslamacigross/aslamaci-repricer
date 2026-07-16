@@ -663,13 +663,27 @@ class MappingAutomationService {
         "INVALID_SUPPLIER_PRICE",
       );
     const priceTiers = normalizePriceTiers(input.price_tiers || []);
-    return this.repository.updateSupplierItemPricing(normalizedCode, id, {
-      current_price:
-        currentPrice === undefined
-          ? undefined
-          : Number(currentPrice.toFixed(2)),
-      price_tiers: priceTiers,
-    });
+    const updated = await this.repository.updateSupplierItemPricing(
+      normalizedCode,
+      id,
+      {
+        current_price:
+          currentPrice === undefined
+            ? undefined
+            : Number(currentPrice.toFixed(2)),
+        price_tiers: priceTiers,
+      },
+    );
+    if (!updated) return null;
+    const updatedBarcodes = [
+      ...new Set((updated?.tier_price_updates || []).map((row) => row.barcode)),
+    ];
+    for (const barcode of updatedBarcodes)
+      await this.costEngine.recalculate(barcode);
+    return {
+      ...updated,
+      recalculated_barcodes: updatedBarcodes,
+    };
   }
 
   normalizeFileRows(rows) {
