@@ -73,7 +73,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 ## Doğrulama Durumu
 
-- 134 backend unit/integration/regression, 14 React bileşen ve 5 Chrome uçtan uca testi geçiyor.
+- 134 backend unit/integration/regression, 14 React bileşen ve 6 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.

@@ -239,8 +239,42 @@ const fileMarketItems = [
     availability: "AVAILABLE",
     last_seen_at: now,
     stale: false,
+    supplier_code: "FILE_MARKET",
   },
 ];
+const supplierPricePools = {
+  FILE_MARKET: fileMarketItems,
+  BIZIM_MARKET: [
+    {
+      id: 2,
+      source_key: "bizim-web:13856",
+      product_name: "Ülker Çikolatalı Gofret 36 g 36'lı",
+      brand: "Ülker",
+      current_price: 475.21,
+      availability: "AVAILABLE",
+      estimated_unit_desi: 1.296,
+      desi_confidence: "HIGH",
+      source_category: "Atıştırmalık",
+      last_seen_at: now,
+      supplier_code: "BIZIM_MARKET",
+    },
+  ],
+  BIM: [
+    {
+      id: 3,
+      source_key: "bim-yemeksepeti:demo",
+      product_name: "BİM Test Ürünü 250 g",
+      brand: "BİM",
+      current_price: 49.9,
+      availability: "AVAILABLE",
+      estimated_unit_desi: 0.25,
+      desi_confidence: "HIGH",
+      source_category: "Temel Gıda",
+      last_seen_at: now,
+      supplier_code: "BIM",
+    },
+  ],
+};
 const mappingSuggestions = [
   {
     id: 14,
@@ -643,6 +677,28 @@ const container = {
   costEngine: { recalculate: async () => ({ processed: 1 }) },
   costs,
   mappingAutomation: {
+    listSupplierItems: async (supplierCode) => ({
+      items: supplierPricePools[supplierCode] || [],
+      total: (supplierPricePools[supplierCode] || []).length,
+      page: 1,
+      limit: 50,
+    }),
+    importSupplierItems: async (supplierCode, rows) => ({
+      processed: rows.length,
+      created: rows.length,
+      changed: 0,
+      items: rows.map((row, index) => ({
+        id: index + 100,
+        ...row,
+        supplier_code: supplierCode,
+      })),
+    }),
+    syncLiveSupplierItems: async (supplierCode) => ({
+      processed: (supplierPricePools[supplierCode] || []).length,
+      created: 0,
+      changed: 0,
+      metadata: { productsScanned: 1, supplierCode },
+    }),
     listFileItems: async () => ({
       items: fileMarketItems,
       total: fileMarketItems.length,

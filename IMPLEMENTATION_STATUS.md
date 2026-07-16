@@ -54,7 +54,7 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
 - [x] React bileşen testleri: 14/14 başarılı
-- [x] Chrome masaüstü/mobil uçtan uca testleri: 5/5 başarılı
+- [x] Chrome masaüstü/mobil uçtan uca testleri: 6/6 başarılı
 - [x] Backend testleri: 134/134 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı

@@ -94,7 +94,7 @@ test("akıllı mapping önerisini inceleme ve güvenli onay", async ({ page }) =
   await expect(page.getByText("Bu öneri neden geldi?")).toBeVisible();
   await page.getByRole("button", { name: "Öneriyi onayla" }).click();
   await expect(
-    page.getByText("Öneri onaylandı; mapping henüz değiştirilmedi"),
+    page.getByText("Öneri onaylandı; sıradaki öneriye geçebilirsiniz"),
   ).toBeVisible();
 });
 
@@ -114,4 +114,25 @@ test("mobil akıllı mapping kuyruğu", async ({ page }) => {
   await expect(page.getByText("%94")).toBeVisible();
   if (process.env.VISUAL_QA)
     await page.screenshot({ path: "tmp/mapping-mobile.png", fullPage: true });
+});
+
+test("mobil BİM fiyat havuzu", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByLabel("Menüyü aç").click();
+  await page.getByRole("button", { name: "Ürün Mapping" }).click();
+  await page.getByRole("button", { name: "BİM havuzu" }).click();
+
+  await expect(page.getByPlaceholder("BİM ürün veya marka ara")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "BİM fiyatı içe aktar" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "BİM Test Ürünü 250 g" }),
+  ).toBeVisible();
+  if (process.env.VISUAL_QA)
+    await page.screenshot({
+      path: "tmp/supplier-price-pool-mobile.png",
+      fullPage: true,
+    });
 });
