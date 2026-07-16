@@ -1532,6 +1532,7 @@ function parseSupplierImport(text) {
 
 function SupplierPricePool({ supplierCode, notify }) {
   const definition = supplierDefinition(supplierCode);
+  const supportsBulkPrices = supplierCode === "BIZIM_MARKET";
   const [result, setResult] = useState(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -1617,16 +1618,20 @@ function SupplierPricePool({ supplierCode, notify }) {
       label: "Güncel fiyat",
       render: (row) => money(row.current_price),
     },
-    {
-      key: "price_tiers",
-      label: "Çoklu fiyat",
-      render: (row) =>
-        priceTiers(row).length ? (
-          <Badge tone="info">{priceTierSummary(row)}</Badge>
-        ) : (
-          "-"
-        ),
-    },
+    ...(supportsBulkPrices
+      ? [
+          {
+            key: "price_tiers",
+            label: "Çoklu fiyat",
+            render: (row) =>
+              priceTiers(row).length ? (
+                <Badge tone="info">{priceTierSummary(row)}</Badge>
+              ) : (
+                "-"
+              ),
+          },
+        ]
+      : []),
     {
       key: "previous_price",
       label: "Önceki fiyat",
@@ -1678,19 +1683,23 @@ function SupplierPricePool({ supplierCode, notify }) {
         </Badge>
       ),
     },
-    {
-      key: "ops",
-      label: "İşlem",
-      sortable: false,
-      exportable: false,
-      render: (row) => (
-        <IconButton
-          icon={Pencil}
-          label="Fiyat kademelerini düzenle"
-          onClick={() => setEditing(row)}
-        />
-      ),
-    },
+    ...(supportsBulkPrices
+      ? [
+          {
+            key: "ops",
+            label: "İşlem",
+            sortable: false,
+            exportable: false,
+            render: (row) => (
+              <IconButton
+                icon={Pencil}
+                label="Fiyat kademelerini düzenle"
+                onClick={() => setEditing(row)}
+              />
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -1742,7 +1751,7 @@ function SupplierPricePool({ supplierCode, notify }) {
             columns={columns}
             rows={result.items}
             columnVisibilityKey={`supplier-price-pool-${supplierCode}`}
-            onRowClick={setEditing}
+            onRowClick={supportsBulkPrices ? setEditing : undefined}
           />
           <Pagination
             page={result.page}
@@ -1785,17 +1794,19 @@ function SupplierPricePool({ supplierCode, notify }) {
           </Button>
         </footer>
       </Modal>
-      <SupplierPriceDrawer
-        item={editing}
-        supplierCode={supplierCode}
-        definition={definition}
-        onClose={() => setEditing(null)}
-        onSaved={async () => {
-          setEditing(null);
-          await load();
-        }}
-        notify={notify}
-      />
+      {supportsBulkPrices && (
+        <SupplierPriceDrawer
+          item={editing}
+          supplierCode={supplierCode}
+          definition={definition}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await load();
+          }}
+          notify={notify}
+        />
+      )}
     </>
   );
 }

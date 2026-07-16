@@ -236,6 +236,8 @@ function estimateUnitDesi(fileItem) {
 }
 
 function supplierPriceForQuantity(fileItem, quantity = 1) {
+  if (fileItem.supplier_code !== "BIZIM_MARKET")
+    return priceTierForQuantity(fileItem.current_price, [], quantity);
   return priceTierForQuantity(
     fileItem.current_price,
     fileItem.price_tiers || [],
@@ -598,16 +600,19 @@ class MappingAutomationService {
         productName,
         row.estimated_unit_desi ?? row.unit_desi,
       );
-      const priceTiers = normalizePriceTiers(
-        row.price_tiers ||
-          row.priceTiers ||
-          row.bulk_prices ||
-          row.bulkPrices ||
-          row.tier_prices ||
-          row.tierPrices ||
-          row.raw_data?.price_tiers ||
-          [],
-      );
+      const priceTiers =
+        supplierCode === "BIZIM_MARKET"
+          ? normalizePriceTiers(
+              row.price_tiers ||
+                row.priceTiers ||
+                row.bulk_prices ||
+                row.bulkPrices ||
+                row.tier_prices ||
+                row.tierPrices ||
+                row.raw_data?.price_tiers ||
+                [],
+            )
+          : [];
       return {
         source_key: sourceKey,
         product_name: productName,
@@ -637,6 +642,12 @@ class MappingAutomationService {
         "Tedarikçi havuzu geçersiz",
         400,
         "INVALID_SUPPLIER_CODE",
+      );
+    if (normalizedCode !== "BIZIM_MARKET")
+      throw new AppError(
+        "Çoklu alım fiyat kademesi yalnız Bizim Toptan için kullanılır",
+        400,
+        "SUPPLIER_TIERS_ONLY_BIZIM",
       );
     const currentPrice =
       input.current_price === undefined
@@ -1908,7 +1919,9 @@ class MappingAutomationService {
       const quantity = Number(item.quantity);
       const tierPrice = priceTierForQuantity(
         original.supplier_current_price || original.file_current_price,
-        original.supplier_price_tiers || [],
+        original.supplier_code === "BIZIM_MARKET"
+          ? original.supplier_price_tiers || []
+          : [],
         quantity,
       );
       const fileProductName =

@@ -76,7 +76,18 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     costs,
     costEngine,
   });
-  await service.importFileItems([
+  assert.deepEqual(
+    service.normalizeFileRows([
+      {
+        product_name: "Actisoft Menekşe Bahçesi Konsantre 1500 ml",
+        current_price: 112,
+        price_tiers: [{ min_quantity: 4, unit_price: 108 }],
+        brand: "Actisoft",
+      },
+    ])[0].price_tiers,
+    [],
+  );
+  await service.importSupplierItems("BIZIM_MARKET", [
     {
       product_name: "Actisoft Menekşe Bahçesi Konsantre 1500 ml",
       current_price: 112,
@@ -130,7 +141,7 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   );
   assert.equal(Number(cost.rows[0].unit_cost), 108);
   assert.equal(Number(cost.rows[0].previous_unit_cost), 110);
-  assert.equal(cost.rows[0].price_source, "FILE_MARKET");
+  assert.equal(cost.rows[0].price_source, "BIZIM_MARKET");
   const status = await db.query(
     "SELECT status FROM mapping_suggestions WHERE id=$1",
     [approved.id],
@@ -195,6 +206,6 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   assert.equal(directCostItem.rowCount, 1);
   assert.equal(Number(directCostItem.rows[0].unit_cost), 108);
   assert.equal(Number(directCostItem.rows[0].unit_desi), 1.5);
-  assert.equal(directCostItem.rows[0].price_source, "FILE_MARKET");
+  assert.equal(directCostItem.rows[0].price_source, "BIZIM_MARKET");
   await db.end();
 });
