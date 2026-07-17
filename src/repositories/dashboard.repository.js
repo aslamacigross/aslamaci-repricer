@@ -35,11 +35,11 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE calculated_shipping_cost<=0)::int missing_shipping,
         COUNT(*) FILTER(WHERE calculated_net_profit<0)::int loss_products,
         COUNT(*) FILTER(WHERE min_price>0 AND my_price<min_price)::int below_minimum,
-        COUNT(*) FILTER(WHERE rank=1)::int buybox_owned,
-        COUNT(*) FILTER(WHERE rank IS DISTINCT FROM 1)::int buybox_outside,
-        COUNT(*) FILTER(WHERE rank IS DISTINCT FROM 1 AND data_complete=TRUE
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank=1)::int buybox_owned,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1)::int buybox_outside,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1 AND data_complete=TRUE
           AND buybox_price>0 AND min_price<=buybox_price)::int buybox_available,
-        COUNT(*) FILTER(WHERE buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes')::int stale_buybox,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes'))::int stale_buybox,
         COUNT(*) FILTER(WHERE auto_update)::int auto_update_enabled,
         ROUND(AVG(calculated_net_margin)::numeric,2) average_margin,
         (SELECT COUNT(*)::int FROM repricer_actions WHERE created_at>NOW()-INTERVAL '24 hours') actions_24h,
@@ -130,6 +130,7 @@ class DashboardRepository {
 
   async metricDetails(metric, { limit = 100 } = {}) {
     const cappedLimit = Math.min(Math.max(Number(limit) || 100, 1), 200);
+    const sellableProduct = "p.is_active=TRUE AND p.stock_quantity>0";
     const productMetrics = {
       total_products: "TRUE",
       active_products: "p.is_active=TRUE",
@@ -144,12 +145,10 @@ class DashboardRepository {
       missing_shipping: "p.calculated_shipping_cost<=0",
       loss_products: "p.calculated_net_profit<0",
       below_minimum: "p.min_price>0 AND p.my_price<p.min_price",
-      buybox_owned: "p.rank=1",
-      buybox_available:
-        "p.rank IS DISTINCT FROM 1 AND p.data_complete=TRUE AND p.buybox_price>0 AND p.min_price<=p.buybox_price",
-      buybox_outside: "p.rank IS DISTINCT FROM 1",
-      stale_buybox:
-        "p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes'",
+      buybox_owned: `${sellableProduct} AND p.rank=1`,
+      buybox_available: `${sellableProduct} AND p.rank IS DISTINCT FROM 1 AND p.data_complete=TRUE AND p.buybox_price>0 AND p.min_price<=p.buybox_price`,
+      buybox_outside: `${sellableProduct} AND p.rank IS DISTINCT FROM 1`,
+      stale_buybox: `${sellableProduct} AND (p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes')`,
       auto_update_enabled: "p.auto_update=TRUE",
     };
     const actionMetrics = {
