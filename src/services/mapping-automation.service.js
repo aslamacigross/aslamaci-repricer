@@ -294,6 +294,31 @@ function fileBackedQuantity(target, fileItem) {
   return extractPackCount(target.product_name);
 }
 
+function learnedRecipeScale(sourceProduct, targetProduct) {
+  const sourceExplicit = extractExplicitBundleCount(sourceProduct.product_name);
+  const targetExplicit = extractExplicitBundleCount(targetProduct.product_name);
+  const sourceInternal = extractInternalPackCount(sourceProduct.product_name);
+  const targetInternal = extractInternalPackCount(targetProduct.product_name);
+  if (targetExplicit) {
+    if (sourceExplicit) return targetExplicit / sourceExplicit;
+    if (sourceInternal && sourceInternal === targetInternal)
+      return targetExplicit;
+  }
+  if (sourceExplicit && targetInternal && sourceExplicit === targetInternal)
+    return 1 / sourceExplicit;
+  return null;
+}
+
+function scaleLearnedRecipe(sourceProduct, targetProduct, recipe) {
+  const scale = learnedRecipeScale(sourceProduct, targetProduct);
+  if (!Number.isFinite(scale) || scale <= 0)
+    return scaleRecipe(sourceProduct, targetProduct, recipe);
+  return recipe.map((item) => ({
+    ...item,
+    quantity: Number((Number(item.quantity) * scale).toFixed(4)),
+  }));
+}
+
 function significantProductTokens(value, brand = "") {
   const brandTokens = new Set(tokens(brand));
   return tokens(value).filter(
@@ -842,7 +867,7 @@ class MappingAutomationService {
 
   buildTrainingCandidate(target, example, comparison, fileItems) {
     if (comparison.score < 0.42) return null;
-    const scaled = scaleRecipe(example, target, example.recipe);
+    const scaled = scaleLearnedRecipe(example, target, example.recipe);
     const items = this.enrichRecipe(target, scaled, fileItems);
     const supported = items.filter((item) => item.file_market_item_id);
     const fileSupport = supported.length
@@ -1367,7 +1392,15 @@ class MappingAutomationService {
     const fileIds = [
       ...new Set(items.map((item) => item.file_market_item_id).filter(Boolean)),
     ];
-    if (!fileIds.length) return null;
+    const manualHistoryOnly =
+      candidate.source_type === "MANUAL_HISTORY" &&
+      items.every(
+        (item) =>
+          item.cost_item_code &&
+          Number(item.current_unit_cost) > 0 &&
+          Number(item.unit_desi) > 0,
+      );
+    if (!fileIds.length && !manualHistoryOnly) return null;
     const suggestion = {
       barcode: target.barcode,
       base_confidence: baseConfidence,
@@ -1376,7 +1409,9 @@ class MappingAutomationService {
       source_barcode: candidate.source_barcode,
       file_market_item_id: fileIds.length === 1 ? fileIds[0] : null,
       supplier_code:
-        candidate.supplier_code || items[0]?.supplier_code || "FILE_MARKET",
+        candidate.supplier_code ||
+        items[0]?.supplier_code ||
+        (manualHistoryOnly ? null : "FILE_MARKET"),
       update_file_price: fileIds.length > 0,
       evidence: remapEvidenceCostCodes(candidate.evidence, items),
       product_snapshot: target,
@@ -1433,6 +1468,13 @@ class MappingAutomationService {
       .map((candidate) => this.applyCompositeSafety(target, candidate));
   }
 
+  manualHistoryCandidatesForTarget(target, examples, targetHints) {
+    return this.buildTrainingCandidates(target, examples, [])
+      .filter((candidate) => candidate.source_type === "MANUAL_HISTORY")
+      .map((candidate) => applyRejectionHints(candidate, targetHints))
+      .map((candidate) => this.applyCompositeSafety(target, candidate));
+  }
+
   async generate({ limit = 500, barcode = null, supplier_code = null } = {}) {
     const supplierCode = supplier_code
       ? String(supplier_code).toUpperCase()
@@ -1465,6 +1507,13 @@ class MappingAutomationService {
           )
         : [],
     );
+    const rejectedSources = new Set(
+      this.repository.rejectedSourceBarcodes
+        ? await this.repository.rejectedSourceBarcodes(
+            targets.map((target) => target.barcode),
+          )
+        : [],
+    );
     const feedbackHints = new Map();
     if (this.repository.rejectedFeedbackHints) {
       const rows = await this.repository.rejectedFeedbackHints(
@@ -1489,23 +1538,21 @@ class MappingAutomationService {
     let withoutFileSupport = 0;
     let rejectedCandidateCount = 0;
     for (const target of targets) {
+      const targetHints = feedbackHints.get(target.barcode);
+      const manualCandidates = supplierCode
+        ? []
+        : this.manualHistoryCandidatesForTarget(target, examples, targetHints);
       const matchingPools = pools.filter((pool) =>
         this.targetBelongsToPool(target, pool),
       );
-      if (!matchingPools.length) continue;
+      if (!matchingPools.length && !manualCandidates.length) continue;
       scoped++;
-      const targetHints = feedbackHints.get(target.barcode);
-      const candidates = matchingPools
-        .flatMap((pool) =>
-          this.candidatesForPool(
-            target,
-            examples,
-            costItems,
-            pool,
-            targetHints,
-          ),
-        )
-        .sort((left, right) => sortCandidatesForTarget(target, left, right));
+      const poolCandidates = matchingPools.flatMap((pool) =>
+        this.candidatesForPool(target, examples, costItems, pool, targetHints),
+      );
+      const candidates = [...manualCandidates, ...poolCandidates].sort(
+        (left, right) => sortCandidatesForTarget(target, left, right),
+      );
       if (!candidates.length) {
         withoutCandidate++;
         continue;
@@ -1527,6 +1574,15 @@ class MappingAutomationService {
         }
         if (
           rejectedRecipes.has(`${suggestion.barcode}:${suggestion.recipe_key}`)
+        ) {
+          rejectedCandidateCount++;
+          continue;
+        }
+        if (
+          suggestion.source_barcode &&
+          rejectedSources.has(
+            `${suggestion.barcode}:${suggestion.source_barcode}`,
+          )
         ) {
           rejectedCandidateCount++;
           continue;

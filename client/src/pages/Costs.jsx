@@ -209,7 +209,9 @@ function ResourceTable({
   reload,
 }) {
   const [missingCommissions, setMissingCommissions] = useState([]),
-    [page, setPage] = useState(1);
+    [page, setPage] = useState(1),
+    [duplicateReport, setDuplicateReport] = useState(null),
+    [scanningDuplicates, setScanningDuplicates] = useState(false);
   useEffect(() => {
     if (mode !== "commissions") {
       setMissingCommissions([]);
@@ -220,6 +222,26 @@ function ResourceTable({
       .catch(() => setMissingCommissions([]));
   }, [mode, items]);
   useEffect(() => setPage(1), [mode, search]);
+  useEffect(() => {
+    if (mode !== "costs") setDuplicateReport(null);
+  }, [mode]);
+  async function scanDuplicateCosts() {
+    setScanningDuplicates(true);
+    try {
+      const result = await get("/api/cost-items/duplicates");
+      setDuplicateReport(result.data);
+      notify(
+        result.data.total
+          ? `${result.data.total} şüpheli maliyet kalemi çifti bulundu`
+          : "Şüpheli tekrar bulunmadı",
+        result.data.total ? "warning" : "success",
+      );
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setScanningDuplicates(false);
+    }
+  }
   const columns =
     mode === "costs"
       ? [
@@ -333,15 +355,52 @@ function ResourceTable({
           </>
         )}
         {mode === "costs" && (
-          <Button
-            variant="secondary"
-            icon={Upload}
-            onClick={() => setEditing({ bulk: true })}
-          >
-            Toplu maliyet
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              icon={SearchCheck}
+              onClick={scanDuplicateCosts}
+              disabled={scanningDuplicates}
+            >
+              {scanningDuplicates ? "Taranıyor" : "Tekrarları tara"}
+            </Button>
+            <Button
+              variant="secondary"
+              icon={Upload}
+              onClick={() => setEditing({ bulk: true })}
+            >
+              Toplu maliyet
+            </Button>
+          </>
         )}
       </div>
+      {mode === "costs" && duplicateReport && (
+        <div className="info-banner">
+          <SearchCheck />
+          <div>
+            <strong>
+              {duplicateReport.total
+                ? `${duplicateReport.total} şüpheli tekrar adayı`
+                : "Şüpheli tekrar bulunmadı"}
+            </strong>
+            {duplicateReport.items?.length > 0 && (
+              <div className="mini-list">
+                {duplicateReport.items.slice(0, 8).map((item, index) => (
+                  <p key={`${item.left.item_code}-${item.right.item_code}`}>
+                    <b>#{index + 1}</b> {item.left.item_name}{" "}
+                    <span className="muted">({item.left.item_code})</span> ↔{" "}
+                    {item.right.item_name}{" "}
+                    <span className="muted">({item.right.item_code})</span>{" "}
+                    <Badge tone={item.score >= 0.95 ? "danger" : "warning"}>
+                      %{Math.round(item.score * 100)}
+                    </Badge>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {mode === "commissions" && (
         <div className="info-banner">
           <TriangleAlert />

@@ -44,6 +44,7 @@ function fixture(overrides = {}) {
     learningProfiles: async () => [],
     rejectedFingerprints: async () => [],
     rejectedRecipeKeys: async () => [],
+    rejectedSourceBarcodes: async () => [],
     saveSuggestions: async (rows, barcodes = []) => {
       saved.push(...rows);
       evaluated.push(...barcodes);
@@ -115,6 +116,47 @@ test("File havuzundaki markalar dışındaki ürünlere öneri üretmez", async 
   assert.equal(saved.length, 0);
 });
 
+test("manuel uygulanmış mapping geçmişi tedarikçi havuzu olmadan yeni öneri üretir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "MANUAL_TARGET",
+        product_name: "Teno Ekonomik Peçete 100'lü X 6 Adet",
+        brand: "Teno",
+        category_id: "123",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        barcode: "MANUAL_SOURCE",
+        product_name: "Teno Ekonomik Peçete 100'lü",
+        brand: "Teno",
+        category_id: "123",
+        cost_item_code: "TENO_PECETE_100LU",
+        item_name: "Teno Ekonomik Peçete 100'lü",
+        quantity: 1,
+        unit_cost: 16.9,
+        unit_desi: 1,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ limit: 100 });
+
+  assert.equal(result.created, 1);
+  assert.equal(result.scoped, 1);
+  assert.equal(saved[0].source_type, "MANUAL_HISTORY");
+  assert.equal(saved[0].update_file_price, false);
+  assert.equal(saved[0].file_market_item_id, null);
+  assert.equal(saved[0].items[0].file_market_item_id, null);
+  assert.equal(saved[0].items[0].cost_item_code, "TENO_PECETE_100LU");
+  assert.equal(Number(saved[0].items[0].quantity), 6);
+});
+
 test("farklı tedarikçi havuzlarını tek mapping reçetesinde karıştırmaz", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],
@@ -160,6 +202,7 @@ test("farklı tedarikçi havuzlarını tek mapping reçetesinde karıştırmaz",
 
 test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   const { service, saved } = fixture({
+    trainingRows: async () => [],
     fileItemsForMatching: async () => [
       {
         id: 8,
@@ -1017,6 +1060,9 @@ test("reddedilen aynı öneriyi atlayıp sıradaki güvenilir adayı üretir", a
   const rejectedSuggestion = service.buildSuggestion(target, rejectedCandidate);
   service.repository.rejectedFingerprints = async () => [
     `${rejectedSuggestion.barcode}:${rejectedSuggestion.fingerprint}`,
+  ];
+  service.repository.rejectedSourceBarcodes = async () => [
+    `${rejectedSuggestion.barcode}:${rejectedSuggestion.source_barcode}`,
   ];
 
   const result = await service.generate({ limit: 100 });

@@ -5,6 +5,19 @@ const {
   multiplyDecimals,
 } = require("../utils/numbers");
 const { roundProductDesi } = require("../domain/supplier-products");
+const {
+  normalizeText,
+  tokens,
+  diceCoefficient,
+} = require("../domain/product-matching");
+
+function closeNumber(left, right, tolerance) {
+  const a = Number(left);
+  const b = Number(right);
+  return (
+    Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= tolerance
+  );
+}
 
 class CostRepository {
   constructor(db, withTransaction) {
@@ -20,6 +33,79 @@ class CostRepository {
        GROUP BY ci.id ORDER BY ci.item_name`,
       )
     ).rows;
+  }
+
+  async duplicateCostItemCandidates({ limit = 200 } = {}) {
+    const rows = (
+      await this.db.query(
+        `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count
+         FROM cost_items ci
+         LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+         GROUP BY ci.id
+         ORDER BY ci.item_name`,
+      )
+    ).rows;
+    const prepared = rows.map((item) => ({
+      ...item,
+      normalized_name: normalizeText(item.item_name),
+      token_list: tokens(`${item.item_name} ${item.item_code}`),
+    }));
+    const pairs = [];
+    for (let leftIndex = 0; leftIndex < prepared.length; leftIndex++) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < prepared.length;
+        rightIndex++
+      ) {
+        const left = prepared[leftIndex];
+        const right = prepared[rightIndex];
+        const nameScore = diceCoefficient(left.token_list, right.token_list);
+        const sameNormalizedName =
+          left.normalized_name &&
+          left.normalized_name === right.normalized_name;
+        const sameCost = closeNumber(left.unit_cost, right.unit_cost, 0.01);
+        const sameDesi = closeNumber(left.unit_desi, right.unit_desi, 0.001);
+        const reasons = [];
+        if (sameNormalizedName) reasons.push("SAME_NORMALIZED_NAME");
+        if (nameScore >= 0.92) reasons.push("VERY_SIMILAR_NAME");
+        else if (nameScore >= 0.86) reasons.push("SIMILAR_NAME");
+        if (sameCost) reasons.push("SAME_UNIT_COST");
+        if (sameDesi) reasons.push("SAME_UNIT_DESI");
+        const suspicious =
+          sameNormalizedName ||
+          nameScore >= 0.92 ||
+          (nameScore >= 0.86 && (sameCost || sameDesi));
+        if (!suspicious) continue;
+        pairs.push({
+          score: Number(
+            Math.min(
+              1,
+              nameScore * 0.78 + (sameCost ? 0.12 : 0) + (sameDesi ? 0.1 : 0),
+            ).toFixed(4),
+          ),
+          reasons,
+          left: {
+            id: left.id,
+            item_code: left.item_code,
+            item_name: left.item_name,
+            unit_cost: left.unit_cost,
+            unit_desi: left.unit_desi,
+            product_count: left.product_count,
+          },
+          right: {
+            id: right.id,
+            item_code: right.item_code,
+            item_name: right.item_name,
+            unit_cost: right.unit_cost,
+            unit_desi: right.unit_desi,
+            product_count: right.product_count,
+          },
+        });
+      }
+    }
+    const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+    pairs.sort((left, right) => right.score - left.score);
+    return { items: pairs.slice(0, safeLimit), total: pairs.length };
   }
 
   async saveCostItem(input, id) {

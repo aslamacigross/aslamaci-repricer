@@ -106,6 +106,15 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
     }),
   );
   r.get(
+    "/cost-items/duplicates",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costs.duplicateCostItemCandidates(req.query),
+      }),
+    ),
+  );
+  r.get(
     "/cost-items/:id/usage",
     asyncRoute(async (req, res) =>
       res.json({

@@ -409,6 +409,22 @@ class MappingAutomationRepository {
     ).rows.map((row) => `${row.barcode}:${buildMappingRecipeKey(row.items)}`);
   }
 
+  async rejectedSourceBarcodes(barcodes = []) {
+    const unique = [...new Set((barcodes || []).filter(Boolean))];
+    if (!unique.length) return [];
+    return (
+      await this.db.query(
+        `SELECT barcode,source_barcode FROM mapping_suggestions
+         WHERE marketplace='TRENDYOL'
+           AND status='REJECTED'
+           AND source_barcode IS NOT NULL
+           AND source_barcode<>''
+           AND barcode=ANY($1::text[])`,
+        [unique],
+      )
+    ).rows.map((row) => `${row.barcode}:${row.source_barcode}`);
+  }
+
   async rejectedFeedbackHints(barcodes = []) {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
