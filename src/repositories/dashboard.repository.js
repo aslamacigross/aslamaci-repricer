@@ -25,22 +25,22 @@ class DashboardRepository {
         COUNT(*)::int total_products,
         COUNT(*) FILTER(WHERE is_active)::int active_products,
         COUNT(*) FILTER(WHERE stock_quantity>0)::int stocked_products,
-        COUNT(*) FILTER(WHERE data_complete)::int complete_products,
-        COUNT(*) FILTER(WHERE data_status='MAPPING_MISSING' OR NOT EXISTS(
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND data_complete)::int complete_products,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (data_status='MAPPING_MISSING' OR NOT EXISTS(
           SELECT 1 FROM product_cost_mappings pcm
           WHERE pcm.marketplace=products.marketplace AND pcm.barcode=products.barcode
-        ))::int missing_mapping,
-        COUNT(*) FILTER(WHERE needs_cost_mapping AND data_status<>'MAPPING_MISSING')::int cost_data_issue,
-        COUNT(*) FILTER(WHERE commission_rate IS NULL OR commission_rate<=0)::int missing_commission,
-        COUNT(*) FILTER(WHERE calculated_shipping_cost<=0)::int missing_shipping,
-        COUNT(*) FILTER(WHERE calculated_net_profit<0)::int loss_products,
-        COUNT(*) FILTER(WHERE min_price>0 AND my_price<min_price)::int below_minimum,
+        )))::int missing_mapping,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND needs_cost_mapping AND data_status<>'MAPPING_MISSING')::int cost_data_issue,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (commission_rate IS NULL OR commission_rate<=0))::int missing_commission,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND calculated_shipping_cost<=0)::int missing_shipping,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND calculated_net_profit<0)::int loss_products,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND min_price>0 AND my_price<min_price)::int below_minimum,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank=1)::int buybox_owned,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1)::int buybox_outside,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1 AND data_complete=TRUE
           AND buybox_price>0 AND min_price<=buybox_price)::int buybox_available,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes'))::int stale_buybox,
-        COUNT(*) FILTER(WHERE auto_update)::int auto_update_enabled,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND auto_update)::int auto_update_enabled,
         ROUND(AVG(calculated_net_margin)::numeric,2) average_margin,
         (SELECT COUNT(*)::int FROM repricer_actions WHERE created_at>NOW()-INTERVAL '24 hours') actions_24h,
         (SELECT COUNT(*)::int FROM repricer_actions WHERE created_at>NOW()-INTERVAL '24 hours' AND status IN('SUCCESS','SENT','AWAITING_RESULT','DRY_RUN')) successful_actions_24h,
@@ -134,22 +134,21 @@ class DashboardRepository {
     const productMetrics = {
       total_products: "TRUE",
       active_products: "p.is_active=TRUE",
-      complete_products: "p.data_complete=TRUE",
-      missing_mapping: `(p.data_status='MAPPING_MISSING' OR NOT EXISTS(
+      complete_products: `${sellableProduct} AND p.data_complete=TRUE`,
+      missing_mapping: `${sellableProduct} AND (p.data_status='MAPPING_MISSING' OR NOT EXISTS(
         SELECT 1 FROM product_cost_mappings pcm
         WHERE pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
       ))`,
-      cost_data_issue:
-        "p.needs_cost_mapping=TRUE AND p.data_status<>'MAPPING_MISSING'",
-      missing_commission: "(p.commission_rate IS NULL OR p.commission_rate<=0)",
-      missing_shipping: "p.calculated_shipping_cost<=0",
-      loss_products: "p.calculated_net_profit<0",
-      below_minimum: "p.min_price>0 AND p.my_price<p.min_price",
+      cost_data_issue: `${sellableProduct} AND p.needs_cost_mapping=TRUE AND p.data_status<>'MAPPING_MISSING'`,
+      missing_commission: `${sellableProduct} AND (p.commission_rate IS NULL OR p.commission_rate<=0)`,
+      missing_shipping: `${sellableProduct} AND p.calculated_shipping_cost<=0`,
+      loss_products: `${sellableProduct} AND p.calculated_net_profit<0`,
+      below_minimum: `${sellableProduct} AND p.min_price>0 AND p.my_price<p.min_price`,
       buybox_owned: `${sellableProduct} AND p.rank=1`,
       buybox_available: `${sellableProduct} AND p.rank IS DISTINCT FROM 1 AND p.data_complete=TRUE AND p.buybox_price>0 AND p.min_price<=p.buybox_price`,
       buybox_outside: `${sellableProduct} AND p.rank IS DISTINCT FROM 1`,
       stale_buybox: `${sellableProduct} AND (p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes')`,
-      auto_update_enabled: "p.auto_update=TRUE",
+      auto_update_enabled: `${sellableProduct} AND p.auto_update=TRUE`,
     };
     const actionMetrics = {
       actions_24h: "ra.created_at>NOW()-INTERVAL '24 hours'",
