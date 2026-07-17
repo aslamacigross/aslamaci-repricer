@@ -48,6 +48,11 @@ const supplierDefinitions = {
     liveSync: true,
   },
   BIM: { label: "BİM", shortLabel: "BİM", liveSync: false },
+  OTHER: {
+    label: "Diğer maliyet havuzu",
+    shortLabel: "Diğer",
+    liveSync: false,
+  },
 };
 
 function supplierDefinition(code) {
@@ -184,6 +189,8 @@ export default function MappingSuggestions({ view, notify }) {
     return <SupplierPricePool supplierCode="BIZIM_MARKET" notify={notify} />;
   if (view === "bim")
     return <SupplierPricePool supplierCode="BIM" notify={notify} />;
+  if (view === "other")
+    return <SupplierPricePool supplierCode="OTHER" notify={notify} />;
   if (view === "learning") return <MappingLearningHistory />;
   if (view === "diagnostics") return <MappingDiagnostics notify={notify} />;
   if (view === "manual-costs") return <ManualCostQueue notify={notify} />;
@@ -1052,6 +1059,7 @@ function SuggestionQueue({ notify }) {
             <option value="FILE_MARKET">File Market</option>
             <option value="BIZIM_MARKET">Bizim Toptan</option>
             <option value="BIM">BİM</option>
+            <option value="OTHER">Diğer maliyet havuzu</option>
           </select>
         </div>
         <div className="mapping-toolbar-actions">

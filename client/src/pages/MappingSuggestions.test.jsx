@@ -264,6 +264,44 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("Diğer maliyet havuzu manuel ürünleri ayrı tedarikçi koduyla aktarır", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: { items: [], total: 0, page: 1, limit: 50 },
+    });
+    post.mockResolvedValue({ data: { processed: 1, changed: 0 } });
+
+    render(<MappingSuggestions view="other" notify={notify} />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Diğer fiyatı içe aktar",
+      }),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: /Diğer ürün adı/ }), {
+      target: { value: "Manuel Tedarik Ürünü;25;Aşlamacı;AVAILABLE" },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Fiyatları içe aktar" }),
+    );
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/supplier-price-pools/OTHER/items/bulk",
+        {
+          rows: [
+            {
+              product_name: "Manuel Tedarik Ürünü",
+              current_price: "25",
+              brand: "Aşlamacı",
+              availability: "AVAILABLE",
+            },
+          ],
+        },
+      ),
+    );
+  });
+
   test("teşhis satırından öneri üretir ve manuel kuyruğa alır", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();

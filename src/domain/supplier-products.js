@@ -12,6 +12,11 @@ const SUPPLIERS = Object.freeze({
     shortLabel: "Bizim",
   },
   BIM: { code: "BIM", label: "BİM", shortLabel: "BİM" },
+  OTHER: {
+    code: "OTHER",
+    label: "Diğer maliyet havuzu",
+    shortLabel: "Diğer",
+  },
 });
 
 const SUPPLIER_CODES = Object.keys(SUPPLIERS);

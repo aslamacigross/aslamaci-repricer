@@ -129,6 +129,11 @@ test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async ()
     .send({ rows: [{ product_name: "BİM ürünü", current_price: 10 }] })
     .expect(200);
   assert.equal(bim.body.data.supplierCode, "BIM");
+  const other = await request(fixture.app)
+    .post("/api/supplier-price-pools/OTHER/items/bulk")
+    .send({ rows: [{ product_name: "Diğer ürün", current_price: 25 }] })
+    .expect(200);
+  assert.equal(other.body.data.supplierCode, "OTHER");
 });
 
 test("tedarikçi havuzu çoklu fiyat kademesi güncellenebilir", async () => {
