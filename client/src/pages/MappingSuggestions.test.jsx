@@ -130,6 +130,34 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("yanlışlıkla onaylanan önerinin onayını iptal eder", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    const approved = { ...suggestion, status: "APPROVED" };
+    get.mockResolvedValue({
+      data: { items: [approved], total: 1, page: 1, limit: 50 },
+    });
+    post.mockImplementation(async (path) => {
+      if (path === "/api/mapping-suggestions/14/cancel-approval")
+        return { data: { ...approved, status: "REJECTED" } };
+      return { data: approved };
+    });
+
+    render(<MappingSuggestions view="suggestions" notify={notify} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Öneriyi incele" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Onayı iptal et" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/mapping-suggestions/14/cancel-approval",
+        { reason: "Yanlışlıkla onaylandı" },
+      ),
+    );
+    expect(notify).toHaveBeenCalledWith("Öneri onayı iptal edildi");
+  });
+
   test("seçili onaylı önerileri click eventi yerine id listesiyle önizler", async () => {
     const user = userEvent.setup();
     const approved = { ...suggestion, status: "APPROVED" };

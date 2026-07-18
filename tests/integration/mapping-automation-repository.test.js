@@ -358,3 +358,63 @@ test("stok durumu olmayan tedarikçi ürünü fiyatı varsa mapping aday havuzun
   assert.equal(items[0].availability, "UNAVAILABLE");
   await db.end();
 });
+
+test("uygulanmamış onaylı öneri iptal edilip reddedilebilir", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => value.length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+  await migrate("up", db, { compatibility: "pg-mem" });
+  const withTransaction = async (work) => {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  await db.query(
+    `INSERT INTO products(
+      marketplace,barcode,product_name,brand,category_id,is_active,data_status,
+      stock_quantity,my_price,commission_rate
+    )VALUES(
+      'TRENDYOL','WRONG_APPROVED','Yanlış Onaylı Ürün',
+      'Test','123',TRUE,'MAPPING_MISSING',10,100,17
+    )`,
+  );
+  const inserted = (
+    await db.query(
+      `INSERT INTO mapping_suggestions(
+        marketplace,barcode,status,confidence,base_confidence,confidence_band,
+        algorithm_version,source_type,product_snapshot,evidence,fingerprint
+      )VALUES(
+        'TRENDYOL','WRONG_APPROVED','APPROVED',0.7,0.7,'REVIEW',
+        'test','TEST','{}'::jsonb,'{}'::jsonb,'wrong-approved'
+      ) RETURNING id`,
+    )
+  ).rows[0];
+
+  const repository = new MappingAutomationRepository(db, withTransaction);
+  const cancelled = await repository.cancelApproval(inserted.id, "admin", {
+    reason: "Yanlışlıkla onaylandı",
+  });
+
+  assert.equal(cancelled.status, "REJECTED");
+  assert.equal(cancelled.rejection_reason, "Yanlışlıkla onaylandı");
+  await db.end();
+});

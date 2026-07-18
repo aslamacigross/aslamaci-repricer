@@ -1214,6 +1214,21 @@ function SuggestionDrawer({
     }
   }
 
+  async function cancelApproval() {
+    setBusy(true);
+    try {
+      await post(`/api/mapping-suggestions/${suggestion.id}/cancel-approval`, {
+        reason: "Yanlışlıkla onaylandı",
+      });
+      notify("Öneri onayı iptal edildi");
+      await onChanged();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const evidence = suggestion.evidence || {};
   return (
     <Drawer
@@ -1473,6 +1488,14 @@ function SuggestionDrawer({
               onClick={() => onPreviewApply(suggestion.id)}
             >
               Mappinge uygulama önizlemesi
+            </Button>
+            <Button
+              variant="danger"
+              icon={X}
+              disabled={busy}
+              onClick={cancelApproval}
+            >
+              Onayı iptal et
             </Button>
           </section>
         )}

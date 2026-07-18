@@ -2141,6 +2141,23 @@ class MappingAutomationService {
     return result;
   }
 
+  async cancelApproval(id, actor, input = {}) {
+    const result = await this.repository.cancelApproval(id, actor, input);
+    if (!result)
+      throw new AppError(
+        "Mapping önerisi bulunamadı",
+        404,
+        "SUGGESTION_NOT_FOUND",
+      );
+    if (result.conflict)
+      throw new AppError(
+        "Yalnızca uygulanmamış onaylı öneri iptal edilebilir",
+        409,
+        "SUGGESTION_NOT_APPROVED",
+      );
+    return result;
+  }
+
   normalizeIds(ids) {
     const normalized = [
       ...new Set((ids || []).map((id) => Number(id)).filter(Number.isInteger)),

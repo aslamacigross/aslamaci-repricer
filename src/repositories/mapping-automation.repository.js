@@ -967,6 +967,27 @@ class MappingAutomationRepository {
     });
   }
 
+  async cancelApproval(id, actor, input = {}) {
+    return this.withTransaction(async (client) => {
+      const suggestions = await this.getSuggestionsByIds([id], client, {
+        lock: true,
+      });
+      const suggestion = suggestions[0];
+      if (!suggestion) return null;
+      if (suggestion.status !== "APPROVED")
+        return { conflict: true, suggestion };
+      const rejected = (
+        await client.query(
+          `UPDATE mapping_suggestions SET status='REJECTED',rejection_reason=$1,
+           reviewed_by=$2,reviewed_at=NOW(),updated_at=NOW()
+           WHERE id=$3 RETURNING *`,
+          [input.reason || "Onay iptal edildi", actor, id],
+        )
+      ).rows[0];
+      return rejected;
+    });
+  }
+
   async markApplied(client, suggestion, actor) {
     const product = (
       await client.query(

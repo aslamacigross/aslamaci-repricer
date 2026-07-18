@@ -287,6 +287,21 @@ function mappingAutomationRoutes({
       res.json({ status: "ok", data });
     }),
   );
+  router.post(
+    "/mapping-suggestions/:id/cancel-approval",
+    asyncRoute(async (req, res) => {
+      const data = await mappingAutomation.cancelApproval(
+        req.params.id,
+        req.user.username,
+        req.body || {},
+      );
+      await log(req, "MAPPING_SUGGESTION_APPROVAL_CANCELLED", data.id, {
+        barcode: data.barcode,
+        reason: data.rejection_reason,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
   return router;
 }
 
