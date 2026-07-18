@@ -350,7 +350,7 @@ class MappingAutomationRepository {
     return (
       await this.db.query(
         `SELECT * FROM file_market_items
-         WHERE availability='AVAILABLE' AND current_price>0
+         WHERE current_price>0
            ${supplierFilter}
          ORDER BY last_seen_at DESC LIMIT 5000`,
         params,

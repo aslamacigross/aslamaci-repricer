@@ -310,3 +310,51 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
 
   await db.end();
 });
+
+test("stok durumu olmayan tedarikçi ürünü fiyatı varsa mapping aday havuzuna girer", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => value.length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+  await migrate("up", db, { compatibility: "pg-mem" });
+  const withTransaction = async (work) => {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  await db.query(
+    `INSERT INTO file_market_items(
+      source_key,product_name,normalized_name,brand,current_price,
+      supplier_code,availability
+    )VALUES(
+      'bizim:ulker-kakao-1kg','Ülker Toz Kakao 1 kg',
+      'ulker toz kakao 1 kg','Ülker',899,'BIZIM_MARKET','UNAVAILABLE'
+    )`,
+  );
+
+  const repository = new MappingAutomationRepository(db, withTransaction);
+  const items = await repository.fileItemsForMatching();
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].product_name, "Ülker Toz Kakao 1 kg");
+  assert.equal(items[0].availability, "UNAVAILABLE");
+  await db.end();
+});
