@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { get, post } from "../lib/api";
+import { get, post, patch } from "../lib/api";
 import Costs from "./Costs";
 
 vi.mock("../lib/api", () => ({
@@ -90,6 +90,35 @@ describe("Toplu mapping paneli", () => {
             note: "Haftalık maliyet",
           },
         ],
+      }),
+    );
+  });
+
+  test("tekli mapping kaydında adet alanına dokunulmasa bile 1 gönderir", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      items: [
+        {
+          id: 8,
+          barcode: "8697654365254",
+          cost_item_code: "BEST_CHOICE_KAMP_SANDALYESI",
+          quantity: null,
+        },
+      ],
+    });
+    patch.mockResolvedValue({ data: { id: 8 } });
+
+    render(<Costs mode="mappings" notify={notify} />);
+    await user.click(await screen.findByText("8697654365254"));
+    await user.click(screen.getByRole("button", { name: "Kaydet" }));
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith("/api/mappings/8", {
+        id: 8,
+        barcode: "8697654365254",
+        cost_item_code: "BEST_CHOICE_KAMP_SANDALYESI",
+        quantity: 1,
       }),
     );
   });

@@ -96,6 +96,20 @@ function formatCostError(error) {
   return `${error.message} (${readable}${suffix})`;
 }
 
+function normalizeMappingForm(form) {
+  const rawQuantity = form.quantity;
+  const quantity =
+    rawQuantity === undefined || rawQuantity === null || rawQuantity === ""
+      ? 1
+      : Number(rawQuantity);
+  return {
+    ...form,
+    barcode: String(form.barcode || "").trim(),
+    cost_item_code: String(form.cost_item_code || "").trim(),
+    quantity,
+  };
+}
+
 export default function Costs({ mode, notify }) {
   const [items, setItems] = useState(null),
     [search, setSearch] = useState(""),
@@ -554,9 +568,10 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
           : "/api/cost-items";
         await (value.id ? patch(path, form) : post(path, form));
       } else if (mode === "mappings") {
+        const mappingForm = normalizeMappingForm(form);
         await (value.id
-          ? patch(`/api/mappings/${value.id}`, form)
-          : post("/api/mappings", form));
+          ? patch(`/api/mappings/${value.id}`, mappingForm)
+          : post("/api/mappings", mappingForm));
       } else {
         const path = value.category_id
           ? `/api/commissions/${value.category_id}`
@@ -737,7 +752,7 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
                 <input
                   type="number"
                   step="0.01"
-                  value={form.quantity || 1}
+                  value={form.quantity ?? 1}
                   onChange={(e) => set("quantity", Number(e.target.value))}
                 />
               </Field>
