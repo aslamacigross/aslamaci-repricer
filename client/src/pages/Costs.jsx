@@ -79,6 +79,23 @@ function parseBulkRows(text, mode) {
       };
     });
 }
+
+function formatCostError(error) {
+  const details = Array.isArray(error.details) ? error.details : [];
+  if (!details.length)
+    return error.code ? `${error.message} (${error.code})` : error.message;
+  const readable = details
+    .slice(0, 5)
+    .map((detail) => {
+      const row = detail.row ? `${detail.row}. satır ` : "";
+      const value = detail.value || detail.key || "";
+      return `${row}${detail.code}${value ? `: ${value}` : ""}`;
+    })
+    .join(", ");
+  const suffix = details.length > 5 ? ` +${details.length - 5} hata` : "";
+  return `${error.message} (${readable}${suffix})`;
+}
+
 export default function Costs({ mode, notify }) {
   const [items, setItems] = useState(null),
     [search, setSearch] = useState(""),
@@ -506,7 +523,7 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
       setPreviewText(form.text || "");
     } catch (error) {
       setPreview(null);
-      notify(error.message, "error");
+      notify(formatCostError(error), "error");
     }
   }
   async function save() {
@@ -549,7 +566,7 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
       notify("Kayıt başarıyla kaydedildi");
       onSaved();
     } catch (e) {
-      notify(e.message, "error");
+      notify(formatCostError(e), "error");
     } finally {
       setSaving(false);
     }
