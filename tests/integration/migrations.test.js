@@ -43,6 +43,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "018_hepsiburada_shipping_barems",
       "019_trendyol_finance_history",
       "020_trendyol_cargo_reconciliation",
+      "021_product_desi_overrides",
     ],
   );
   const safety = await db.query(
@@ -200,8 +201,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "017_operations_finance_and_safety",
       "018_hepsiburada_shipping_barems",
       "019_trendyol_finance_history",
+      "020_trendyol_cargo_reconciliation",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

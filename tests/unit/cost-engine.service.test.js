@@ -18,9 +18,32 @@ test("maliyet motoru nihai mapping desisini bir sonraki tam sayıya yuvarlar", a
   assert.equal(result.processed, 1);
   assert.match(
     calculationSql,
-    /CEIL\(COALESCE\(mt\.total_desi,0\)\) total_desi/,
+    /COALESCE\(p\.manual_desi_override,CEIL\(COALESCE\(mt\.total_desi,0\)\)\) total_desi/,
   );
   assert.match(calculationSql, /desi=c\.total_desi/);
+});
+
+test("maliyet motoru manuel ürün desi override varsa onu kullanır", async () => {
+  const queries = [];
+  const db = {
+    query: async (sql) => {
+      queries.push(sql);
+      if (sql.includes("FROM system_settings")) return { rows: [] };
+      return { rowCount: 1, rows: [{ barcode: "PIKNIK" }] };
+    },
+  };
+
+  await new CostEngineService(db).recalculate("PIKNIK");
+  const calculationSql = queries.find((sql) => sql.includes("mapping_totals"));
+
+  assert.match(
+    calculationSql,
+    /x\.desi_kg=COALESCE\(p\.manual_desi_override,CEIL\(COALESCE\(mt\.total_desi,0\)\)\)/,
+  );
+  assert.match(
+    calculationSql,
+    /COALESCE\(p\.manual_desi_override,CEIL\(COALESCE\(mt\.total_desi,0\)\)\) BETWEEN x\.min_desi AND x\.max_desi/,
+  );
 });
 
 test("Hepsiburada maliyet hesabı yalnız Hepsiburada varsayılanlarını ve ürünlerini kullanır", async () => {

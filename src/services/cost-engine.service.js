@@ -52,7 +52,7 @@ class CostEngineService {
         WHERE pcm.marketplace=$3 GROUP BY pcm.marketplace,pcm.barcode
       ), calculated AS (
         SELECT p.marketplace,p.barcode,COALESCE(mt.product_cost,0) product_cost,
-          CEIL(COALESCE(mt.total_desi,0)) total_desi,
+          COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) total_desi,
           COALESCE(sb.cost_inc_vat,sc.cost_inc_vat,0) shipping_cost,
           COALESCE(pr.packaging_cost,0) packaging_cost,
           COALESCE(mt.orphan_count,0) orphan_count,COALESCE(mt.mapping_count,0) mapping_count,
@@ -67,11 +67,11 @@ class CostEngineService {
         LEFT JOIN LATERAL(
           SELECT * FROM shipping_costs x
           WHERE x.marketplace=p.marketplace AND x.carrier=$1
-            AND x.desi_kg=CEIL(COALESCE(mt.total_desi,0)) LIMIT 1
+            AND x.desi_kg=COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) LIMIT 1
         ) sc ON sb.id IS NULL
         LEFT JOIN LATERAL(
           SELECT * FROM packaging_rules x WHERE x.marketplace=p.marketplace
-            AND CEIL(COALESCE(mt.total_desi,0)) BETWEEN x.min_desi AND x.max_desi
+            AND COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) BETWEEN x.min_desi AND x.max_desi
           ORDER BY x.min_desi DESC LIMIT 1
         ) pr ON TRUE
         WHERE p.marketplace=$3 ${filter}
