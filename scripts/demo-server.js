@@ -561,6 +561,55 @@ const costs = {
     ],
     packaging: [{ id: 1, min_desi: 1, max_desi: 3, packaging_cost: 15 }],
   }),
+  shippingPage: async ({ marketplace, page, limit }) => {
+    const hepsiburada = marketplace === "HEPSIBURADA";
+    return {
+      marketplace,
+      rates: hepsiburada
+        ? [
+            {
+              id: 2,
+              marketplace,
+              carrier: "Aras",
+              desi_kg: 0,
+              cost_ex_vat: 90,
+              cost_inc_vat: 108,
+            },
+          ]
+        : [
+            {
+              id: 1,
+              marketplace,
+              carrier: "TEX",
+              desi_kg: 2,
+              cost_ex_vat: 77.54,
+              cost_inc_vat: 93.05,
+            },
+          ],
+      barems: hepsiburada
+        ? []
+        : [
+            {
+              id: 1,
+              carrier: "TEX",
+              barem_name: "BAREM2",
+              min_basket: 200,
+              max_basket: 349.99,
+              cost_ex_vat: 65.83,
+              cost_inc_vat: 79,
+            },
+          ],
+      packaging: hepsiburada
+        ? []
+        : [{ id: 1, min_desi: 1, max_desi: 3, packaging_cost: 15 }],
+      carriers: [hepsiburada ? "Aras" : "TEX"],
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: hepsiburada ? 49511 : 501,
+      },
+    };
+  },
   saveCostItem: async (x) => x,
   saveCostItems: async (rows) => ({ processed: rows.length, items: rows }),
   upsertMapping: async (x) => x,

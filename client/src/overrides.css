@@ -68,6 +68,35 @@
   box-shadow: 0 1px 3px rgb(23 45 35 / 12%);
   color: var(--green);
 }
+.shipping-toolbar {
+  align-items: center;
+  margin-bottom: 12px;
+}
+.shipping-toolbar > select,
+.shipping-toolbar > input {
+  background: #fff;
+  border: 1px solid #cfd9d3;
+  border-radius: 6px;
+  font: inherit;
+  height: 36px;
+  padding: 0 10px;
+}
+.shipping-toolbar > select {
+  min-width: 190px;
+}
+.shipping-toolbar > input {
+  width: 120px;
+}
+@media (max-width: 760px) {
+  .shipping-toolbar .segmented,
+  .shipping-toolbar > select,
+  .shipping-toolbar > input {
+    width: 100%;
+  }
+  .shipping-toolbar .segmented button {
+    flex: 1;
+  }
+}
 .finance-kpis {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }

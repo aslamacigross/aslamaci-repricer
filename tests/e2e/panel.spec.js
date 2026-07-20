@@ -167,3 +167,38 @@ test("aylık satış ve kâr raporu masaüstü ve mobilde açılır", async ({
       fullPage: true,
     });
 });
+
+test("kargo tarifeleri pazaryerine göre ayrılır ve sayfalanır", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Kargo & Ambalaj" }).click();
+
+  await expect(page.getByText("Trendyol · 501 tarife")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sepet baremleri" }),
+  ).toBeVisible();
+  await expect(page.getByText("Kargo maliyeti hesapla")).toBeVisible();
+
+  await page.getByRole("button", { name: "Hepsiburada" }).click();
+  await expect(page.getByText("Hepsiburada · 49.511 tarife")).toBeVisible();
+  await expect(
+    page.getByText("Hepsiburada anlaşmalı kargo tarifesi"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sepet baremleri" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Kargo maliyeti hesapla")).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Kargo & Ambalaj" }),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+  if (process.env.VISUAL_QA)
+    await page.screenshot({
+      path: "tmp/shipping-mobile.png",
+      fullPage: true,
+    });
+});

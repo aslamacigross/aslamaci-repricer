@@ -372,7 +372,15 @@ function costsRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await costs.shipping(req.query.marketplace || "TRENDYOL"),
+        data: req.query.limit
+          ? await costs.shippingPage({
+              marketplace: req.query.marketplace || "TRENDYOL",
+              page: req.query.page,
+              limit: req.query.limit,
+              carrier: req.query.carrier,
+              desi: req.query.desi,
+            })
+          : await costs.shipping(req.query.marketplace || "TRENDYOL"),
       }),
     ),
   );

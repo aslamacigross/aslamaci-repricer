@@ -670,6 +670,75 @@ class CostRepository {
     };
   }
 
+  async shippingPage({
+    marketplace = "TRENDYOL",
+    page = 1,
+    limit = 50,
+    carrier,
+    desi,
+  } = {}) {
+    const normalizedMarketplace = String(
+      marketplace || "TRENDYOL",
+    ).toUpperCase();
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safePage = Math.max(Number(page) || 1, 1);
+    const params = [normalizedMarketplace];
+    const filters = ["marketplace=$1"];
+    if (carrier) {
+      params.push(String(carrier));
+      filters.push(`carrier=$${params.length}`);
+    }
+    const normalizedDesi = Number(desi);
+    if (
+      desi !== undefined &&
+      desi !== null &&
+      desi !== "" &&
+      Number.isFinite(normalizedDesi)
+    ) {
+      params.push(normalizedDesi);
+      filters.push(`desi_kg=$${params.length}`);
+    }
+    const where = filters.join(" AND ");
+    const offset = (safePage - 1) * safeLimit;
+    const [rates, total, carriers, barems, packaging] = await Promise.all([
+      this.db.query(
+        `SELECT * FROM shipping_costs WHERE ${where}
+         ORDER BY carrier,desi_kg LIMIT $${params.length + 1}
+         OFFSET $${params.length + 2}`,
+        [...params, safeLimit, offset],
+      ),
+      this.db.query(
+        `SELECT COUNT(*)::integer AS total FROM shipping_costs WHERE ${where}`,
+        params,
+      ),
+      this.db.query(
+        `SELECT DISTINCT carrier FROM shipping_costs
+         WHERE marketplace=$1 ORDER BY carrier`,
+        [normalizedMarketplace],
+      ),
+      normalizedMarketplace === "TRENDYOL"
+        ? this.db.query(
+            "SELECT * FROM shipping_barems ORDER BY carrier,min_basket",
+          )
+        : Promise.resolve({ rows: [] }),
+      normalizedMarketplace === "TRENDYOL"
+        ? this.db.query("SELECT * FROM packaging_rules ORDER BY min_desi")
+        : Promise.resolve({ rows: [] }),
+    ]);
+    return {
+      marketplace: normalizedMarketplace,
+      rates: rates.rows,
+      barems: barems.rows,
+      packaging: packaging.rows,
+      carriers: carriers.rows.map((row) => row.carrier),
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total: total.rows[0]?.total || 0,
+      },
+    };
+  }
+
   async saveShippingRate(input, id) {
     if (id)
       return (

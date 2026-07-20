@@ -123,3 +123,73 @@ describe("Toplu mapping paneli", () => {
     );
   });
 });
+
+describe("Kargo pazaryeri ayrımı", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    get.mockImplementation(async (path) => {
+      if (path === "/api/shipping/coverage")
+        return { data: { warnings: [], carriers: [] } };
+      if (path.includes("marketplace=HEPSIBURADA"))
+        return {
+          data: {
+            marketplace: "HEPSIBURADA",
+            rates: [
+              {
+                id: 2,
+                carrier: "Aras",
+                desi_kg: 0,
+                cost_ex_vat: 90,
+                cost_inc_vat: 108,
+              },
+            ],
+            barems: [],
+            packaging: [],
+            carriers: ["Aras"],
+            pagination: { page: 1, limit: 50, total: 49511 },
+          },
+        };
+      return {
+        data: {
+          marketplace: "TRENDYOL",
+          rates: [
+            {
+              id: 1,
+              carrier: "TEX",
+              desi_kg: 0,
+              cost_ex_vat: 77.54,
+              cost_inc_vat: 93.05,
+            },
+          ],
+          barems: [],
+          packaging: [],
+          carriers: ["TEX"],
+          pagination: { page: 1, limit: 50, total: 501 },
+        },
+      };
+    });
+  });
+
+  test("Trendyol ve Hepsiburada tarifelerini ayrı gösterir", async () => {
+    const user = userEvent.setup();
+    render(<Costs mode="shipping" notify={vi.fn()} />);
+
+    expect(await screen.findByText(/501 tarife/)).toBeVisible();
+    expect(screen.getByText("Sepet baremleri")).toBeVisible();
+    expect(screen.getByText("Kargo maliyeti hesapla")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Hepsiburada" }));
+
+    expect(await screen.findByText(/49\.511 tarife/)).toBeVisible();
+    expect(
+      screen.getByText("Hepsiburada anlaşmalı kargo tarifesi"),
+    ).toBeVisible();
+    expect(screen.queryByText("Sepet baremleri")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Kargo maliyeti hesapla"),
+    ).not.toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith(
+      expect.stringContaining("marketplace=HEPSIBURADA"),
+    );
+  });
+});
