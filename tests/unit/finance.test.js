@@ -53,6 +53,8 @@ test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
               product_cost_total: 200,
               shipping_total: 93.04,
               service_fee_total: 13.19,
+              package_desi: 1,
+              shipping_source: "BILLED",
             },
           ],
         };
@@ -65,6 +67,23 @@ test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
               calculated_shipping_cost: 999,
               service_fee: 99,
               commission_rate: 19,
+              desi: 1.5,
+            },
+          ],
+        };
+      if (sql.includes("FROM system_settings"))
+        return {
+          rows: [{ key: "default_carrier_trendyol", value: "TEX" }],
+        };
+      if (sql.includes("FROM shipping_barems"))
+        return {
+          rows: [
+            {
+              source: "DESI",
+              min_basket: null,
+              max_basket: null,
+              cost_inc_vat: 93.04,
+              desi_kg: 2,
             },
           ],
         };
@@ -99,6 +118,8 @@ test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
   assert.equal(insertParams[10], 13.19);
   assert.equal(insertParams[11], 200);
   assert.equal(insertParams[12], 98.77);
+  assert.equal(insertParams[14], 1);
+  assert.equal(insertParams[15], "BILLED");
 });
 
 test("Trendyol finans hareketlerini API limitine uygun tarih araliklarina boler", async () => {
@@ -228,6 +249,11 @@ test("gecmis tamamlama settlement gecmisini ve son 28 gun siparisini ayri ceker"
     orderOptions = options;
     return { processed: 3, successful: 3, failed: 0 };
   };
+  finance.syncCargoInvoices = async () => ({
+    processed: 2,
+    successful: 2,
+    failed: 0,
+  });
   const endDate = Date.parse("2026-07-21T12:00:00Z");
   const startDate = Date.parse("2025-12-14T21:00:00Z");
 
@@ -236,8 +262,139 @@ test("gecmis tamamlama settlement gecmisini ve son 28 gun siparisini ayri ceker"
   assert.deepEqual(transactionOptions, { startDate, endDate });
   assert.equal(orderOptions.orderByField, "CreatedDate");
   assert.equal(orderOptions.startDate, endDate - 28 * 86400000);
-  assert.equal(result.processed, 13);
+  assert.equal(result.processed, 15);
   assert.match(settingsQueries[0].sql, /trendyol_finance_history_backfill/);
+});
+
+test("Trendyol kargo faturasi siparis desi ve tutarini saklar", async () => {
+  let insertParams;
+  const db = {
+    async query(sql, params) {
+      if (sql.includes("INSERT INTO marketplace_cargo_charges")) {
+        insertParams = params;
+        return { rows: [] };
+      }
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const trendyol = {
+    async listOtherFinancials() {
+      return {
+        content: [
+          {
+            id: "KARGO-2026-07",
+            transactionType: "Kargo Faturası",
+            transactionDate: Date.parse("2026-07-20T10:00:00Z"),
+          },
+          { id: "OTHER", transactionType: "Hizmet Faturası" },
+        ],
+        last: true,
+      };
+    },
+    async listCargoInvoiceItems(serial) {
+      assert.equal(serial, "KARGO-2026-07");
+      return {
+        content: [
+          {
+            shipmentPackageType: "Gönderi Kargo Bedeli",
+            parcelUniqueId: 7260001151141191,
+            orderNumber: "ORDER-1",
+            amount: 93.04,
+            desi: 2,
+          },
+        ],
+        last: true,
+      };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol, hepsiburada: {} });
+
+  const result = await finance.syncCargoInvoices({
+    startDate: Date.parse("2026-07-01T00:00:00Z"),
+    endDate: Date.parse("2026-07-01T00:00:00Z"),
+  });
+
+  assert.equal(result.processed, 1);
+  assert.equal(result.metadata.invoices, 1);
+  assert.equal(insertParams[0], "KARGO-2026-07");
+  assert.equal(insertParams[2], "7260001151141191");
+  assert.equal(insertParams[3], "ORDER-1");
+  assert.equal(insertParams[5], 93.04);
+  assert.equal(insertParams[6], 2);
+});
+
+test("aylik kargo raporu faturayi, yoksa mapping desisi tahminini kullanir", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('AS "line_count"'))
+        return {
+          rows: [
+            {
+              order_number: "ORDER-1",
+              order_date: "2026-07-10T10:00:00Z",
+              sale_amount: 500,
+              estimated_desi: 2,
+              line_count: 1,
+              missing_desi_count: 0,
+              products: "Ürün 1",
+            },
+            {
+              order_number: "ORDER-2",
+              order_date: "2026-07-11T10:00:00Z",
+              sale_amount: 500,
+              estimated_desi: 3,
+              line_count: 1,
+              missing_desi_count: 0,
+              products: "Ürün 2",
+            },
+          ],
+        };
+      if (sql.includes("FROM marketplace_cargo_charges"))
+        return {
+          rows: [
+            {
+              external_order_number: "ORDER-1",
+              shipment_package_type: "Gönderi Kargo Bedeli",
+              amount: 100,
+              billed_desi: 2,
+              invoice_date: "2026-07-20T10:00:00Z",
+            },
+          ],
+        };
+      if (sql.includes("FROM system_settings"))
+        return {
+          rows: [{ key: "default_carrier_trendyol", value: "TEX" }],
+        };
+      if (sql.includes("FROM shipping_barems"))
+        return {
+          rows: [
+            {
+              source: "DESI",
+              min_basket: null,
+              max_basket: null,
+              cost_inc_vat: 120,
+              desi_kg: 3,
+              carrier: "TEX",
+            },
+          ],
+        };
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyShippingReport("2026-07", "TRENDYOL");
+
+  assert.equal(report.order_count, 2);
+  assert.equal(report.billed_orders, 1);
+  assert.equal(report.estimated_orders, 1);
+  assert.equal(report.total, 220);
+  assert.equal(report.items[0].shipping_source, "BILLED");
+  assert.equal(report.items[0].billed_desi, 2);
+  assert.equal(report.items[0].shipping_cost, 100);
+  assert.equal(report.items[1].shipping_source, "MAPPED_ESTIMATE");
+  assert.equal(report.items[1].estimated_desi, 3);
+  assert.equal(report.items[1].shipping_cost, 120);
 });
 
 test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () => {

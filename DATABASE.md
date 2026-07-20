@@ -97,6 +97,17 @@
 - Trendyol ve Hepsiburada kargo/ambalaj kurallarını fiziksel olarak ayırır.
 - Hepsiburada için `hepsiJET`, KDV dahil `10,50 TL` hizmet bedeli ve iki sepet aralığındaki 14 barem kaydını ekler.
 
+### `019_trendyol_finance_history`
+
+- Settlement kayıtlarına sipariş tarihi ve barkod alanlarını ekler.
+- 15 Aralık 2025'ten başlayan parçalı finans geçmişi tamamlama jobunu oluşturur.
+
+### `020_trendyol_cargo_reconciliation`
+
+- Trendyol kargo faturası satırlarını tarihçeli `marketplace_cargo_charges` tablosunda saklar.
+- Sipariş snapshotına hesaplanan paket desisi ve kargo veri kaynağını ekler.
+- Gerçek kargo faturası/desi senkron jobunu oluşturur; fatura yokken rapor katmanı mapping desisi ve mevcut Trendyol tarifeleriyle güvenli tahmin üretir.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`
@@ -120,6 +131,8 @@
 - `price_change_outcomes(marketplace, barcode, checked_at)`
 - `competitor_price_observations(marketplace, barcode, observed_at)`
 - `job_runs(job_name, started_at)`
+- `marketplace_cargo_charges(marketplace, external_order_number)`
+- `marketplace_cargo_charges(marketplace, invoice_date)`
 - `file_market_price_history(file_market_item_id, observed_at)`
 - `mapping_suggestions(status, confidence, created_at)`
 - `mapping_feedback_events(learning_key, created_at)`

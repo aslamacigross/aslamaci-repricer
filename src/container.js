@@ -222,6 +222,9 @@ function createContainer(overrides = {}) {
   jobService.register("sync-financial-transactions", () =>
     finance.syncFinancialTransactions(),
   );
+  jobService.register("sync-trendyol-cargo-invoices", () =>
+    finance.syncCargoInvoices(),
+  );
   jobService.register("backfill-trendyol-finance-history", () =>
     finance.backfillTrendyolHistory(),
   );

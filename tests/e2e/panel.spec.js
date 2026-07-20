@@ -155,8 +155,23 @@ test("aylık satış ve kâr raporu masaüstü ve mobilde açılır", async ({
   await expect(
     page.getByRole("heading", { name: "Şehir dağılımı" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sipariş ve kargo desisi" }),
+  ).toBeVisible();
+  await expect(page.getByText("Faturalanan")).toBeVisible();
+  await expect(page.getByText("Mapping tahmini")).toBeVisible();
+  if (process.env.VISUAL_QA)
+    await page.screenshot({
+      path: "tmp/finance-desktop.png",
+      fullPage: true,
+    });
 
   await page.setViewportSize({ width: 390, height: 844 });
+  const closeMenu = page.getByRole("button", { name: "Menüyü kapat" });
+  if (await closeMenu.isVisible())
+    await closeMenu.evaluate((element) => element.click());
+  await expect(page.locator(".sidebar")).not.toHaveClass(/open/);
+  await page.waitForTimeout(300);
   await expect(
     page.getByRole("heading", { name: "Satış & Kâr" }),
   ).toBeVisible();

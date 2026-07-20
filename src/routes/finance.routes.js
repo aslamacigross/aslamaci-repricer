@@ -78,9 +78,13 @@ function financeRoutes({ finance, jobService, audit }) {
         source: "web",
         actor: req.user.username,
       });
+      const cargo = await jobService.run("sync-trendyol-cargo-invoices", {
+        source: "web",
+        actor: req.user.username,
+      });
       return res.json({
         status: "ok",
-        data: { marketplace, orders, transactions },
+        data: { marketplace, orders, transactions, cargo },
       });
     }),
   );

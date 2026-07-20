@@ -267,6 +267,33 @@ class TrendyolService {
       `/finance/che/sellers/${env.trendyolSupplierId}/settlements?${query}`,
     );
   }
+  async listOtherFinancials({
+    startDate,
+    endDate,
+    transactionType = "DeductionInvoices",
+    page = 0,
+    size = 500,
+  } = {}) {
+    const query = new URLSearchParams({
+      startDate: String(startDate),
+      endDate: String(endDate),
+      transactionType,
+      page: String(page),
+      size: String(Math.min(Number(size) || 500, 500)),
+    });
+    return this.request(
+      `/finance/che/sellers/${env.trendyolSupplierId}/otherfinancials?${query}`,
+    );
+  }
+  async listCargoInvoiceItems(invoiceSerialNumber, page = 0, size = 500) {
+    const query = new URLSearchParams({
+      page: String(page),
+      size: String(Math.min(Number(size) || 500, 500)),
+    });
+    return this.request(
+      `/finance/che/sellers/${env.trendyolSupplierId}/cargo-invoice/${encodeURIComponent(invoiceSerialNumber)}/items?${query}`,
+    );
+  }
   async updatePrices(items, { dryRun = true } = {}) {
     if (dryRun) return { dryRun: true, itemCount: items.length, items };
     return this.request(

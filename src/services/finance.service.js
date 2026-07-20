@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { roundMoney } = require("../utils/numbers");
+const { selectShippingCost } = require("../domain/pricing");
 
 const TRANSACTION_TYPES = [
   "Sale",
@@ -70,6 +71,22 @@ function signedSettlementAmount(row) {
   const debt = numberFrom(row, ["debt"], 0);
   if (credit || debt) return roundMoney(credit - debt);
   return roundMoney(numberFrom(row, ["amount", "paidPrice"], 0));
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("tr-TR");
+}
+
+function isCargoInvoice(row) {
+  return normalizeText(
+    row?.transactionType ||
+      row?.transaction_type ||
+      row?.invoiceType ||
+      row?.description,
+  ).includes("kargo fatur");
 }
 
 function timestamp(value) {
@@ -188,6 +205,62 @@ class FinanceService {
     };
   }
 
+  async estimateTrendyolShipping(salePrice, desi) {
+    const dimensionalWeight = Number(desi || 0);
+    if (dimensionalWeight <= 0)
+      return { cost: 0, source: "MISSING", carrier: null };
+    const settings = (
+      await this.db.query(
+        `SELECT key,value FROM system_settings
+         WHERE key IN('default_carrier_trendyol','default_carrier')`,
+      )
+    ).rows;
+    const values = Object.fromEntries(
+      settings.map((row) => [row.key, row.value]),
+    );
+    const carrier = String(
+      values.default_carrier_trendyol || values.default_carrier || "TEX",
+    );
+    const tariffs = await this.db.query(
+      `SELECT 'BAREM' AS source,min_basket,max_basket,cost_inc_vat,
+              NULL::numeric AS desi_kg
+         FROM shipping_barems
+        WHERE marketplace='TRENDYOL' AND carrier=$1
+       UNION ALL
+       SELECT 'DESI' AS source,NULL::numeric,NULL::numeric,cost_inc_vat,desi_kg
+         FROM shipping_costs
+        WHERE marketplace='TRENDYOL' AND carrier=$1`,
+      [carrier],
+    );
+    const barems = tariffs.rows.filter((row) => row.source === "BAREM");
+    const costs = tariffs.rows.filter((row) => row.source === "DESI");
+    const selectedBarem = barems.find(
+      (row) =>
+        Number(salePrice) >= Number(row.min_basket) &&
+        Number(salePrice) <= Number(row.max_basket),
+    );
+    const selectedRate = selectedBarem
+      ? null
+      : costs.find(
+          (row) => Number(row.desi_kg) === Math.ceil(dimensionalWeight),
+        );
+    return {
+      cost: selectShippingCost({
+        salePrice,
+        desi: dimensionalWeight,
+        barems,
+        costs,
+        carrier,
+      }),
+      source: selectedBarem
+        ? "MAPPED_BAREM"
+        : selectedRate
+          ? "MAPPED_DESI"
+          : "MISSING",
+      carrier,
+    };
+  }
+
   async upsertOrder(payload) {
     const orderNumber = String(
       payload.orderNumber || payload.order_number || payload.number || "",
@@ -235,6 +308,8 @@ class FinanceService {
     let commissionTotal = 0;
     let serviceFeeTotal = 0;
     let shippingTotal = 0;
+    let totalDesi = 0;
+    let fallbackShippingTotal = 0;
     for (const line of lines) {
       const product = byBarcode.get(String(line.barcode || ""));
       const quantity = numberFrom(line, ["quantity"], 1);
@@ -252,15 +327,30 @@ class FinanceService {
         ) /
           100);
       serviceFeeTotal += Number(product?.service_fee || 0) * quantity;
-      shippingTotal = Math.max(
-        shippingTotal,
+      totalDesi += Number(product?.desi || 0) * quantity;
+      fallbackShippingTotal = Math.max(
+        fallbackShippingTotal,
         Number(product?.calculated_shipping_cost || 0),
       );
     }
+    const shippingEstimate = await this.estimateTrendyolShipping(
+      grossRevenue,
+      totalDesi,
+    );
+    shippingTotal = Number(shippingEstimate.cost || fallbackShippingTotal || 0);
+    let shippingSource = shippingEstimate.cost
+      ? shippingEstimate.source
+      : fallbackShippingTotal
+        ? "PRODUCT_ESTIMATE"
+        : "MISSING";
     if (existingOrder) {
       productCostTotal = Number(existingOrder.product_cost_total || 0);
       serviceFeeTotal = Number(existingOrder.service_fee_total || 0);
-      shippingTotal = Number(existingOrder.shipping_total || 0);
+      if (existingOrder.shipping_source === "BILLED") {
+        shippingTotal = Number(existingOrder.shipping_total || 0);
+        totalDesi = Number(existingOrder.package_desi || totalDesi);
+        shippingSource = "BILLED";
+      }
     }
     const operationalProfit = calculateCashProfit({
       revenue: grossRevenue,
@@ -275,9 +365,11 @@ class FinanceService {
            marketplace,external_order_number,external_package_id,status,
            order_date,last_modified_at,customer_city,customer_district,
            gross_revenue,commission_total,shipping_total,service_fee_total,
-           product_cost_total,operational_profit,raw_data,updated_at
+           product_cost_total,operational_profit,raw_data,package_desi,
+           shipping_source,updated_at
          )VALUES(
-           'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NOW()
+           'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,
+           $15,$16,NOW()
          )
          ON CONFLICT(marketplace,external_order_number,external_package_id)
          DO UPDATE SET status=EXCLUDED.status,order_date=EXCLUDED.order_date,
@@ -290,7 +382,8 @@ class FinanceService {
            service_fee_total=EXCLUDED.service_fee_total,
            product_cost_total=EXCLUDED.product_cost_total,
            operational_profit=EXCLUDED.operational_profit,
-           raw_data=EXCLUDED.raw_data,updated_at=NOW()
+           raw_data=EXCLUDED.raw_data,package_desi=EXCLUDED.package_desi,
+           shipping_source=EXCLUDED.shipping_source,updated_at=NOW()
          RETURNING *`,
         [
           orderNumber,
@@ -309,6 +402,8 @@ class FinanceService {
           roundMoney(productCostTotal),
           operationalProfit,
           JSON.stringify(payload),
+          totalDesi > 0 ? Math.ceil(totalDesi) : null,
+          shippingSource,
         ],
       )
     ).rows[0];
@@ -651,6 +746,113 @@ class FinanceService {
     };
   }
 
+  async syncCargoInvoices(options = {}) {
+    const { startDate, endDate } = dateRange(options);
+    const windows = dateWindows(startDate, endDate);
+    let invoiceCount = 0;
+    let processed = 0;
+    for (const window of windows) {
+      let invoicePage = 0;
+      while (true) {
+        const data = await this.trendyol.listOtherFinancials({
+          ...window,
+          transactionType: "DeductionInvoices",
+          page: invoicePage,
+        });
+        const invoices = (data.content || data.items || []).filter(
+          isCargoInvoice,
+        );
+        for (const invoice of invoices) {
+          const serial = String(
+            invoice.invoiceSerialNumber ||
+              invoice.id ||
+              invoice.invoiceId ||
+              "",
+          ).trim();
+          if (!serial) continue;
+          invoiceCount++;
+          let itemPage = 0;
+          while (true) {
+            const itemData = await this.trendyol.listCargoInvoiceItems(
+              serial,
+              itemPage,
+            );
+            const items = itemData.content || itemData.items || [];
+            for (const item of items) {
+              const parcelId = String(
+                item.parcelUniqueId ||
+                  item.parcelId ||
+                  crypto
+                    .createHash("sha256")
+                    .update(JSON.stringify(item))
+                    .digest("hex"),
+              );
+              await this.db.query(
+                `INSERT INTO marketplace_cargo_charges(
+                   marketplace,invoice_serial_number,invoice_date,
+                   parcel_unique_id,external_order_number,
+                   shipment_package_type,amount,billed_desi,raw_data,updated_at
+                 )VALUES('TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,NOW())
+                 ON CONFLICT(
+                   marketplace,invoice_serial_number,parcel_unique_id,
+                   shipment_package_type
+                 )DO UPDATE SET invoice_date=EXCLUDED.invoice_date,
+                   external_order_number=EXCLUDED.external_order_number,
+                   amount=EXCLUDED.amount,billed_desi=EXCLUDED.billed_desi,
+                   raw_data=EXCLUDED.raw_data,updated_at=NOW()`,
+                [
+                  serial,
+                  timestamp(
+                    invoice.transactionDate ||
+                      invoice.invoiceDate ||
+                      invoice.createdDate,
+                  ),
+                  parcelId,
+                  String(item.orderNumber || item.order_number || "") || null,
+                  String(
+                    item.shipmentPackageType || item.packageType || "UNKNOWN",
+                  ),
+                  Math.abs(moneyValue(item.amount)),
+                  numberFrom(item, ["desi", "deci"], 0) || null,
+                  JSON.stringify(item),
+                ],
+              );
+              processed++;
+            }
+            const itemPages = Number(itemData.totalPages || 0);
+            if (
+              itemData.last === true ||
+              items.length === 0 ||
+              (itemPages > 0 && itemPage + 1 >= itemPages)
+            )
+              break;
+            itemPage++;
+          }
+        }
+        const allInvoiceRows = data.content || data.items || [];
+        const totalPages = Number(data.totalPages || 0);
+        if (
+          data.last === true ||
+          allInvoiceRows.length === 0 ||
+          (totalPages > 0 && invoicePage + 1 >= totalPages)
+        )
+          break;
+        invoicePage++;
+      }
+    }
+    return {
+      processed,
+      successful: processed,
+      failed: 0,
+      metadata: {
+        invoices: invoiceCount,
+        windows: windows.length,
+        start_date: new Date(startDate).toISOString(),
+        end_date: new Date(endDate).toISOString(),
+      },
+    };
+  }
+
   async backfillTrendyolHistory({
     startDate = TRENDYOL_HISTORY_START,
     endDate = Date.now(),
@@ -665,6 +867,7 @@ class FinanceService {
       endDate,
       orderByField: "CreatedDate",
     });
+    const cargo = await this.syncCargoInvoices({ startDate, endDate });
     const completedAt = new Date().toISOString();
     await this.db.query(
       `INSERT INTO system_settings(key,value,description,updated_by,updated_at)
@@ -683,10 +886,11 @@ class FinanceService {
       ],
     );
     return {
-      processed: transactions.processed + orders.processed,
-      successful: transactions.successful + orders.successful,
-      failed: transactions.failed + orders.failed,
-      metadata: { completed_at: completedAt, transactions, orders },
+      processed: transactions.processed + orders.processed + cargo.processed,
+      successful:
+        transactions.successful + orders.successful + cargo.successful,
+      failed: transactions.failed + orders.failed + cargo.failed,
+      metadata: { completed_at: completedAt, transactions, orders, cargo },
     };
   }
 
@@ -709,6 +913,171 @@ class FinanceService {
         [marketplace, period, Number(amount) || 0, note, actor],
       )
     ).rows[0];
+  }
+
+  async monthlyShippingReport(period, marketplace = "TRENDYOL") {
+    if (marketplace !== "TRENDYOL")
+      return {
+        items: [],
+        total: 0,
+        billed_total: 0,
+        estimated_total: 0,
+        order_count: 0,
+        billed_orders: 0,
+        estimated_orders: 0,
+        missing_orders: 0,
+      };
+    const start = `${period}-01`;
+    const [sales, chargeRows, settings, tariffs] = await Promise.all([
+      this.db.query(
+        `SELECT ft.external_order_number AS "order_number",
+                MIN(ft.order_date) AS "order_date",
+                ROUND(SUM(ft.amount),2) AS "sale_amount",
+                CEIL(SUM(
+                  COALESCE(p.desi,0) *
+                  CASE
+                    WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                      THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                    ELSE 1
+                  END
+                )) AS "estimated_desi",
+                COUNT(*) AS "line_count",
+                COUNT(*) FILTER(WHERE p.barcode IS NULL OR p.desi<=0)
+                  AS "missing_desi_count",
+                STRING_AGG(
+                  DISTINCT COALESCE(p.product_name,ft.barcode,'Bilinmiyor'),
+                  ' + '
+                ) AS "products"
+           FROM marketplace_financial_transactions ft
+           LEFT JOIN products p ON p.marketplace=ft.marketplace
+             AND p.barcode=ft.barcode
+          WHERE ft.marketplace=$1
+            AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+            AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
+              <$2::date+INTERVAL '1 month'
+            AND ft.transaction_type IN('Satış','Sale')
+            AND ft.external_order_number IS NOT NULL
+          GROUP BY ft.external_order_number
+          ORDER BY MIN(ft.order_date) DESC`,
+        [marketplace, start],
+      ),
+      this.db.query(
+        `WITH month_orders AS(
+           SELECT DISTINCT external_order_number
+             FROM marketplace_financial_transactions
+            WHERE marketplace=$1
+              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+              AND (order_date AT TIME ZONE 'Europe/Istanbul')
+                <$2::date+INTERVAL '1 month'
+              AND transaction_type IN('Satış','Sale')
+         )
+         SELECT c.* FROM marketplace_cargo_charges c
+         JOIN month_orders mo
+           ON mo.external_order_number=c.external_order_number
+         WHERE c.marketplace=$1`,
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT key,value FROM system_settings
+         WHERE key IN('default_carrier_trendyol','default_carrier')`,
+      ),
+      this.db.query(
+        `SELECT 'BAREM' AS source,min_basket,max_basket,cost_inc_vat,
+                NULL::numeric AS desi_kg,carrier
+           FROM shipping_barems WHERE marketplace='TRENDYOL'
+         UNION ALL
+         SELECT 'DESI' AS source,NULL::numeric,NULL::numeric,cost_inc_vat,
+                desi_kg,carrier
+           FROM shipping_costs WHERE marketplace='TRENDYOL'`,
+      ),
+    ]);
+    const settingValues = Object.fromEntries(
+      settings.rows.map((row) => [row.key, row.value]),
+    );
+    const carrier = String(
+      settingValues.default_carrier_trendyol ||
+        settingValues.default_carrier ||
+        "TEX",
+    );
+    const barems = tariffs.rows.filter(
+      (row) => row.source === "BAREM" && row.carrier === carrier,
+    );
+    const costs = tariffs.rows.filter(
+      (row) => row.source === "DESI" && row.carrier === carrier,
+    );
+    const charges = new Map();
+    for (const row of chargeRows.rows) {
+      const key = String(row.external_order_number || "");
+      if (!charges.has(key))
+        charges.set(key, {
+          amount: 0,
+          desi: 0,
+          invoice_date: null,
+          charge_count: 0,
+        });
+      const current = charges.get(key);
+      current.amount += Math.abs(Number(row.amount || 0));
+      if (!normalizeText(row.shipment_package_type).match(/iade|return/))
+        current.desi += Number(row.billed_desi || 0);
+      current.invoice_date = row.invoice_date || current.invoice_date;
+      current.charge_count++;
+    }
+    const items = sales.rows.map((row) => {
+      const billed = charges.get(String(row.order_number || ""));
+      const estimatedDesi = Number(row.estimated_desi || 0);
+      const estimatedCost = selectShippingCost({
+        salePrice: Number(row.sale_amount || 0),
+        desi: estimatedDesi,
+        barems,
+        costs,
+        carrier,
+      });
+      const billedAmount = roundMoney(billed?.amount || 0);
+      const source =
+        billedAmount > 0
+          ? "BILLED"
+          : estimatedCost > 0 &&
+              estimatedDesi > 0 &&
+              Number(row.missing_desi_count || 0) === 0
+            ? "MAPPED_ESTIMATE"
+            : "MISSING";
+      return {
+        ...row,
+        sale_amount: Number(row.sale_amount || 0),
+        estimated_desi: estimatedDesi,
+        billed_desi: billed?.desi || null,
+        shipping_cost:
+          source === "BILLED" ? billedAmount : roundMoney(estimatedCost),
+        shipping_source: source,
+        carrier,
+        invoice_date: billed?.invoice_date || null,
+        charge_count: billed?.charge_count || 0,
+      };
+    });
+    return {
+      items,
+      total: roundMoney(
+        items.reduce((sum, row) => sum + Number(row.shipping_cost || 0), 0),
+      ),
+      billed_total: roundMoney(
+        items
+          .filter((row) => row.shipping_source === "BILLED")
+          .reduce((sum, row) => sum + Number(row.shipping_cost || 0), 0),
+      ),
+      estimated_total: roundMoney(
+        items
+          .filter((row) => row.shipping_source === "MAPPED_ESTIMATE")
+          .reduce((sum, row) => sum + Number(row.shipping_cost || 0), 0),
+      ),
+      order_count: items.length,
+      billed_orders: items.filter((row) => row.shipping_source === "BILLED")
+        .length,
+      estimated_orders: items.filter(
+        (row) => row.shipping_source === "MAPPED_ESTIMATE",
+      ).length,
+      missing_orders: items.filter((row) => row.shipping_source === "MISSING")
+        .length,
+    };
   }
 
   async historyCoverage(period, marketplace = "TRENDYOL") {
@@ -798,6 +1167,7 @@ class FinanceService {
       ledgerHourly,
       ledgerProducts,
       coverage,
+      shippingReport,
     ] = await Promise.all([
       this.db.query(
         `SELECT COUNT(*) AS "order_count",
@@ -995,6 +1365,7 @@ class FinanceService {
         [marketplace, start],
       ),
       this.historyCoverage(period, marketplace),
+      this.monthlyShippingReport(period, marketplace),
     ]);
     const summary = orders.rows[0];
     const financial = ledger.rows[0] || {};
@@ -1005,17 +1376,34 @@ class FinanceService {
         Number(financial.discounts || 0),
     );
     const useFinancialSales = settlementGrossSales > 0;
+    const salesRevenue = useFinancialSales
+      ? settlementNetSales
+      : Number(summary.revenue || 0);
+    const commissionTotal = useFinancialSales
+      ? Number(financial.commission || 0)
+      : Number(summary.commission || 0);
+    const shippingTotal = shippingReport.order_count
+      ? Number(shippingReport.total || 0)
+      : Number(summary.shipping || 0);
     const packagingAmount = Number(packaging.rows[0]?.amount || 0);
     const productCost = Number(summary.product_cost || 0);
-    const profitBeforePackaging = Number(summary.operational_profit || 0);
+    const profitBeforePackaging = coverage.profitability_complete
+      ? calculateCashProfit({
+          revenue: salesRevenue,
+          commission: commissionTotal,
+          shipping: shippingTotal,
+          serviceFee: Number(summary.service_fee || 0),
+          productCost,
+        })
+      : Number(summary.operational_profit || 0);
     const profitAfterPackaging = roundMoney(
       profitBeforePackaging - packagingAmount,
     );
     const financedByBekir = roundMoney(productCost + packagingAmount);
     const transferToBekir = roundMoney(financedByBekir + profitAfterPackaging);
     const margin =
-      Number(summary.revenue) > 0
-        ? roundMoney((profitAfterPackaging / Number(summary.revenue)) * 100)
+      salesRevenue > 0
+        ? roundMoney((profitAfterPackaging / salesRevenue) * 100)
         : 0;
     const insights = [];
     if (margin < 5)
@@ -1024,7 +1412,7 @@ class FinanceService {
         title: "Net marj düşük",
         text: `Ambalaj sonrası operasyonel marj %${margin.toLocaleString("tr-TR")}.`,
       });
-    if (Number(summary.shipping) > Number(summary.revenue) * 0.2)
+    if (shippingTotal > salesRevenue * 0.2)
       insights.push({
         tone: "warning",
         title: "Kargo payı yüksek",
@@ -1042,17 +1430,20 @@ class FinanceService {
         title: "Sipariş detayları kısmi",
         text: "Satış ve kesinti geçmişi finans kayıtlarından tamamlandı; ürün maliyeti ve kâr yalnızca API'den erişilebilen detaylı siparişleri kapsıyor.",
       });
+    if (shippingReport.missing_orders > 0)
+      insights.unshift({
+        tone: "warning",
+        title: "Kargo desisi eksik",
+        text: `${shippingReport.missing_orders} siparişte ne kargo faturası ne de güvenilir mapping desisi bulundu.`,
+      });
     return {
       period,
       marketplace,
       summary: {
         ...summary,
-        sales_revenue: useFinancialSales
-          ? settlementNetSales
-          : Number(summary.revenue || 0),
-        commission: useFinancialSales
-          ? Number(financial.commission || 0)
-          : Number(summary.commission || 0),
+        sales_revenue: salesRevenue,
+        commission: commissionTotal,
+        shipping: shippingTotal,
         sales_order_count: useFinancialSales
           ? Number(financial.order_count || 0)
           : Number(summary.order_count || 0),
@@ -1075,6 +1466,7 @@ class FinanceService {
       },
       products: useFinancialSales ? ledgerProducts.rows : products.rows,
       transactions: transactions.rows,
+      shipping: shippingReport,
       coverage,
       packaging: packaging.rows[0] || null,
       insights,

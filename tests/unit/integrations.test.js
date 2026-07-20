@@ -101,6 +101,34 @@ test("Trendyol tekil urun fiyati barkod filtresiyle okunur", async () => {
   assert.match(requestedUrl, /products\/approved/);
 });
 
+test("Trendyol kargo faturasi servisleri dogru finans endpointlerini kullanir", async () => {
+  const requests = [];
+  const service = new TrendyolService({
+    baseUrl: "https://trendyol.test/integration",
+    fetch: async (url) => {
+      requests.push(url);
+      return {
+        ok: true,
+        text: async () => JSON.stringify({ content: [], last: true }),
+      };
+    },
+  });
+
+  await service.listOtherFinancials({
+    startDate: 1,
+    endDate: 2,
+    transactionType: "DeductionInvoices",
+  });
+  await service.listCargoInvoiceItems("KARGO/2026 07");
+
+  assert.match(requests[0], /otherfinancials\?/);
+  assert.match(requests[0], /transactionType=DeductionInvoices/);
+  assert.match(
+    requests[1],
+    /cargo-invoice\/KARGO%2F2026%2007\/items\?page=0&size=500/,
+  );
+});
+
 test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => {
   const queries = [];
   const sync = new SyncService({

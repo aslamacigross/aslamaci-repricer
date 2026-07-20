@@ -42,6 +42,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "017_operations_finance_and_safety",
       "018_hepsiburada_shipping_barems",
       "019_trendyol_finance_history",
+      "020_trendyol_cargo_reconciliation",
     ],
   );
   const safety = await db.query(
@@ -101,6 +102,22 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   );
   assert.equal(historyJob.rowCount, 1);
   assert.equal(historyJob.rows[0].enabled, false);
+  const cargoJob = await db.query(
+    "SELECT enabled FROM jobs WHERE name='sync-trendyol-cargo-invoices'",
+  );
+  assert.equal(cargoJob.rowCount, 1);
+  assert.equal(cargoJob.rows[0].enabled, true);
+  const cargoTable = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name='marketplace_cargo_charges'`,
+  );
+  assert.equal(cargoTable.rowCount, 1);
+  const orderShippingColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='marketplace_orders'
+       AND column_name IN('package_desi','shipping_source')`,
+  );
+  assert.equal(orderShippingColumns.rowCount, 2);
   const supplierTierColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name IN('file_market_items','mapping_suggestion_items')
@@ -182,8 +199,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "016_bim_market_live_sync",
       "017_operations_finance_and_safety",
       "018_hepsiburada_shipping_barems",
+      "019_trendyol_finance_history",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

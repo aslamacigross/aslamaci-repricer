@@ -159,6 +159,8 @@ Repo kökündeki `railway.toml` build, start ve health check ayarlarını içeri
 
 olarak gösterilir. Komisyon/kargo/hizmet bedeli pazaryeri ödemesinden kesildiği için Bekir'in kişisel nakit çıkışına ikinci kez eklenmez. Ekrandaki “Sana aktarılacak” tutar, Bekir'in finanse ettiği ürün ve ambalaj gideri ile ambalaj sonrası operasyonel kârın toplamıdır. Bu görünüm şirketin KDV hariç muhasebe kârı değildir; ürün bazlı alış/satış KDV'si ve fatura kayıtları mali müşavirle ayrıca doğrulanmalıdır.
 
+Trendyol kargo faturası oluştuğunda siparişin gerçek kargo tutarı ve kargodan alınan desi Cargo Invoice Details servisinden alınır. Fatura henüz yoksa siparişteki barkodların mapping desileri adetleriyle toplanıp yukarı yuvarlanır ve Trendyol sepet baremi/desi tarifesinden tahmini kargo hesaplanır. Siparişte tek bir desi dahi eksikse bu tahmin güvenilir kabul edilmez. Sipariş tablosu kaynağı `Faturalanan`, `Mapping tahmini` veya `Eksik` olarak açıkça gösterir.
+
 ## Bilinen Sınırlamalar
 
 - Öğrenme motoru ilk sürümde açıklanabilir ve deterministik kurallıdır; bağımsız bir makine öğrenmesi modeli yoktur.

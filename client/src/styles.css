@@ -407,6 +407,9 @@ button:disabled {
   gap: 12px;
   margin-bottom: 12px;
 }
+.finance-shipping-table {
+  grid-column: 1 / -1;
+}
 .chart-panel,
 .list-panel {
   padding: 15px;

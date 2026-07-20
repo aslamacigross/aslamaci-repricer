@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 172/172 başarılı
+- [x] Unit/integration/regression testleri: 181/181 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -53,9 +53,9 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
-- [x] React bileşen testleri: 20/20 başarılı
+- [x] React bileşen testleri: 21/21 başarılı
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 8/8 başarılı
-- [x] Backend testleri: 172/172 başarılı
+- [x] Backend testleri: 181/181 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -121,13 +121,16 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Aynı barkodun iki pazaryerindeki mapping ve desi hesaplarının bağımsız regresyon testi
 - [x] Hepsiburada varsayılan `hepsiJET`, KDV dahil `10,50 TL` hizmet bedeli ve ayrı sepet baremleri
 - [x] Hepsiburada aksiyonunun Trendyol fiyat servisine gidemediğini kanıtlayan sert entegrasyon kilidi
-- [x] Backend testleri: 178/178; React testleri: 21/21; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
+- [x] Backend testleri: 181/181; React testleri: 21/21; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
 - [x] Satış & Kâr aylık raporundaki tüm PostgreSQL sonuç kolonları açık ve güvenli takma adlarla doğrulandı
 - [x] Başarılı tekrar denemede eski hata durumunu temizleyen ortak UI veri yükleyici regresyon testi
 - [x] Trendyol settlement senkronunda 15 günlük API sınırına uygun parçalı tarih aralığı ve sayfalama
 - [x] `019_trendyol_finance_history` ile 15 Aralık 2025'ten itibaren güvenli settlement geçmişi tamamlama
 - [x] Aylık finans sorgularında Türkiye saati ay sınırı ve sipariş tarihi kullanımı
 - [x] İade, kupon ve indirim komisyon düzeltmeleri dahil Haziran 2026 Trendyol mutabakatı
+- [x] `020_trendyol_cargo_reconciliation` ile gerçek Trendyol kargo faturası tutarı ve kargodan alınan desi senkronu
+- [x] Kargo faturası yokken eksiksiz barkod mapping desisinden güvenli sipariş kargo tahmini
+- [x] Satış & Kâr ekranında sipariş bazlı faturalanan/mapping tahmini/eksik kargo kaynağı ayrımı
 - [ ] Eski aylarda ürün adedi, iptal kırılımı ve geçmiş maliyet/kâr kesinliği için Trendyol panel raporu içe aktarma
 
 ## PR Öncesi Kapsam Denetimi

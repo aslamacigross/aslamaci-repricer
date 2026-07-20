@@ -79,12 +79,13 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Satış ve kâr ekranı operasyonel nakit mutabakatıdır; sipariş gelirinden komisyon, kargo, hizmet, ürün alış ve aylık manuel ambalaj giderini düşer. Muhasebesel KDV kârı değildir.
 - Trendyol finans geçmişi 15 Aralık 2025'ten itibaren settlement kayıtlarından doldurulur. Aylık net satış ve komisyon sipariş tarihine ve `Europe/Istanbul` ay sınırlarına göre hesaplanır; kupon/indirim komisyon düzeltmeleri de mutabakata dahildir.
 - Trendyol sipariş paketi API'sinin geçmiş erişim sınırı nedeniyle eski aylarda net satış ve komisyon tam, ürün adedi, iptal kırılımı ve maliyet/kâr detayı kısmi olabilir. Bu alanların kesinleştirilmesi satıcı paneli rapor içe aktarımı gerektirir.
+- Trendyol kargo faturası oluştuğunda gerçek kargo tutarı ve kargodan alınan desi siparişe bağlanır. Fatura yoksa barkod mapping desileri sipariş adediyle toplanıp yukarı yuvarlanır ve sepet baremi/desi tarifesi uygulanır; eksik desili sipariş tahmin edilmez.
 - Panel tek kabuk ve üstten global pazaryeri seçimi kullanır. Trendyol/Hepsiburada ürün, mapping, komisyon, kargo, finans, dashboard, buybox ve repricer kayıtları `marketplace` anahtarıyla ayrıdır.
 - Hepsiburada için varsayılan kargo `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`'dir. Salt-okunur sipariş/sağlık bağlantısı ve kargo tarifesi hazırdır; canlı ürün/buybox/fiyat yolları tam kimlikler gelene kadar kilitlidir.
 
 ## Doğrulama Durumu
 
-- 178 backend unit/integration/regression, 21 React bileşen ve 8 tarayıcı E2E testi geçiyor.
+- 181 backend unit/integration/regression, 21 React bileşen ve 8 tarayıcı E2E testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -122,4 +123,5 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Haziran 2026 preview mutabakatında iptal sonrası satış `208.285,19 TL`, iade `-4.336,96 TL`, indirim/kupon `-1.116,67 TL`, net satış `202.831,56 TL` ve komisyon `35.071,39 TL` olarak Trendyol paneliyle eşleşti.
 - Hepsiburada kargo PDF'i 4.501 desi satırı ve 11 taşıyıcı olarak yapılandırılmış veriye dönüştürüldü; hiçbir tarife satırı kaybolmadı.
 - Aylık satış/kâr ekranı gider kırılımı, saat/gün/şehir analizi ve mobil yerleşimle görsel olarak doğrulandı.
+- `020_trendyol_cargo_reconciliation` migrationı, Trendyol Cargo Invoice Details istemcisi, kargo faturası/desi jobu ve mapping desisi fallback hesabı eklendi; masaüstü/mobil sipariş kargo tablosu görsel olarak doğrulandı.
 - Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. Canlı bağlantı için Railway secret'ları ve mağaza Merchant ID hâlâ dış ortamda yapılandırılmalıdır.

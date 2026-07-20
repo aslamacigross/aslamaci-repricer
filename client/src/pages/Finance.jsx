@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Save,
   TrendingUp,
+  Truck,
   WalletCards,
 } from "lucide-react";
 import {
@@ -75,6 +76,14 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
             ],
             ["Komisyon", report.summary.commission, Banknote, "warning", true],
             [
+              "Kargo",
+              report.summary.shipping,
+              Truck,
+              "warning",
+              report.shipping?.order_count > 0 ||
+                report.coverage.profitability_complete,
+            ],
+            [
               "Ürün alış maliyeti",
               report.summary.product_cost,
               CreditCard,
@@ -111,10 +120,15 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
     const exactItems = [
       { name: "Komisyon", value: Number(report.summary.commission) },
       { name: "Ambalaj", value: Number(report.summary.packaging) },
+      ...(report.shipping?.order_count > 0
+        ? [{ name: "Kargo", value: Number(report.summary.shipping) }]
+        : []),
     ];
     const detailedItems = [
       { name: "Ürün alış", value: Number(report.summary.product_cost) },
-      { name: "Kargo", value: Number(report.summary.shipping) },
+      ...(report.shipping?.order_count > 0
+        ? []
+        : [{ name: "Kargo", value: Number(report.summary.shipping) }]),
       { name: "Hizmet", value: Number(report.summary.service_fee) },
     ];
     return [
@@ -240,6 +254,17 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
           </p>
         </div>
       )}
+      {report.shipping?.order_count > 0 && (
+        <div className="notice notice-info">
+          <strong>Sipariş kargo mutabakatı</strong>
+          <p>
+            {report.shipping.billed_orders} sipariş kargo faturasıyla,{" "}
+            {report.shipping.estimated_orders} sipariş barkod mapping desisiyle
+            hesaplandı. {report.shipping.missing_orders} siparişte kargo bilgisi
+            eksik.
+          </p>
+        </div>
+      )}
       <section className="kpi-grid finance-kpis">
         {cards.map(([label, value, Icon, tone, available]) => (
           <div className={`kpi kpi-${tone}`} key={label}>
@@ -348,6 +373,71 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
               <Bar dataKey="orders" name="Sipariş" fill="#146c94" />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </section>
+      <section className="dashboard-grid">
+        <div className="panel table-panel finance-shipping-table">
+          <header>
+            <h2>Sipariş ve kargo desisi</h2>
+            <span>{report.shipping?.order_count || 0} sipariş</span>
+          </header>
+          <DataTable
+            columns={[
+              { key: "order_number", label: "Sipariş" },
+              {
+                key: "order_date",
+                label: "Sipariş tarihi",
+                render: (row) =>
+                  row.order_date
+                    ? new Date(row.order_date).toLocaleDateString("tr-TR")
+                    : "-",
+              },
+              { key: "products", label: "Ürünler" },
+              {
+                key: "sale_amount",
+                label: "Satış",
+                render: (row) => money(row.sale_amount),
+              },
+              {
+                key: "billed_desi",
+                label: "Kargodan alınan desi",
+                render: (row) => row.billed_desi || "-",
+              },
+              {
+                key: "estimated_desi",
+                label: "Mapping desisi",
+                render: (row) => row.estimated_desi || "-",
+              },
+              {
+                key: "shipping_cost",
+                label: "Kargo gideri",
+                render: (row) => money(row.shipping_cost),
+              },
+              {
+                key: "shipping_source",
+                label: "Kaynak",
+                render: (row) => (
+                  <Badge
+                    tone={
+                      row.shipping_source === "BILLED"
+                        ? "success"
+                        : row.shipping_source === "MAPPED_ESTIMATE"
+                          ? "warning"
+                          : "danger"
+                    }
+                  >
+                    {row.shipping_source === "BILLED"
+                      ? "Faturalanan"
+                      : row.shipping_source === "MAPPED_ESTIMATE"
+                        ? "Mapping tahmini"
+                        : "Eksik"}
+                  </Badge>
+                ),
+              },
+            ]}
+            rows={report.shipping?.items || []}
+            columnVisibilityKey="finance-order-shipping"
+          />
         </div>
       </section>
       <section className="dashboard-grid">
