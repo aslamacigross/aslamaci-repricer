@@ -87,6 +87,13 @@
 .shipping-toolbar > input {
   width: 120px;
 }
+.shipping-tariff-banner > div {
+  flex: 1;
+}
+.shipping-tariff-banner .btn {
+  align-self: center;
+  white-space: nowrap;
+}
 @media (max-width: 760px) {
   .shipping-toolbar .segmented,
   .shipping-toolbar > select,
@@ -95,6 +102,12 @@
   }
   .shipping-toolbar .segmented button {
     flex: 1;
+  }
+  .shipping-tariff-banner {
+    flex-wrap: wrap;
+  }
+  .shipping-tariff-banner .btn {
+    width: 100%;
   }
 }
 .finance-kpis {

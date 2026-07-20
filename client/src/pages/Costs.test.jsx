@@ -192,4 +192,38 @@ describe("Kargo pazaryeri ayrımı", () => {
       expect.stringContaining("marketplace=HEPSIBURADA"),
     );
   });
+
+  test("boş Hepsiburada tarifesini panelden güvenli içe aktarır", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (path) => {
+      if (path === "/api/shipping/coverage")
+        return { data: { warnings: [], carriers: [] } };
+      const hepsiburada = path.includes("marketplace=HEPSIBURADA");
+      return {
+        data: {
+          marketplace: hepsiburada ? "HEPSIBURADA" : "TRENDYOL",
+          rates: [],
+          barems: [],
+          packaging: [],
+          carriers: [],
+          pagination: { page: 1, limit: 50, total: 0 },
+        },
+      };
+    });
+    post.mockResolvedValue({ data: { successful: 49511, metadata: {} } });
+
+    render(<Costs mode="shipping" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Hepsiburada" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Tarifeyi yükle" }),
+    );
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/shipping/hepsiburada/import", {
+        force: false,
+      }),
+    );
+  });
 });

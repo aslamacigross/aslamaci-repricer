@@ -942,6 +942,7 @@ function Shipping({
   });
   const [calculation, setCalculation] = useState(null);
   const [coverage, setCoverage] = useState(null);
+  const [importingTariff, setImportingTariff] = useState(false);
   useEffect(() => {
     if (query.marketplace !== "TRENDYOL") {
       setCoverage(null);
@@ -963,6 +964,24 @@ function Shipping({
       setCalculation(result.data);
     } catch (error) {
       notify(error.message, "error");
+    }
+  }
+  async function importHepsiburadaTariff() {
+    setImportingTariff(true);
+    try {
+      const result = await post("/api/shipping/hepsiburada/import", {
+        force: false,
+      });
+      notify(
+        result.data?.metadata?.skipped
+          ? "Hepsiburada tarifesi zaten yüklü"
+          : `${Number(result.data?.successful || 0).toLocaleString("tr-TR")} Hepsiburada tarifesi yüklendi`,
+      );
+      await reload();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setImportingTariff(false);
     }
   }
   const sets = {
@@ -1110,7 +1129,7 @@ function Shipping({
           </button>
         ))}
       </div>
-      <div className="info-banner">
+      <div className="info-banner shipping-tariff-banner">
         {query.marketplace === "TRENDYOL" ? <Calculator /> : <Truck />}
         <div>
           <strong>
@@ -1125,12 +1144,22 @@ function Shipping({
             </p>
           ) : (
             <p>
-              13 Temmuz 2026 tarihli kaynak tarifeden aktarılmıştır. Bu alan
-              salt okunurdur; Trendyol baremleri ve ambalaj kurallarıyla
-              karışmaz.
+              {pagination.total > 0
+                ? "13 Temmuz 2026 tarihli kaynak tarifeden aktarılmıştır. Bu alan salt okunurdur; Trendyol baremleri ve ambalaj kurallarıyla karışmaz."
+                : "Henüz Hepsiburada tarifesi yüklenmemiş. Paketli 13 Temmuz 2026 tarifesini güvenli biçimde içe aktarabilirsiniz."}
             </p>
           )}
         </div>
+        {query.marketplace === "HEPSIBURADA" && pagination.total === 0 && (
+          <Button
+            icon={Upload}
+            variant="secondary"
+            onClick={importHepsiburadaTariff}
+            disabled={importingTariff}
+          >
+            {importingTariff ? "Yükleniyor" : "Tarifeyi yükle"}
+          </Button>
+        )}
       </div>
       {coverage?.warnings.length > 0 && (
         <div className="info-banner warning">
