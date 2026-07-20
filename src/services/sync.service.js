@@ -212,6 +212,95 @@ class SyncService {
     };
   }
 
+  async adaptiveBuybox({ limit = 120 } = {}) {
+    const due = (
+      await this.db.query(
+        `SELECT p.barcode,p.has_multiple_seller,p.auto_update,
+                COALESCE(ps.mode,'MANUAL') mode,
+                COALESCE(ps.auto_update,p.auto_update,FALSE) setting_auto_update
+         FROM products p
+         LEFT JOIN product_settings ps
+           ON ps.marketplace=p.marketplace AND ps.barcode=p.barcode
+         WHERE p.marketplace='TRENDYOL' AND p.is_active=TRUE
+           AND COALESCE(ps.adaptive_sync_enabled,TRUE)=TRUE
+           AND COALESCE(
+             ps.next_buybox_sync_at,
+             p.buybox_updated_at,
+             '-infinity'::timestamptz
+           )<=NOW()
+         ORDER BY COALESCE(ps.next_buybox_sync_at,p.buybox_updated_at) NULLS FIRST
+         LIMIT $1`,
+        [Math.min(Math.max(Number(limit) || 120, 1), 500)],
+      )
+    ).rows;
+    if (!due.length)
+      return { processed: 0, successful: 0, failed: 0, metadata: { due: 0 } };
+    const result = await this.buybox(due.map((row) => row.barcode));
+    const updated = new Set(result.updatedBarcodes || []);
+    for (const product of due) {
+      if (!updated.has(product.barcode)) {
+        await this.db.query(
+          `INSERT INTO product_settings(
+             marketplace,barcode,adaptive_sync_enabled,adaptive_sync_minutes,
+             next_buybox_sync_at,updated_at
+           )VALUES('TRENDYOL',$1,TRUE,5,NOW()+INTERVAL '5 minutes',NOW())
+           ON CONFLICT(marketplace,barcode)WHERE barcode IS NOT NULL
+           DO UPDATE SET adaptive_sync_minutes=5,
+             next_buybox_sync_at=NOW()+INTERVAL '5 minutes',updated_at=NOW()`,
+          [product.barcode],
+        );
+        continue;
+      }
+      const stats = (
+        await this.db.query(
+          `SELECT COUNT(*) observations,
+                  COUNT(DISTINCT buybox_price) price_states,
+                  COUNT(DISTINCT rank) rank_states
+           FROM repricer_observations
+           WHERE marketplace='TRENDYOL' AND barcode=$1
+             AND observed_at>NOW()-INTERVAL '24 hours'`,
+          [product.barcode],
+        )
+      ).rows[0];
+      const priceStates = Number(stats.price_states || 0);
+      const rankStates = Number(stats.rank_states || 0);
+      const automatic =
+        product.mode === "AUTOMATIC" && Boolean(product.setting_auto_update);
+      let minutes;
+      if (automatic && (priceStates >= 8 || rankStates >= 5)) minutes = 1;
+      else if (automatic && (priceStates >= 4 || rankStates >= 3)) minutes = 5;
+      else if (automatic && product.has_multiple_seller) minutes = 15;
+      else if (automatic) minutes = 60;
+      else if (priceStates >= 4 || rankStates >= 3) minutes = 60;
+      else if (product.has_multiple_seller) minutes = 360;
+      else minutes = 1440;
+      const score = Math.min(
+        100,
+        priceStates * 8 +
+          rankStates * 12 +
+          (product.has_multiple_seller ? 10 : 0),
+      );
+      await this.db.query(
+        `INSERT INTO product_settings(
+           marketplace,barcode,adaptive_sync_enabled,adaptive_sync_minutes,
+           next_buybox_sync_at,competition_score,updated_at
+         )VALUES('TRENDYOL',$1,TRUE,$2,NOW()+$2*INTERVAL '1 minute',$3,NOW())
+         ON CONFLICT(marketplace,barcode)WHERE barcode IS NOT NULL
+         DO UPDATE SET adaptive_sync_minutes=EXCLUDED.adaptive_sync_minutes,
+           next_buybox_sync_at=EXCLUDED.next_buybox_sync_at,
+           competition_score=EXCLUDED.competition_score,updated_at=NOW()`,
+        [product.barcode, minutes, score],
+      );
+    }
+    return {
+      ...result,
+      metadata: {
+        due: due.length,
+        adaptive: true,
+      },
+    };
+  }
+
   async verifyPriceAction(action) {
     const batchResponse = await this.trendyol.getBatchResult(action.batch_id);
     const item = (batchResponse.items || []).find((candidate) => {

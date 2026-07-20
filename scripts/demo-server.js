@@ -653,6 +653,66 @@ const jobItems = [
   last_processed_count: i === 1 ? 7 : 755,
   enabled: true,
 }));
+const financeReport = {
+  period: new Date().toISOString().slice(0, 7),
+  marketplace: "TRENDYOL",
+  summary: {
+    order_count: 42,
+    revenue: 28650,
+    commission: 4610.75,
+    shipping: 3920.4,
+    service_fee: 553.98,
+    product_cost: 12480,
+    operational_profit: 7084.87,
+    packaging: 850,
+    profit_before_packaging: 7084.87,
+    profit_after_packaging: 6234.87,
+    operational_margin: 21.76,
+    financed_by_bekir: 13330,
+    transfer_to_bekir: 19564.87,
+  },
+  charts: {
+    daily: [
+      { day: "2026-07-18", orders: 12, revenue: 7850, profit: 1680 },
+      { day: "2026-07-19", orders: 14, revenue: 9200, profit: 2110 },
+      { day: "2026-07-20", orders: 16, revenue: 11600, profit: 2490 },
+    ],
+    hourly: [
+      { hour: 10, orders: 4, revenue: 1850 },
+      { hour: 14, orders: 12, revenue: 7920 },
+      { hour: 20, orders: 9, revenue: 6140 },
+    ],
+    cities: [
+      { city: "İstanbul", orders: 17, revenue: 10800 },
+      { city: "Ankara", orders: 9, revenue: 6100 },
+      { city: "İzmir", orders: 6, revenue: 4050 },
+    ],
+  },
+  products: [
+    {
+      barcode: "8690609598109",
+      product_name: "Menekşe Konsantre",
+      quantity: 18,
+      revenue: 5940,
+      contribution: 1830,
+    },
+  ],
+  transactions: [],
+  packaging: { amount: 850 },
+  insights: [
+    {
+      tone: "warning",
+      title: "Finansal mutabakat bekleniyor",
+      text: "Settlement verisi gelince kesintiler ayrıca doğrulanacak.",
+    },
+  ],
+  methodology: {
+    transfer: "Ürün alış maliyeti + aylık ambalaj + operasyonel kâr",
+    warning:
+      "Pazaryeri kesintileri şirket ödemesinden zaten düşüldüğü için ikinci kez eklenmez.",
+    vat: "Bu ekran operasyonel nakit mutabakatıdır.",
+  },
+};
 const container = {
   auth,
   db: { query: async () => ({ rows: [{}] }) },
@@ -876,6 +936,28 @@ const container = {
     trendyol: { listProducts: async () => ({ content: [products[0]] }) },
   },
   learning: { checkOutcomes: async () => ({ processed: 1 }) },
+  finance: {
+    monthlyReport: async (_month, marketplace) => ({
+      ...financeReport,
+      marketplace,
+    }),
+    setPackagingExpense: async (month, amount) => ({ month, amount }),
+  },
+  health: {
+    scan: async () => ({
+      status: "PASS",
+      summary: { pass: 5, warning: 0, fail: 0 },
+      checks: [],
+    }),
+  },
+  hepsiburada: {
+    configured: () => false,
+    health: async () => ({
+      configured: false,
+      connected: false,
+      message: "Demo ortamında kapalı",
+    }),
+  },
 };
 createApp(container).listen(Number(process.env.PORT), () =>
   console.log(

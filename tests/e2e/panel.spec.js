@@ -139,3 +139,31 @@ test("mobil BİM fiyat havuzu", async ({ page }) => {
       fullPage: true,
     });
 });
+
+test("aylık satış ve kâr raporu masaüstü ve mobilde açılır", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Satış & Kâr" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Satış & Kâr" }),
+  ).toBeVisible();
+  await expect(page.getByText("Sana aktarılacak")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Gider kırılımı" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Şehir dağılımı" }),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByRole("heading", { name: "Satış & Kâr" }),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+  if (process.env.VISUAL_QA)
+    await page.screenshot({
+      path: "tmp/finance-mobile.png",
+      fullPage: true,
+    });
+});

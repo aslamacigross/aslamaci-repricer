@@ -1,6 +1,6 @@
 # Implementation Status
 
-Son güncelleme: 2026-07-16 (Europe/Istanbul)
+Son güncelleme: 2026-07-20 (Europe/Istanbul)
 
 ## Tamamlanan
 
@@ -101,6 +101,21 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] Bizim Toptan HTML'inden çoklu fiyat kademesi otomatik yakalama ve panelden manuel kademe düzenleme
 - [x] Mapping önerisi ve uygulamasında ürün adedine göre uygun çoklu birim fiyatın seçilmesi
 - [x] `016_bim_market_live_sync` migrationı, panel yenileme butonu ve varsayılan kapalı günlük BİM jobu
+- [x] `017_operations_finance_and_safety` migrationı ve geri alma migrationı
+- [x] File, Bizim ve BİM için her gece 00:00 Europe/Istanbul canlı fiyat yenileme planı
+- [x] Tedarikçi fiyat değişikliğini cost code, mapping maliyeti ve minimum fiyat hesabına taşıma
+- [x] Bizim çoklu alım fiyatını barkoda özel effective unit cost olarak koruma
+- [x] Güvenli desi tahmini, inceleme kuyruğu ve manuel çözüm API'si
+- [x] Günlük sistem sağlık taraması ve panel sağlık özeti
+- [x] Trendyol sipariş/settlement senkronu ve aylık Satış & Kâr paneli
+- [x] Aylık manuel ambalaj gideri, operasyonel kâr ve Bekir'e aktarılacak tutar hesabı
+- [x] Günlük/saatlik/şehir/ürün/gider analizi ve kural tabanlı akıllı uyarılar
+- [x] Barkod rekabetine göre 1-1440 dakika arası uyarlanabilir buybox senkronu
+- [x] Başarısız buybox okumasını 5 dakika sonra tekrar kuyruğa alma
+- [x] Aşağı yönde günlük yüzde 5 global sınır, yukarı yönde isteğe bağlı limitsiz adım
+- [x] Hepsiburada salt-okunur sipariş ve bağlantı sağlığı istemcisi
+- [x] Hepsiburada 13.07.2026 kargo PDF'inin 4.501 desi ve 11 taşıyıcıyla yapılandırılmış tarife importu
+- [x] Trendyol/Hepsiburada segmentli aylık finans görünümü
 
 ## PR Öncesi Kapsam Denetimi
 
@@ -118,6 +133,10 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 
 - [ ] Production DB backup/snapshot ve production dry-run migration/deploy (PR merge sonrasında ayrı işlem)
 - [ ] Railway preview deneme planı sona ermeden kalıcı plan veya ortam kapatma kararı
+- [ ] Railway preview'a `HB_MERCHANT_ID` ve gizli `HB_INTEGRATOR_KEY` tanımlayıp salt-okunur bağlantı testi
+- [ ] Hepsiburada gerçek sipariş cevabıyla alan eşlemesini doğrulama ve komisyon/hizmet kesintisi mutabakatı
+- [ ] Hepsiburada ürün, buybox ve repricer eşdeğerliği; ilk sürümde fiyat yazma uygulanmadı
+- [ ] Global dry-run kapatma ve canlı Trendyol repricer başlatma için ayrı kullanıcı onayı ve pilot kabulü
 
 ## Güvenlik Durumu
 
@@ -129,3 +148,5 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - Çoklu tedarikçi fiyat kademeleri yalnız maliyet havuzu ve mapping maliyet kalemi hesabını etkiler; Trendyol fiyat gönderimi yapmaz.
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.
+- Hepsiburada servis anahtarı repository, log ve test fixture'larına yazılmadı.
+- Hepsiburada entegrasyonu salt-okunurdur; ürün veya fiyat güncelleme metodu bulunmaz.

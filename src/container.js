@@ -13,6 +13,11 @@ const { MaintenanceService } = require("./services/maintenance.service");
 const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
 const { BimMarketService } = require("./services/bim-market.service");
+const { HealthService } = require("./services/health.service");
+const { FinanceService } = require("./services/finance.service");
+const { HepsiburadaService } = require("./services/hepsiburada.service");
+const { DesiService } = require("./services/desi.service");
+const { ShippingTariffService } = require("./services/shipping-tariff.service");
 const {
   MappingAutomationService,
 } = require("./services/mapping-automation.service");
@@ -50,6 +55,7 @@ function createContainer(overrides = {}) {
   const transaction = overrides.withTransaction || transactionFor(db);
   const auth = overrides.auth || new AuthService();
   const trendyol = overrides.trendyol || new TrendyolService();
+  const hepsiburada = overrides.hepsiburada || new HepsiburadaService();
   const audit = overrides.audit || new AuditRepository(db);
   const settings = overrides.settings || new SettingsRepository(db);
   const products = overrides.products || new ProductRepository(db);
@@ -93,6 +99,13 @@ function createContainer(overrides = {}) {
   const fileMarket = overrides.fileMarket || new FileMarketService();
   const bizimMarket = overrides.bizimMarket || new BizimMarketService();
   const bimMarket = overrides.bimMarket || new BimMarketService();
+  const desi = overrides.desi || new DesiService({ db, costEngine });
+  const shippingTariff =
+    overrides.shippingTariff || new ShippingTariffService({ db });
+  const health =
+    overrides.health || new HealthService({ db, trendyol, hepsiburada });
+  const finance =
+    overrides.finance || new FinanceService({ db, trendyol, hepsiburada });
   jobService.register("sync-file-market-prices", () =>
     mappingAutomation.syncLiveFileItems(fileMarket),
   );
@@ -104,6 +117,7 @@ function createContainer(overrides = {}) {
   );
   jobService.register("sync-products", () => sync.products());
   jobService.register("sync-buybox", () => sync.buybox());
+  jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
   jobService.register("calculate-costs", () => costEngine.recalculate());
   jobService.register("validate-data", () => costEngine.recalculate());
   jobService.register("generate-mapping-suggestions", () =>
@@ -159,10 +173,23 @@ function createContainer(overrides = {}) {
     return maintenance.cleanup(current.log_retention_days);
   });
   jobService.register("dashboard-cache-refresh", () => dashboard.refresh());
+  jobService.register("daily-system-health", () => health.scan());
+  jobService.register("estimate-cost-desi", () => desi.estimateSupplierCosts());
+  jobService.register("import-hepsiburada-shipping", () =>
+    shippingTariff.importHepsiburada(),
+  );
+  jobService.register("sync-orders", () => finance.syncOrders());
+  jobService.register("sync-hepsiburada-orders", () =>
+    finance.syncHepsiburadaOrders(),
+  );
+  jobService.register("sync-financial-transactions", () =>
+    finance.syncFinancialTransactions(),
+  );
   return {
     db,
     auth,
     trendyol,
+    hepsiburada,
     audit,
     settings,
     products,
@@ -170,6 +197,10 @@ function createContainer(overrides = {}) {
     fileMarket,
     bizimMarket,
     bimMarket,
+    health,
+    desi,
+    shippingTariff,
+    finance,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

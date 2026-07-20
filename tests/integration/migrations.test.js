@@ -39,6 +39,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "014_supplier_price_pools",
       "015_supplier_bulk_price_tiers",
       "016_bim_market_live_sync",
+      "017_operations_finance_and_safety",
     ],
   );
   const safety = await db.query(
@@ -63,19 +64,19 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT enabled,schedule_minutes FROM jobs WHERE name='sync-file-market-prices'",
   );
   assert.equal(fileMarketJob.rowCount, 1);
-  assert.equal(fileMarketJob.rows[0].enabled, false);
+  assert.equal(fileMarketJob.rows[0].enabled, true);
   assert.equal(Number(fileMarketJob.rows[0].schedule_minutes), 1440);
   const bizimMarketJob = await db.query(
     "SELECT enabled,schedule_minutes FROM jobs WHERE name='sync-bizim-market-prices'",
   );
   assert.equal(bizimMarketJob.rowCount, 1);
-  assert.equal(bizimMarketJob.rows[0].enabled, false);
+  assert.equal(bizimMarketJob.rows[0].enabled, true);
   assert.equal(Number(bizimMarketJob.rows[0].schedule_minutes), 1440);
   const bimMarketJob = await db.query(
     "SELECT enabled,schedule_minutes FROM jobs WHERE name='sync-bim-market-prices'",
   );
   assert.equal(bimMarketJob.rowCount, 1);
-  assert.equal(bimMarketJob.rows[0].enabled, false);
+  assert.equal(bimMarketJob.rows[0].enabled, true);
   assert.equal(Number(bimMarketJob.rows[0].schedule_minutes), 1440);
   const supplierTierColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
@@ -155,8 +156,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "013_file_market_live_sync",
       "014_supplier_price_pools",
       "015_supplier_bulk_price_tiers",
+      "016_bim_market_live_sync",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

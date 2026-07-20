@@ -19,6 +19,11 @@ class RepricerService {
       repricerEnabled: stored.global_repricer_enabled ?? env.repricerEnabled,
       maxChangePct:
         stored.global_max_price_change_pct ?? env.globalMaxPriceChangePct,
+      maxDailyDecreasePct:
+        stored.global_max_daily_decrease_pct ??
+        env.globalMaxDailyDecreasePct ??
+        5,
+      unlimitedIncrease: stored.global_unlimited_increase ?? true,
       minChangeTl: env.minPriceChangeTl,
       buyboxMaxAgeMinutes:
         stored.buybox_max_age_minutes ?? env.buyboxMaxAgeMinutes,
@@ -52,6 +57,7 @@ class RepricerService {
       COALESCE(ps.min_change_interval_minutes,30)min_change_interval_minutes,COALESCE(ps.daily_action_limit,3)daily_action_limit,
       COALESCE(ps.buybox_max_age_minutes,20)buybox_max_age_minutes,COALESCE(ps.blacklisted,FALSE)blacklisted,
       COALESCE(ps.auto_update,p.auto_update,FALSE)setting_auto_update,COALESCE(ps.mode,'MANUAL')mode,
+      COALESCE(ps.unlimited_increase,TRUE) unlimited_increase,
       COALESCE(rl.learned_price_cut_tl,0)learned_price_cut_tl,
       rl.learned_max_increase_tl,COALESCE(rl.confidence_score,0)confidence_score,
       COALESCE(rl.paused,FALSE)learning_paused
@@ -82,6 +88,8 @@ class RepricerService {
           product.target_profit ??
           global.defaultTargetProfit,
         auto_update: product.setting_auto_update,
+        unlimited_increase:
+          product.unlimited_increase ?? global.unlimitedIncrease,
       };
       const proposal = proposePrice(product, settings);
       const today = await this.actions.todayStats(product.barcode);
@@ -199,6 +207,8 @@ class RepricerService {
         product.target_profit ??
         global.defaultTargetProfit,
       auto_update: product.setting_auto_update,
+      unlimited_increase:
+        product.unlimited_increase ?? global.unlimitedIncrease,
     };
     const safety = safetyCheck({
       product,

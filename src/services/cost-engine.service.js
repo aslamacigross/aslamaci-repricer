@@ -28,7 +28,7 @@ class CostEngineService {
       `
       WITH mapping_totals AS (
         SELECT pcm.marketplace,pcm.barcode,
-          SUM(pcm.quantity*ci.unit_cost) product_cost,
+          SUM(pcm.quantity*COALESCE(pcm.effective_unit_cost,ci.unit_cost)) product_cost,
           SUM(pcm.quantity*COALESCE(ci.unit_desi,0)) total_desi,
           COUNT(*) FILTER(WHERE ci.item_code IS NULL OR pcm.quantity<=0) orphan_count,
           COUNT(*) FILTER(WHERE ci.item_code IS NOT NULL AND (ci.unit_cost<=0 OR COALESCE(ci.unit_desi,0)<=0)) incomplete_cost_count,
@@ -49,7 +49,9 @@ class CostEngineService {
           ORDER BY x.min_basket DESC LIMIT 1
         ) sb ON TRUE
         LEFT JOIN LATERAL(
-          SELECT * FROM shipping_costs x WHERE x.carrier=$1 AND x.desi_kg=CEIL(COALESCE(mt.total_desi,0)) LIMIT 1
+          SELECT * FROM shipping_costs x
+          WHERE x.marketplace=p.marketplace AND x.carrier=$1
+            AND x.desi_kg=CEIL(COALESCE(mt.total_desi,0)) LIMIT 1
         ) sc ON sb.id IS NULL
         LEFT JOIN LATERAL(
           SELECT * FROM packaging_rules x WHERE CEIL(COALESCE(mt.total_desi,0)) BETWEEN x.min_desi AND x.max_desi

@@ -9,6 +9,8 @@ function systemRoutes({
   sync,
   costEngine,
   repricer,
+  health,
+  hepsiburada,
 }) {
   const r = express.Router();
   const productFilters = (query = {}) => ({
@@ -163,6 +165,8 @@ function systemRoutes({
         "default_price_cut_tl",
         "default_max_increase_tl",
         "global_max_price_change_pct",
+        "global_max_daily_decrease_pct",
+        "global_unlimited_increase",
         "default_carrier",
         "service_fee",
         "buybox_max_age_minutes",
@@ -177,6 +181,7 @@ function systemRoutes({
         "default_price_cut_tl",
         "default_max_increase_tl",
         "global_max_price_change_pct",
+        "global_max_daily_decrease_pct",
         "service_fee",
         "buybox_max_age_minutes",
         "product_sync_cron_minutes",
@@ -189,6 +194,7 @@ function systemRoutes({
         "global_dry_run",
         "global_repricer_enabled",
         "maintenance_mode",
+        "global_unlimited_increase",
       ]);
       const jobForSetting = {
         product_sync_cron_minutes: "sync-products",
@@ -262,11 +268,47 @@ function systemRoutes({
     }),
   );
   r.get(
+    "/health-report",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await health.latest(),
+        items: await health.history(req.query.limit),
+      }),
+    ),
+  );
+  r.post(
+    "/health-report/run",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await jobService.run("daily-system-health", {
+          source: "web",
+          actor: req.user.username,
+        }),
+      }),
+    ),
+  );
+  r.get(
     "/integrations",
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: { trendyol: await sync.health() },
+        data: {
+          trendyol: await sync.health(),
+          hepsiburada: {
+            configured: hepsiburada?.configured?.() || false,
+          },
+        },
+      }),
+    ),
+  );
+  r.post(
+    "/integrations/hepsiburada/test",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await hepsiburada.health(),
       }),
     ),
   );

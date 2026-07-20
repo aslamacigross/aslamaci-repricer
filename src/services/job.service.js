@@ -1,5 +1,46 @@
 const logger = require("../config/logger");
 
+function zonedParts(date, timeZone) {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZone || "Europe/Istanbul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+}
+
+function isJobDue(job, now = new Date()) {
+  if (!job.enabled) return false;
+  if (job.schedule_type !== "DAILY")
+    return (
+      !job.last_run_at ||
+      new Date(job.last_run_at).getTime() +
+        Number(job.schedule_minutes || 1) * 60000 <=
+        now.getTime()
+    );
+  const current = zonedParts(now, job.schedule_timezone);
+  const [hour, minute] = String(job.daily_at || "00:00")
+    .split(":")
+    .map(Number);
+  const targetMinutes = hour * 60 + minute;
+  const currentMinutes = Number(current.hour) * 60 + Number(current.minute);
+  if (currentMinutes < targetMinutes) return false;
+  if (!job.last_run_at) return true;
+  const last = zonedParts(new Date(job.last_run_at), job.schedule_timezone);
+  return (
+    `${last.year}-${last.month}-${last.day}` !==
+    `${current.year}-${current.month}-${current.day}`
+  );
+}
+
 class JobService {
   constructor({ db, repository, handlers = {} }) {
     this.db = db;
@@ -60,16 +101,14 @@ class JobService {
     this.timer = setInterval(async () => {
       try {
         const due = (
-          await this.db.query(
-            `SELECT name FROM jobs WHERE enabled=TRUE AND (last_run_at IS NULL OR last_run_at+schedule_minutes*INTERVAL '1 minute'<=NOW())`,
-          )
-        ).rows;
+          await this.db.query("SELECT * FROM jobs WHERE enabled=TRUE")
+        ).rows.filter((job) => isJobDue(job));
         for (const job of due) {
-          this.run(job.name, { source: "scheduler" }).catch(() => {});
-          await this.db.query(
-            "UPDATE jobs SET last_run_at=NOW(),next_run_at=NOW()+schedule_minutes*INTERVAL '1 minute' WHERE name=$1",
-            [job.name],
-          );
+          try {
+            await this.run(job.name, { source: "scheduler" });
+          } catch {
+            // JobService.run already records and logs the failure.
+          }
         }
       } catch (error) {
         logger.error("scheduler_failed", { message: error.message });
@@ -83,4 +122,4 @@ class JobService {
   }
 }
 
-module.exports = { JobService };
+module.exports = { JobService, isJobDue, zonedParts };

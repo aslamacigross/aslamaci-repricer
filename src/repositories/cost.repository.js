@@ -652,9 +652,12 @@ class CostRepository {
     });
   }
 
-  async shipping() {
+  async shipping(marketplace = "TRENDYOL") {
     const [rates, barems, packaging] = await Promise.all([
-      this.db.query("SELECT * FROM shipping_costs ORDER BY carrier,desi_kg"),
+      this.db.query(
+        "SELECT * FROM shipping_costs WHERE marketplace=$1 ORDER BY carrier,desi_kg",
+        [marketplace],
+      ),
       this.db.query(
         "SELECT * FROM shipping_barems ORDER BY carrier,min_basket",
       ),
@@ -672,7 +675,8 @@ class CostRepository {
       return (
         await this.db.query(
           `UPDATE shipping_costs SET desi_kg=$1,carrier=$2,cost_ex_vat=$3,
-           cost_inc_vat=ROUND($3*(1+$4/100),2),vat_rate=$4,updated_at=NOW()
+           cost_inc_vat=ROUND($3*(1+$4/100),2),vat_rate=$4,
+           marketplace=$6,updated_at=NOW()
            WHERE id=$5 RETURNING *`,
           [
             input.desi_kg,
@@ -680,14 +684,26 @@ class CostRepository {
             input.cost_ex_vat,
             input.vat_rate ?? 20,
             id,
+            input.marketplace || "TRENDYOL",
           ],
         )
       ).rows[0];
     return (
       await this.db.query(
-        `INSERT INTO shipping_costs(desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate,updated_at)
-    VALUES($1,$2,$3,ROUND($3*(1+$4/100),2),$4,NOW())ON CONFLICT(desi_kg,carrier)DO UPDATE SET cost_ex_vat=EXCLUDED.cost_ex_vat,cost_inc_vat=EXCLUDED.cost_inc_vat,vat_rate=EXCLUDED.vat_rate,updated_at=NOW()RETURNING *`,
-        [input.desi_kg, input.carrier, input.cost_ex_vat, input.vat_rate ?? 20],
+        `INSERT INTO shipping_costs(
+           marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate,updated_at
+         )VALUES($5,$1,$2,$3,ROUND($3*(1+$4/100),2),$4,NOW())
+         ON CONFLICT(marketplace,desi_kg,carrier)DO UPDATE SET
+           cost_ex_vat=EXCLUDED.cost_ex_vat,
+           cost_inc_vat=EXCLUDED.cost_inc_vat,
+           vat_rate=EXCLUDED.vat_rate,updated_at=NOW() RETURNING *`,
+        [
+          input.desi_kg,
+          input.carrier,
+          input.cost_ex_vat,
+          input.vat_rate ?? 20,
+          input.marketplace || "TRENDYOL",
+        ],
       )
     ).rows[0];
   }

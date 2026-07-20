@@ -1,0 +1,93 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  FinanceService,
+  calculateCashProfit,
+} = require("../../src/services/finance.service");
+
+test("500 TL siparis ornegi 98.77 TL operasyonel nakit kari verir", () => {
+  assert.equal(
+    calculateCashProfit({
+      revenue: 500,
+      commission: 95,
+      shipping: 93.04,
+      serviceFee: 13.19,
+      productCost: 200,
+    }),
+    98.77,
+  );
+});
+
+test("aylik ambalaj gideri nakit karindan bir kez dusulur", () => {
+  assert.equal(
+    calculateCashProfit({
+      revenue: 500,
+      commission: 95,
+      shipping: 93.04,
+      serviceFee: 13.19,
+      productCost: 200,
+      packaging: 10,
+    }),
+    88.77,
+  );
+});
+
+test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
+  let insertParams;
+  const db = {
+    async query(sql, params) {
+      if (sql.includes("SELECT * FROM marketplace_orders"))
+        return {
+          rows: [
+            {
+              id: 8,
+              product_cost_total: 200,
+              shipping_total: 93.04,
+              service_fee_total: 13.19,
+            },
+          ],
+        };
+      if (sql.includes("FROM products"))
+        return {
+          rows: [
+            {
+              barcode: "TEST",
+              calculated_product_cost: 999,
+              calculated_shipping_cost: 999,
+              service_fee: 99,
+              commission_rate: 19,
+            },
+          ],
+        };
+      if (sql.includes("INSERT INTO marketplace_orders")) {
+        insertParams = params;
+        return { rows: [{ id: 8 }] };
+      }
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  await finance.upsertOrder({
+    orderNumber: "ORDER-1",
+    id: "PACKAGE-1",
+    status: "Delivered",
+    orderDate: "2026-07-20T10:00:00Z",
+    lines: [
+      {
+        id: "LINE-1",
+        barcode: "TEST",
+        quantity: 1,
+        amount: 500,
+        commissionRate: 19,
+      },
+    ],
+  });
+
+  assert.equal(insertParams[7], 500);
+  assert.equal(insertParams[8], 95);
+  assert.equal(insertParams[9], 93.04);
+  assert.equal(insertParams[10], 13.19);
+  assert.equal(insertParams[11], 200);
+  assert.equal(insertParams[12], 98.77);
+});

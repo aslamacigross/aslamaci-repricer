@@ -26,6 +26,11 @@ Trendyol ürün maliyeti, minimum fiyat, buybox ve öğrenen repricer operasyonl
 - File Market fiyat havuzu, fiyat değişim geçmişi ve 30 günlük güncellik koruması
 - Eski manuel mappinglerden öğrenen, paket adedini ölçekleyen güven skorlu mapping önerileri
 - Öneri onayı ile gerçek mapping uygulamasını ayıran toplu önizleme ve atomik uygulama akışı
+- File, Bizim ve BİM fiyatlarını her gece Türkiye saatiyle 00:00'da yenileyen maliyet zinciri
+- Barkod rekabetine göre 1 dakika ile 1 gün arasında adaptif buybox kontrolü
+- Günlük veri/entegrasyon/job sağlık taraması ve desi kontrol kuyruğu
+- Aylık sipariş, operasyonel nakit kârı, ambalaj ve aktarılacak tutar raporu
+- Hepsiburada read-only sipariş adaptörü ve 13 Temmuz 2026 kargo tarifesi
 
 ## Gereksinimler
 
@@ -76,6 +81,7 @@ Mevcut zorunlu entegrasyon değişkenleri:
 - `TY_API_KEY`
 - `TY_API_SECRET`
 - `TY_SUPPLIER_ID`
+- `TY_STOREFRONT_CODE`: varsayılan `TR`
 - `PORT`
 - `NODE_ENV`
 
@@ -98,6 +104,10 @@ V2 ile eklenenler:
 - `MIN_PRICE_CHANGE_TL`: varsayılan `0.10`
 - `LOG_RETENTION_DAYS`: varsayılan `90`
 - `SKIP_MIGRATIONS`: yalnızca kontrollü bakımda migration başlangıcını atlar; varsayılan `false`
+- `HB_MERCHANT_ID`: Hepsiburada Satıcı ID
+- `HB_USERNAME`: varsa ayrı Hepsiburada API kullanıcı adı; boşsa Satıcı ID kullanılır
+- `HB_PASSWORD`: varsa doğrudan API parolası
+- `HB_INTEGRATOR_KEY`: panelde üretilen servis anahtarı; yalnız secret store'da tutulur
 
 Tam liste [.env.example](.env.example) dosyasındadır.
 
@@ -117,7 +127,7 @@ PostgreSQL ana ve tek uygulama veri kaynağıdır. Trendyol ürün, fiyat, stok 
 
 Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister. Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz. Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebilir; tüm satırlar doğrulanmadan transaction başlamaz.
 
-Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından yönetilir. Böylece panelde yapılan değişiklikler servis yeniden başladığında korunur.
+Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından yönetilir. Böylece panelde yapılan değişiklikler servis yeniden başladığında korunur. File, Bizim ve BİM fiyat jobları `Europe/Istanbul` saat diliminde her gün 00:00'da sırayla çalışır. Onaylı tedarikçi bağlantılarında fiyat değişirse maliyet kalemi ve varsa Bizim adet kademesi güncellenir; bağlı barkodların minimum fiyatı aynı akışta yeniden hesaplanır. 00:20'de desi tahmini, 00:30'da sistem sağlık taraması çalışır.
 
 Mapping ekranı tüm mapping kümesini alıp 100 satırlık sayfalara böler. Buybox ve fiyat aksiyonları büyüyen katalog için server-side aranıp sayfalanır. Ürün ve Buybox CSV aktarımı gerekirse bütün API sayfalarını birleştirir; diğer tablolar seçili kolonları ve filtrelenmiş kayıt kümesini kullanır.
 
@@ -137,12 +147,20 @@ Her onay ve ret `Karar geçmişi` ekranında kullanıcı, tarih, cost code, ret 
 
 Repo kökündeki `railway.toml` build, start ve health check ayarlarını içerir. Ayrıntılı akış [DEPLOYMENT.md](DEPLOYMENT.md), acil durum adımları [RUNBOOK.md](RUNBOOK.md) içindedir.
 
+### Satış ve Kâr
+
+`Satış & Kâr` sayfası Trendyol siparişlerini ve finansal hareketleri ay bazında toplar. Operasyonel nakit kârı:
+
+`ciro - komisyon - kargo - hizmet bedeli - ürün alış maliyeti - aylık ambalaj`
+
+olarak gösterilir. Komisyon/kargo/hizmet bedeli pazaryeri ödemesinden kesildiği için Bekir'in kişisel nakit çıkışına ikinci kez eklenmez. Ekrandaki “Sana aktarılacak” tutar, Bekir'in finanse ettiği ürün ve ambalaj gideri ile ambalaj sonrası operasyonel kârın toplamıdır. Bu görünüm şirketin KDV hariç muhasebe kârı değildir; ürün bazlı alış/satış KDV'si ve fatura kayıtları mali müşavirle ayrıca doğrulanmalıdır.
+
 ## Bilinen Sınırlamalar
 
 - Öğrenme motoru ilk sürümde açıklanabilir ve deterministik kurallıdır; bağımsız bir makine öğrenmesi modeli yoktur.
 - Trendyol yanıtında rakip satıcı puanı veya kupon ayrıntısı bulunmadığında bu alanlar gözlem tablosunda boş kalır ve karar motoru yalnız doğrulanabilen fiyat/sıra verisini kullanır.
 - Railway preview veritabanı production'dan ayrıdır; gerçek öğrenen pilot geçmişi preview'a kopyalanmamıştır. Migrationlar production'daki `price_war_log`, `buybox_snapshots` ve `repricer_learning` kayıtlarını koruyup backfill eder.
-- Hepsiburada adaptörü V2 veri modeline eklenebilir durumdadır ancak bu sürümde yalnız Trendyol entegrasyonu çalışır.
+- Hepsiburada adaptörü bu sürümde yalnız kimlik doğrulama, read-only sipariş temeli ve platforma ayrılmış kargo tarifesini içerir. Ürün/listing, finansal mutabakat, buybox ve fiyat yazma canlı API sözleşmesi gerçek hesapla doğrulanmadan açılmaz.
 - BİM canlı fiyatı Yemeksepeti'ndeki `fu9o` mağaza kataloğunu temsil eder. Fiyat veya ürün kapsamı lokasyona göre değişirse mağaza kodu ve kategori listesi kod seviyesinde güncellenmelidir.
 - Bizim Toptan web fiyatları seçili mağaza/lokasyon kampanyalarından farklılaşabilir; maliyete uygulamadan önce havuzun kaynak zamanı ve fiyatı kontrol edilmelidir.
 - Production migration/deploy, PR incelemesi ve ayrı DB snapshot sonrasında yapılmalıdır; preview kabulü production'a otomatik geçiş yapmaz.

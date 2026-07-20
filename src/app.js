@@ -19,12 +19,13 @@ const { productsRoutes } = require("./routes/products.routes");
 const { costsRoutes } = require("./routes/costs.routes");
 const { repricerRoutes } = require("./routes/repricer.routes");
 const { systemRoutes } = require("./routes/system.routes");
+const { financeRoutes } = require("./routes/finance.routes");
 const {
   mappingAutomationRoutes,
 } = require("./routes/mapping-automation.routes");
 
-const APP_VERSION = "2.5.0";
-const REQUIRED_MIGRATION = "016_bim_market_live_sync";
+const APP_VERSION = "2.6.0";
+const REQUIRED_MIGRATION = "017_operations_finance_and_safety";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);
@@ -85,6 +86,9 @@ function createApp(container = createContainer()) {
         responseMs: Date.now() - started,
         integrations: {
           trendyol: { configured: container.trendyol.configured() },
+          hepsiburada: {
+            configured: container.hepsiburada?.configured?.() || false,
+          },
         },
       });
     }),
@@ -122,6 +126,7 @@ function createApp(container = createContainer()) {
   app.use("/api", costsRoutes(container));
   app.use("/api", mappingAutomationRoutes(container));
   app.use("/api", repricerRoutes(container));
+  app.use("/api", financeRoutes(container));
   app.use("/api", systemRoutes(container));
   const dist = path.resolve(__dirname, "../dist");
   if (fs.existsSync(dist)) {

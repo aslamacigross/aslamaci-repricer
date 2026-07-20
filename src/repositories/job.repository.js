@@ -28,11 +28,28 @@ class JobRepository {
       await this.db.query(
         `UPDATE jobs SET schedule_minutes=COALESCE($2,schedule_minutes),
          enabled=COALESCE($3,enabled),updated_at=NOW(),
+         schedule_type=COALESCE($4,schedule_type),
+         daily_at=COALESCE($5,daily_at),
+         schedule_timezone=COALESCE($6,schedule_timezone),
          next_run_at=CASE WHEN COALESCE($3,enabled)=TRUE
-           THEN NOW()+COALESCE($2,schedule_minutes)*INTERVAL '1 minute'
+           THEN CASE WHEN COALESCE($4,schedule_type)='DAILY'
+             THEN (
+               date_trunc('day', NOW() AT TIME ZONE COALESCE($6,schedule_timezone))
+               + COALESCE($5,daily_at,'00:00')::time
+               + INTERVAL '1 day'
+             ) AT TIME ZONE COALESCE($6,schedule_timezone)
+             ELSE NOW()+COALESCE($2,schedule_minutes)*INTERVAL '1 minute'
+           END
            ELSE NULL END
          WHERE name=$1 RETURNING *`,
-        [name, input.schedule_minutes, input.enabled],
+        [
+          name,
+          input.schedule_minutes,
+          input.enabled,
+          input.schedule_type,
+          input.daily_at,
+          input.schedule_timezone,
+        ],
       )
     ).rows[0];
   }
@@ -66,7 +83,14 @@ class JobRepository {
     ).rows[0];
     await client.query(
       `UPDATE jobs SET last_run_at=NOW(),
-       next_run_at=CASE WHEN enabled THEN NOW()+schedule_minutes*INTERVAL '1 minute' ELSE NULL END,
+       next_run_at=CASE WHEN enabled THEN
+         CASE WHEN schedule_type='DAILY' THEN (
+           date_trunc('day', NOW() AT TIME ZONE schedule_timezone)
+           + COALESCE(daily_at,'00:00')::time
+           + INTERVAL '1 day'
+         ) AT TIME ZONE schedule_timezone
+         ELSE NOW()+schedule_minutes*INTERVAL '1 minute' END
+       ELSE NULL END,
        updated_at=NOW() WHERE name=$1`,
       [run.job_name],
     );

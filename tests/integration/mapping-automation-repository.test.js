@@ -130,16 +130,19 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   assert.equal(recalculated, true);
 
   const mapping = await db.query(
-    `SELECT cost_item_code,quantity FROM product_cost_mappings
+    `SELECT cost_item_code,quantity,effective_unit_cost,supplier_price_tier
+     FROM product_cost_mappings
      WHERE barcode='TARGET'`,
   );
   assert.equal(mapping.rows[0].cost_item_code, "YUMUSATICI_ACTISOFT_1500ML");
   assert.equal(Number(mapping.rows[0].quantity), 4);
+  assert.equal(Number(mapping.rows[0].effective_unit_cost), 108);
+  assert.equal(Number(mapping.rows[0].supplier_price_tier.unit_price), 108);
   const cost = await db.query(
     `SELECT unit_cost,previous_unit_cost,price_source FROM cost_items
      WHERE item_code='YUMUSATICI_ACTISOFT_1500ML'`,
   );
-  assert.equal(Number(cost.rows[0].unit_cost), 108);
+  assert.equal(Number(cost.rows[0].unit_cost), 112);
   assert.equal(Number(cost.rows[0].previous_unit_cost), 110);
   assert.equal(cost.rows[0].price_source, "BIZIM_MARKET");
   const status = await db.query(
@@ -204,7 +207,7 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     [pendingAfterReject.items[0].items[0].cost_item_code],
   );
   assert.equal(directCostItem.rowCount, 1);
-  assert.equal(Number(directCostItem.rows[0].unit_cost), 108);
+  assert.equal(Number(directCostItem.rows[0].unit_cost), 112);
   assert.equal(Number(directCostItem.rows[0].unit_desi), 1.5);
   assert.equal(directCostItem.rows[0].price_source, "BIZIM_MARKET");
   await db.end();
@@ -302,9 +305,16 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
     `SELECT unit_cost,previous_unit_cost,price_source FROM cost_items
      WHERE item_code='BIZIM_TENO_PECETE_100LU'`,
   );
-  assert.equal(Number(cost.rows[0].unit_cost), 230);
-  assert.equal(Number(cost.rows[0].previous_unit_cost), 249);
+  assert.equal(Number(cost.rows[0].unit_cost), 249);
   assert.equal(cost.rows[0].price_source, "BIZIM_MARKET");
+  const mapping = await db.query(
+    `SELECT effective_unit_cost,supplier_price_tier
+     FROM product_cost_mappings
+     WHERE marketplace='TRENDYOL' AND barcode='HSTOBA6202101'
+       AND cost_item_code='BIZIM_TENO_PECETE_100LU'`,
+  );
+  assert.equal(Number(mapping.rows[0].effective_unit_cost), 230);
+  assert.equal(Number(mapping.rows[0].supplier_price_tier.unit_price), 230);
   assert.equal(Number(updated.tier_price_updates[0].quantity), 6);
   assert.equal(Number(updated.tier_price_updates[0].min_quantity), 6);
 

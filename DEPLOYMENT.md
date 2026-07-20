@@ -62,6 +62,7 @@ Zorunlu:
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD_HASH` veya `ADMIN_PASSWORD`
 - `SESSION_SECRET`
+- `TY_STOREFRONT_CODE=TR`
 
 Önerilen production değerleri:
 
@@ -73,6 +74,16 @@ JOBS_ENABLED=true
 DEFAULT_MAX_INCREASE_TL=10
 ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 ```
+
+Hepsiburada read-only bağlantısı için:
+
+```text
+HB_MERCHANT_ID=<satici-id>
+HB_USERNAME=<opsiyonel-entegrasyon-kullanici-adi>
+HB_INTEGRATOR_KEY=<Railway-secret>
+```
+
+Servis anahtarı repo, ekran görüntüsü veya loga yazılmaz. `HB_PASSWORD` yalnız Hepsiburada hesabı servis anahtarından ayrı bir API parolası veriyorsa kullanılır.
 
 Parola hash'i yerelde üretilir:
 
@@ -99,6 +110,10 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Başarılı fixture aksiyonunda geri alma isteği: yeni `ROLLBACK/PENDING` kayıt, doğrudan API çağrısı yok
 - Dry-run kapatma denemesi: ikinci canlı-mod onayı olmadan `409`
 - Job geçmişi ve audit log
+- Günlük sağlık raporu ve desi kontrol kuyruğu
+- File/Bizim/BİM joblarının `DAILY 00:00 Europe/Istanbul` görünümü
+- `Satış & Kâr` sipariş sync ve aylık ambalaj kaydı
+- Hepsiburada kargo tarifesi importu; 0-4500 desi ve platform `HEPSIBURADA`
 - Mobil sidebar ve tablolar
 - `pnpm test:ui` ve `pnpm test:e2e`
 

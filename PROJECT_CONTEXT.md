@@ -71,10 +71,17 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Bizim Toptan herkese açık web kataloğundan yenilenir. BİM verisi Yemeksepeti'nin `fu9o` mağazasına ait oturumsuz GraphQL ürün servisinden alınır; dondurulmuş gıda kapsam dışıdır.
 - Tedarikçi fiyat havuzları çoklu alım kademesi tutar. Mapping önerisi ve onay uygulaması, reçetedeki adet ilgili minimum adedi karşılıyorsa ana fiyat yerine o kademenin birim fiyatını maliyet kalemine yazar.
 - Birim desiler gerçek paket büyüklüğünü korur. Nihai ürün desisi mapping toplamından sonra yukarı yuvarlanır: `0,25 → 1`, `1,5 → 2`, `2,01 → 3`.
+- File Market, Bizim Toptan ve BİM fiyat havuzları her gece `00:00 Europe/Istanbul` zamanında sırayla yenilenir. Fiyat değişiklikleri tarihçeye, bağlı cost code'a, mappinge ve yeniden hesaplanan minimum fiyata atomik olarak taşınır.
+- Bizim Toptan çoklu alım fiyatı global maliyet kalemini bozmaz; yalnız ilgili barkod mappinginde `effective_unit_cost` olarak tutulur.
+- Desi tahmini yalnız yüksek güvenli gramaj/hacim sinyalinde otomatik uygulanır. Belirsiz kalemler `desi_review_queue` kuyruğuna düşer; görsel ölçeğinden kör tahmin yapılmaz.
+- Buybox yenileme sıklığı barkodun son 24 saatteki fiyat/sıra oynaklığına göre 1, 5, 15, 60, 360 veya 1440 dakika olur. Başarısız okuma 5 dakika sonra tekrar denenir.
+- Fiyat düşüşünde global günlük üst sınır yüzde 5'tir. Yukarı yönlü değişim, ürün minimum/maksimum fiyatı ve buybox güvenliği korunarak global yüzde limitinden muaftır.
+- Satış ve kâr ekranı operasyonel nakit mutabakatıdır; sipariş gelirinden komisyon, kargo, hizmet, ürün alış ve aylık manuel ambalaj giderini düşer. Muhasebesel KDV kârı değildir.
+- Hepsiburada entegrasyonu ilk aşamada salt-okunur sipariş/sağlık bağlantısı ve 13 Temmuz 2026 tarihli kargo tarifesi altyapısıdır. Fiyat yazma yeteneği yoktur.
 
 ## Doğrulama Durumu
 
-- 154 backend unit/integration/regression, 18 React bileşen ve 6 Chrome uçtan uca testi geçiyor.
+- 163 backend unit/integration/regression, 18 React bileşen ve 7 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -103,3 +110,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Mapping onay ve retleri immutable olay günlüğünde tutulur; marka, kategori, cost code ve doğrudan/varyant fiyat türü profili sonraki öneri skorunu en fazla artı/eksi 25 puan etkiler.
 - Çoklu tedarikçi kabulünde Bizim Toptan havuzu 2.781, BİM havuzu 1.147 benzersiz ürünle doğrulandı; dondurulmuş ürünler ve ürün ağırlığı olmayan yaş/kilo/kâğıt gramajı ifadeleri desi otomasyonundan çıkarıldı.
 - BİM canlı katalog sorgusu Chrome oturumu dışında doğrulandı; panel butonu ve varsayılan kapalı günlük job aynı fiyat havuzunu geçmişi koruyarak yeniler.
+- `017_operations_finance_and_safety` migrationı boş PostgreSQL uyumlu test veritabanında çalıştı ve tekrar çalıştırılabilirliği doğrulandı.
+- Hepsiburada kargo PDF'i 4.501 desi satırı ve 11 taşıyıcı olarak yapılandırılmış veriye dönüştürüldü; hiçbir tarife satırı kaybolmadı.
+- Aylık satış/kâr ekranı gider kırılımı, saat/gün/şehir analizi ve mobil yerleşimle görsel olarak doğrulandı.
+- Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. Canlı bağlantı için Railway secret'ları ve mağaza Merchant ID hâlâ dış ortamda yapılandırılmalıdır.

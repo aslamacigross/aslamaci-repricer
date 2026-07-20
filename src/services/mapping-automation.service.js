@@ -717,11 +717,17 @@ class MappingAutomationService {
 
   async importSupplierItems(supplierCode, rows, options = {}) {
     const normalizedCode = String(supplierCode || "").toUpperCase();
-    return this.repository.importSupplierItems(
+    const imported = await this.repository.importSupplierItems(
       normalizedCode,
       this.normalizeSupplierRows(normalizedCode, rows),
       options,
     );
+    for (const barcode of imported.affectedBarcodes || [])
+      await this.costEngine.recalculate(barcode);
+    return {
+      ...imported,
+      recalculated: (imported.affectedBarcodes || []).length,
+    };
   }
 
   async importFileItems(rows) {

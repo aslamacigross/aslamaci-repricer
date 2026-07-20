@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   ShieldCheck,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import { IconButton, Badge } from "./ui";
 const links = [
@@ -26,6 +27,7 @@ const links = [
   ["mappings", "Ürün Mapping", GitBranch],
   ["commissions", "Komisyonlar", Percent],
   ["shipping", "Kargo & Ambalaj", Truck],
+  ["finance", "Satış & Kâr", ChartNoAxesCombined],
   ["buybox", "Buybox", ScanSearch],
   ["repricer", "Repricer", Gauge],
   ["actions", "Fiyat Aksiyonları", ClipboardCheck],

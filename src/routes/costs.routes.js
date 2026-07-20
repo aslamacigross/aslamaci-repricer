@@ -57,7 +57,14 @@ function normalizeCostItemRows(rows) {
     return item;
   });
 }
-function costsRoutes({ costs, costEngine, audit, shippingService }) {
+function costsRoutes({
+  costs,
+  costEngine,
+  audit,
+  shippingService,
+  shippingTariff,
+  desi,
+}) {
   const r = express.Router();
   const logged = async (req, action, type, id, before, after) =>
     audit.record({
@@ -113,6 +120,39 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
         data: await costs.duplicateCostItemCandidates(req.query),
       }),
     ),
+  );
+  r.get(
+    "/cost-items/desi-review",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        items: await desi.listReviewQueue(req.query),
+      }),
+    ),
+  );
+  r.post(
+    "/cost-items/desi-review/:itemCode/resolve",
+    asyncRoute(async (req, res) => {
+      const value = Number(req.body.unit_desi);
+      if (!Number.isFinite(value) || value <= 0)
+        throw new AppError(
+          "Desi pozitif bir sayı olmalı",
+          400,
+          "VALIDATION_ERROR",
+        );
+      const data = await desi.resolve(
+        req.params.itemCode,
+        value,
+        req.user.username,
+      );
+      if (!data)
+        throw new AppError(
+          "Maliyet kalemi bulunamadı",
+          404,
+          "COST_ITEM_NOT_FOUND",
+        );
+      res.json({ status: "ok", data });
+    }),
   );
   r.get(
     "/cost-items/:id/usage",
@@ -330,8 +370,28 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
   r.get(
     "/shipping",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", data: await costs.shipping() }),
+      res.json({
+        status: "ok",
+        data: await costs.shipping(req.query.marketplace || "TRENDYOL"),
+      }),
     ),
+  );
+  r.post(
+    "/shipping/hepsiburada/import",
+    asyncRoute(async (req, res) => {
+      const data = await shippingTariff.importHepsiburada({
+        force: req.body.force === true,
+      });
+      await logged(
+        req,
+        "HEPSIBURADA_SHIPPING_IMPORTED",
+        "shipping_tariff",
+        "2026-07-13",
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
   );
   r.post(
     "/shipping/preview",
@@ -356,7 +416,11 @@ function costsRoutes({ costs, costEngine, audit, shippingService }) {
   r.get(
     "/shipping/rates",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: (await costs.shipping()).rates }),
+      res.json({
+        status: "ok",
+        items: (await costs.shipping(req.query.marketplace || "TRENDYOL"))
+          .rates,
+      }),
     ),
   );
   r.get(

@@ -10,6 +10,8 @@ flowchart LR
   SERVICES --> REPOS[Repositories]
   REPOS --> DB[(PostgreSQL)]
   SERVICES --> TY[Trendyol Seller API]
+  SERVICES --> HB[Hepsiburada Read-only API]
+  SERVICES --> SUPPLIERS[File / Bizim / BİM fiyat kaynakları]
   JOBS[Job Scheduler + Advisory Lock] --> SERVICES
 ```
 
@@ -98,6 +100,14 @@ flowchart LR
 Eşleştirme motoru ürün adlarını Türkçe karakterlerden bağımsız normalize eder; marka, kategori, hacim/gramaj ve paket adedi sinyallerini ayrı ağırlıklarla değerlendirir. Adaylar tedarikçi havuzu içinde üretilir; farklı havuzlar tek reçetede birleşmez. Her onay ve ret immutable geri bildirim olayına yazılır. Yüksek güven önerisi dahi kendiliğinden uygulanmaz. Onay, önizleme ve uygulama ayrı durumlardır; hedef ürünün hâlâ aktif ve mapping eksik olması, cost code'ların geçerli olması ve kullanılacak tedarikçi fiyatının en fazla 30 günlük olması uygulama anında yeniden denetlenir.
 
 Maliyet kalemleri fiziksel ürünün kesirli birim desisini korur. Nihai ürün desisi `SUM(adet × birim desi)` sonrasında `CEIL` ile yukarı yuvarlanır ve kargo/ambalaj seçimi bu tam sayı üzerinden yapılır.
+
+## Operasyon ve Finans
+
+Gece tedarikçi jobları İstanbul saatinde bir kez ve sırayla çalışır. Her tedarikçi importu önce tam veri setini doğrular, fiyat gözlemini kaydeder, bağlı cost code ve barkod mappinglerini günceller, ardından etkilenen ürünlerin maliyet/minimum fiyatını yeniden hesaplar. Aynı job PostgreSQL advisory lock nedeniyle eşzamanlı iki kez çalışamaz.
+
+`marketplace_orders`, `marketplace_order_items` ve `marketplace_financial_transactions` sipariş anındaki maliyet snapshot'ını korur. Aylık rapor; ciro, komisyon, kargo, hizmet, ürün alış ve manuel ambalaj giderinden operasyonel nakit kârını üretir. Bu sonuç muhasebesel KDV kârı olarak kullanılmaz.
+
+Hepsiburada katmanı şu anda Basic Auth ile yalnız sipariş okur. Kargo tarifeleri versiyonlu import edilir ve `marketplace='HEPSIBURADA'` ile Trendyol tarifelerinden ayrılır. Hepsiburada fiyat yazma servisi veya otomatik repricer yolu bulunmaz.
 
 ## Operasyon Kontrolleri
 

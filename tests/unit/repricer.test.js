@@ -127,9 +127,42 @@ test("tek islem ve gunluk toplam degisim limitleri ayri uygulanir", () => {
       minChangeTl: 0.1,
     },
     proposal: proposePrice(base, settings),
-    today: { actionCount: 0, dayStartPrice: 850 },
+    today: { actionCount: 0, dayStartPrice: 1000 },
   });
   assert.ok(result.failures.includes("DAILY_CHANGE_LIMIT"));
+  assert.ok(!result.failures.includes("SINGLE_CHANGE_LIMIT"));
+});
+test("yukari yonlu fiyat artisi limitsiz ayarda yuzde limitine takilmaz", () => {
+  const product = {
+    ...base,
+    my_price: 900,
+    rank: 1,
+    buybox_price: 900,
+    second_price: 1300,
+  };
+  const proposal = proposePrice(product, {
+    ...settings,
+    price_cut_tl: 1,
+    max_single_change_pct: 5,
+    max_daily_change_pct: 5,
+    unlimited_increase: true,
+  });
+  assert.equal(proposal.proposedPrice, 1299);
+  const result = safetyCheck({
+    product,
+    settings: { ...settings, unlimited_increase: true },
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 5,
+      maxDailyDecreasePct: 5,
+      unlimitedIncrease: true,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 900 },
+  });
+  assert.ok(!result.failures.includes("DAILY_CHANGE_LIMIT"));
   assert.ok(!result.failures.includes("SINGLE_CHANGE_LIMIT"));
 });
 test("auto update kapali urun safety gate gecemez", () => {

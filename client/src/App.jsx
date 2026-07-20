@@ -7,6 +7,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Products = lazy(() => import("./pages/Products"));
 const Costs = lazy(() => import("./pages/Costs"));
 const Operations = lazy(() => import("./pages/Operations"));
+const Finance = lazy(() => import("./pages/Finance"));
 const pageMap = {
   dashboard: Dashboard,
   products: Products,
@@ -14,6 +15,7 @@ const pageMap = {
   mappings: Costs,
   commissions: Costs,
   shipping: Costs,
+  finance: Finance,
   buybox: Operations,
   repricer: Operations,
   actions: Operations,

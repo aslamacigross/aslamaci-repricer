@@ -22,6 +22,7 @@ function clamp(value, minimum, maximum) {
 }
 
 function effectiveIncreaseLimit(settings) {
+  if (parseBoolean(settings.unlimited_increase)) return Infinity;
   const configured = Math.max(parseNumber(settings.max_increase_tl, 10), 0);
   const learned = parseNumber(settings.learned_max_increase_tl);
   return learned > 0 ? Math.min(configured, learned) : configured;
@@ -39,6 +40,7 @@ function applyStepLimits(current, target, settings) {
   const lower = current * (1 - singlePct / 100);
   const upper = current * (1 + singlePct / 100);
   if (target < current) return Math.max(target, lower);
+  if (parseBoolean(settings.unlimited_increase)) return target;
   return Math.min(target, upper, current + effectiveIncreaseLimit(settings));
 }
 
@@ -188,7 +190,10 @@ function safetyCheck(context) {
     settings.max_single_change_pct,
     productMaxDaily,
   );
-  const globalMaxDaily = parseNumber(global.maxChangePct, 15);
+  const globalMaxDaily = parseNumber(
+    global.maxDailyDecreasePct,
+    parseNumber(global.maxChangePct, 5),
+  );
   const maxDailyChangePct = Math.min(productMaxDaily, globalMaxDaily);
   const maxSingleChangePct = Math.min(productMaxSingle, globalMaxDaily);
   const changePct =
@@ -216,8 +221,9 @@ function safetyCheck(context) {
     failures.push("BUYBOX_MISSING");
   if (buyboxAgeMs > parseNumber(global.buyboxMaxAgeMinutes, 20) * 60000)
     failures.push("BUYBOX_STALE");
-  if (changePct > maxSingleChangePct) failures.push("SINGLE_CHANGE_LIMIT");
-  if (dailyNetChangePct > maxDailyChangePct)
+  if (proposed < current && changePct > maxSingleChangePct)
+    failures.push("SINGLE_CHANGE_LIMIT");
+  if (proposed < dayStartPrice && dailyNetChangePct > maxDailyChangePct)
     failures.push("DAILY_CHANGE_LIMIT");
   if (
     parseNumber(today.actionCount) >=
@@ -243,6 +249,7 @@ function safetyCheck(context) {
   if (parseNumber(proposal.expectedProfit) < 0 && !recovery)
     failures.push("EXPECTED_LOSS");
   if (
+    !parseBoolean(settings.unlimited_increase) &&
     proposed > current &&
     proposed - current > effectiveIncreaseLimit(settings) + 0.009
   )

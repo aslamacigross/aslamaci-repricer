@@ -1322,11 +1322,17 @@ function LearningDetail({ data }) {
 function Jobs({ notify }) {
   const [data, setData] = useState(null);
   async function load() {
-    const [jobs, runs] = await Promise.all([
+    const [jobs, runs, health] = await Promise.all([
       get("/api/jobs"),
       get("/api/jobs/runs?limit=100"),
+      get("/api/health-report?limit=10"),
     ]);
-    setData({ items: jobs.items, runs: runs.items });
+    setData({
+      items: jobs.items,
+      runs: runs.items,
+      health: health.data,
+      healthHistory: health.items,
+    });
   }
   useEffect(() => {
     load();
@@ -1357,29 +1363,34 @@ function Jobs({ notify }) {
     {
       key: "schedule_minutes",
       label: "Sıklık",
-      render: (r) => (
-        <input
-          className="table-number-input"
-          type="number"
-          min="1"
-          value={r.schedule_minutes}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) => {
-            const value = Number(event.target.value);
-            setData((current) => ({
-              ...current,
-              items: current.items.map((item) =>
-                item.name === r.name
-                  ? { ...item, schedule_minutes: value }
-                  : item,
-              ),
-            }));
-          }}
-          onBlur={(event) =>
-            updateJob(r.name, { schedule_minutes: Number(event.target.value) })
-          }
-        />
-      ),
+      render: (r) =>
+        r.schedule_type === "DAILY" ? (
+          <span>Her gün {r.daily_at || "00:00"}</span>
+        ) : (
+          <input
+            className="table-number-input"
+            type="number"
+            min="1"
+            value={r.schedule_minutes}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              setData((current) => ({
+                ...current,
+                items: current.items.map((item) =>
+                  item.name === r.name
+                    ? { ...item, schedule_minutes: value }
+                    : item,
+                ),
+              }));
+            }}
+            onBlur={(event) =>
+              updateJob(r.name, {
+                schedule_minutes: Number(event.target.value),
+              })
+            }
+          />
+        ),
     },
     {
       key: "enabled",
@@ -1423,6 +1434,46 @@ function Jobs({ notify }) {
   ];
   return (
     <>
+      <div className="panel health-summary">
+        <header>
+          <div>
+            <h2>Günlük sistem sağlığı</h2>
+            <p>
+              {data.health
+                ? `${data.health.score}/100 · ${date(data.health.finished_at)}`
+                : "Henüz sağlık taraması çalışmadı"}
+            </p>
+          </div>
+          <Button
+            icon={Activity}
+            variant="secondary"
+            onClick={() => run("daily-system-health")}
+          >
+            Şimdi tara
+          </Button>
+        </header>
+        {data.health && (
+          <div className="health-check-grid">
+            {(data.health.checks || []).map((check) => (
+              <div key={check.code}>
+                <Badge
+                  tone={
+                    check.status === "PASS"
+                      ? "success"
+                      : check.status === "WARN"
+                        ? "warning"
+                        : "danger"
+                  }
+                >
+                  {check.status}
+                </Badge>
+                <strong>{check.code.replaceAll("_", " ")}</strong>
+                <span>{check.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="panel table-panel">
         <DataTable
           columns={cols}
@@ -1590,6 +1641,7 @@ function Settings({ notify, setDryRun }) {
   const bools = [
     ["global_dry_run", "Global dry-run"],
     ["global_repricer_enabled", "Global repricer"],
+    ["global_unlimited_increase", "Yukarı yönlü artış limitsiz"],
     ["maintenance_mode", "Bakım modu"],
   ];
   return (
@@ -1625,6 +1677,7 @@ function Settings({ notify, setDryRun }) {
             ["default_price_cut_tl", "Varsayılan fiyat kırma"],
             ["default_max_increase_tl", "Varsayılan maksimum artış"],
             ["global_max_price_change_pct", "Maksimum değişim %"],
+            ["global_max_daily_decrease_pct", "Aşağı yönlü günlük maksimum %"],
             ["service_fee", "Hizmet bedeli"],
             ["buybox_max_age_minutes", "Buybox veri yaşı (dk)"],
             ["product_sync_cron_minutes", "Ürün sync sıklığı (dk)"],

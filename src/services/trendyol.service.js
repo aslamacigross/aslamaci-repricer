@@ -224,6 +224,41 @@ class TrendyolService {
       { method: "POST", body: JSON.stringify({ barcodes }) },
     );
   }
+  async listOrders({ startDate, endDate, page = 0, size = 200, status } = {}) {
+    const query = new URLSearchParams({
+      startDate: String(startDate),
+      endDate: String(endDate),
+      page: String(page),
+      size: String(Math.min(Number(size) || 200, 200)),
+      orderByField: "PackageLastModifiedDate",
+      orderByDirection: "ASC",
+    });
+    if (status) query.set("status", status);
+    return this.request(
+      `/order/sellers/${env.trendyolSupplierId}/orders?${query}`,
+      { headers: { storeFrontCode: env.trendyolStorefrontCode } },
+    );
+  }
+  async listSettlements({
+    startDate,
+    endDate,
+    transactionTypes,
+    page = 0,
+    size = 1000,
+  } = {}) {
+    const query = new URLSearchParams({
+      startDate: String(startDate),
+      endDate: String(endDate),
+      page: String(page),
+      size: String(Math.min(Number(size) || 1000, 1000)),
+      transactionTypes: Array.isArray(transactionTypes)
+        ? transactionTypes.join(",")
+        : String(transactionTypes || "Sale"),
+    });
+    return this.request(
+      `/finance/che/sellers/${env.trendyolSupplierId}/settlements?${query}`,
+    );
+  }
   async updatePrices(items, { dryRun = true } = {}) {
     if (dryRun) return { dryRun: true, itemCount: items.length, items };
     return this.request(

@@ -81,6 +81,15 @@
 - Job günlük periyotla ve güvenli varsayılan olarak kapalı oluşturulur.
 - Dondurulmuş gıda kategorisi otomatik kapsam dışında kalır.
 
+### `017_operations_finance_and_safety`
+
+- Tedarikçi fiyat joblarını Türkiye saatiyle günlük 00:00 çalışma modeline geçirir.
+- Mapping bazlı Bizim çoklu fiyatı için `effective_unit_cost` ve fiyat kademesi alanlarını ekler.
+- Tedarikçi fiyat değişim olayları, sağlık taraması, desi inceleme kuyruğu ve adaptif buybox alanlarını ekler.
+- Sipariş, sipariş kalemi, finansal hareket ve aylık ambalaj tablolarını oluşturur.
+- Kargo tarifelerini pazaryeri bazında ayırır ve Hepsiburada tarife import geçmişini saklar.
+- Aşağı yönlü günlük yüzde 5 sınırı ile limitsiz yukarı yön ayarlarını güvenli varsayılan olarak ekler.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`

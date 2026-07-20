@@ -1,6 +1,7 @@
 const { isSupplierPriceFresh } = require("../domain/file-market");
 const {
   estimatePackageDesi,
+  priceTierForQuantity,
   supplier,
 } = require("../domain/supplier-products");
 const {
@@ -35,6 +36,8 @@ class MappingAutomationRepository {
     return this.withTransaction(async (client) => {
       let created = 0;
       let changed = 0;
+      let costCodesUpdated = 0;
+      const affectedBarcodes = new Set();
       const items = [];
       for (const row of rows) {
         const previous = (
@@ -116,6 +119,93 @@ class MappingAutomationRepository {
         );
         if (!previous) created++;
         if (priceChanged) changed++;
+        const links = (
+          await client.query(
+            `SELECT l.cost_item_code,ci.unit_cost,pcm.marketplace,pcm.barcode,
+                    pcm.quantity,pcm.effective_unit_cost
+             FROM cost_item_file_links l
+             JOIN cost_items ci ON ci.item_code=l.cost_item_code
+             LEFT JOIN product_cost_mappings pcm
+               ON pcm.cost_item_code=l.cost_item_code
+             WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+             ORDER BY l.cost_item_code,pcm.marketplace,pcm.barcode`,
+            [item.id],
+          )
+        ).rows;
+        for (const costCode of [
+          ...new Set(links.map((link) => link.cost_item_code)),
+        ]) {
+          const linkedRows = links.filter(
+            (link) => link.cost_item_code === costCode,
+          );
+          const oldUnitCost = Number(linkedRows[0]?.unit_cost || 0);
+          const baseUnitCost = Number(item.current_price);
+          const costChanged =
+            Number.isFinite(baseUnitCost) &&
+            baseUnitCost > 0 &&
+            oldUnitCost !== baseUnitCost;
+          if (costChanged) {
+            await client.query(
+              `UPDATE cost_items SET previous_unit_cost=unit_cost,unit_cost=$2,
+                 price_source=$3,source_checked_at=$4,updated_at=NOW()
+               WHERE item_code=$1`,
+              [costCode, baseUnitCost, supplierCode, row.observed_at],
+            );
+            costCodesUpdated++;
+          } else {
+            await client.query(
+              `UPDATE cost_items SET price_source=$2,source_checked_at=$3,
+                 updated_at=CASE WHEN source_checked_at IS DISTINCT FROM $3
+                   THEN NOW() ELSE updated_at END
+               WHERE item_code=$1`,
+              [costCode, supplierCode, row.observed_at],
+            );
+          }
+          for (const linked of linkedRows) {
+            if (!linked.barcode) continue;
+            const tier =
+              supplierCode === "BIZIM_MARKET"
+                ? priceTierForQuantity(
+                    baseUnitCost,
+                    item.price_tiers || [],
+                    linked.quantity,
+                  )
+                : { unitPrice: baseUnitCost, tier: null };
+            await client.query(
+              `UPDATE product_cost_mappings SET
+                 effective_unit_cost=$4,
+                 supplier_price_tier=$5::jsonb,
+                 updated_at=NOW()
+               WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
+              [
+                linked.marketplace,
+                linked.barcode,
+                costCode,
+                tier.tier ? tier.unitPrice : null,
+                JSON.stringify(tier.tier || null),
+              ],
+            );
+            affectedBarcodes.add(linked.barcode);
+          }
+          if (costChanged)
+            await client.query(
+              `INSERT INTO supplier_cost_sync_events(
+                 supplier_code,file_market_item_id,cost_item_code,
+                 old_unit_cost,new_unit_cost,affected_barcodes,source_observed_at
+               )VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)`,
+              [
+                supplierCode,
+                item.id,
+                costCode,
+                oldUnitCost || null,
+                baseUnitCost,
+                JSON.stringify(
+                  linkedRows.map((link) => link.barcode).filter(Boolean),
+                ),
+                row.observed_at,
+              ],
+            );
+        }
         items.push(item);
       }
       let unavailable = 0;
@@ -130,7 +220,15 @@ class MappingAutomationRepository {
         );
         unavailable = result.rowCount;
       }
-      return { processed: rows.length, created, changed, unavailable, items };
+      return {
+        processed: rows.length,
+        created,
+        changed,
+        unavailable,
+        costCodesUpdated,
+        affectedBarcodes: [...affectedBarcodes],
+        items,
+      };
     });
   }
 
@@ -178,56 +276,59 @@ class MappingAutomationRepository {
         .filter((tier) => tier.min_quantity > 1 && tier.unit_price > 0)
         .sort((left, right) => right.min_quantity - left.min_quantity);
       const affected = [];
-      if (tiers.length) {
-        const linkedMappings = (
-          await client.query(
-            `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
-                    pcm.quantity,ci.unit_cost AS previous_unit_cost
-             FROM cost_item_file_links l
-             JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
-             JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-             WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
-             ORDER BY pcm.barcode,pcm.cost_item_code`,
-            [item.id],
-          )
-        ).rows;
-        const updatedCostCodes = new Set();
-        for (const mapping of linkedMappings) {
-          if (updatedCostCodes.has(mapping.cost_item_code)) continue;
-          const selected = tiers.find(
-            (tier) => Number(mapping.quantity) >= tier.min_quantity,
-          );
-          if (!selected) continue;
-          const updatedCost = (
-            await client.query(
-              `UPDATE cost_items SET
-                 previous_unit_cost=unit_cost,
-                 unit_cost=$2,
-                 price_source=$3,
-                 source_checked_at=NOW(),
-                 updated_at=NOW()
-               WHERE item_code=$1 AND unit_cost<>$2
-               RETURNING previous_unit_cost,unit_cost`,
-              [mapping.cost_item_code, selected.unit_price, supplierCode],
-            )
-          ).rows[0];
-          if (!updatedCost) continue;
-          updatedCostCodes.add(mapping.cost_item_code);
-          for (const affectedMapping of linkedMappings.filter(
-            (row) => row.cost_item_code === mapping.cost_item_code,
-          )) {
-            affected.push({
-              marketplace: affectedMapping.marketplace,
-              barcode: affectedMapping.barcode,
-              cost_item_code: affectedMapping.cost_item_code,
-              quantity: affectedMapping.quantity,
-              previous_unit_cost: updatedCost.previous_unit_cost,
-              unit_cost: updatedCost.unit_cost,
-              min_quantity: selected.min_quantity,
-              selected_price_tier: selected,
-            });
-          }
-        }
+      const linkedMappings = (
+        await client.query(
+          `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
+                  pcm.quantity,pcm.effective_unit_cost,
+                  ci.unit_cost AS previous_unit_cost
+           FROM cost_item_file_links l
+           JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
+           JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+           WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+           ORDER BY pcm.barcode,pcm.cost_item_code`,
+          [item.id],
+        )
+      ).rows;
+      for (const costCode of [
+        ...new Set(linkedMappings.map((row) => row.cost_item_code)),
+      ])
+        await client.query(
+          `UPDATE cost_items SET
+             previous_unit_cost=CASE WHEN unit_cost<>$2 THEN unit_cost
+               ELSE previous_unit_cost END,
+             unit_cost=$2,price_source=$3,source_checked_at=NOW(),updated_at=NOW()
+           WHERE item_code=$1`,
+          [costCode, item.current_price, supplierCode],
+        );
+      for (const mapping of linkedMappings) {
+        const selected = priceTierForQuantity(
+          item.current_price,
+          tiers,
+          mapping.quantity,
+        );
+        const effectiveCost = selected.tier ? selected.unitPrice : null;
+        await client.query(
+          `UPDATE product_cost_mappings SET
+             effective_unit_cost=$4,supplier_price_tier=$5::jsonb,updated_at=NOW()
+           WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
+          [
+            mapping.marketplace,
+            mapping.barcode,
+            mapping.cost_item_code,
+            effectiveCost,
+            JSON.stringify(selected.tier),
+          ],
+        );
+        affected.push({
+          marketplace: mapping.marketplace,
+          barcode: mapping.barcode,
+          cost_item_code: mapping.cost_item_code,
+          quantity: mapping.quantity,
+          previous_unit_cost: mapping.effective_unit_cost,
+          unit_cost: effectiveCost || Number(item.current_price),
+          min_quantity: selected.tier?.min_quantity || null,
+          selected_price_tier: selected.tier,
+        });
       }
       return { ...item, tier_price_updates: affected };
     });
@@ -1080,11 +1181,10 @@ class MappingAutomationRepository {
             item.suggested_unit_cost,
         ) > 0
       ) {
-        const filePrice = Number(
-          item.suggested_unit_cost ||
-            item.supplier_effective_unit_price ||
-            item.supplier_current_price ||
+        const baseSupplierPrice = Number(
+          item.supplier_current_price ||
             item.file_current_price ||
+            item.suggested_unit_cost ||
             0,
         );
         await client.query(
@@ -1092,7 +1192,7 @@ class MappingAutomationRepository {
            price_source=$3,source_checked_at=NOW(),updated_at=NOW()
            WHERE item_code=$2`,
           [
-            filePrice,
+            baseSupplierPrice,
             item.cost_item_code,
             item.supplier_code || suggestion.supplier_code || "FILE_MARKET",
           ],
@@ -1113,11 +1213,23 @@ class MappingAutomationRepository {
           ],
         );
       }
+      const selectedTier =
+        item.supplier_code === "BIZIM_MARKET" ||
+        suggestion.supplier_code === "BIZIM_MARKET"
+          ? item.selected_price_tier || null
+          : null;
       await client.query(
         `INSERT INTO product_cost_mappings(
-          marketplace,barcode,cost_item_code,quantity,updated_at
-        )VALUES('TRENDYOL',$1,$2,$3,NOW())`,
-        [suggestion.barcode, item.cost_item_code, item.quantity],
+          marketplace,barcode,cost_item_code,quantity,effective_unit_cost,
+          supplier_price_tier,updated_at
+        )VALUES('TRENDYOL',$1,$2,$3,$4,$5::jsonb,NOW())`,
+        [
+          suggestion.barcode,
+          item.cost_item_code,
+          item.quantity,
+          selectedTier ? Number(item.suggested_unit_cost) : null,
+          JSON.stringify(selectedTier),
+        ],
       );
     }
     await client.query(
