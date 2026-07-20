@@ -131,6 +131,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] `020_trendyol_cargo_reconciliation` ile gerçek Trendyol kargo faturası tutarı ve kargodan alınan desi senkronu
 - [x] Kargo faturası yokken eksiksiz barkod mapping desisinden güvenli sipariş kargo tahmini
 - [x] Satış & Kâr ekranında sipariş bazlı faturalanan/mapping tahmini/eksik kargo kaynağı ayrımı
+- [x] Railway preview kabulü: sürüm `2.8.0`, required migration `020`, 210 başarılı kargo fatura satırı ve gerçek desili sipariş doğrulaması
 - [ ] Eski aylarda ürün adedi, iptal kırılımı ve geçmiş maliyet/kâr kesinliği için Trendyol panel raporu içe aktarma
 
 ## PR Öncesi Kapsam Denetimi

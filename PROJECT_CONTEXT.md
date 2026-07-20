@@ -124,4 +124,5 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Hepsiburada kargo PDF'i 4.501 desi satırı ve 11 taşıyıcı olarak yapılandırılmış veriye dönüştürüldü; hiçbir tarife satırı kaybolmadı.
 - Aylık satış/kâr ekranı gider kırılımı, saat/gün/şehir analizi ve mobil yerleşimle görsel olarak doğrulandı.
 - `020_trendyol_cargo_reconciliation` migrationı, Trendyol Cargo Invoice Details istemcisi, kargo faturası/desi jobu ve mapping desisi fallback hesabı eklendi; masaüstü/mobil sipariş kargo tablosu görsel olarak doğrulandı.
+- Railway preview `2.8.0` sürümünde migration 020 readiness şartıyla doğrulandı. Kargo jobu 210 fatura satırını başarıyla işledi; Temmuz 2026 raporunda 3 sipariş gerçek fatura/desi, 124 sipariş mapping tahmini ve 69 sipariş eksik kaynakla açıkça ayrıldı.
 - Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. Canlı bağlantı için Railway secret'ları ve mağaza Merchant ID hâlâ dış ortamda yapılandırılmalıdır.
