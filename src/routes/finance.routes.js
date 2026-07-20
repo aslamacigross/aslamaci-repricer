@@ -84,6 +84,34 @@ function financeRoutes({ finance, jobService, audit }) {
       });
     }),
   );
+  router.post(
+    "/finance/history/backfill",
+    asyncRoute(async (req, res) => {
+      const marketplace = String(
+        req.body.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace !== "TRENDYOL")
+        throw new AppError(
+          "Geçmiş tamamlama şu anda yalnızca Trendyol için kullanılabilir",
+          409,
+          "HISTORY_BACKFILL_NOT_AVAILABLE",
+        );
+      const data = await jobService.run("backfill-trendyol-finance-history", {
+        source: "web",
+        actor: req.user.username,
+      });
+      await audit.record({
+        actor: req.user.username,
+        action: "TRENDYOL_FINANCE_HISTORY_BACKFILLED",
+        entityType: "finance",
+        entityId: "TRENDYOL:2025-12-15",
+        after: data,
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
   return router;
 }
 

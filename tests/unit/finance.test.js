@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   FinanceService,
   calculateCashProfit,
+  signedSettlementAmount,
 } = require("../../src/services/finance.service");
 
 test("500 TL siparis ornegi 98.77 TL operasyonel nakit kari verir", () => {
@@ -115,7 +116,120 @@ test("Trendyol finans hareketlerini API limitine uygun tarih araliklarina boler"
       return range.startDate === ranges[index].endDate + 1;
     }),
   );
-  assert.deepEqual(result, { processed: 0, successful: 0, failed: 0 });
+  assert.equal(result.processed, 0);
+  assert.equal(result.successful, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(result.metadata.windows, 3);
+});
+
+test("Trendyol siparislerini 14 gunluk pencerelerde ve secilen tarih alaninda ceker", async () => {
+  const ranges = [];
+  const trendyol = {
+    async listOrders(options) {
+      ranges.push(options);
+      return { content: [], last: true };
+    },
+  };
+  const finance = new FinanceService({ db: {}, trendyol, hepsiburada: {} });
+
+  const result = await finance.syncOrders({
+    days: 35,
+    orderByField: "CreatedDate",
+  });
+
+  assert.equal(ranges.length, 3);
+  assert.ok(
+    ranges.every(
+      ({ startDate, endDate }) => endDate - startDate <= 14 * 86400000,
+    ),
+  );
+  assert.ok(ranges.every((range) => range.orderByField === "CreatedDate"));
+  assert.equal(result.metadata.windows, 3);
+});
+
+test("settlement credit ve debt alanlarini imzali tutara cevirir", () => {
+  assert.equal(signedSettlementAmount({ credit: 304, debt: 0 }), 304);
+  assert.equal(signedSettlementAmount({ credit: 0, debt: 75.5 }), -75.5);
+  assert.equal(signedSettlementAmount({ amount: 42.25 }), 42.25);
+});
+
+test("settlement senkronu barkod ve gercek siparis tarihini saklar", async () => {
+  let query;
+  let params;
+  const db = {
+    async query(nextQuery, nextParams) {
+      query = nextQuery;
+      params = nextParams;
+      return { rows: [] };
+    },
+  };
+  const orderDate = Date.parse("2026-06-10T12:00:00Z");
+  const trendyol = {
+    async listSettlements() {
+      return {
+        content: [
+          {
+            id: "TX-1",
+            transactionType: "Satış",
+            transactionDate: Date.parse("2026-06-20T12:00:00Z"),
+            orderDate,
+            orderNumber: "ORDER-1",
+            shipmentPackageId: "PACKAGE-1",
+            barcode: "TEST",
+            credit: 500,
+            commissionAmount: 95,
+            sellerRevenue: 405,
+          },
+        ],
+        last: true,
+      };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol, hepsiburada: {} });
+
+  await finance.syncFinancialTransactions({
+    startDate: orderDate,
+    endDate: orderDate,
+  });
+
+  assert.match(query, /order_date,barcode/);
+  assert.equal(params[5], 500);
+  assert.equal(params[9].getTime(), orderDate);
+  assert.equal(params[10], "TEST");
+});
+
+test("gecmis tamamlama settlement gecmisini ve son 28 gun siparisini ayri ceker", async () => {
+  const settingsQueries = [];
+  const finance = new FinanceService({
+    db: {
+      async query(sql, params) {
+        settingsQueries.push({ sql, params });
+        return { rows: [] };
+      },
+    },
+    trendyol: {},
+    hepsiburada: {},
+  });
+  let transactionOptions;
+  let orderOptions;
+  finance.syncFinancialTransactions = async (options) => {
+    transactionOptions = options;
+    return { processed: 10, successful: 10, failed: 0 };
+  };
+  finance.syncOrders = async (options) => {
+    orderOptions = options;
+    return { processed: 3, successful: 3, failed: 0 };
+  };
+  const endDate = Date.parse("2026-07-21T12:00:00Z");
+  const startDate = Date.parse("2025-12-14T21:00:00Z");
+
+  const result = await finance.backfillTrendyolHistory({ startDate, endDate });
+
+  assert.deepEqual(transactionOptions, { startDate, endDate });
+  assert.equal(orderOptions.orderByField, "CreatedDate");
+  assert.equal(orderOptions.startDate, endDate - 28 * 86400000);
+  assert.equal(result.processed, 13);
+  assert.match(settingsQueries[0].sql, /trendyol_finance_history_backfill/);
 });
 
 test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () => {

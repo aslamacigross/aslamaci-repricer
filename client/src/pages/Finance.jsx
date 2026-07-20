@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   Banknote,
   CreditCard,
+  History,
   PackageCheck,
   RefreshCw,
   Save,
@@ -40,6 +41,7 @@ const expenseColors = ["#b4232a", "#d6831f", "#146c94", "#725aa3", "#59645e"];
 export default function Finance({ notify, marketplace = "TRENDYOL" }) {
   const [month, setMonth] = useState(currentMonth);
   const [syncing, setSyncing] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const { data, loading, error, reload } = useRemote(
     () => get(`/api/finance/monthly?month=${month}&marketplace=${marketplace}`),
     [month, marketplace],
@@ -52,30 +54,40 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
     () =>
       report
         ? [
-            ["Ciro", report.summary.revenue, TrendingUp, "info"],
+            [
+              "Net satış",
+              report.summary.sales_revenue,
+              TrendingUp,
+              "info",
+              true,
+            ],
             [
               "Ürün alış maliyeti",
               report.summary.product_cost,
               CreditCard,
               "warning",
+              report.coverage.profitability_complete,
             ],
             [
               "Operasyonel kâr",
               report.summary.profit_after_packaging,
               Banknote,
               "success",
+              report.coverage.profitability_complete,
             ],
             [
               "Senin finanse ettiğin",
               report.summary.financed_by_bekir,
               WalletCards,
               "warning",
+              report.coverage.profitability_complete,
             ],
             [
               "Sana aktarılacak",
               report.summary.transfer_to_bekir,
               PackageCheck,
               "success",
+              report.coverage.profitability_complete,
             ],
           ]
         : [],
@@ -108,6 +120,19 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
     }
   }
 
+  async function backfillHistory() {
+    setBackfilling(true);
+    try {
+      await post("/api/finance/history/backfill", { marketplace });
+      await reload();
+      notify("15 Aralık 2025'ten itibaren finans geçmişi tamamlandı");
+    } catch (nextError) {
+      notify(nextError.message, "error");
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   async function savePackaging() {
     try {
       await put("/api/finance/packaging", {
@@ -131,9 +156,21 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
         title="Satış & Kâr"
         description={`${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} sipariş, nakit ihtiyacı ve aylık mutabakatı`}
         actions={
-          <Button icon={RefreshCw} onClick={sync} disabled={syncing}>
-            {syncing ? "Finans verisi çekiliyor" : "Siparişleri yenile"}
-          </Button>
+          <>
+            {marketplace === "TRENDYOL" && (
+              <Button
+                icon={History}
+                variant="secondary"
+                onClick={backfillHistory}
+                disabled={backfilling}
+              >
+                {backfilling ? "Geçmiş tamamlanıyor" : "Geçmişi tamamla"}
+              </Button>
+            )}
+            <Button icon={RefreshCw} onClick={sync} disabled={syncing}>
+              {syncing ? "Finans verisi çekiliyor" : "Siparişleri yenile"}
+            </Button>
+          </>
         }
       />
       <div className="toolbar finance-toolbar">
@@ -161,13 +198,30 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
             ? "Finansal hareketler var"
             : "Settlement bekleniyor"}
         </Badge>
+        <Badge
+          tone={report.coverage.profitability_complete ? "success" : "warning"}
+        >
+          {report.coverage.profitability_complete
+            ? "Sipariş detayı tam"
+            : "Satış geçmişi var, kâr detayı kısmi"}
+        </Badge>
       </div>
+      {report.summary.sales_source === "SETTLEMENT" && (
+        <div className="notice notice-info">
+          <strong>Finans kayıtlarıyla doğrulanan satış</strong>
+          <p>
+            Brütleşen satış {money(report.summary.settlement_gross_sales)}, iade{" "}
+            {money(Math.abs(report.summary.settlement_returns))}, indirim ve
+            kupon {money(Math.abs(report.summary.settlement_discounts))}.
+          </p>
+        </div>
+      )}
       <section className="kpi-grid finance-kpis">
-        {cards.map(([label, value, Icon, tone]) => (
+        {cards.map(([label, value, Icon, tone, available]) => (
           <div className={`kpi kpi-${tone}`} key={label}>
             <div>
               <span>{label}</span>
-              <strong>{money(value)}</strong>
+              <strong>{available ? money(value) : "Detay bekliyor"}</strong>
             </div>
             <Icon />
           </div>
@@ -177,7 +231,7 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
         <div className="panel chart-panel">
           <header>
             <h2>Günlük satış ve kâr</h2>
-            <span>{report.summary.order_count} sipariş</span>
+            <span>{report.summary.sales_order_count} sipariş</span>
           </header>
           <ResponsiveContainer width="100%" height={290}>
             <LineChart data={report.charts.daily}>

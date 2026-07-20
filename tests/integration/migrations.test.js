@@ -41,6 +41,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "016_bim_market_live_sync",
       "017_operations_finance_and_safety",
       "018_hepsiburada_shipping_barems",
+      "019_trendyol_finance_history",
     ],
   );
   const safety = await db.query(
@@ -95,6 +96,11 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT COUNT(*)::int count FROM shipping_barems WHERE marketplace='HEPSIBURADA'",
   );
   assert.equal(hepsiburadaBarems.rows[0].count, 14);
+  const historyJob = await db.query(
+    "SELECT enabled FROM jobs WHERE name='backfill-trendyol-finance-history'",
+  );
+  assert.equal(historyJob.rowCount, 1);
+  assert.equal(historyJob.rows[0].enabled, false);
   const supplierTierColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name IN('file_market_items','mapping_suggestion_items')
@@ -175,8 +181,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "015_supplier_bulk_price_tiers",
       "016_bim_market_live_sync",
       "017_operations_finance_and_safety",
+      "018_hepsiburada_shipping_barems",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

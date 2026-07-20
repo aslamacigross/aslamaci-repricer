@@ -224,14 +224,22 @@ class TrendyolService {
       { method: "POST", body: JSON.stringify({ barcodes }) },
     );
   }
-  async listOrders({ startDate, endDate, page = 0, size = 200, status } = {}) {
+  async listOrders({
+    startDate,
+    endDate,
+    page = 0,
+    size = 200,
+    status,
+    orderByField = "PackageLastModifiedDate",
+    orderByDirection = "ASC",
+  } = {}) {
     const query = new URLSearchParams({
       startDate: String(startDate),
       endDate: String(endDate),
       page: String(page),
       size: String(Math.min(Number(size) || 200, 200)),
-      orderByField: "PackageLastModifiedDate",
-      orderByDirection: "ASC",
+      orderByField,
+      orderByDirection,
     });
     if (status) query.set("status", status);
     return this.request(

@@ -22,6 +22,44 @@ const TRANSACTION_TYPES = [
   "DeliveryFeeCancel",
 ];
 
+const DAY_MS = 86400000;
+const TRENDYOL_MAX_RANGE_MS = 14 * DAY_MS;
+const TRENDYOL_HISTORY_START = Date.parse("2025-12-14T21:00:00.000Z");
+
+function dateRange({ days = 28, startDate, endDate, now = Date.now() } = {}) {
+  const resolvedEnd = Number.isFinite(Number(endDate))
+    ? Number(endDate)
+    : Number(now);
+  const resolvedStart = Number.isFinite(Number(startDate))
+    ? Number(startDate)
+    : resolvedEnd - Math.max(Number(days) || 28, 1) * DAY_MS;
+  if (resolvedStart > resolvedEnd)
+    throw new Error("Başlangıç tarihi bitiş tarihinden sonra olamaz");
+  return { startDate: resolvedStart, endDate: resolvedEnd };
+}
+
+function dateWindows(startDate, endDate, maxRangeMs = TRENDYOL_MAX_RANGE_MS) {
+  const windows = [];
+  for (
+    let rangeStart = startDate;
+    rangeStart <= endDate;
+    rangeStart += maxRangeMs + 1
+  ) {
+    windows.push({
+      startDate: rangeStart,
+      endDate: Math.min(rangeStart + maxRangeMs, endDate),
+    });
+  }
+  return windows;
+}
+
+function signedSettlementAmount(row) {
+  const credit = numberFrom(row, ["credit"], 0);
+  const debt = numberFrom(row, ["debt"], 0);
+  if (credit || debt) return roundMoney(credit - debt);
+  return roundMoney(numberFrom(row, ["amount", "paidPrice"], 0));
+}
+
 function timestamp(value) {
   if (!value) return null;
   const date =
@@ -95,33 +133,47 @@ class FinanceService {
     this.hepsiburada = hepsiburada;
   }
 
-  async syncOrders({ days = 35 } = {}) {
-    const endDate = Date.now();
-    const startDate = endDate - Math.max(Number(days) || 35, 1) * 86400000;
-    let page = 0;
+  async syncOrders(options = {}) {
+    const { startDate, endDate } = dateRange(options);
+    const orderByField = options.orderByField || "PackageLastModifiedDate";
     let processed = 0;
-    while (true) {
-      const data = await this.trendyol.listOrders({
-        startDate,
-        endDate,
-        page,
-        size: 200,
-      });
-      const packages = data.content || data.items || [];
-      for (const item of packages) {
-        await this.upsertOrder(item);
-        processed++;
+    const windows = dateWindows(startDate, endDate);
+    for (const window of windows) {
+      let page = 0;
+      while (true) {
+        const data = await this.trendyol.listOrders({
+          ...window,
+          page,
+          size: 200,
+          orderByField,
+          orderByDirection: "ASC",
+        });
+        const packages = data.content || data.items || [];
+        for (const item of packages) {
+          await this.upsertOrder(item);
+          processed++;
+        }
+        const totalPages = Number(data.totalPages || 0);
+        if (
+          data.last === true ||
+          packages.length === 0 ||
+          (totalPages > 0 && page + 1 >= totalPages)
+        )
+          break;
+        page++;
       }
-      const totalPages = Number(data.totalPages || 0);
-      if (
-        data.last === true ||
-        packages.length === 0 ||
-        (totalPages > 0 && page + 1 >= totalPages)
-      )
-        break;
-      page++;
     }
-    return { processed, successful: processed, failed: 0 };
+    return {
+      processed,
+      successful: processed,
+      failed: 0,
+      metadata: {
+        start_date: new Date(startDate).toISOString(),
+        end_date: new Date(endDate).toISOString(),
+        windows: windows.length,
+        order_by: orderByField,
+      },
+    };
   }
 
   async upsertOrder(payload) {
@@ -510,23 +562,15 @@ class FinanceService {
     return order;
   }
 
-  async syncFinancialTransactions({ days = 35 } = {}) {
-    const dayMs = 86400000;
-    const maxRangeMs = 14 * dayMs;
-    const endDate = Date.now();
-    const startDate = endDate - Math.max(Number(days) || 35, 1) * dayMs;
+  async syncFinancialTransactions(options = {}) {
+    const { startDate, endDate } = dateRange(options);
+    const windows = dateWindows(startDate, endDate);
     let processed = 0;
-    for (
-      let rangeStart = startDate;
-      rangeStart <= endDate;
-      rangeStart += maxRangeMs + 1
-    ) {
-      const rangeEnd = Math.min(rangeStart + maxRangeMs, endDate);
+    for (const window of windows) {
       let page = 0;
       while (true) {
         const data = await this.trendyol.listSettlements({
-          startDate: rangeStart,
-          endDate: rangeEnd,
+          ...window,
           transactionTypes: TRANSACTION_TYPES,
           page,
         });
@@ -546,12 +590,16 @@ class FinanceService {
             `INSERT INTO marketplace_financial_transactions(
                marketplace,external_transaction_id,external_order_number,
                external_package_id,transaction_type,transaction_date,amount,
-               commission_amount,seller_revenue,raw_data,updated_at
-             )VALUES('TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW())
+               commission_amount,seller_revenue,raw_data,order_date,barcode,
+               updated_at
+             )VALUES(
+               'TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,NOW()
+             )
              ON CONFLICT(marketplace,external_transaction_id,transaction_type)
              DO UPDATE SET transaction_date=EXCLUDED.transaction_date,
                amount=EXCLUDED.amount,commission_amount=EXCLUDED.commission_amount,
                seller_revenue=EXCLUDED.seller_revenue,raw_data=EXCLUDED.raw_data,
+               order_date=EXCLUDED.order_date,barcode=EXCLUDED.barcode,
                updated_at=NOW()`,
             [
               String(identity),
@@ -559,10 +607,12 @@ class FinanceService {
               String(row.shipmentPackageId || row.packageId || "") || null,
               transactionType,
               timestamp(row.transactionDate || row.createdDate),
-              numberFrom(row, ["amount", "paidPrice"], 0),
+              signedSettlementAmount(row),
               numberFrom(row, ["commissionAmount", "commission"], 0),
               numberFrom(row, ["sellerRevenue", "sellerRevenueAmount"], 0),
               JSON.stringify(row),
+              timestamp(row.orderDate),
+              String(row.barcode || "") || null,
             ],
           );
           processed++;
@@ -577,7 +627,55 @@ class FinanceService {
         page++;
       }
     }
-    return { processed, successful: processed, failed: 0 };
+    return {
+      processed,
+      successful: processed,
+      failed: 0,
+      metadata: {
+        start_date: new Date(startDate).toISOString(),
+        end_date: new Date(endDate).toISOString(),
+        windows: windows.length,
+      },
+    };
+  }
+
+  async backfillTrendyolHistory({
+    startDate = TRENDYOL_HISTORY_START,
+    endDate = Date.now(),
+  } = {}) {
+    const transactions = await this.syncFinancialTransactions({
+      startDate,
+      endDate,
+    });
+    const recentStart = Math.max(startDate, endDate - 28 * DAY_MS);
+    const orders = await this.syncOrders({
+      startDate: recentStart,
+      endDate,
+      orderByField: "CreatedDate",
+    });
+    const completedAt = new Date().toISOString();
+    await this.db.query(
+      `INSERT INTO system_settings(key,value,description,updated_by,updated_at)
+       VALUES('trendyol_finance_history_backfill',$1::jsonb,
+         'Trendyol finans geçmişi tamamlama durumu','system',NOW())
+       ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,
+         description=EXCLUDED.description,updated_by=EXCLUDED.updated_by,
+         updated_at=NOW()`,
+      [
+        JSON.stringify({
+          startDate: new Date(startDate).toISOString(),
+          endDate: new Date(endDate).toISOString(),
+          completedAt,
+          orderApiScope: "LAST_28_DAYS",
+        }),
+      ],
+    );
+    return {
+      processed: transactions.processed + orders.processed,
+      successful: transactions.successful + orders.successful,
+      failed: transactions.failed + orders.failed,
+      metadata: { completed_at: completedAt, transactions, orders },
+    };
   }
 
   async setPackagingExpense(
@@ -601,15 +699,91 @@ class FinanceService {
     ).rows[0];
   }
 
+  async historyCoverage(period, marketplace = "TRENDYOL") {
+    const start = `${period}-01`;
+    const [coverage, historySetting] = await Promise.all([
+      this.db.query(
+        `WITH financial_sales AS (
+           SELECT DISTINCT external_order_number
+           FROM marketplace_financial_transactions
+           WHERE marketplace=$1 AND order_date>=$2::date
+             AND order_date<$2::date+INTERVAL '1 month'
+             AND transaction_type IN('Satış','Sale')
+         )
+         SELECT
+           (SELECT COUNT(DISTINCT external_order_number)
+              FROM marketplace_orders
+              WHERE marketplace=$1 AND order_date>=$2::date
+                AND order_date<$2::date+INTERVAL '1 month') AS "detailed_orders",
+           (SELECT COUNT(*) FROM financial_sales) AS "financial_orders",
+           (SELECT COUNT(*) FROM financial_sales fs
+              WHERE EXISTS(
+                SELECT 1 FROM marketplace_orders mo
+                WHERE mo.marketplace=$1
+                  AND mo.external_order_number=fs.external_order_number
+                  AND mo.order_date>=$2::date
+                  AND mo.order_date<$2::date+INTERVAL '1 month'
+              )) AS "covered_financial_orders",
+           (SELECT MIN(order_date) FROM marketplace_orders
+              WHERE marketplace=$1) AS "detailed_first_date",
+           (SELECT MAX(order_date) FROM marketplace_orders
+              WHERE marketplace=$1) AS "detailed_last_date",
+           (SELECT MIN(order_date) FROM marketplace_financial_transactions
+              WHERE marketplace=$1) AS "financial_first_date",
+           (SELECT MAX(order_date) FROM marketplace_financial_transactions
+              WHERE marketplace=$1) AS "financial_last_date"`,
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT value,updated_at FROM system_settings
+         WHERE key='trendyol_finance_history_backfill' LIMIT 1`,
+      ),
+    ]);
+    const row = coverage.rows[0] || {};
+    const financialOrders = Number(row.financial_orders || 0);
+    const coveredFinancialOrders = Number(row.covered_financial_orders || 0);
+    const detailedComplete =
+      financialOrders === 0 || coveredFinancialOrders >= financialOrders;
+    return {
+      ...row,
+      detailed_orders: Number(row.detailed_orders || 0),
+      financial_orders: financialOrders,
+      covered_financial_orders: coveredFinancialOrders,
+      profitability_complete: detailedComplete,
+      status:
+        financialOrders === 0
+          ? "NO_DATA"
+          : detailedComplete
+            ? "COMPLETE"
+            : coveredFinancialOrders > 0
+              ? "PARTIAL_DETAILS"
+              : "FINANCIAL_ONLY",
+      backfill: historySetting.rows[0]?.value || null,
+      backfill_updated_at: historySetting.rows[0]?.updated_at || null,
+    };
+  }
+
   async monthlyReport(month, marketplace = "TRENDYOL") {
     const period = /^\d{4}-\d{2}$/.test(String(month))
       ? String(month)
       : new Date().toISOString().slice(0, 7);
     const start = `${period}-01`;
-    const [orders, daily, hourly, cities, products, transactions, packaging] =
-      await Promise.all([
-        this.db.query(
-          `SELECT COUNT(*) AS "order_count",
+    const [
+      orders,
+      daily,
+      hourly,
+      cities,
+      products,
+      transactions,
+      packaging,
+      ledger,
+      ledgerDaily,
+      ledgerHourly,
+      ledgerProducts,
+      coverage,
+    ] = await Promise.all([
+      this.db.query(
+        `SELECT COUNT(*) AS "order_count",
                   COALESCE(SUM(gross_revenue),0) AS "revenue",
                   COALESCE(SUM(commission_total),0) AS "commission",
                   COALESCE(SUM(shipping_total),0) AS "shipping",
@@ -622,10 +796,10 @@ class FinanceService {
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )`,
-          [marketplace, start],
-        ),
-        this.db.query(
-          `SELECT TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS "day",
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS "day",
                   COUNT(*) AS "orders",
                   ROUND(SUM(gross_revenue),2) AS "revenue",
                   ROUND(SUM(operational_profit),2) AS "profit"
@@ -636,10 +810,10 @@ class FinanceService {
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY 1 ORDER BY 1`,
-          [marketplace, start],
-        ),
-        this.db.query(
-          `SELECT EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int AS "hour",
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int AS "hour",
                   COUNT(*) AS "orders",
                   ROUND(SUM(gross_revenue),2) AS "revenue"
            FROM marketplace_orders
@@ -649,10 +823,10 @@ class FinanceService {
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY 1 ORDER BY 1`,
-          [marketplace, start],
-        ),
-        this.db.query(
-          `SELECT COALESCE(customer_city,'Bilinmiyor') AS "city",
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT COALESCE(customer_city,'Bilinmiyor') AS "city",
                   COUNT(*) AS "orders",
                   ROUND(SUM(gross_revenue),2) AS "revenue"
            FROM marketplace_orders
@@ -662,10 +836,10 @@ class FinanceService {
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY 1 ORDER BY "orders" DESC LIMIT 12`,
-          [marketplace, start],
-        ),
-        this.db.query(
-          `SELECT oi.barcode AS "barcode",
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT oi.barcode AS "barcode",
                   MAX(oi.product_name) AS "product_name",
                   SUM(oi.quantity) AS "quantity",
                   ROUND(SUM(oi.line_revenue),2) AS "revenue",
@@ -678,10 +852,10 @@ class FinanceService {
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY oi.barcode ORDER BY "contribution" DESC LIMIT 20`,
-          [marketplace, start],
-        ),
-        this.db.query(
-          `SELECT transaction_type AS "transaction_type",
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT transaction_type AS "transaction_type",
                   COUNT(*) AS "count",
                   ROUND(SUM(amount),2) AS "amount",
                   ROUND(SUM(commission_amount),2) AS "commission",
@@ -690,15 +864,103 @@ class FinanceService {
            WHERE marketplace=$1 AND transaction_date>=$2::date
              AND transaction_date<$2::date+INTERVAL '1 month'
            GROUP BY transaction_type ORDER BY transaction_type`,
-          [marketplace, start],
-        ),
-        this.db.query(
-          `SELECT * FROM monthly_packaging_expenses
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT * FROM monthly_packaging_expenses
            WHERE marketplace=$1 AND period_month=$2::date LIMIT 1`,
-          [marketplace, start],
-        ),
-      ]);
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT
+             COUNT(DISTINCT external_order_number) FILTER(
+               WHERE transaction_type IN('Satış','Sale')
+             ) AS "order_count",
+             COUNT(*) FILTER(
+               WHERE transaction_type IN('Satış','Sale')
+             ) AS "sale_line_count",
+             COALESCE(SUM(CASE
+               WHEN transaction_type IN('Satış','Sale') THEN amount ELSE 0
+             END),0) AS "gross_sales",
+             COALESCE(SUM(CASE
+               WHEN transaction_type IN('İade','Iade','Return') THEN amount
+               ELSE 0 END),0) AS "returns",
+             COALESCE(SUM(CASE
+               WHEN transaction_type IN(
+                 'Kupon','Coupon','İndirim','Indirim','Discount','TyDiscount',
+                 'TyCoupon','Kupon İptal','CouponCancel','İndirim İptal',
+                 'Indirim Iptal','DiscountCancel','TyDiscountCancel',
+                 'TyCouponCancel'
+               ) THEN amount ELSE 0 END),0) AS "discounts",
+             COALESCE(SUM(CASE
+               WHEN transaction_type IN('Satış','Sale') THEN commission_amount
+               WHEN transaction_type IN('İade','Iade','Return')
+                 THEN -commission_amount
+               ELSE 0 END),0) AS "commission"
+           FROM marketplace_financial_transactions
+           WHERE marketplace=$1 AND order_date>=$2::date
+             AND order_date<$2::date+INTERVAL '1 month'`,
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT
+             TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS "day",
+             COUNT(DISTINCT external_order_number) AS "orders",
+             ROUND(SUM(amount),2) AS "revenue",
+             NULL::numeric AS "profit"
+           FROM marketplace_financial_transactions
+           WHERE marketplace=$1 AND order_date>=$2::date
+             AND order_date<$2::date+INTERVAL '1 month'
+             AND transaction_type IN(
+               'Satış','Sale','İade','Iade','Return','Kupon','Coupon',
+               'İndirim','Indirim','Discount','TyDiscount','TyCoupon',
+               'Kupon İptal','CouponCancel','İndirim İptal','Indirim Iptal',
+               'DiscountCancel','TyDiscountCancel','TyCouponCancel'
+             )
+           GROUP BY 1 ORDER BY 1`,
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT
+             EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int AS "hour",
+             COUNT(DISTINCT external_order_number) AS "orders",
+             ROUND(SUM(amount),2) AS "revenue"
+           FROM marketplace_financial_transactions
+           WHERE marketplace=$1 AND order_date>=$2::date
+             AND order_date<$2::date+INTERVAL '1 month'
+             AND transaction_type IN('Satış','Sale')
+           GROUP BY 1 ORDER BY 1`,
+        [marketplace, start],
+      ),
+      this.db.query(
+        `SELECT ft.barcode AS "barcode",MAX(p.title) AS "product_name",
+                  NULL::numeric AS "quantity",ROUND(SUM(ft.amount),2) AS "revenue",
+                  NULL::numeric AS "contribution"
+           FROM marketplace_financial_transactions ft
+           LEFT JOIN products p ON p.marketplace=ft.marketplace
+             AND p.barcode=ft.barcode
+           WHERE ft.marketplace=$1 AND ft.order_date>=$2::date
+             AND ft.order_date<$2::date+INTERVAL '1 month'
+             AND ft.transaction_type IN(
+               'Satış','Sale','İade','Iade','Return','Kupon','Coupon',
+               'İndirim','Indirim','Discount','TyDiscount','TyCoupon',
+               'Kupon İptal','CouponCancel','İndirim İptal','Indirim Iptal',
+               'DiscountCancel','TyDiscountCancel','TyCouponCancel'
+             )
+           GROUP BY ft.barcode ORDER BY "revenue" DESC LIMIT 20`,
+        [marketplace, start],
+      ),
+      this.historyCoverage(period, marketplace),
+    ]);
     const summary = orders.rows[0];
+    const financial = ledger.rows[0] || {};
+    const settlementGrossSales = Number(financial.gross_sales || 0);
+    const settlementNetSales = roundMoney(
+      settlementGrossSales +
+        Number(financial.returns || 0) +
+        Number(financial.discounts || 0),
+    );
+    const useFinancialSales = settlementGrossSales > 0;
     const packagingAmount = Number(packaging.rows[0]?.amount || 0);
     const productCost = Number(summary.product_cost || 0);
     const profitBeforePackaging = Number(summary.operational_profit || 0);
@@ -730,11 +992,28 @@ class FinanceService {
         title: "Finansal mutabakat bekleniyor",
         text: "Rapor sipariş anındaki maliyetlerle tahminidir; settlement sync çalışınca kesin kesintiler ayrıca görünür.",
       });
+    if (!coverage.profitability_complete)
+      insights.unshift({
+        tone: "warning",
+        title: "Sipariş detayları kısmi",
+        text: "Satış ve kesinti geçmişi finans kayıtlarından tamamlandı; ürün maliyeti ve kâr yalnızca API'den erişilebilen detaylı siparişleri kapsıyor.",
+      });
     return {
       period,
       marketplace,
       summary: {
         ...summary,
+        sales_revenue: useFinancialSales
+          ? settlementNetSales
+          : Number(summary.revenue || 0),
+        sales_order_count: useFinancialSales
+          ? Number(financial.order_count || 0)
+          : Number(summary.order_count || 0),
+        settlement_gross_sales: settlementGrossSales,
+        settlement_returns: Number(financial.returns || 0),
+        settlement_discounts: Number(financial.discounts || 0),
+        settlement_commission: Number(financial.commission || 0),
+        sales_source: useFinancialSales ? "SETTLEMENT" : "ORDER_DETAIL",
         packaging: packagingAmount,
         profit_before_packaging: profitBeforePackaging,
         profit_after_packaging: profitAfterPackaging,
@@ -743,12 +1022,13 @@ class FinanceService {
         transfer_to_bekir: transferToBekir,
       },
       charts: {
-        daily: daily.rows,
-        hourly: hourly.rows,
+        daily: useFinancialSales ? ledgerDaily.rows : daily.rows,
+        hourly: useFinancialSales ? ledgerHourly.rows : hourly.rows,
         cities: cities.rows,
       },
-      products: products.rows,
+      products: useFinancialSales ? ledgerProducts.rows : products.rows,
       transactions: transactions.rows,
+      coverage,
       packaging: packaging.rows[0] || null,
       insights,
       methodology: {
@@ -765,6 +1045,12 @@ class FinanceService {
 module.exports = {
   FinanceService,
   TRANSACTION_TYPES,
+  DAY_MS,
+  TRENDYOL_MAX_RANGE_MS,
+  TRENDYOL_HISTORY_START,
+  dateRange,
+  dateWindows,
+  signedSettlementAmount,
   timestamp,
   numberFrom,
   moneyValue,
