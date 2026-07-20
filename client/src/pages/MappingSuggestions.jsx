@@ -47,7 +47,7 @@ const supplierDefinitions = {
     shortLabel: "Bizim",
     liveSync: true,
   },
-  BIM: { label: "BİM", shortLabel: "BİM", liveSync: false },
+  BIM: { label: "BİM", shortLabel: "BİM", liveSync: true },
   OTHER: {
     label: "Diğer maliyet havuzu",
     shortLabel: "Diğer",

@@ -38,6 +38,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "013_file_market_live_sync",
       "014_supplier_price_pools",
       "015_supplier_bulk_price_tiers",
+      "016_bim_market_live_sync",
     ],
   );
   const safety = await db.query(
@@ -70,6 +71,12 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   assert.equal(bizimMarketJob.rowCount, 1);
   assert.equal(bizimMarketJob.rows[0].enabled, false);
   assert.equal(Number(bizimMarketJob.rows[0].schedule_minutes), 1440);
+  const bimMarketJob = await db.query(
+    "SELECT enabled,schedule_minutes FROM jobs WHERE name='sync-bim-market-prices'",
+  );
+  assert.equal(bimMarketJob.rowCount, 1);
+  assert.equal(bimMarketJob.rows[0].enabled, false);
+  assert.equal(Number(bimMarketJob.rows[0].schedule_minutes), 1440);
   const supplierTierColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name IN('file_market_items','mapping_suggestion_items')
@@ -147,8 +154,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "012_mapping_feedback_learning",
       "013_file_market_live_sync",
       "014_supplier_price_pools",
+      "015_supplier_bulk_price_tiers",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

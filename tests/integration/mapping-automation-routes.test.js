@@ -93,6 +93,7 @@ function appFixture() {
       mappingAutomation,
       fileMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       bizimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
+      bimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       audit: { record: async () => {} },
     }),
   );
@@ -125,8 +126,8 @@ test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async ()
     .expect(200);
   assert.equal(bizim.body.data.supplierCode, "BIZIM_MARKET");
   const bim = await request(fixture.app)
-    .post("/api/supplier-price-pools/BIM/items/bulk")
-    .send({ rows: [{ product_name: "BİM ürünü", current_price: 10 }] })
+    .post("/api/supplier-price-pools/BIM/items/sync-live")
+    .send({})
     .expect(200);
   assert.equal(bim.body.data.supplierCode, "BIM");
   const other = await request(fixture.app)

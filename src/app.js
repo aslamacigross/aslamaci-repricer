@@ -23,8 +23,8 @@ const {
   mappingAutomationRoutes,
 } = require("./routes/mapping-automation.routes");
 
-const APP_VERSION = "2.4.0";
-const REQUIRED_MIGRATION = "014_supplier_price_pools";
+const APP_VERSION = "2.5.0";
+const REQUIRED_MIGRATION = "016_bim_market_live_sync";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);

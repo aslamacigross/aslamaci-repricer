@@ -292,6 +292,39 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("BİM fiyat havuzunu canlı katalogdan yeniler", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: { items: [], total: 0, page: 1, limit: 50 },
+    });
+    post.mockResolvedValue({
+      data: {
+        processed: 1147,
+        created: 12,
+        changed: 34,
+        metadata: { productsScanned: 1360 },
+      },
+    });
+
+    render(<MappingSuggestions view="bim" notify={notify} />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Canlı BİM'den yenile",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/supplier-price-pools/BIM/items/sync-live",
+        {},
+      ),
+    );
+    expect(notify).toHaveBeenCalledWith(
+      "1147 BİM ürünü işlendi; 12 yeni, 34 fiyat değişikliği. 1360 ürün tarandı.",
+    );
+  });
+
   test("Diğer maliyet havuzu manuel ürünleri ayrı tedarikçi koduyla aktarır", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();

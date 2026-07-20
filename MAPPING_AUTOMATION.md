@@ -7,7 +7,7 @@ Bu modül Trendyol'daki mapping eksiği ürünlere, daha önce elle doğrulanmı
 ## Günlük Kullanım
 
 1. `Ürün Mapping` altında ilgili tedarikçinin fiyat havuzunu açın.
-2. File ve Bizim havuzlarını canlı kaynaktan yenileyin; BİM için tarayıcıdan alınan JSON kataloğunu veya `ürün adı; fiyat; marka; durum` satırlarını içe aktarın.
+2. File, Bizim ve BİM havuzlarını kendi canlı kaynaklarından yenileyin. Gerekirse üç havuzda da JSON veya `ürün adı; fiyat; marka; durum` satırlarıyla manuel içe aktarımı kullanın.
 3. `Akıllı öneriler` ekranında `Önerileri üret` düğmesini kullanın veya Joblar ekranından `generate-mapping-suggestions` jobunu çalıştırın.
 4. Önerinin Trendyol ürünü, tedarikçi ürünü, cost code, adet, güncel fiyat, kaynak ürün, desi ve güven nedenlerini inceleyin.
 5. Doğru öneride `Öneriyi onayla`, yanlış öneride ret notuyla `Reddet` seçin.
@@ -56,6 +56,6 @@ Her `Öneriyi onayla` ve `Reddet` kararı `mapping_feedback_events` olay günlü
 
 ## Kaynak Sınırları
 
-File Market canlı katalog kaynağı ve Bizim Toptan herkese açık web kataloğu panelden yenilenebilir. BİM/Yemeksepeti lokasyon, oturum ve otomasyon korumasına bağlıdır; bu nedenle Railway jobu yerine tarayıcı destekli katalog aktarımı kullanılır. Yeni gözlemler aynı kaynak anahtarına yazılır, önceki fiyat ve geçmiş korunur.
+File Market canlı katalog kaynağı, Bizim Toptan herkese açık web kataloğu ve BİM Yemeksepeti'nin ürün GraphQL servisi panelden yenilenebilir. BİM servisi hesap oturumu kullanmaz ve `fu9o` mağaza kataloğunu okur. Yeni gözlemler aynı kaynak anahtarına yazılır, önceki fiyat ve geçmiş korunur; kaynak eksik veya hatalı cevap verirse mevcut havuz değiştirilmez.
 
 İlk toplama kapsamı kullanıcının tedarik modeline göre Harras, Actisoft ve Daycare ile sınırlandırılmıştır. Aramada bulunmayan ürünler alternatif varyant/gramaj kelimeleriyle ve uygulamadaki Atıştırmalık, Kişisel Bakım, Ev Temizliği ve İçecek kategorilerinde taranmıştır. Fiziksel mağazada olup uygulamada listelenmeyen ürünler yanlış fiyatla eşleştirilmez; düşük güven veya eşleşme yok durumunda kullanıcı incelemesinde kalır.

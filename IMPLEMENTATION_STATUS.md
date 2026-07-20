@@ -91,7 +91,7 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] `014_supplier_price_pools` çoklu tedarikçi migrationı ve geri alma migrationı
 - [x] File Market, Bizim Toptan ve BİM için birbirinden bağımsız fiyat havuzları
 - [x] Bizim Toptan dondurulmuş gıda hariç canlı web katalog tarayıcısı
-- [x] BİM/Yemeksepeti dondurulmuş gıda hariç tarayıcı destekli katalog aktarımı
+- [x] BİM/Yemeksepeti dondurulmuş gıda hariç canlı GraphQL katalog yenilemesi
 - [x] Tedarikçi bazlı öneri filtresi ve farklı havuzların tek reçetede karışmasını engelleme
 - [x] Tedarikçi ürünlerinde tahmini kesirli birim desi ve güven göstergesi
 - [x] Nihai ürün desisinin toplam mapping sonrasında yukarı yuvarlanması
@@ -100,6 +100,7 @@ Son güncelleme: 2026-07-16 (Europe/Istanbul)
 - [x] `015_supplier_bulk_price_tiers` migrationı ile tedarikçi bazlı çoklu alım fiyat kademeleri
 - [x] Bizim Toptan HTML'inden çoklu fiyat kademesi otomatik yakalama ve panelden manuel kademe düzenleme
 - [x] Mapping önerisi ve uygulamasında ürün adedine göre uygun çoklu birim fiyatın seçilmesi
+- [x] `016_bim_market_live_sync` migrationı, panel yenileme butonu ve varsayılan kapalı günlük BİM jobu
 
 ## PR Öncesi Kapsam Denetimi
 

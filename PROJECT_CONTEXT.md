@@ -68,13 +68,13 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - File'da yalnız kardeş varyantın fiyatı bulunursa satır `Varyant fiyatı` olarak işaretlenir ve güveni `Kontrol gerekli` düzeyini aşamaz.
 - File fiyatı 30 günden eskiyse mapping uygulanabilir ancak bu fiyatla maliyet kalemi güncellenemez; fiyat yenilenmeli veya fiyat güncellemesi kapatılmalıdır.
 - Tedarikçi havuzları File Market, Bizim Toptan ve BİM olarak ayrıdır; bir öneri reçetesi farklı tedarikçilerin ürünlerini karıştıramaz.
-- Bizim Toptan dondurulmuş gıda hariç herkese açık web kataloğundan yenilenir. BİM verisi lokasyon/oturum bağımlı Yemeksepeti mağazasından tarayıcı destekli alınır ve sunucu jobuna bağlanmaz.
+- Bizim Toptan herkese açık web kataloğundan yenilenir. BİM verisi Yemeksepeti'nin `fu9o` mağazasına ait oturumsuz GraphQL ürün servisinden alınır; dondurulmuş gıda kapsam dışıdır.
 - Tedarikçi fiyat havuzları çoklu alım kademesi tutar. Mapping önerisi ve onay uygulaması, reçetedeki adet ilgili minimum adedi karşılıyorsa ana fiyat yerine o kademenin birim fiyatını maliyet kalemine yazar.
 - Birim desiler gerçek paket büyüklüğünü korur. Nihai ürün desisi mapping toplamından sonra yukarı yuvarlanır: `0,25 → 1`, `1,5 → 2`, `2,01 → 3`.
 
 ## Doğrulama Durumu
 
-- 141 backend unit/integration/regression, 14 React bileşen ve 6 Chrome uçtan uca testi geçiyor.
+- 154 backend unit/integration/regression, 18 React bileşen ve 6 Chrome uçtan uca testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -102,3 +102,4 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Sıkılaştırılmış öneri motorunun gerçek preview kabulünde 33 aday üretildi: 2 yüksek, 17 kontrol gerekli, 14 düşük güven; 13 satır kardeş varyant fiyatı olarak uyarılıdır ve hiçbir mapping uygulanmamıştır.
 - Mapping onay ve retleri immutable olay günlüğünde tutulur; marka, kategori, cost code ve doğrudan/varyant fiyat türü profili sonraki öneri skorunu en fazla artı/eksi 25 puan etkiler.
 - Çoklu tedarikçi kabulünde Bizim Toptan havuzu 2.781, BİM havuzu 1.147 benzersiz ürünle doğrulandı; dondurulmuş ürünler ve ürün ağırlığı olmayan yaş/kilo/kâğıt gramajı ifadeleri desi otomasyonundan çıkarıldı.
+- BİM canlı katalog sorgusu Chrome oturumu dışında doğrulandı; panel butonu ve varsayılan kapalı günlük job aynı fiyat havuzunu geçmişi koruyarak yeniler.

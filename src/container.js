@@ -12,6 +12,7 @@ const { JobService } = require("./services/job.service");
 const { MaintenanceService } = require("./services/maintenance.service");
 const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
+const { BimMarketService } = require("./services/bim-market.service");
 const {
   MappingAutomationService,
 } = require("./services/mapping-automation.service");
@@ -91,11 +92,15 @@ function createContainer(overrides = {}) {
     overrides.jobService || new JobService({ db, repository: jobs });
   const fileMarket = overrides.fileMarket || new FileMarketService();
   const bizimMarket = overrides.bizimMarket || new BizimMarketService();
+  const bimMarket = overrides.bimMarket || new BimMarketService();
   jobService.register("sync-file-market-prices", () =>
     mappingAutomation.syncLiveFileItems(fileMarket),
   );
   jobService.register("sync-bizim-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("BIZIM_MARKET", bizimMarket),
+  );
+  jobService.register("sync-bim-market-prices", () =>
+    mappingAutomation.syncLiveSupplierItems("BIM", bimMarket),
   );
   jobService.register("sync-products", () => sync.products());
   jobService.register("sync-buybox", () => sync.buybox());
@@ -164,6 +169,7 @@ function createContainer(overrides = {}) {
     costs,
     fileMarket,
     bizimMarket,
+    bimMarket,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

@@ -80,7 +80,7 @@ V2 Google Sheets import/export katmanına bağlı değildir. Maliyet kalemi, map
 flowchart LR
   FILE["File canlı katalog"] --> FILEPOOL["File fiyat havuzu"]
   BIZIM["Bizim Toptan web kataloğu"] --> BIZIMPOOL["Bizim fiyat havuzu"]
-  BIM["BİM / Yemeksepeti tarayıcı aktarımı"] --> BIMPOOL["BİM fiyat havuzu"]
+  BIM["BİM / Yemeksepeti GraphQL kataloğu"] --> BIMPOOL["BİM fiyat havuzu"]
   HISTORY["Onaylı eski mappingler"] --> MATCH["Deterministik eşleştirme motoru"]
   FILEPOOL --> MATCH
   BIZIMPOOL --> MATCH

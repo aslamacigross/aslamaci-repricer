@@ -72,8 +72,14 @@
 - Mevcut File tablolarını veri kaybetmeden çoklu tedarikçi fiyat havuzuna genişletir.
 - `FILE_MARKET`, `BIZIM_MARKET` ve `BIM` kaynaklarını ürün ve mapping önerisi düzeyinde ayırır.
 - Kaynak URL/kategori, tahmini birim desi ve desi güven alanlarını ekler.
-- Bizim Toptan yenileme jobunu güvenli varsayılanla kapalı oluşturur; BİM sunucu jobu oluşturmaz.
+- Bizim Toptan yenileme jobunu güvenli varsayılanla kapalı oluşturur.
 - Nihai ürün desisi mapping toplamından sonra yukarı yuvarlanarak `products.desi` alanına yazılır.
+
+### `016_bim_market_live_sync`
+
+- BİM fiyat havuzunu Yemeksepeti ürün GraphQL servisiyle yenileyen jobu ekler.
+- Job günlük periyotla ve güvenli varsayılan olarak kapalı oluşturulur.
+- Dondurulmuş gıda kategorisi otomatik kapsam dışında kalır.
 
 ## Ana İlişkiler
 

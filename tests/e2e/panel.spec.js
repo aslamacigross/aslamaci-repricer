@@ -125,6 +125,9 @@ test("mobil BİM fiyat havuzu", async ({ page }) => {
 
   await expect(page.getByPlaceholder("BİM ürün veya marka ara")).toBeVisible();
   await expect(
+    page.getByRole("button", { name: "Canlı BİM'den yenile" }),
+  ).toBeVisible();
+  await expect(
     page.getByRole("button", { name: "BİM fiyatı içe aktar" }),
   ).toBeVisible();
   await expect(
