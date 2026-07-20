@@ -73,6 +73,7 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
               "info",
               true,
             ],
+            ["Komisyon", report.summary.commission, Banknote, "warning", true],
             [
               "Ürün alış maliyeti",
               report.summary.product_cost,
@@ -105,19 +106,22 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
         : [],
     [report],
   );
-  const expenseBreakdown = useMemo(
-    () =>
-      report
-        ? [
-            { name: "Ürün alış", value: Number(report.summary.product_cost) },
-            { name: "Komisyon", value: Number(report.summary.commission) },
-            { name: "Kargo", value: Number(report.summary.shipping) },
-            { name: "Hizmet", value: Number(report.summary.service_fee) },
-            { name: "Ambalaj", value: Number(report.summary.packaging) },
-          ].filter((item) => item.value > 0)
-        : [],
-    [report],
-  );
+  const expenseBreakdown = useMemo(() => {
+    if (!report) return [];
+    const exactItems = [
+      { name: "Komisyon", value: Number(report.summary.commission) },
+      { name: "Ambalaj", value: Number(report.summary.packaging) },
+    ];
+    const detailedItems = [
+      { name: "Ürün alış", value: Number(report.summary.product_cost) },
+      { name: "Kargo", value: Number(report.summary.shipping) },
+      { name: "Hizmet", value: Number(report.summary.service_fee) },
+    ];
+    return [
+      ...exactItems,
+      ...(report.coverage.profitability_complete ? detailedItems : []),
+    ].filter((item) => item.value > 0);
+  }, [report]);
 
   async function sync() {
     setSyncing(true);

@@ -1050,6 +1050,9 @@ class FinanceService {
         sales_revenue: useFinancialSales
           ? settlementNetSales
           : Number(summary.revenue || 0),
+        commission: useFinancialSales
+          ? Number(financial.commission || 0)
+          : Number(summary.commission || 0),
         sales_order_count: useFinancialSales
           ? Number(financial.order_count || 0)
           : Number(summary.order_count || 0),

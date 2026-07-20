@@ -300,3 +300,46 @@ test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () 
   assert.deepEqual(report.charts.daily, []);
   assert.deepEqual(report.charts.hourly, []);
 });
+
+test("settlement varsa aylik komisyon kesin finans kaydindan gelir", async () => {
+  let queryIndex = 0;
+  const db = {
+    async query(sql) {
+      queryIndex++;
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              revenue: 500,
+              commission: 20,
+              shipping: 10,
+              service_fee: 5,
+              product_cost: 100,
+              operational_profit: 365,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 500,
+              returns: 0,
+              discounts: 0,
+              commission: 86.45,
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyReport("2026-06", "TRENDYOL");
+
+  assert.ok(queryIndex > 0);
+  assert.equal(report.summary.commission, 86.45);
+  assert.equal(report.summary.sales_source, "SETTLEMENT");
+});
