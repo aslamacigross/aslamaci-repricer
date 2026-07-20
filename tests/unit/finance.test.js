@@ -4,6 +4,7 @@ const {
   FinanceService,
   calculateCashProfit,
   monthInTimeZone,
+  resolveReportRange,
   signedSettlementAmount,
 } = require("../../src/services/finance.service");
 
@@ -12,6 +13,38 @@ test("varsayilan rapor ayi Istanbul saatine gore belirlenir", () => {
     monthInTimeZone(new Date("2026-06-30T21:30:00.000Z")),
     "2026-07",
   );
+});
+
+test("satis raporu aylik, yillik, aralik ve tum zaman gorunumlerini cozer", () => {
+  assert.deepEqual(resolveReportRange({ month: "2026-06" }), {
+    scope: "month",
+    period: "2026-06",
+    label: "2026-06",
+    startDate: "2026-06-01",
+    endDate: "2026-06-30",
+  });
+  assert.deepEqual(resolveReportRange({ scope: "year", year: "2026" }), {
+    scope: "year",
+    period: "2026",
+    label: "2026 yılı",
+    startDate: "2026-01-01",
+    endDate: "2026-12-31",
+  });
+  assert.deepEqual(
+    resolveReportRange({
+      scope: "range",
+      startDate: "2026-01-03",
+      endDate: "2026-04-08",
+    }),
+    {
+      scope: "range",
+      period: "2026-01-03:2026-04-08",
+      label: "2026-01-03 - 2026-04-08",
+      startDate: "2026-01-03",
+      endDate: "2026-04-08",
+    },
+  );
+  assert.equal(resolveReportRange({ scope: "all" }).startDate, "2025-12-15");
 });
 
 test("500 TL siparis ornegi 98.77 TL operasyonel nakit kari verir", () => {
@@ -499,4 +532,66 @@ test("settlement varsa aylik komisyon kesin finans kaydindan gelir", async () =>
   assert.ok(queryIndex > 0);
   assert.equal(report.summary.commission, 86.45);
   assert.equal(report.summary.sales_source, "SETTLEMENT");
+});
+
+test("gecmis siparis maliyeti yoksa settlement barkodlarini guncel maliyetle tamamlar", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 0,
+              revenue: 0,
+              commission: 0,
+              shipping: 0,
+              service_fee: 0,
+              product_cost: 0,
+              operational_profit: 0,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 500,
+              returns: 0,
+              discounts: 0,
+              commission: 95,
+            },
+          ],
+        };
+      if (sql.includes('AS "missing_cost_lines"'))
+        return {
+          rows: [
+            { product_cost: 200, service_fee: 13.19, missing_cost_lines: 0 },
+          ],
+        };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "FINANCIAL_ONLY",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 93.04,
+    order_count: 1,
+    billed_orders: 0,
+    estimated_orders: 1,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-06", "TRENDYOL");
+
+  assert.equal(report.summary.product_cost, 200);
+  assert.equal(report.summary.service_fee, 13.19);
+  assert.equal(report.summary.profit_before_packaging, 98.77);
+  assert.equal(report.summary.cost_source, "CURRENT_PRODUCT_COST_FALLBACK");
 });

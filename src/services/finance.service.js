@@ -39,6 +39,80 @@ function monthInTimeZone(date = new Date(), timeZone = "Europe/Istanbul") {
   return `${values.year}-${values.month}`;
 }
 
+function dateInTimeZone(date = new Date(), timeZone = "Europe/Istanbul") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function lastDayOfMonth(period) {
+  const [year, month] = String(period).split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+
+function normalizeDateInput(value) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : text;
+}
+
+function resolveReportRange(input = {}) {
+  const scope = String(input.scope || "month").toLowerCase();
+  if (scope === "all") {
+    return {
+      scope: "all",
+      period: "all",
+      label: "Tüm zamanlar",
+      startDate: "2025-12-15",
+      endDate: dateInTimeZone(),
+    };
+  }
+  if (scope === "year") {
+    const year = /^\d{4}$/.test(String(input.year || ""))
+      ? String(input.year)
+      : dateInTimeZone().slice(0, 4);
+    return {
+      scope: "year",
+      period: year,
+      label: `${year} yılı`,
+      startDate: `${year}-01-01`,
+      endDate: `${year}-12-31`,
+    };
+  }
+  if (scope === "range") {
+    const startDate = normalizeDateInput(input.startDate);
+    const endDate = normalizeDateInput(input.endDate);
+    if (!startDate || !endDate) throw new Error("Tarih aralığı geçersiz");
+    if (startDate > endDate)
+      throw new Error("Başlangıç tarihi bitiş tarihinden sonra olamaz");
+    return {
+      scope: "range",
+      period: `${startDate}:${endDate}`,
+      label: `${startDate} - ${endDate}`,
+      startDate,
+      endDate,
+    };
+  }
+  const period = /^\d{4}-\d{2}$/.test(String(input.month || ""))
+    ? String(input.month)
+    : monthInTimeZone();
+  return {
+    scope: "month",
+    period,
+    label: period,
+    startDate: `${period}-01`,
+    endDate: lastDayOfMonth(period),
+  };
+}
+
 function dateRange({ days = 28, startDate, endDate, now = Date.now() } = {}) {
   const resolvedEnd = Number.isFinite(Number(endDate))
     ? Number(endDate)
@@ -915,7 +989,7 @@ class FinanceService {
     ).rows[0];
   }
 
-  async monthlyShippingReport(period, marketplace = "TRENDYOL") {
+  async monthlyShippingReport(period, marketplace = "TRENDYOL", rangeInput) {
     if (marketplace !== "TRENDYOL")
       return {
         items: [],
@@ -927,7 +1001,8 @@ class FinanceService {
         estimated_orders: 0,
         missing_orders: 0,
       };
-    const start = `${period}-01`;
+    const range = rangeInput || resolveReportRange({ month: period });
+    const { startDate, endDate } = range;
     const [sales, chargeRows, settings, tariffs] = await Promise.all([
       this.db.query(
         `SELECT ft.external_order_number AS "order_number",
@@ -954,12 +1029,12 @@ class FinanceService {
           WHERE ft.marketplace=$1
             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
-              <$2::date+INTERVAL '1 month'
+              <$3::date+INTERVAL '1 day'
             AND ft.transaction_type IN('Satış','Sale')
             AND ft.external_order_number IS NOT NULL
           GROUP BY ft.external_order_number
           ORDER BY MIN(ft.order_date) DESC`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `WITH month_orders AS(
@@ -968,14 +1043,14 @@ class FinanceService {
             WHERE marketplace=$1
               AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
               AND (order_date AT TIME ZONE 'Europe/Istanbul')
-                <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
               AND transaction_type IN('Satış','Sale')
          )
          SELECT c.* FROM marketplace_cargo_charges c
          JOIN month_orders mo
            ON mo.external_order_number=c.external_order_number
          WHERE c.marketplace=$1`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT key,value FROM system_settings
@@ -1080,8 +1155,9 @@ class FinanceService {
     };
   }
 
-  async historyCoverage(period, marketplace = "TRENDYOL") {
-    const start = `${period}-01`;
+  async historyCoverage(period, marketplace = "TRENDYOL", rangeInput) {
+    const range = rangeInput || resolveReportRange({ month: period });
+    const { startDate, endDate } = range;
     const [coverage, historySetting] = await Promise.all([
       this.db.query(
         `WITH financial_sales AS (
@@ -1090,7 +1166,7 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND transaction_type IN('Satış','Sale')
          )
          SELECT
@@ -1099,7 +1175,7 @@ class FinanceService {
               WHERE marketplace=$1
                 AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
                 AND (order_date AT TIME ZONE 'Europe/Istanbul')
-                  <$2::date+INTERVAL '1 month') AS "detailed_orders",
+               <$3::date+INTERVAL '1 day') AS "detailed_orders",
            (SELECT COUNT(*) FROM financial_sales) AS "financial_orders",
            (SELECT COUNT(*) FROM financial_sales fs
               WHERE EXISTS(
@@ -1108,7 +1184,7 @@ class FinanceService {
                   AND mo.external_order_number=fs.external_order_number
                   AND (mo.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
                   AND (mo.order_date AT TIME ZONE 'Europe/Istanbul')
-                    <$2::date+INTERVAL '1 month'
+                    <$3::date+INTERVAL '1 day'
               )) AS "covered_financial_orders",
            (SELECT MIN(order_date) FROM marketplace_orders
               WHERE marketplace=$1) AS "detailed_first_date",
@@ -1118,7 +1194,7 @@ class FinanceService {
               WHERE marketplace=$1) AS "financial_first_date",
            (SELECT MAX(order_date) FROM marketplace_financial_transactions
               WHERE marketplace=$1) AS "financial_last_date"`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT value,updated_at FROM system_settings
@@ -1150,10 +1226,11 @@ class FinanceService {
   }
 
   async monthlyReport(month, marketplace = "TRENDYOL") {
-    const period = /^\d{4}-\d{2}$/.test(String(month))
-      ? String(month)
-      : monthInTimeZone();
-    const start = `${period}-01`;
+    const range =
+      month && typeof month === "object"
+        ? resolveReportRange(month)
+        : resolveReportRange({ month });
+    const { period, startDate, endDate } = range;
     const [
       orders,
       daily,
@@ -1166,6 +1243,7 @@ class FinanceService {
       ledgerDaily,
       ledgerHourly,
       ledgerProducts,
+      ledgerCosts,
       coverage,
       shippingReport,
     ] = await Promise.all([
@@ -1181,11 +1259,11 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS "day",
@@ -1196,12 +1274,12 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY 1 ORDER BY 1`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int AS "hour",
@@ -1211,12 +1289,12 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY 1 ORDER BY 1`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT COALESCE(customer_city,'Bilinmiyor') AS "city",
@@ -1226,12 +1304,12 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY 1 ORDER BY "orders" DESC LIMIT 12`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT oi.barcode AS "barcode",
@@ -1244,12 +1322,12 @@ class FinanceService {
            WHERE o.marketplace=$1
              AND (o.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (o.order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND UPPER(COALESCE(o.status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
            GROUP BY oi.barcode ORDER BY "contribution" DESC LIMIT 20`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT transaction_type AS "transaction_type",
@@ -1261,14 +1339,20 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
            GROUP BY transaction_type ORDER BY transaction_type`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
-        `SELECT * FROM monthly_packaging_expenses
-           WHERE marketplace=$1 AND period_month=$2::date LIMIT 1`,
-        [marketplace, start],
+        `SELECT $1::text AS marketplace,
+                DATE_TRUNC('month',$2::date)::date AS period_month,
+                COALESCE(SUM(amount),0) AS amount,
+                STRING_AGG(NULLIF(note,''), ' | ') AS note
+           FROM monthly_packaging_expenses
+           WHERE marketplace=$1
+             AND period_month>=DATE_TRUNC('month',$2::date)::date
+             AND period_month<=DATE_TRUNC('month',$3::date)::date`,
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT
@@ -1307,8 +1391,8 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'`,
-        [marketplace, start],
+               <$3::date+INTERVAL '1 day'`,
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT
@@ -1320,7 +1404,7 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND transaction_type IN(
                'Satış','Sale','İade','Iade','Return','Kupon','Coupon',
                'İndirim','Indirim','Discount','TyDiscount','TyCoupon',
@@ -1328,7 +1412,7 @@ class FinanceService {
                'DiscountCancel','TyDiscountCancel','TyCouponCancel'
              )
            GROUP BY 1 ORDER BY 1`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT
@@ -1339,10 +1423,10 @@ class FinanceService {
            WHERE marketplace=$1
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+               <$3::date+INTERVAL '1 day'
              AND transaction_type IN('Satış','Sale')
            GROUP BY 1 ORDER BY 1`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
       this.db.query(
         `SELECT ft.barcode AS "barcode",MAX(p.product_name) AS "product_name",
@@ -1354,7 +1438,7 @@ class FinanceService {
            WHERE ft.marketplace=$1
              AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
-               <$2::date+INTERVAL '1 month'
+              <$3::date+INTERVAL '1 day'
              AND ft.transaction_type IN(
                'Satış','Sale','İade','Iade','Return','Kupon','Coupon',
                'İndirim','Indirim','Discount','TyDiscount','TyCoupon',
@@ -1362,14 +1446,52 @@ class FinanceService {
                'DiscountCancel','TyDiscountCancel','TyCouponCancel'
              )
            GROUP BY ft.barcode ORDER BY "revenue" DESC LIMIT 20`,
-        [marketplace, start],
+        [marketplace, startDate, endDate],
       ),
-      this.historyCoverage(period, marketplace),
-      this.monthlyShippingReport(period, marketplace),
+      this.db.query(
+        `SELECT
+             COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale')
+                 THEN COALESCE(p.calculated_product_cost,0) *
+                   CASE
+                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                     ELSE 1
+                   END
+               WHEN ft.transaction_type IN('İade','Iade','Return')
+                 THEN -COALESCE(p.calculated_product_cost,0) *
+                   CASE
+                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                     ELSE 1
+                   END
+               ELSE 0 END),0) AS "product_cost",
+             COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale')
+                 THEN COALESCE(p.service_fee,0)
+               WHEN ft.transaction_type IN('İade','Iade','Return')
+                 THEN -COALESCE(p.service_fee,0)
+               ELSE 0 END),0) AS "service_fee",
+             COUNT(*) FILTER(
+               WHERE ft.transaction_type IN('Satış','Sale')
+                 AND (p.barcode IS NULL OR p.calculated_product_cost<=0)
+             ) AS "missing_cost_lines"
+           FROM marketplace_financial_transactions ft
+           LEFT JOIN products p ON p.marketplace=ft.marketplace
+             AND p.barcode=ft.barcode
+           WHERE ft.marketplace=$1
+             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
+               <$3::date+INTERVAL '1 day'`,
+        [marketplace, startDate, endDate],
+      ),
+      this.historyCoverage(period, marketplace, range),
+      this.monthlyShippingReport(period, marketplace, range),
     ]);
     const summary = orders.rows[0];
     const financial = ledger.rows[0] || {};
     const settlementGrossSales = Number(financial.gross_sales || 0);
+    const costFallback = ledgerCosts.rows[0] || {};
     const settlementNetSales = roundMoney(
       settlementGrossSales +
         Number(financial.returns || 0) +
@@ -1386,16 +1508,27 @@ class FinanceService {
       ? Number(shippingReport.total || 0)
       : Number(summary.shipping || 0);
     const packagingAmount = Number(packaging.rows[0]?.amount || 0);
-    const productCost = Number(summary.product_cost || 0);
-    const profitBeforePackaging = coverage.profitability_complete
-      ? calculateCashProfit({
-          revenue: salesRevenue,
-          commission: commissionTotal,
-          shipping: shippingTotal,
-          serviceFee: Number(summary.service_fee || 0),
-          productCost,
-        })
-      : Number(summary.operational_profit || 0);
+    const fallbackProductCost = roundMoney(costFallback.product_cost || 0);
+    const fallbackServiceFee = roundMoney(costFallback.service_fee || 0);
+    const useCurrentCostFallback =
+      useFinancialSales &&
+      fallbackProductCost > Number(summary.product_cost || 0);
+    const productCost = useCurrentCostFallback
+      ? fallbackProductCost
+      : Number(summary.product_cost || 0);
+    const serviceFee = useCurrentCostFallback
+      ? fallbackServiceFee
+      : Number(summary.service_fee || 0);
+    const profitBeforePackaging =
+      coverage.profitability_complete || useCurrentCostFallback
+        ? calculateCashProfit({
+            revenue: salesRevenue,
+            commission: commissionTotal,
+            shipping: shippingTotal,
+            serviceFee,
+            productCost,
+          })
+        : Number(summary.operational_profit || 0);
     const profitAfterPackaging = roundMoney(
       profitBeforePackaging - packagingAmount,
     );
@@ -1424,7 +1557,13 @@ class FinanceService {
         title: "Finansal mutabakat bekleniyor",
         text: "Rapor sipariş anındaki maliyetlerle tahminidir; settlement sync çalışınca kesin kesintiler ayrıca görünür.",
       });
-    if (!coverage.profitability_complete)
+    if (useCurrentCostFallback)
+      insights.unshift({
+        tone: "info",
+        title: "Geçmiş maliyet güncel maliyetten tamamlandı",
+        text: "22 Temmuz 2026 öncesi siparişlerde sipariş anı maliyet snapshotı yoksa bugünkü ürün maliyeti kullanılır. Yeni siparişlerde sipariş anındaki maliyet saklanır.",
+      });
+    else if (!coverage.profitability_complete)
       insights.unshift({
         tone: "warning",
         title: "Sipariş detayları kısmi",
@@ -1438,12 +1577,15 @@ class FinanceService {
       });
     return {
       period,
+      range,
       marketplace,
       summary: {
         ...summary,
         sales_revenue: salesRevenue,
         commission: commissionTotal,
         shipping: shippingTotal,
+        service_fee: serviceFee,
+        product_cost: productCost,
         sales_order_count: useFinancialSales
           ? Number(financial.order_count || 0)
           : Number(summary.order_count || 0),
@@ -1452,6 +1594,12 @@ class FinanceService {
         settlement_discounts: Number(financial.discounts || 0),
         settlement_commission: Number(financial.commission || 0),
         sales_source: useFinancialSales ? "SETTLEMENT" : "ORDER_DETAIL",
+        cost_source: useCurrentCostFallback
+          ? "CURRENT_PRODUCT_COST_FALLBACK"
+          : coverage.profitability_complete
+            ? "ORDER_SNAPSHOT"
+            : "PARTIAL_ORDER_SNAPSHOT",
+        missing_cost_lines: Number(costFallback.missing_cost_lines || 0),
         packaging: packagingAmount,
         profit_before_packaging: profitBeforePackaging,
         profit_after_packaging: profitAfterPackaging,
@@ -1488,6 +1636,8 @@ module.exports = {
   TRENDYOL_MAX_RANGE_MS,
   TRENDYOL_HISTORY_START,
   monthInTimeZone,
+  dateInTimeZone,
+  resolveReportRange,
   dateRange,
   dateWindows,
   signedSettlementAmount,

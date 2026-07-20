@@ -9,7 +9,13 @@ function financeRoutes({ finance, jobService, audit }) {
       res.json({
         status: "ok",
         data: await finance.monthlyReport(
-          req.query.month,
+          {
+            scope: req.query.scope,
+            month: req.query.month,
+            year: req.query.year,
+            startDate: req.query.start_date,
+            endDate: req.query.end_date,
+          },
           req.query.marketplace || "TRENDYOL",
         ),
       }),

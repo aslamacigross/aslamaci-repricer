@@ -49,15 +49,30 @@ function monthInIstanbul(date = new Date()) {
 }
 
 const currentMonth = monthInIstanbul();
+const currentYear = currentMonth.slice(0, 4);
 const expenseColors = ["#b4232a", "#d6831f", "#146c94", "#725aa3", "#59645e"];
 
 export default function Finance({ notify, marketplace = "TRENDYOL" }) {
+  const [scope, setScope] = useState("month");
   const [month, setMonth] = useState(currentMonth);
+  const [year, setYear] = useState(currentYear);
+  const [startDate, setStartDate] = useState("2025-12-15");
+  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [syncing, setSyncing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const reportPath = useMemo(() => {
+    const params = new URLSearchParams({ marketplace, scope });
+    if (scope === "month") params.set("month", month);
+    if (scope === "year") params.set("year", year);
+    if (scope === "range") {
+      params.set("start_date", startDate);
+      params.set("end_date", endDate);
+    }
+    return `/api/finance/monthly?${params.toString()}`;
+  }, [endDate, marketplace, month, scope, startDate, year]);
   const { data, loading, error, reload } = useRemote(
-    () => get(`/api/finance/monthly?month=${month}&marketplace=${marketplace}`),
-    [month, marketplace],
+    () => get(reportPath),
+    [reportPath],
   );
   const report = data?.data;
   const [packaging, setPackaging] = useState("");
@@ -204,25 +219,77 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
         }
       />
       <div className="toolbar finance-toolbar">
-        <Field label="Rapor ayı">
-          <input
-            type="month"
-            value={month}
-            onChange={(event) => setMonth(event.target.value)}
-          />
+        <Field label="Görünüm">
+          <select
+            value={scope}
+            onChange={(event) => setScope(event.target.value)}
+          >
+            <option value="month">Aylık</option>
+            <option value="range">Tarih aralığı</option>
+            <option value="year">Yıllık</option>
+            <option value="all">Tüm zamanlar</option>
+          </select>
         </Field>
-        <Field label="Aylık ambalaj gideri">
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={packagingValue}
-            onChange={(event) => setPackaging(event.target.value)}
-          />
-        </Field>
-        <Button icon={Save} variant="secondary" onClick={savePackaging}>
-          Ambalajı kaydet
-        </Button>
+        {scope === "month" && (
+          <Field label="Rapor ayı">
+            <input
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+            />
+          </Field>
+        )}
+        {scope === "range" && (
+          <>
+            <Field label="Başlangıç">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+              />
+            </Field>
+            <Field label="Bitiş">
+              <input
+                type="date"
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+              />
+            </Field>
+          </>
+        )}
+        {scope === "year" && (
+          <Field label="Yıl">
+            <input
+              type="number"
+              min="2025"
+              max="2100"
+              step="1"
+              value={year}
+              onChange={(event) => setYear(event.target.value)}
+            />
+          </Field>
+        )}
+        {scope === "month" ? (
+          <>
+            <Field label="Aylık ambalaj gideri">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={packagingValue}
+                onChange={(event) => setPackaging(event.target.value)}
+              />
+            </Field>
+            <Button icon={Save} variant="secondary" onClick={savePackaging}>
+              Ambalajı kaydet
+            </Button>
+          </>
+        ) : (
+          <Badge tone="info">
+            Ambalaj toplamı: {money(report.summary.packaging)}
+          </Badge>
+        )}
+        <Badge tone="info">{report.range?.label || report.period}</Badge>
         <Badge tone={report.transactions.length ? "success" : "warning"}>
           {report.transactions.length
             ? "Finansal hareketler var"
@@ -251,6 +318,16 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
             İptal sonrası satış {money(report.summary.settlement_gross_sales)},
             iade {money(Math.abs(report.summary.settlement_returns))}, indirim
             ve kupon {money(Math.abs(report.summary.settlement_discounts))}.
+          </p>
+        </div>
+      )}
+      {report.summary.cost_source === "CURRENT_PRODUCT_COST_FALLBACK" && (
+        <div className="notice notice-info">
+          <strong>Geçmiş alış maliyeti güncel maliyetle tamamlandı</strong>
+          <p>
+            Sipariş anı maliyet snapshotı olmayan eski kayıtlar, bugünkü ürün
+            maliyetleriyle hesaplanıyor. 22.07.2026 sonrası yeni siparişlerde
+            sipariş anındaki maliyet saklanır.
           </p>
         </div>
       )}
