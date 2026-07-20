@@ -597,12 +597,13 @@ class FinanceService {
     const [orders, daily, hourly, cities, products, transactions, packaging] =
       await Promise.all([
         this.db.query(
-          `SELECT COUNT(*) order_count,COALESCE(SUM(gross_revenue),0) revenue,
-                  COALESCE(SUM(commission_total),0) commission,
-                  COALESCE(SUM(shipping_total),0) shipping,
-                  COALESCE(SUM(service_fee_total),0) service_fee,
-                  COALESCE(SUM(product_cost_total),0) product_cost,
-                  COALESCE(SUM(operational_profit),0) operational_profit
+          `SELECT COUNT(*) AS "order_count",
+                  COALESCE(SUM(gross_revenue),0) AS "revenue",
+                  COALESCE(SUM(commission_total),0) AS "commission",
+                  COALESCE(SUM(shipping_total),0) AS "shipping",
+                  COALESCE(SUM(service_fee_total),0) AS "service_fee",
+                  COALESCE(SUM(product_cost_total),0) AS "product_cost",
+                  COALESCE(SUM(operational_profit),0) AS "operational_profit"
            FROM marketplace_orders
            WHERE marketplace=$1 AND order_date>=$2::date
              AND order_date<$2::date+INTERVAL '1 month'
@@ -613,8 +614,9 @@ class FinanceService {
         ),
         this.db.query(
           `SELECT TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS "day",
-                  COUNT(*) AS orders,ROUND(SUM(gross_revenue),2) AS revenue,
-                  ROUND(SUM(operational_profit),2) AS profit
+                  COUNT(*) AS "orders",
+                  ROUND(SUM(gross_revenue),2) AS "revenue",
+                  ROUND(SUM(operational_profit),2) AS "profit"
            FROM marketplace_orders
            WHERE marketplace=$1 AND order_date>=$2::date
              AND order_date<$2::date+INTERVAL '1 month'
@@ -626,7 +628,8 @@ class FinanceService {
         ),
         this.db.query(
           `SELECT EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int AS "hour",
-                  COUNT(*) AS orders,ROUND(SUM(gross_revenue),2) AS revenue
+                  COUNT(*) AS "orders",
+                  ROUND(SUM(gross_revenue),2) AS "revenue"
            FROM marketplace_orders
            WHERE marketplace=$1 AND order_date>=$2::date
              AND order_date<$2::date+INTERVAL '1 month'
@@ -637,21 +640,24 @@ class FinanceService {
           [marketplace, start],
         ),
         this.db.query(
-          `SELECT COALESCE(customer_city,'Bilinmiyor') city,COUNT(*) orders,
-                  ROUND(SUM(gross_revenue),2) revenue
+          `SELECT COALESCE(customer_city,'Bilinmiyor') AS "city",
+                  COUNT(*) AS "orders",
+                  ROUND(SUM(gross_revenue),2) AS "revenue"
            FROM marketplace_orders
            WHERE marketplace=$1 AND order_date>=$2::date
              AND order_date<$2::date+INTERVAL '1 month'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
-           GROUP BY 1 ORDER BY orders DESC LIMIT 12`,
+           GROUP BY 1 ORDER BY "orders" DESC LIMIT 12`,
           [marketplace, start],
         ),
         this.db.query(
-          `SELECT oi.barcode,MAX(oi.product_name) product_name,
-                  SUM(oi.quantity) quantity,ROUND(SUM(oi.line_revenue),2) revenue,
-                  ROUND(SUM(oi.line_revenue-oi.commission_amount-oi.product_cost),2) contribution
+          `SELECT oi.barcode AS "barcode",
+                  MAX(oi.product_name) AS "product_name",
+                  SUM(oi.quantity) AS "quantity",
+                  ROUND(SUM(oi.line_revenue),2) AS "revenue",
+                  ROUND(SUM(oi.line_revenue-oi.commission_amount-oi.product_cost),2) AS "contribution"
            FROM marketplace_order_items oi
            JOIN marketplace_orders o ON o.id=oi.order_id
            WHERE o.marketplace=$1 AND o.order_date>=$2::date
@@ -659,13 +665,15 @@ class FinanceService {
              AND UPPER(COALESCE(o.status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
-           GROUP BY oi.barcode ORDER BY contribution DESC LIMIT 20`,
+           GROUP BY oi.barcode ORDER BY "contribution" DESC LIMIT 20`,
           [marketplace, start],
         ),
         this.db.query(
-          `SELECT transaction_type,COUNT(*) count,ROUND(SUM(amount),2) amount,
-                  ROUND(SUM(commission_amount),2) commission,
-                  ROUND(SUM(seller_revenue),2) seller_revenue
+          `SELECT transaction_type AS "transaction_type",
+                  COUNT(*) AS "count",
+                  ROUND(SUM(amount),2) AS "amount",
+                  ROUND(SUM(commission_amount),2) AS "commission",
+                  ROUND(SUM(seller_revenue),2) AS "seller_revenue"
            FROM marketplace_financial_transactions
            WHERE marketplace=$1 AND transaction_date>=$2::date
              AND transaction_date<$2::date+INTERVAL '1 month'

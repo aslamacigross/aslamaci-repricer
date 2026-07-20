@@ -92,12 +92,12 @@ test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
   assert.equal(insertParams[12], 98.77);
 });
 
-test("aylik rapor gun ve saat kolonlarini PostgreSQL uyumlu adlandirir", async () => {
+test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () => {
   const queries = [];
   const db = {
     async query(sql) {
       queries.push(sql);
-      if (sql.includes("SELECT COUNT(*) order_count"))
+      if (sql.includes('COUNT(*) AS "order_count"'))
         return {
           rows: [
             {
@@ -119,9 +119,23 @@ test("aylik rapor gun ve saat kolonlarini PostgreSQL uyumlu adlandirir", async (
   const report = await finance.monthlyReport("2026-07", "TRENDYOL");
   const dailyQuery = queries.find((sql) => sql.includes("TO_CHAR(order_date"));
   const hourlyQuery = queries.find((sql) => sql.includes("EXTRACT(HOUR"));
+  const citiesQuery = queries.find((sql) => sql.includes("customer_city"));
+  const productsQuery = queries.find((sql) =>
+    sql.includes("marketplace_order_items"),
+  );
+  const transactionsQuery = queries.find((sql) =>
+    sql.includes("marketplace_financial_transactions"),
+  );
 
   assert.match(dailyQuery, /AS "day"/);
+  assert.match(dailyQuery, /AS "orders"/);
   assert.match(hourlyQuery, /AS "hour"/);
+  assert.match(citiesQuery, /AS "city"/);
+  assert.match(citiesQuery, /ORDER BY "orders" DESC/);
+  assert.match(productsQuery, /AS "contribution"/);
+  assert.match(productsQuery, /ORDER BY "contribution" DESC/);
+  assert.match(transactionsQuery, /AS "count"/);
+  assert.match(transactionsQuery, /AS "amount"/);
   assert.deepEqual(report.charts.daily, []);
   assert.deepEqual(report.charts.hourly, []);
 });
