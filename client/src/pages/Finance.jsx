@@ -35,7 +35,19 @@ import {
 } from "../components/ui";
 import DataTable, { money } from "../components/DataTable";
 
-const currentMonth = new Date().toISOString().slice(0, 7);
+function monthInIstanbul(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+  return `${values.year}-${values.month}`;
+}
+
+const currentMonth = monthInIstanbul();
 const expenseColors = ["#b4232a", "#d6831f", "#146c94", "#725aa3", "#59645e"];
 
 export default function Finance({ notify, marketplace = "TRENDYOL" }) {
@@ -199,20 +211,28 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
             : "Settlement bekleniyor"}
         </Badge>
         <Badge
-          tone={report.coverage.profitability_complete ? "success" : "warning"}
+          tone={
+            report.coverage.status === "COMPLETE"
+              ? "success"
+              : report.coverage.status === "NO_DATA"
+                ? "neutral"
+                : "warning"
+          }
         >
-          {report.coverage.profitability_complete
-            ? "Sipariş detayı tam"
-            : "Satış geçmişi var, kâr detayı kısmi"}
+          {report.coverage.status === "NO_DATA"
+            ? "Bu ay satış verisi yok"
+            : report.coverage.status === "COMPLETE"
+              ? "Sipariş detayı tam"
+              : "Satış geçmişi var, kâr detayı kısmi"}
         </Badge>
       </div>
       {report.summary.sales_source === "SETTLEMENT" && (
         <div className="notice notice-info">
           <strong>Finans kayıtlarıyla doğrulanan satış</strong>
           <p>
-            Brütleşen satış {money(report.summary.settlement_gross_sales)}, iade{" "}
-            {money(Math.abs(report.summary.settlement_returns))}, indirim ve
-            kupon {money(Math.abs(report.summary.settlement_discounts))}.
+            İptal sonrası satış {money(report.summary.settlement_gross_sales)},
+            iade {money(Math.abs(report.summary.settlement_returns))}, indirim
+            ve kupon {money(Math.abs(report.summary.settlement_discounts))}.
           </p>
         </div>
       )}

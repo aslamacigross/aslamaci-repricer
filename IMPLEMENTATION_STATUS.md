@@ -125,6 +125,10 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Satış & Kâr aylık raporundaki tüm PostgreSQL sonuç kolonları açık ve güvenli takma adlarla doğrulandı
 - [x] Başarılı tekrar denemede eski hata durumunu temizleyen ortak UI veri yükleyici regresyon testi
 - [x] Trendyol settlement senkronunda 15 günlük API sınırına uygun parçalı tarih aralığı ve sayfalama
+- [x] `019_trendyol_finance_history` ile 15 Aralık 2025'ten itibaren güvenli settlement geçmişi tamamlama
+- [x] Aylık finans sorgularında Türkiye saati ay sınırı ve sipariş tarihi kullanımı
+- [x] İade, kupon ve indirim komisyon düzeltmeleri dahil Haziran 2026 Trendyol mutabakatı
+- [ ] Eski aylarda ürün adedi, iptal kırılımı ve geçmiş maliyet/kâr kesinliği için Trendyol panel raporu içe aktarma
 
 ## PR Öncesi Kapsam Denetimi
 

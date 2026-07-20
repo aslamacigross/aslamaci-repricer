@@ -3,8 +3,16 @@ const assert = require("node:assert/strict");
 const {
   FinanceService,
   calculateCashProfit,
+  monthInTimeZone,
   signedSettlementAmount,
 } = require("../../src/services/finance.service");
+
+test("varsayilan rapor ayi Istanbul saatine gore belirlenir", () => {
+  assert.equal(
+    monthInTimeZone(new Date("2026-06-30T21:30:00.000Z")),
+    "2026-07",
+  );
+});
 
 test("500 TL siparis ornegi 98.77 TL operasyonel nakit kari verir", () => {
   assert.equal(
@@ -280,6 +288,15 @@ test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () 
   assert.ok(ledgerProductsQuery);
   assert.match(transactionsQuery, /AS "count"/);
   assert.match(transactionsQuery, /AS "amount"/);
+  assert.ok(
+    queries.every(
+      (sql) =>
+        !sql.includes("order_date") ||
+        sql.includes("order_date AT TIME ZONE 'Europe/Istanbul'"),
+    ),
+  );
+  const ledgerQuery = queries.find((sql) => sql.includes('AS "gross_sales"'));
+  assert.match(ledgerQuery, /WHEN amount<0 THEN -commission_amount/);
   assert.deepEqual(report.charts.daily, []);
   assert.deepEqual(report.charts.hourly, []);
 });

@@ -26,6 +26,18 @@ const DAY_MS = 86400000;
 const TRENDYOL_MAX_RANGE_MS = 14 * DAY_MS;
 const TRENDYOL_HISTORY_START = Date.parse("2025-12-14T21:00:00.000Z");
 
+function monthInTimeZone(date = new Date(), timeZone = "Europe/Istanbul") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+  return `${values.year}-${values.month}`;
+}
+
 function dateRange({ days = 28, startDate, endDate, now = Date.now() } = {}) {
   const resolvedEnd = Number.isFinite(Number(endDate))
     ? Number(endDate)
@@ -706,23 +718,28 @@ class FinanceService {
         `WITH financial_sales AS (
            SELECT DISTINCT external_order_number
            FROM marketplace_financial_transactions
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND transaction_type IN('Satış','Sale')
          )
          SELECT
            (SELECT COUNT(DISTINCT external_order_number)
               FROM marketplace_orders
-              WHERE marketplace=$1 AND order_date>=$2::date
-                AND order_date<$2::date+INTERVAL '1 month') AS "detailed_orders",
+              WHERE marketplace=$1
+                AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+                AND (order_date AT TIME ZONE 'Europe/Istanbul')
+                  <$2::date+INTERVAL '1 month') AS "detailed_orders",
            (SELECT COUNT(*) FROM financial_sales) AS "financial_orders",
            (SELECT COUNT(*) FROM financial_sales fs
               WHERE EXISTS(
                 SELECT 1 FROM marketplace_orders mo
                 WHERE mo.marketplace=$1
                   AND mo.external_order_number=fs.external_order_number
-                  AND mo.order_date>=$2::date
-                  AND mo.order_date<$2::date+INTERVAL '1 month'
+                  AND (mo.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+                  AND (mo.order_date AT TIME ZONE 'Europe/Istanbul')
+                    <$2::date+INTERVAL '1 month'
               )) AS "covered_financial_orders",
            (SELECT MIN(order_date) FROM marketplace_orders
               WHERE marketplace=$1) AS "detailed_first_date",
@@ -766,7 +783,7 @@ class FinanceService {
   async monthlyReport(month, marketplace = "TRENDYOL") {
     const period = /^\d{4}-\d{2}$/.test(String(month))
       ? String(month)
-      : new Date().toISOString().slice(0, 7);
+      : monthInTimeZone();
     const start = `${period}-01`;
     const [
       orders,
@@ -791,8 +808,10 @@ class FinanceService {
                   COALESCE(SUM(product_cost_total),0) AS "product_cost",
                   COALESCE(SUM(operational_profit),0) AS "operational_profit"
            FROM marketplace_orders
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )`,
@@ -804,8 +823,10 @@ class FinanceService {
                   ROUND(SUM(gross_revenue),2) AS "revenue",
                   ROUND(SUM(operational_profit),2) AS "profit"
            FROM marketplace_orders
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
@@ -817,8 +838,10 @@ class FinanceService {
                   COUNT(*) AS "orders",
                   ROUND(SUM(gross_revenue),2) AS "revenue"
            FROM marketplace_orders
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
@@ -830,8 +853,10 @@ class FinanceService {
                   COUNT(*) AS "orders",
                   ROUND(SUM(gross_revenue),2) AS "revenue"
            FROM marketplace_orders
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND UPPER(COALESCE(status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
@@ -846,8 +871,10 @@ class FinanceService {
                   ROUND(SUM(oi.line_revenue-oi.commission_amount-oi.product_cost),2) AS "contribution"
            FROM marketplace_order_items oi
            JOIN marketplace_orders o ON o.id=oi.order_id
-           WHERE o.marketplace=$1 AND o.order_date>=$2::date
-             AND o.order_date<$2::date+INTERVAL '1 month'
+           WHERE o.marketplace=$1
+             AND (o.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (o.order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND UPPER(COALESCE(o.status,'')) NOT IN(
                'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
              )
@@ -861,8 +888,10 @@ class FinanceService {
                   ROUND(SUM(commission_amount),2) AS "commission",
                   ROUND(SUM(seller_revenue),2) AS "seller_revenue"
            FROM marketplace_financial_transactions
-           WHERE marketplace=$1 AND transaction_date>=$2::date
-             AND transaction_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
            GROUP BY transaction_type ORDER BY transaction_type`,
         [marketplace, start],
       ),
@@ -896,10 +925,19 @@ class FinanceService {
                WHEN transaction_type IN('Satış','Sale') THEN commission_amount
                WHEN transaction_type IN('İade','Iade','Return')
                  THEN -commission_amount
+               WHEN transaction_type IN(
+                 'Kupon','Coupon','İndirim','Indirim','Discount','TyDiscount',
+                 'TyCoupon','Kupon İptal','CouponCancel','İndirim İptal',
+                 'Indirim Iptal','DiscountCancel','TyDiscountCancel',
+                 'TyCouponCancel'
+               ) THEN CASE WHEN amount<0 THEN -commission_amount
+                           ELSE commission_amount END
                ELSE 0 END),0) AS "commission"
            FROM marketplace_financial_transactions
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'`,
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'`,
         [marketplace, start],
       ),
       this.db.query(
@@ -909,8 +947,10 @@ class FinanceService {
              ROUND(SUM(amount),2) AS "revenue",
              NULL::numeric AS "profit"
            FROM marketplace_financial_transactions
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND transaction_type IN(
                'Satış','Sale','İade','Iade','Return','Kupon','Coupon',
                'İndirim','Indirim','Discount','TyDiscount','TyCoupon',
@@ -926,8 +966,10 @@ class FinanceService {
              COUNT(DISTINCT external_order_number) AS "orders",
              ROUND(SUM(amount),2) AS "revenue"
            FROM marketplace_financial_transactions
-           WHERE marketplace=$1 AND order_date>=$2::date
-             AND order_date<$2::date+INTERVAL '1 month'
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND transaction_type IN('Satış','Sale')
            GROUP BY 1 ORDER BY 1`,
         [marketplace, start],
@@ -939,8 +981,10 @@ class FinanceService {
            FROM marketplace_financial_transactions ft
            LEFT JOIN products p ON p.marketplace=ft.marketplace
              AND p.barcode=ft.barcode
-           WHERE ft.marketplace=$1 AND ft.order_date>=$2::date
-             AND ft.order_date<$2::date+INTERVAL '1 month'
+           WHERE ft.marketplace=$1
+             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
+               <$2::date+INTERVAL '1 month'
              AND ft.transaction_type IN(
                'Satış','Sale','İade','Iade','Return','Kupon','Coupon',
                'İndirim','Indirim','Discount','TyDiscount','TyCoupon',
@@ -1048,6 +1092,7 @@ module.exports = {
   DAY_MS,
   TRENDYOL_MAX_RANGE_MS,
   TRENDYOL_HISTORY_START,
+  monthInTimeZone,
   dateRange,
   dateWindows,
   signedSettlementAmount,
