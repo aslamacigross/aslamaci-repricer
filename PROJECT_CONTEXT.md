@@ -113,6 +113,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - BİM canlı katalog sorgusu Chrome oturumu dışında doğrulandı; panel butonu ve varsayılan kapalı günlük job aynı fiyat havuzunu geçmişi koruyarak yeniler.
 - `017_operations_finance_and_safety` migrationı boş PostgreSQL uyumlu test veritabanında çalıştı ve tekrar çalıştırılabilirliği doğrulandı.
 - `018_hepsiburada_shipping_barems` migrationı Hepsiburada kargo/barem/ambalaj ayrımını, `hepsiJET` varsayılanını ve KDV dahil `10,50 TL` hizmet bedelini ekler; migration ve mobil panel regresyonları test edilmiştir.
+- Satış & Kâr günlük ve saatlik grafik sorguları PostgreSQL anahtar sözcükleriyle çakışmayacak biçimde `"day"` ve `"hour"` kolonlarını açıkça adlandırır.
 - Hepsiburada kargo PDF'i 4.501 desi satırı ve 11 taşıyıcı olarak yapılandırılmış veriye dönüştürüldü; hiçbir tarife satırı kaybolmadı.
 - Aylık satış/kâr ekranı gider kırılımı, saat/gün/şehir analizi ve mobil yerleşimle görsel olarak doğrulandı.
 - Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. Canlı bağlantı için Railway secret'ları ve mağaza Merchant ID hâlâ dış ortamda yapılandırılmalıdır.

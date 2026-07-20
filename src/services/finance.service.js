@@ -612,9 +612,9 @@ class FinanceService {
           [marketplace, start],
         ),
         this.db.query(
-          `SELECT TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') day,
-                  COUNT(*) orders,ROUND(SUM(gross_revenue),2) revenue,
-                  ROUND(SUM(operational_profit),2) profit
+          `SELECT TO_CHAR(order_date AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD') AS "day",
+                  COUNT(*) AS orders,ROUND(SUM(gross_revenue),2) AS revenue,
+                  ROUND(SUM(operational_profit),2) AS profit
            FROM marketplace_orders
            WHERE marketplace=$1 AND order_date>=$2::date
              AND order_date<$2::date+INTERVAL '1 month'
@@ -625,8 +625,8 @@ class FinanceService {
           [marketplace, start],
         ),
         this.db.query(
-          `SELECT EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int hour,
-                  COUNT(*) orders,ROUND(SUM(gross_revenue),2) revenue
+          `SELECT EXTRACT(HOUR FROM order_date AT TIME ZONE 'Europe/Istanbul')::int AS "hour",
+                  COUNT(*) AS orders,ROUND(SUM(gross_revenue),2) AS revenue
            FROM marketplace_orders
            WHERE marketplace=$1 AND order_date>=$2::date
              AND order_date<$2::date+INTERVAL '1 month'

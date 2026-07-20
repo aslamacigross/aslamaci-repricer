@@ -91,3 +91,37 @@ test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
   assert.equal(insertParams[11], 200);
   assert.equal(insertParams[12], 98.77);
 });
+
+test("aylik rapor gun ve saat kolonlarini PostgreSQL uyumlu adlandirir", async () => {
+  const queries = [];
+  const db = {
+    async query(sql) {
+      queries.push(sql);
+      if (sql.includes("SELECT COUNT(*) order_count"))
+        return {
+          rows: [
+            {
+              order_count: 0,
+              revenue: 0,
+              commission: 0,
+              shipping: 0,
+              service_fee: 0,
+              product_cost: 0,
+              operational_profit: 0,
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyReport("2026-07", "TRENDYOL");
+  const dailyQuery = queries.find((sql) => sql.includes("TO_CHAR(order_date"));
+  const hourlyQuery = queries.find((sql) => sql.includes("EXTRACT(HOUR"));
+
+  assert.match(dailyQuery, /AS "day"/);
+  assert.match(hourlyQuery, /AS "hour"/);
+  assert.deepEqual(report.charts.daily, []);
+  assert.deepEqual(report.charts.hourly, []);
+});
