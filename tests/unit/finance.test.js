@@ -92,6 +92,32 @@ test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
   assert.equal(insertParams[12], 98.77);
 });
 
+test("Trendyol finans hareketlerini API limitine uygun tarih araliklarina boler", async () => {
+  const ranges = [];
+  const trendyol = {
+    async listSettlements(options) {
+      ranges.push(options);
+      return { content: [], last: true };
+    },
+  };
+  const finance = new FinanceService({ db: {}, trendyol, hepsiburada: {} });
+
+  const result = await finance.syncFinancialTransactions({ days: 35 });
+
+  assert.equal(ranges.length, 3);
+  assert.ok(
+    ranges.every(
+      ({ startDate, endDate }) => endDate - startDate <= 14 * 86400000,
+    ),
+  );
+  assert.ok(
+    ranges.slice(1).every((range, index) => {
+      return range.startDate === ranges[index].endDate + 1;
+    }),
+  );
+  assert.deepEqual(result, { processed: 0, successful: 0, failed: 0 });
+});
+
 test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () => {
   const queries = [];
   const db = {

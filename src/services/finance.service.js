@@ -511,59 +511,71 @@ class FinanceService {
   }
 
   async syncFinancialTransactions({ days = 35 } = {}) {
+    const dayMs = 86400000;
+    const maxRangeMs = 14 * dayMs;
     const endDate = Date.now();
-    const startDate = endDate - Math.max(Number(days) || 35, 1) * 86400000;
-    let page = 0;
+    const startDate = endDate - Math.max(Number(days) || 35, 1) * dayMs;
     let processed = 0;
-    while (true) {
-      const data = await this.trendyol.listSettlements({
-        startDate,
-        endDate,
-        transactionTypes: TRANSACTION_TYPES,
-        page,
-      });
-      const rows = data.content || data.items || [];
-      for (const row of rows) {
-        const transactionType = String(
-          row.transactionType || row.transaction_type || "UNKNOWN",
-        );
-        const identity =
-          row.id ||
-          row.transactionId ||
-          crypto.createHash("sha256").update(JSON.stringify(row)).digest("hex");
-        await this.db.query(
-          `INSERT INTO marketplace_financial_transactions(
-             marketplace,external_transaction_id,external_order_number,
-             external_package_id,transaction_type,transaction_date,amount,
-             commission_amount,seller_revenue,raw_data,updated_at
-           )VALUES('TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW())
-           ON CONFLICT(marketplace,external_transaction_id,transaction_type)
-           DO UPDATE SET transaction_date=EXCLUDED.transaction_date,
-             amount=EXCLUDED.amount,commission_amount=EXCLUDED.commission_amount,
-             seller_revenue=EXCLUDED.seller_revenue,raw_data=EXCLUDED.raw_data,
-             updated_at=NOW()`,
-          [
-            String(identity),
-            String(row.orderNumber || row.order_number || "") || null,
-            String(row.shipmentPackageId || row.packageId || "") || null,
-            transactionType,
-            timestamp(row.transactionDate || row.createdDate),
-            numberFrom(row, ["amount", "paidPrice"], 0),
-            numberFrom(row, ["commissionAmount", "commission"], 0),
-            numberFrom(row, ["sellerRevenue", "sellerRevenueAmount"], 0),
-            JSON.stringify(row),
-          ],
-        );
-        processed++;
+    for (
+      let rangeStart = startDate;
+      rangeStart <= endDate;
+      rangeStart += maxRangeMs + 1
+    ) {
+      const rangeEnd = Math.min(rangeStart + maxRangeMs, endDate);
+      let page = 0;
+      while (true) {
+        const data = await this.trendyol.listSettlements({
+          startDate: rangeStart,
+          endDate: rangeEnd,
+          transactionTypes: TRANSACTION_TYPES,
+          page,
+        });
+        const rows = data.content || data.items || [];
+        for (const row of rows) {
+          const transactionType = String(
+            row.transactionType || row.transaction_type || "UNKNOWN",
+          );
+          const identity =
+            row.id ||
+            row.transactionId ||
+            crypto
+              .createHash("sha256")
+              .update(JSON.stringify(row))
+              .digest("hex");
+          await this.db.query(
+            `INSERT INTO marketplace_financial_transactions(
+               marketplace,external_transaction_id,external_order_number,
+               external_package_id,transaction_type,transaction_date,amount,
+               commission_amount,seller_revenue,raw_data,updated_at
+             )VALUES('TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW())
+             ON CONFLICT(marketplace,external_transaction_id,transaction_type)
+             DO UPDATE SET transaction_date=EXCLUDED.transaction_date,
+               amount=EXCLUDED.amount,commission_amount=EXCLUDED.commission_amount,
+               seller_revenue=EXCLUDED.seller_revenue,raw_data=EXCLUDED.raw_data,
+               updated_at=NOW()`,
+            [
+              String(identity),
+              String(row.orderNumber || row.order_number || "") || null,
+              String(row.shipmentPackageId || row.packageId || "") || null,
+              transactionType,
+              timestamp(row.transactionDate || row.createdDate),
+              numberFrom(row, ["amount", "paidPrice"], 0),
+              numberFrom(row, ["commissionAmount", "commission"], 0),
+              numberFrom(row, ["sellerRevenue", "sellerRevenueAmount"], 0),
+              JSON.stringify(row),
+            ],
+          );
+          processed++;
+        }
+        const totalPages = Number(data.totalPages || 0);
+        if (
+          data.last === true ||
+          rows.length === 0 ||
+          (totalPages > 0 && page + 1 >= totalPages)
+        )
+          break;
+        page++;
       }
-      const totalPages = Number(data.totalPages || 0);
-      if (
-        data.last === true ||
-        rows.length === 0 ||
-        (totalPages > 0 && page + 1 >= totalPages)
-      )
-        break;
-      page++;
     }
     return { processed, successful: processed, failed: 0 };
   }

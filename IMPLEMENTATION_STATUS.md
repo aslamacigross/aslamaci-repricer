@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 171/171 başarılı
+- [x] Unit/integration/regression testleri: 172/172 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -55,7 +55,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
 - [x] React bileşen testleri: 20/20 başarılı
 - [x] Chrome masaüstü/mobil uçtan uca testleri: 8/8 başarılı
-- [x] Backend testleri: 171/171 başarılı
+- [x] Backend testleri: 172/172 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -121,9 +121,10 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Aynı barkodun iki pazaryerindeki mapping ve desi hesaplarının bağımsız regresyon testi
 - [x] Hepsiburada varsayılan `hepsiJET`, KDV dahil `10,50 TL` hizmet bedeli ve ayrı sepet baremleri
 - [x] Hepsiburada aksiyonunun Trendyol fiyat servisine gidemediğini kanıtlayan sert entegrasyon kilidi
-- [x] Backend testleri: 171/171; React testleri: 21/21; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
+- [x] Backend testleri: 172/172; React testleri: 21/21; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
 - [x] Satış & Kâr aylık raporundaki tüm PostgreSQL sonuç kolonları açık ve güvenli takma adlarla doğrulandı
 - [x] Başarılı tekrar denemede eski hata durumunu temizleyen ortak UI veri yükleyici regresyon testi
+- [x] Trendyol settlement senkronunda 15 günlük API sınırına uygun parçalı tarih aralığı ve sayfalama
 
 ## PR Öncesi Kapsam Denetimi
 
