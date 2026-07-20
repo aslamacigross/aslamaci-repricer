@@ -742,6 +742,9 @@ const financeReport = {
   summary: {
     order_count: 42,
     revenue: 28650,
+    sales_revenue: 28650,
+    sales_order_count: 42,
+    sales_source: "ORDER_DETAIL",
     commission: 4610.75,
     shipping: 3920.4,
     service_fee: 553.98,
@@ -781,6 +784,13 @@ const financeReport = {
     },
   ],
   transactions: [],
+  coverage: {
+    status: "COMPLETE",
+    profitability_complete: true,
+    detailed_orders: 42,
+    financial_orders: 0,
+    covered_financial_orders: 0,
+  },
   packaging: { amount: 850 },
   insights: [
     {
