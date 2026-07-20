@@ -121,7 +121,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Aynı barkodun iki pazaryerindeki mapping ve desi hesaplarının bağımsız regresyon testi
 - [x] Hepsiburada varsayılan `hepsiJET`, KDV dahil `10,50 TL` hizmet bedeli ve ayrı sepet baremleri
 - [x] Hepsiburada aksiyonunun Trendyol fiyat servisine gidemediğini kanıtlayan sert entegrasyon kilidi
-- [x] Backend testleri: 172/172; React testleri: 21/21; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
+- [x] Backend testleri: 178/178; React testleri: 21/21; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
 - [x] Satış & Kâr aylık raporundaki tüm PostgreSQL sonuç kolonları açık ve güvenli takma adlarla doğrulandı
 - [x] Başarılı tekrar denemede eski hata durumunu temizleyen ortak UI veri yükleyici regresyon testi
 - [x] Trendyol settlement senkronunda 15 günlük API sınırına uygun parçalı tarih aralığı ve sayfalama
