@@ -54,6 +54,7 @@ describe("Toplu mapping paneli", () => {
       expect(post).toHaveBeenCalledWith("/api/mappings/bulk-upsert", {
         rows: [
           {
+            marketplace: "TRENDYOL",
             barcode: "8690609598109",
             cost_item_code: "YUMUSATICI_ACTISOFT_1500ML",
             quantity: 1,
@@ -119,6 +120,7 @@ describe("Toplu mapping paneli", () => {
         barcode: "8697654365254",
         cost_item_code: "BEST_CHOICE_KAMP_SANDALYESI",
         quantity: 1,
+        marketplace: "TRENDYOL",
       }),
     );
   });
@@ -128,7 +130,7 @@ describe("Kargo pazaryeri ayrımı", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     get.mockImplementation(async (path) => {
-      if (path === "/api/shipping/coverage")
+      if (path.startsWith("/api/shipping/coverage"))
         return { data: { warnings: [], carriers: [] } };
       if (path.includes("marketplace=HEPSIBURADA"))
         return {
@@ -171,23 +173,24 @@ describe("Kargo pazaryeri ayrımı", () => {
   });
 
   test("Trendyol ve Hepsiburada tarifelerini ayrı gösterir", async () => {
-    const user = userEvent.setup();
-    render(<Costs mode="shipping" notify={vi.fn()} />);
+    const { rerender } = render(
+      <Costs mode="shipping" notify={vi.fn()} marketplace="TRENDYOL" />,
+    );
 
     expect(await screen.findByText(/501 tarife/)).toBeVisible();
     expect(screen.getByText("Sepet baremleri")).toBeVisible();
     expect(screen.getByText("Kargo maliyeti hesapla")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Hepsiburada" }));
+    rerender(
+      <Costs mode="shipping" notify={vi.fn()} marketplace="HEPSIBURADA" />,
+    );
 
     expect(await screen.findByText(/49\.511 tarife/)).toBeVisible();
     expect(
       screen.getByText("Hepsiburada anlaşmalı kargo tarifesi"),
     ).toBeVisible();
-    expect(screen.queryByText("Sepet baremleri")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Kargo maliyeti hesapla"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("Sepet baremleri")).toBeVisible();
+    expect(screen.getByText("Kargo maliyeti hesapla")).toBeVisible();
     expect(get).toHaveBeenCalledWith(
       expect.stringContaining("marketplace=HEPSIBURADA"),
     );
@@ -196,7 +199,7 @@ describe("Kargo pazaryeri ayrımı", () => {
   test("boş Hepsiburada tarifesini panelden güvenli içe aktarır", async () => {
     const user = userEvent.setup();
     get.mockImplementation(async (path) => {
-      if (path === "/api/shipping/coverage")
+      if (path.startsWith("/api/shipping/coverage"))
         return { data: { warnings: [], carriers: [] } };
       const hepsiburada = path.includes("marketplace=HEPSIBURADA");
       return {
@@ -212,9 +215,8 @@ describe("Kargo pazaryeri ayrımı", () => {
     });
     post.mockResolvedValue({ data: { successful: 49511, metadata: {} } });
 
-    render(<Costs mode="shipping" notify={vi.fn()} />);
-    await user.click(
-      await screen.findByRole("button", { name: "Hepsiburada" }),
+    render(
+      <Costs mode="shipping" notify={vi.fn()} marketplace="HEPSIBURADA" />,
     );
     await user.click(
       await screen.findByRole("button", { name: "Tarifeyi yükle" }),

@@ -10,7 +10,7 @@ flowchart LR
   SERVICES --> REPOS[Repositories]
   REPOS --> DB[(PostgreSQL)]
   SERVICES --> TY[Trendyol Seller API]
-  SERVICES --> HB[Hepsiburada Read-only API]
+  SERVICES --> HB[Hepsiburada API Adapter]
   SERVICES --> SUPPLIERS[File / Bizim / BİM fiyat kaynakları]
   JOBS[Job Scheduler + Advisory Lock] --> SERVICES
 ```
@@ -30,6 +30,12 @@ Frontend build'i Express tarafından sunulur; Railway'de tek servis yeterlidir.
 ## Veri Sahipliği
 
 PostgreSQL ürün, ayar, maliyet, buybox, aksiyon, öğrenme ve audit verilerinin tek gerçek kaynağıdır. Trendyol ürün, fiyat, stok ve komisyon verileri Trendyol Seller API üzerinden alınır. Panel ayarları `product_settings` ve `system_settings` tablolarına yazılır.
+
+## Pazaryeri İzolasyonu
+
+Tek React kabuğundaki üst seçici aktif pazaryerini bütün sayfalara taşır. Repository sorguları ürün, mapping, komisyon, kargo, ambalaj, dashboard, finans, buybox ve repricer tablolarında `marketplace` filtresi olmadan çalışmaz. Aynı barkod iki pazaryerinde bulunsa bile anahtarı `(marketplace, barcode)` olduğu için hesap ve aksiyonlar birbirinden bağımsızdır.
+
+`system_settings` içinde `default_carrier_trendyol`, `service_fee_trendyol`, `default_carrier_hepsiburada` ve `service_fee_hepsiburada` ayrı tutulur. Hepsiburada varsayılanı `hepsiJET` ve KDV dahil `10,50 TL` hizmet bedelidir. Kargo baremleri ile ambalaj kuralları da `marketplace` kolonuyla ayrılır.
 
 Para hesapları JavaScript kayan nokta aritmetiğiyle biriktirilmez; tutarlar kuruşa, oranlar ölçekli tam sayıya çevrilip yuvarlanarak hesaplanır. PostgreSQL tarafında parasal alanlar `NUMERIC` olarak saklanır.
 
@@ -107,7 +113,7 @@ Gece tedarikçi jobları İstanbul saatinde bir kez ve sırayla çalışır. Her
 
 `marketplace_orders`, `marketplace_order_items` ve `marketplace_financial_transactions` sipariş anındaki maliyet snapshot'ını korur. Aylık rapor; ciro, komisyon, kargo, hizmet, ürün alış ve manuel ambalaj giderinden operasyonel nakit kârını üretir. Bu sonuç muhasebesel KDV kârı olarak kullanılmaz.
 
-Hepsiburada katmanı şu anda Basic Auth ile yalnız sipariş okur. Kargo tarifeleri versiyonlu import edilir ve `marketplace='HEPSIBURADA'` ile Trendyol tarifelerinden ayrılır. Hepsiburada fiyat yazma servisi veya otomatik repricer yolu bulunmaz.
+Hepsiburada katmanı şu anda Basic Auth ile sipariş okur. Ürün, mapping, komisyon, kargo, finans, buybox, aksiyon ve öğrenme ekranları platform anahtarıyla ayrı veri yüzeyine sahiptir. Kargo tarifeleri versiyonlu import edilir ve `marketplace='HEPSIBURADA'` ile Trendyol tarifelerinden ayrılır. Tam katalog/buybox/fiyat API kimlikleri gelene kadar Hepsiburada repricer yolu `MARKETPLACE_CREDENTIALS_MISSING` ile kapalıdır; bu yol Trendyol istemcisini çağıramaz.
 
 ## Operasyon Kontrolleri
 

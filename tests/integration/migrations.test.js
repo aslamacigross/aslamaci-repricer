@@ -40,6 +40,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "015_supplier_bulk_price_tiers",
       "016_bim_market_live_sync",
       "017_operations_finance_and_safety",
+      "018_hepsiburada_shipping_barems",
     ],
   );
   const safety = await db.query(
@@ -78,6 +79,22 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   assert.equal(bimMarketJob.rowCount, 1);
   assert.equal(bimMarketJob.rows[0].enabled, true);
   assert.equal(Number(bimMarketJob.rows[0].schedule_minutes), 1440);
+  const hepsiburadaDefaults = await db.query(
+    `SELECT key,value FROM system_settings
+     WHERE key IN('default_carrier_hepsiburada','service_fee_hepsiburada')
+     ORDER BY key`,
+  );
+  assert.deepEqual(
+    hepsiburadaDefaults.rows.map((row) => [row.key, row.value]),
+    [
+      ["default_carrier_hepsiburada", "hepsiJET"],
+      ["service_fee_hepsiburada", 10.5],
+    ],
+  );
+  const hepsiburadaBarems = await db.query(
+    "SELECT COUNT(*)::int count FROM shipping_barems WHERE marketplace='HEPSIBURADA'",
+  );
+  assert.equal(hepsiburadaBarems.rows[0].count, 14);
   const supplierTierColumns = await db.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name IN('file_market_items','mapping_suggestion_items')
@@ -157,8 +174,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "014_supplier_price_pools",
       "015_supplier_bulk_price_tiers",
       "016_bim_market_live_sync",
+      "017_operations_finance_and_safety",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

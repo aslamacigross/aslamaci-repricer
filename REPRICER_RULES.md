@@ -32,6 +32,8 @@ Kargo tarifesi ve baremi panel/veritabanında KDV hariç tutulur; yüzde 20 ekle
 
 ## Otomatik Aksiyon Safety Gate
 
+Her karar ve aksiyon bir `marketplace` taşır. Ürün, buybox, günlük limit, öğrenme ve fiyat doğrulama kayıtları aynı pazaryerinden değilse işlem yapılmaz. Hepsiburada canlı katalog/buybox/fiyat kimlikleri doğrulanana kadar bu pazaryerinde önizleme ve aksiyon üretme `MARKETPLACE_CREDENTIALS_MISSING` ile kilitlidir; Hepsiburada aksiyonu Trendyol fiyat servisine gönderilemez.
+
 - Global repricer açık
 - Global dry-run kapalı
 - Ürün auto update açık

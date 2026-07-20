@@ -394,13 +394,13 @@ class ProductRepository {
     return { product, mappings };
   }
 
-  async history(barcode, type) {
+  async history(barcode, type, marketplace = "TRENDYOL") {
     const queries = {
-      buybox: `SELECT * FROM buybox_history WHERE marketplace='TRENDYOL' AND barcode=$1 ORDER BY observed_at DESC LIMIT 250`,
-      price: `SELECT * FROM price_war_log WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`,
-      repricer: `SELECT * FROM repricer_actions WHERE barcode=$1 ORDER BY created_at DESC LIMIT 250`,
+      buybox: `SELECT * FROM buybox_history WHERE marketplace=$1 AND barcode=$2 ORDER BY observed_at DESC LIMIT 250`,
+      price: `SELECT * FROM price_war_log WHERE marketplace=$1 AND barcode=$2 ORDER BY created_at DESC LIMIT 250`,
+      repricer: `SELECT * FROM repricer_actions WHERE marketplace=$1 AND barcode=$2 ORDER BY created_at DESC LIMIT 250`,
     };
-    return (await this.db.query(queries[type], [barcode])).rows;
+    return (await this.db.query(queries[type], [marketplace, barcode])).rows;
   }
 }
 

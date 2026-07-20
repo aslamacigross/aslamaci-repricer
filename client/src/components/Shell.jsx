@@ -42,6 +42,9 @@ export default function Shell({
   onLogout,
   children,
   dryRun = true,
+  marketplace = "TRENDYOL",
+  onMarketplaceChange,
+  integrations,
 }) {
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [route]);
@@ -52,7 +55,7 @@ export default function Shell({
           <span className="brand-mark">A</span>
           <div>
             <strong>Aşlamacı ERP</strong>
-            <small>Trendyol Repricer V2</small>
+            <small>Pazaryeri Operasyonları V2</small>
           </div>
           <IconButton
             className="mobile-close"
@@ -95,6 +98,36 @@ export default function Shell({
             onClick={() => setOpen(true)}
           />
           <div className="top-title">Operasyon Merkezi</div>
+          <div
+            className="segmented marketplace-switch"
+            aria-label="Pazaryeri seçimi"
+          >
+            <button
+              type="button"
+              className={marketplace === "TRENDYOL" ? "active" : ""}
+              onClick={() => onMarketplaceChange?.("TRENDYOL")}
+            >
+              Trendyol
+            </button>
+            <button
+              type="button"
+              className={marketplace === "HEPSIBURADA" ? "active" : ""}
+              onClick={() => onMarketplaceChange?.("HEPSIBURADA")}
+            >
+              Hepsiburada
+            </button>
+          </div>
+          {marketplace === "HEPSIBURADA" && (
+            <Badge
+              tone={
+                integrations?.hepsiburada?.configured ? "success" : "warning"
+              }
+            >
+              {integrations?.hepsiburada?.configured
+                ? "Bağlantı hazır"
+                : "Bağlantı bekleniyor"}
+            </Badge>
+          )}
           <div className="top-status">
             <span className="status-dot" />
             Sistem çevrimiçi

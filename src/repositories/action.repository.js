@@ -20,9 +20,13 @@ function nextLearningRecommendation(item) {
     : "Mevcut fiyatı koru ve yeni buybox sonucu topla.";
 }
 
-function actionFilter({ status, barcode } = {}) {
+function actionFilter({ status, barcode, marketplace } = {}) {
   const params = [];
   const where = ["1=1"];
+  if (marketplace) {
+    params.push(String(marketplace).toUpperCase());
+    where.push(`ra.marketplace=$${params.length}`);
+  }
   if (status === "EXPIRED")
     where.push("ra.status IN('PENDING','APPROVED') AND ra.expires_at<NOW()");
   else if (status) {
@@ -57,8 +61,8 @@ class ActionRepository {
       });
   }
 
-  async list({ status, barcode, page = 1, limit = 50 }) {
-    const { params, where } = actionFilter({ status, barcode });
+  async list({ status, barcode, marketplace, page = 1, limit = 50 }) {
+    const { params, where } = actionFilter({ status, barcode, marketplace });
     params.push(
       Math.min(Number(limit) || 50, 200),
       (Math.max(Number(page) || 1, 1) - 1) * Math.min(Number(limit) || 50, 200),
@@ -99,14 +103,20 @@ class ActionRepository {
     ).rows[0];
   }
 
-  async findOpen(barcode, client = this.db, excludeId = null) {
+  async findOpen(
+    barcode,
+    client = this.db,
+    excludeId = null,
+    marketplace = null,
+  ) {
     return (
       await client.query(
         `SELECT * FROM repricer_actions WHERE barcode=$1
-       AND ($2::bigint IS NULL OR id<>$2)
+       AND ($2::text IS NULL OR marketplace=$2)
+       AND ($3::bigint IS NULL OR id<>$3)
        AND status IN('PENDING','APPROVED','SENDING','AWAITING_RESULT')
        ORDER BY created_at DESC LIMIT 1`,
-        [barcode, excludeId],
+        [barcode, marketplace, excludeId],
       )
     ).rows[0];
   }
@@ -449,33 +459,40 @@ class ActionRepository {
     ).rows[0];
   }
 
-  async todayStats(barcode, client = this.db) {
+  async todayStats(barcode, marketplace = "TRENDYOL", client = this.db) {
+    if (marketplace && typeof marketplace.query === "function") {
+      client = marketplace;
+      marketplace = "TRENDYOL";
+    }
     return (
       await client.query(
         `SELECT COUNT(*)::int action_count,
           COALESCE(SUM(ABS(COALESCE(applied_price,proposed_price)-old_price)),0) total_change,
           (SELECT old_price FROM repricer_actions first_action
-           WHERE first_action.barcode=$1 AND first_action.created_at>=CURRENT_DATE
+           WHERE first_action.marketplace=$2 AND first_action.barcode=$1
+             AND first_action.created_at>=CURRENT_DATE
              AND first_action.status IN('SENT','SUCCESS','AWAITING_RESULT')
            ORDER BY first_action.created_at LIMIT 1) day_start_price
-       FROM repricer_actions WHERE barcode=$1 AND created_at>=CURRENT_DATE
+       FROM repricer_actions WHERE marketplace=$2 AND barcode=$1
+         AND created_at>=CURRENT_DATE
          AND status IN('SENT','SUCCESS','AWAITING_RESULT')`,
-        [barcode],
+        [barcode, marketplace],
       )
     ).rows[0];
   }
 
-  async learningList(barcode) {
-    const params = [];
-    let where = "";
+  async learningList(barcode, marketplace = "TRENDYOL") {
+    const params = [String(marketplace).toUpperCase()];
+    let where = "WHERE rl.marketplace=$1";
     if (barcode) {
       params.push(barcode);
-      where = "WHERE rl.barcode=$1";
+      where += " AND rl.barcode=$2";
     }
     return (
       await this.db.query(
         `SELECT rl.*,p.product_name,p.my_price,p.rank,p.buybox_price,
-       (SELECT COUNT(*) FROM price_change_outcomes pco WHERE pco.barcode=rl.barcode)::int outcome_count
+       (SELECT COUNT(*) FROM price_change_outcomes pco
+         WHERE pco.marketplace=rl.marketplace AND pco.barcode=rl.barcode)::int outcome_count
        FROM repricer_learning rl LEFT JOIN products p ON p.marketplace=rl.marketplace AND p.barcode=rl.barcode
        ${where} ORDER BY rl.updated_at DESC`,
         params,
@@ -483,8 +500,8 @@ class ActionRepository {
     ).rows;
   }
 
-  async learningDetail(barcode) {
-    const learning = (await this.learningList(barcode))[0] || null;
+  async learningDetail(barcode, marketplace = "TRENDYOL") {
+    const learning = (await this.learningList(barcode, marketplace))[0] || null;
     const attempts = (
       await this.db.query(
         `SELECT ra.id,ra.action,ra.strategy,ra.reason,ra.old_price,
@@ -501,9 +518,9 @@ class ActionRepository {
            FROM price_change_outcomes pco WHERE pco.action_id=ra.id
            ORDER BY checked_at DESC LIMIT 1
          ) outcome ON TRUE
-         WHERE ra.marketplace='TRENDYOL' AND ra.barcode=$1
+         WHERE ra.marketplace=$1 AND ra.barcode=$2
          ORDER BY ra.created_at DESC LIMIT 20`,
-        [barcode],
+        [marketplace, barcode],
       )
     ).rows;
     return {
@@ -513,15 +530,16 @@ class ActionRepository {
     };
   }
 
-  async updateLearning(barcode, input) {
+  async updateLearning(barcode, input, marketplace = "TRENDYOL") {
     return (
       await this.db.query(
-        `UPDATE repricer_learning SET learned_price_cut_tl=COALESCE($2,learned_price_cut_tl),
-       min_undercut=COALESCE($3,min_undercut),max_undercut=COALESCE($4,max_undercut),
-       paused=COALESCE($5,paused),learned_max_increase_tl=COALESCE($6,learned_max_increase_tl),
-       strategy=COALESCE($7,strategy),consecutive_failures=COALESCE($8,consecutive_failures),
-       updated_at=NOW() WHERE marketplace='TRENDYOL' AND barcode=$1 RETURNING *`,
+        `UPDATE repricer_learning SET learned_price_cut_tl=COALESCE($3,learned_price_cut_tl),
+       min_undercut=COALESCE($4,min_undercut),max_undercut=COALESCE($5,max_undercut),
+       paused=COALESCE($6,paused),learned_max_increase_tl=COALESCE($7,learned_max_increase_tl),
+       strategy=COALESCE($8,strategy),consecutive_failures=COALESCE($9,consecutive_failures),
+       updated_at=NOW() WHERE marketplace=$1 AND barcode=$2 RETURNING *`,
         [
+          marketplace,
           barcode,
           input.learned_price_cut_tl,
           input.min_undercut,

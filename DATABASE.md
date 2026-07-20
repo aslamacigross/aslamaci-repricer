@@ -90,6 +90,13 @@
 - Kargo tarifelerini pazaryeri bazında ayırır ve Hepsiburada tarife import geçmişini saklar.
 - Aşağı yönlü günlük yüzde 5 sınırı ile limitsiz yukarı yön ayarlarını güvenli varsayılan olarak ekler.
 
+### `018_hepsiburada_shipping_barems`
+
+- `shipping_barems` ve `packaging_rules` tablolarına `marketplace` ekler.
+- Sepet baremi benzersizliğini `(marketplace, min_basket, max_basket, carrier)` yapar.
+- Trendyol ve Hepsiburada kargo/ambalaj kurallarını fiziksel olarak ayırır.
+- Hepsiburada için `hepsiJET`, KDV dahil `10,50 TL` hizmet bedeli ve iki sepet aralığındaki 14 barem kaydını ekler.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`
@@ -126,7 +133,7 @@
 3. Cost code ve barkod referansları doğrulanır.
 4. Transaction içinde temp staging tablo oluşturulur.
 5. Staging tekrar doğrulanır.
-6. Yalnızca doğrulama başarılıysa ilgili barkodların marketplace mappingleri değiştirilir.
+6. Yalnızca doğrulama başarılıysa ilgili `(marketplace, barkod)` mappingleri değiştirilir.
 7. Maliyetler tekrar hesaplanır.
 
 Okuma veya doğrulama hatasında mevcut mapping verisi değişmez.

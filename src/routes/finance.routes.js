@@ -34,12 +34,13 @@ function financeRoutes({ finance, jobService, audit }) {
         req.body.amount,
         req.user.username,
         req.body.note,
+        req.body.marketplace || "TRENDYOL",
       );
       await audit.record({
         actor: req.user.username,
         action: "MONTHLY_PACKAGING_UPDATED",
         entityType: "finance",
-        entityId: req.body.month,
+        entityId: `${req.body.marketplace || "TRENDYOL"}:${req.body.month}`,
         after: data,
         ip: req.ip,
         requestId: req.id,

@@ -28,8 +28,13 @@ test("yüksek güvenli desiyi uygular, belirsiz ürünü inceleme kuyruğuna al�
             },
           ],
         };
-      if (sql.includes("SELECT DISTINCT barcode"))
-        return { rows: [{ barcode: "TEST-BARCODE" }] };
+      if (sql.includes("SELECT DISTINCT marketplace,barcode"))
+        return {
+          rows: [
+            { marketplace: "TRENDYOL", barcode: "TEST-BARCODE" },
+            { marketplace: "HEPSIBURADA", barcode: "TEST-BARCODE" },
+          ],
+        };
       return { rows: [], rowCount: 1 };
     },
   };
@@ -37,13 +42,25 @@ test("yüksek güvenli desiyi uygular, belirsiz ürünü inceleme kuyruğuna al�
   const service = new DesiService({
     db,
     costEngine: {
-      recalculate: async (barcode) => recalculated.push(barcode),
+      recalculate: async (barcode, queryable, marketplace) =>
+        recalculated.push({ barcode, queryable, marketplace }),
     },
   });
   const result = await service.estimateSupplierCosts();
   assert.equal(result.metadata.updated, 1);
   assert.equal(result.metadata.queued, 1);
-  assert.deepEqual(recalculated, ["TEST-BARCODE"]);
+  assert.deepEqual(recalculated, [
+    {
+      barcode: "TEST-BARCODE",
+      queryable: undefined,
+      marketplace: "TRENDYOL",
+    },
+    {
+      barcode: "TEST-BARCODE",
+      queryable: undefined,
+      marketplace: "HEPSIBURADA",
+    },
+  ]);
   assert.ok(
     calls.some(
       (call) =>

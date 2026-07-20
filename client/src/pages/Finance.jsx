@@ -37,9 +37,8 @@ import DataTable, { money } from "../components/DataTable";
 const currentMonth = new Date().toISOString().slice(0, 7);
 const expenseColors = ["#b4232a", "#d6831f", "#146c94", "#725aa3", "#59645e"];
 
-export default function Finance({ notify }) {
+export default function Finance({ notify, marketplace = "TRENDYOL" }) {
   const [month, setMonth] = useState(currentMonth);
-  const [marketplace, setMarketplace] = useState("TRENDYOL");
   const [syncing, setSyncing] = useState(false);
   const { data, loading, error, reload } = useRemote(
     () => get(`/api/finance/monthly?month=${month}&marketplace=${marketplace}`),
@@ -114,6 +113,7 @@ export default function Finance({ notify }) {
       await put("/api/finance/packaging", {
         month,
         amount: Number(packagingValue),
+        marketplace,
       });
       setPackaging("");
       await reload();
@@ -129,7 +129,7 @@ export default function Finance({ notify }) {
     <>
       <PageHeader
         title="Satış & Kâr"
-        description="Sipariş, nakit ihtiyacı ve aylık aile içi mutabakat"
+        description={`${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} sipariş, nakit ihtiyacı ve aylık mutabakatı`}
         actions={
           <Button icon={RefreshCw} onClick={sync} disabled={syncing}>
             {syncing ? "Finans verisi çekiliyor" : "Siparişleri yenile"}
@@ -137,20 +137,6 @@ export default function Finance({ notify }) {
         }
       />
       <div className="toolbar finance-toolbar">
-        <div className="segmented">
-          <button
-            className={marketplace === "TRENDYOL" ? "active" : ""}
-            onClick={() => setMarketplace("TRENDYOL")}
-          >
-            Trendyol
-          </button>
-          <button
-            className={marketplace === "HEPSIBURADA" ? "active" : ""}
-            onClick={() => setMarketplace("HEPSIBURADA")}
-          >
-            Hepsiburada
-          </button>
-        </div>
         <Field label="Rapor ayı">
           <input
             type="month"

@@ -24,8 +24,8 @@ const {
   mappingAutomationRoutes,
 } = require("./routes/mapping-automation.routes");
 
-const APP_VERSION = "2.6.0";
-const REQUIRED_MIGRATION = "017_operations_finance_and_safety";
+const APP_VERSION = "2.7.0";
+const REQUIRED_MIGRATION = "018_hepsiburada_shipping_barems";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);
@@ -47,7 +47,7 @@ function createApp(container = createContainer()) {
     requestContext,
     cors,
     express.json({ limit: "2mb" }),
-    createRateLimiter({ max: 180 }),
+    createRateLimiter({ max: env.nodeEnv === "development" ? 1000 : 180 }),
   );
   app.get("/version", (req, res) =>
     res.json({

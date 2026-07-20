@@ -250,3 +250,41 @@ test("dashboard zarar ve minimum fiyat detayları pasif ürünleri dışarıda b
     /p\.is_active=TRUE AND p\.stock_quantity>0 AND p\.min_price>0 AND p\.my_price<p\.min_price/,
   );
 });
+
+test("dashboard verisi ve önbelleği pazaryerleri arasında karışmaz", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (sql.includes("COUNT(*)::int total_products"))
+        return {
+          rows: [
+            {
+              total_products: params[0] === "HEPSIBURADA" ? 12 : 705,
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const repository = new DashboardRepository(db);
+
+  const trendyol = await repository.get({ marketplace: "TRENDYOL" });
+  const hepsiburada = await repository.get({ marketplace: "HEPSIBURADA" });
+  const queryCount = calls.length;
+  const cachedTrendyol = await repository.get({ marketplace: "TRENDYOL" });
+  const cachedHepsiburada = await repository.get({
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(trendyol.kpis.total_products, 705);
+  assert.equal(hepsiburada.kpis.total_products, 12);
+  assert.equal(cachedTrendyol.kpis.total_products, 705);
+  assert.equal(cachedHepsiburada.kpis.total_products, 12);
+  assert.equal(calls.length, queryCount);
+  assert.ok(
+    calls
+      .filter((call) => call.params.length)
+      .some((call) => call.params[0] === "HEPSIBURADA"),
+  );
+});

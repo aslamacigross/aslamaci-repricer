@@ -29,7 +29,11 @@ export default function App() {
     [checking, setChecking] = useState(true),
     [route, setRoute] = useState(location.hash.slice(1) || "dashboard"),
     [toast, setToast] = useState(null),
-    [dryRun, setDryRun] = useState(true);
+    [dryRun, setDryRun] = useState(true),
+    [integrations, setIntegrations] = useState(null),
+    [marketplace, setMarketplace] = useState(
+      () => localStorage.getItem("aslamaci-marketplace") || "TRENDYOL",
+    );
   useEffect(() => {
     const fn = () => setRoute(location.hash.slice(1) || "dashboard");
     addEventListener("hashchange", fn);
@@ -37,9 +41,15 @@ export default function App() {
       .then((x) => {
         setCsrf(x.csrfToken);
         setUser(x.user);
-        return get("/api/repricer/settings");
+        return Promise.all([
+          get("/api/repricer/settings"),
+          get("/api/integrations"),
+        ]);
       })
-      .then((x) => setDryRun(Boolean(x.data.dryRun)))
+      .then(([repricerSettings, integrationStatus]) => {
+        setDryRun(Boolean(repricerSettings.data.dryRun));
+        setIntegrations(integrationStatus.data);
+      })
       .catch(() => setUser(null))
       .finally(() => setChecking(false));
     return () => removeEventListener("hashchange", fn);
@@ -47,6 +57,11 @@ export default function App() {
   function navigate(next) {
     location.hash = next;
     setRoute(next);
+  }
+  function changeMarketplace(next) {
+    const normalized = next === "HEPSIBURADA" ? next : "TRENDYOL";
+    localStorage.setItem("aslamaci-marketplace", normalized);
+    setMarketplace(normalized);
   }
   async function logout() {
     try {
@@ -65,12 +80,16 @@ export default function App() {
       onNavigate={navigate}
       onLogout={logout}
       dryRun={dryRun}
+      marketplace={marketplace}
+      onMarketplaceChange={changeMarketplace}
+      integrations={integrations}
     >
       <Suspense fallback={<Loading />}>
         <Page
           mode={route}
           notify={(message, type = "success") => setToast({ message, type })}
           setDryRun={setDryRun}
+          marketplace={marketplace}
         />
       </Suspense>
       <Toast toast={toast} onClose={() => setToast(null)} />

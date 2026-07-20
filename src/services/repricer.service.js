@@ -35,15 +35,27 @@ class RepricerService {
     };
   }
 
-  async candidates(barcode) {
-    const params = [];
+  ensureSupportedMarketplace(marketplace) {
+    const normalized = String(marketplace || "TRENDYOL").toUpperCase();
+    if (normalized !== "TRENDYOL")
+      throw new AppError(
+        "Hepsiburada repricer bağlantısı credentials bekliyor",
+        409,
+        "MARKETPLACE_CREDENTIALS_MISSING",
+      );
+    return normalized;
+  }
+
+  async candidates(barcode, marketplace = "TRENDYOL") {
+    const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
+    const params = [normalizedMarketplace];
     let filter = "AND COALESCE(ps.auto_update,p.auto_update,FALSE)=TRUE";
     if (Array.isArray(barcode) && barcode.length) {
       params.push(barcode);
-      filter = "AND p.barcode=ANY($1::text[])";
+      filter = "AND p.barcode=ANY($2::text[])";
     } else if (barcode) {
       params.push(barcode);
-      filter = "AND p.barcode=$1";
+      filter = "AND p.barcode=$2";
     }
     return (
       await this.db.query(
@@ -63,16 +75,17 @@ class RepricerService {
       COALESCE(rl.paused,FALSE)learning_paused
       FROM products p LEFT JOIN product_settings ps ON ps.marketplace=p.marketplace AND ps.barcode=p.barcode
       LEFT JOIN repricer_learning rl ON rl.marketplace=p.marketplace AND rl.barcode=p.barcode
-      WHERE p.marketplace='TRENDYOL' ${filter} ORDER BY p.product_name`,
+      WHERE p.marketplace=$1 ${filter} ORDER BY p.product_name`,
         params,
       )
     ).rows;
   }
 
-  async preview(barcode) {
+  async preview(barcode, marketplace = "TRENDYOL") {
     if (Array.isArray(barcode) && barcode.length === 0) return [];
+    const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
     const global = await this.globalSettings();
-    const products = await this.candidates(barcode);
+    const products = await this.candidates(barcode, normalizedMarketplace);
     const results = [];
     for (const product of products) {
       const settings = {
@@ -92,7 +105,10 @@ class RepricerService {
           product.unlimited_increase ?? global.unlimitedIncrease,
       };
       const proposal = proposePrice(product, settings);
-      const today = await this.actions.todayStats(product.barcode);
+      const today = await this.actions.todayStats(
+        product.barcode,
+        normalizedMarketplace,
+      );
       const safety = safetyCheck({
         product,
         settings,
@@ -115,19 +131,20 @@ class RepricerService {
     return results;
   }
 
-  async generate({ barcode, source = "WEB" } = {}) {
-    const previews = await this.preview(barcode);
+  async generate({ barcode, source = "WEB", marketplace = "TRENDYOL" } = {}) {
+    const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
+    const previews = await this.preview(barcode, normalizedMarketplace);
     const created = [];
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
       const key = crypto
         .createHash("sha256")
         .update(
-          `${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}`,
+          `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}`,
         )
         .digest("hex");
       const action = await this.actions.create({
-        marketplace: "TRENDYOL",
+        marketplace: normalizedMarketplace,
         barcode: preview.barcode,
         product_name: preview.productName,
         old_price: preview.oldPrice,
@@ -165,7 +182,10 @@ class RepricerService {
   }
 
   async manualAction(barcode, proposedPrice, actor, options = {}) {
-    const products = await this.candidates(barcode);
+    const normalizedMarketplace = this.ensureSupportedMarketplace(
+      options.marketplace,
+    );
+    const products = await this.candidates(barcode, normalizedMarketplace);
     const product = products[0];
     if (!product)
       throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
@@ -194,7 +214,7 @@ class RepricerService {
       expectedMargin: calculateNetMargin(moneyInput),
     };
     const global = await this.globalSettings();
-    const today = await this.actions.todayStats(barcode);
+    const today = await this.actions.todayStats(barcode, normalizedMarketplace);
     const settings = {
       ...product,
       price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
@@ -233,12 +253,14 @@ class RepricerService {
       options.idempotencyKey ||
       crypto
         .createHash("sha256")
-        .update(`manual:${barcode}:${current}:${price}:${product.updated_at}`)
+        .update(
+          `manual:${normalizedMarketplace}:${barcode}:${current}:${price}:${product.updated_at}`,
+        )
         .digest("hex");
     const source = options.source || "MANUAL";
     const strategy = options.strategy || "Manuel";
     const created = await this.actions.create({
-      marketplace: "TRENDYOL",
+      marketplace: normalizedMarketplace,
       barcode,
       product_name: product.product_name,
       old_price: current,

@@ -28,7 +28,7 @@ class DesiService {
          ORDER BY ci.item_code`,
       )
     ).rows;
-    const affectedBarcodes = new Set();
+    const affectedProducts = new Map();
     let updated = 0;
     let queued = 0;
     for (const row of candidates) {
@@ -66,12 +66,16 @@ class DesiService {
           updated++;
           const mappings = (
             await this.db.query(
-              `SELECT DISTINCT barcode FROM product_cost_mappings
+              `SELECT DISTINCT marketplace,barcode FROM product_cost_mappings
                WHERE cost_item_code=$1`,
               [row.item_code],
             )
           ).rows;
-          for (const mapping of mappings) affectedBarcodes.add(mapping.barcode);
+          for (const mapping of mappings)
+            affectedProducts.set(
+              `${mapping.marketplace}:${mapping.barcode}`,
+              mapping,
+            );
         }
         continue;
       }
@@ -99,8 +103,12 @@ class DesiService {
       );
       queued++;
     }
-    for (const barcode of affectedBarcodes)
-      await this.costEngine.recalculate(barcode);
+    for (const product of affectedProducts.values())
+      await this.costEngine.recalculate(
+        product.barcode,
+        undefined,
+        product.marketplace,
+      );
     return {
       processed: candidates.length,
       successful: updated,
@@ -108,7 +116,7 @@ class DesiService {
       metadata: {
         updated,
         queued,
-        recalculated: affectedBarcodes.size,
+        recalculated: affectedProducts.size,
       },
     };
   }
@@ -152,12 +160,16 @@ class DesiService {
     );
     const mappings = (
       await this.db.query(
-        "SELECT DISTINCT barcode FROM product_cost_mappings WHERE cost_item_code=$1",
+        "SELECT DISTINCT marketplace,barcode FROM product_cost_mappings WHERE cost_item_code=$1",
         [costItemCode],
       )
     ).rows;
     for (const mapping of mappings)
-      await this.costEngine.recalculate(mapping.barcode);
+      await this.costEngine.recalculate(
+        mapping.barcode,
+        undefined,
+        mapping.marketplace,
+      );
     return item;
   }
 }

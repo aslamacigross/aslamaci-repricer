@@ -1,13 +1,15 @@
 class DashboardRepository {
   constructor(db) {
     this.db = db;
-    this.cache = null;
-    this.cacheExpiresAt = 0;
+    this.cache = new Map();
   }
 
-  async get({ fresh = false } = {}) {
-    if (!fresh && this.cache && Date.now() < this.cacheExpiresAt)
-      return this.cache;
+  async get({ fresh = false, marketplace = "TRENDYOL" } = {}) {
+    const normalizedMarketplace = String(
+      marketplace || "TRENDYOL",
+    ).toUpperCase();
+    const cached = this.cache.get(normalizedMarketplace);
+    if (!fresh && cached && Date.now() < cached.expiresAt) return cached.data;
     const [
       kpis,
       categories,
@@ -21,7 +23,8 @@ class DashboardRepository {
       error,
       settings,
     ] = await Promise.all([
-      this.db.query(`SELECT
+      this.db.query(
+        `SELECT
         COUNT(*)::int total_products,
         COUNT(*) FILTER(WHERE is_active)::int active_products,
         COUNT(*) FILTER(WHERE stock_quantity>0)::int stocked_products,
@@ -42,46 +45,71 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes'))::int stale_buybox,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND auto_update)::int auto_update_enabled,
         ROUND(AVG(calculated_net_margin)::numeric,2) average_margin,
-        (SELECT COUNT(*)::int FROM repricer_actions WHERE created_at>NOW()-INTERVAL '24 hours') actions_24h,
-        (SELECT COUNT(*)::int FROM repricer_actions WHERE created_at>NOW()-INTERVAL '24 hours' AND status IN('SUCCESS','SENT','AWAITING_RESULT','DRY_RUN')) successful_actions_24h,
-        (SELECT COUNT(*)::int FROM repricer_actions WHERE created_at>NOW()-INTERVAL '24 hours' AND status='FAILED') failed_actions_24h
-        FROM products WHERE marketplace='TRENDYOL'`),
-      this.db
-        .query(`SELECT COALESCE(category_name,'Kategori Yok') name,COUNT(*)::int count,
-        ROUND(AVG(calculated_net_margin)::numeric,2) margin FROM products WHERE marketplace='TRENDYOL'
-        GROUP BY category_name ORDER BY count DESC LIMIT 12`),
-      this.db.query(`SELECT DATE(created_at) AS "day",COUNT(*)::int count,
+        (SELECT COUNT(*)::int FROM repricer_actions WHERE marketplace=$1 AND created_at>NOW()-INTERVAL '24 hours') actions_24h,
+        (SELECT COUNT(*)::int FROM repricer_actions WHERE marketplace=$1 AND created_at>NOW()-INTERVAL '24 hours' AND status IN('SUCCESS','SENT','AWAITING_RESULT','DRY_RUN')) successful_actions_24h,
+        (SELECT COUNT(*)::int FROM repricer_actions WHERE marketplace=$1 AND created_at>NOW()-INTERVAL '24 hours' AND status='FAILED') failed_actions_24h
+        FROM products WHERE marketplace=$1`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT COALESCE(category_name,'Kategori Yok') name,COUNT(*)::int count,
+        ROUND(AVG(calculated_net_margin)::numeric,2) margin FROM products WHERE marketplace=$1
+        GROUP BY category_name ORDER BY count DESC LIMIT 12`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT DATE(created_at) AS "day",COUNT(*)::int count,
         COUNT(*) FILTER(WHERE status IN('SUCCESS','SENT','DRY_RUN'))::int successful,
         COUNT(*) FILTER(WHERE status='FAILED')::int failed
-        FROM repricer_actions WHERE created_at>NOW()-INTERVAL '14 days' GROUP BY DATE(created_at) ORDER BY day`),
-      this.db.query(`SELECT DATE(checked_at) AS "day",
+        FROM repricer_actions WHERE marketplace=$1 AND created_at>NOW()-INTERVAL '14 days'
+        GROUP BY DATE(created_at) ORDER BY day`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT DATE(checked_at) AS "day",
         COUNT(*) FILTER(WHERE buybox_won=TRUE)::int won,
         COUNT(*) FILTER(WHERE buybox_lost=TRUE)::int lost,
         COUNT(*) FILTER(WHERE target_achieved=TRUE)::int target_achieved
-        FROM price_change_outcomes WHERE checked_at>NOW()-INTERVAL '14 days'
-        GROUP BY DATE(checked_at) ORDER BY day`),
-      this.db.query(`SELECT COALESCE(ra.strategy,'Belirsiz') name,
+        FROM price_change_outcomes WHERE marketplace=$1 AND checked_at>NOW()-INTERVAL '14 days'
+        GROUP BY DATE(checked_at) ORDER BY day`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT COALESCE(ra.strategy,'Belirsiz') name,
         COUNT(*)::int attempts,
         COUNT(*) FILTER(WHERE rr.target_achieved=TRUE)::int successes,
         ROUND(100.0*COUNT(*) FILTER(WHERE rr.target_achieved=TRUE)/NULLIF(COUNT(*),0),2) success_rate
         FROM repricer_results rr JOIN repricer_actions ra ON ra.id=rr.action_id
-        WHERE rr.checked_at>NOW()-INTERVAL '90 days'
-        GROUP BY ra.strategy ORDER BY attempts DESC`),
-      this.db.query(`SELECT CASE
+        WHERE ra.marketplace=$1 AND rr.checked_at>NOW()-INTERVAL '90 days'
+        GROUP BY ra.strategy ORDER BY attempts DESC`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT CASE
           WHEN learned_price_cut_tl<=0.50 THEN '0-0,50 TL'
           WHEN learned_price_cut_tl<=1 THEN '0,51-1 TL'
           WHEN learned_price_cut_tl<=2 THEN '1,01-2 TL'
           ELSE '2 TL üzeri' END name,
         COUNT(*)::int count
-        FROM repricer_learning GROUP BY 1 ORDER BY MIN(learned_price_cut_tl)`),
-      this.db
-        .query(`SELECT barcode,product_name,calculated_net_profit value,calculated_net_margin margin
-        FROM products WHERE calculated_net_profit IS NOT NULL ORDER BY calculated_net_profit DESC LIMIT 7`),
-      this.db
-        .query(`SELECT barcode,product_name,calculated_net_profit value,calculated_net_margin margin,
+        FROM repricer_learning WHERE marketplace=$1
+        GROUP BY 1 ORDER BY MIN(learned_price_cut_tl)`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT barcode,product_name,calculated_net_profit value,calculated_net_margin margin
+        FROM products WHERE marketplace=$1 AND is_active=TRUE AND stock_quantity>0
+          AND calculated_net_profit IS NOT NULL
+        ORDER BY calculated_net_profit DESC LIMIT 7`,
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        `SELECT barcode,product_name,calculated_net_profit value,calculated_net_margin margin,
         CASE WHEN my_price<min_price THEN 'Minimum fiyat altı' WHEN calculated_net_profit<0 THEN 'Zarar' ELSE 'Düşük marj' END reason
-        FROM products WHERE my_price<min_price OR calculated_net_profit<0 OR calculated_net_margin<5
-        ORDER BY calculated_net_margin ASC LIMIT 7`),
+        FROM products WHERE marketplace=$1 AND is_active=TRUE AND stock_quantity>0
+          AND (my_price<min_price OR calculated_net_profit<0 OR calculated_net_margin<5)
+        ORDER BY calculated_net_margin ASC LIMIT 7`,
+        [normalizedMarketplace],
+      ),
       this.db.query(
         `SELECT DISTINCT ON(job_name) job_name,status AS last_status,
            started_at AS last_started_at,finished_at AS last_finished_at,error
@@ -112,24 +140,35 @@ class DashboardRepository {
         settings.rows.map((row) => [row.key, row.value]),
       ),
     };
-    this.cache = data;
-    this.cacheExpiresAt = Date.now() + 60000;
+    this.cache.set(normalizedMarketplace, {
+      data,
+      expiresAt: Date.now() + 60000,
+    });
     return data;
   }
 
-  async refresh() {
-    const data = await this.get({ fresh: true });
+  async refresh(marketplace = "TRENDYOL") {
+    const normalizedMarketplace = String(
+      marketplace || "TRENDYOL",
+    ).toUpperCase();
+    const data = await this.get({
+      fresh: true,
+      marketplace: normalizedMarketplace,
+    });
     await this.db.query(
       `INSERT INTO dashboard_cache(cache_key,payload,refreshed_at)
-       VALUES('main',$1::jsonb,NOW())
+       VALUES($1,$2::jsonb,NOW())
        ON CONFLICT(cache_key)DO UPDATE SET payload=EXCLUDED.payload,refreshed_at=NOW()`,
-      [JSON.stringify(data)],
+      [`main:${normalizedMarketplace}`, JSON.stringify(data)],
     );
     return { processed: 1, successful: 1, failed: 0 };
   }
 
-  async metricDetails(metric, { limit = 100 } = {}) {
+  async metricDetails(metric, { limit = 100, marketplace = "TRENDYOL" } = {}) {
     const cappedLimit = Math.min(Math.max(Number(limit) || 100, 1), 200);
+    const normalizedMarketplace = String(
+      marketplace || "TRENDYOL",
+    ).toUpperCase();
     const sellableProduct = "p.is_active=TRUE AND p.stock_quantity>0";
     const productMetrics = {
       total_products: "TRUE",
@@ -181,12 +220,12 @@ class DashboardRepository {
            FROM product_cost_mappings
            GROUP BY marketplace,barcode
          ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
-         WHERE p.marketplace='TRENDYOL' AND ${productMetrics[metric]}
+         WHERE p.marketplace=$1 AND ${productMetrics[metric]}
          ORDER BY
           CASE WHEN p.is_active THEN 0 ELSE 1 END,
           p.product_name NULLS LAST
-         LIMIT $1`,
-        [cappedLimit],
+         LIMIT $2`,
+        [normalizedMarketplace, cappedLimit],
       );
       return { type: "products", limit: cappedLimit, items: data.rows };
     }
@@ -196,10 +235,10 @@ class DashboardRepository {
           ra.status,ra.old_price,ra.proposed_price,ra.min_price,ra.reason,
           ra.source,ra.strategy
          FROM repricer_actions ra
-         WHERE ${actionMetrics[metric]}
+         WHERE ra.marketplace=$1 AND ${actionMetrics[metric]}
          ORDER BY ra.created_at DESC
-         LIMIT $1`,
-        [cappedLimit],
+         LIMIT $2`,
+        [normalizedMarketplace, cappedLimit],
       );
       return { type: "actions", limit: cappedLimit, items: data.rows };
     }

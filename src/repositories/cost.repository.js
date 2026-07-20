@@ -205,9 +205,14 @@ class CostRepository {
     ).rows;
   }
 
-  async listMappings({ barcode, search, limit = 10000 }) {
-    const params = [];
-    const where = ["1=1"];
+  async listMappings({
+    barcode,
+    search,
+    limit = 10000,
+    marketplace = "TRENDYOL",
+  }) {
+    const params = [String(marketplace || "TRENDYOL").toUpperCase()];
+    const where = ["pcm.marketplace=$1"];
     if (barcode) {
       params.push(barcode);
       where.push(`pcm.barcode=$${params.length}`);
@@ -246,7 +251,8 @@ class CostRepository {
       const barcode = String(row.barcode || "").trim();
       const code = String(row.cost_item_code || row.costCode || "").trim();
       const quantity = Number(row.quantity);
-      const key = `${barcode}:${code}`;
+      const marketplace = String(row.marketplace || "TRENDYOL").toUpperCase();
+      const key = `${marketplace}:${barcode}:${code}`;
       if (!barcode || !code || !Number.isFinite(quantity) || quantity <= 0)
         errors.push({ row: index + 1, code: "INVALID_ROW" });
       else if (seen.has(key))
@@ -254,7 +260,7 @@ class CostRepository {
       else {
         seen.add(key);
         normalized.push({
-          marketplace: row.marketplace || "TRENDYOL",
+          marketplace,
           barcode,
           cost_item_code: code,
           quantity,
@@ -264,11 +270,10 @@ class CostRepository {
     if (errors.length) return { valid: false, errors, rows: normalized };
 
     const codes = [...new Set(normalized.map((row) => row.cost_item_code))];
-    const barcodes = [...new Set(normalized.map((row) => row.barcode))];
+    const productKeys = [
+      ...new Set(normalized.map((row) => `${row.marketplace}:${row.barcode}`)),
+    ];
     const codePlaceholders = codes.map((_, index) => `$${index + 1}`).join(",");
-    const barcodePlaceholders = barcodes
-      .map((_, index) => `$${index + 1}`)
-      .join(",");
     const [costResult, productResult] = await Promise.all([
       queryable.query(
         `SELECT item_code,unit_cost,unit_desi FROM cost_items
@@ -276,14 +281,14 @@ class CostRepository {
         codes,
       ),
       queryable.query(
-        `SELECT barcode FROM products WHERE marketplace='TRENDYOL'
-         AND barcode IN (${barcodePlaceholders})`,
-        barcodes,
+        `SELECT marketplace,barcode FROM products
+         WHERE marketplace || ':' || barcode=ANY($1::text[])`,
+        [productKeys],
       ),
     ]);
     const existingCodes = new Set(costResult.rows.map((row) => row.item_code));
     const existingProducts = new Set(
-      productResult.rows.map((row) => row.barcode),
+      productResult.rows.map((row) => `${row.marketplace}:${row.barcode}`),
     );
     for (const code of codes)
       if (!existingCodes.has(code))
@@ -291,9 +296,9 @@ class CostRepository {
     for (const item of costResult.rows)
       if (Number(item.unit_cost) <= 0 || Number(item.unit_desi) <= 0)
         errors.push({ code: "INCOMPLETE_COST_ITEM", value: item.item_code });
-    for (const barcode of barcodes)
-      if (!existingProducts.has(barcode))
-        errors.push({ code: "PRODUCT_NOT_FOUND", value: barcode });
+    for (const key of productKeys)
+      if (!existingProducts.has(key))
+        errors.push({ code: "PRODUCT_NOT_FOUND", value: key });
     return { valid: errors.length === 0, errors, rows: normalized };
   }
 
@@ -324,8 +329,12 @@ class CostRepository {
           "STAGED_MAPPING_INVALID",
           staged.errors,
         );
+      const marketplaces = [
+        ...new Set(validation.rows.map((row) => row.marketplace)),
+      ];
       await client.query(
-        "DELETE FROM product_cost_mappings WHERE marketplace='TRENDYOL'",
+        "DELETE FROM product_cost_mappings WHERE marketplace=ANY($1::text[])",
+        [marketplaces],
       );
       const inserted = await client.query(
         `INSERT INTO product_cost_mappings(marketplace,barcode,cost_item_code,quantity,updated_at)
@@ -392,13 +401,19 @@ class CostRepository {
         "MAPPING_VALIDATION_FAILED",
         validation.errors,
       );
-    const barcodes = [...new Set(validation.rows.map((row) => row.barcode))];
+    const keys = [
+      ...new Set(
+        validation.rows.map((row) => `${row.marketplace}:${row.barcode}`),
+      ),
+    ];
     return this.withTransaction(async (client) => {
-      await client.query(
-        `DELETE FROM product_cost_mappings
-         WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])`,
-        [barcodes],
-      );
+      for (const key of keys) {
+        const separator = key.indexOf(":");
+        await client.query(
+          "DELETE FROM product_cost_mappings WHERE marketplace=$1 AND barcode=$2",
+          [key.slice(0, separator), key.slice(separator + 1)],
+        );
+      }
       for (const row of validation.rows)
         await client.query(
           `INSERT INTO product_cost_mappings(
@@ -407,14 +422,24 @@ class CostRepository {
           [row.marketplace, row.barcode, row.cost_item_code, row.quantity],
         );
       return {
-        replacedBarcodes: barcodes.length,
+        replacedBarcodes: keys.length,
         insertedMappings: validation.rows.length,
-        barcodes,
+        barcodes: [...new Set(validation.rows.map((row) => row.barcode))],
+        marketplaces: [
+          ...new Set(validation.rows.map((row) => row.marketplace)),
+        ],
+        targets: keys.map((key) => {
+          const separator = key.indexOf(":");
+          return {
+            marketplace: key.slice(0, separator),
+            barcode: key.slice(separator + 1),
+          };
+        }),
       };
     });
   }
 
-  async cloneMappings(sourceBarcode, targetBarcodes) {
+  async cloneMappings(sourceBarcode, targetBarcodes, marketplace = "TRENDYOL") {
     const source = String(sourceBarcode || "").trim();
     const targets = [
       ...new Set(
@@ -432,8 +457,8 @@ class CostRepository {
     const sourceRows = (
       await this.db.query(
         `SELECT cost_item_code,quantity FROM product_cost_mappings
-         WHERE marketplace='TRENDYOL' AND barcode=$1 ORDER BY id`,
-        [source],
+         WHERE marketplace=$1 AND barcode=$2 ORDER BY id`,
+        [marketplace, source],
       )
     ).rows;
     if (!sourceRows.length)
@@ -444,7 +469,7 @@ class CostRepository {
       );
     return this.replaceMappingsForBarcodes(
       targets.flatMap((barcode) =>
-        sourceRows.map((row) => ({ ...row, barcode })),
+        sourceRows.map((row) => ({ ...row, barcode, marketplace })),
       ),
     );
   }
@@ -508,7 +533,7 @@ class CostRepository {
     ).rows[0];
   }
 
-  async listCommissions() {
+  async listCommissions(marketplace = "TRENDYOL") {
     return (
       await this.db.query(
         `SELECT
@@ -522,22 +547,24 @@ class CostRepository {
            COUNT(*) FILTER (WHERE p.commission_rate IS NULL OR p.commission_rate<=0)::int AS missing_commission_count,
            MAX(p.special_commission_checked_at) AS last_api_check_at
          FROM products p
-         WHERE p.marketplace='TRENDYOL' AND p.category_id IS NOT NULL
+         WHERE p.marketplace=$1 AND p.category_id IS NOT NULL
          GROUP BY p.category_id
          ORDER BY MAX(p.category_name), p.category_id`,
+        [String(marketplace || "TRENDYOL").toUpperCase()],
       )
     ).rows;
   }
 
-  async missingCommissionCategories() {
+  async missingCommissionCategories(marketplace = "TRENDYOL") {
     return (
       await this.db.query(
         `SELECT category_id,MAX(category_name) AS category_name,
                 COUNT(*)::int AS product_count
-         FROM products WHERE marketplace='TRENDYOL'
+         FROM products WHERE marketplace=$1
            AND category_id IS NOT NULL
            AND (commission_rate IS NULL OR commission_rate<=0)
          GROUP BY category_id ORDER BY product_count DESC,category_id`,
+        [String(marketplace || "TRENDYOL").toUpperCase()],
       )
     ).rows;
   }
@@ -659,9 +686,13 @@ class CostRepository {
         [marketplace],
       ),
       this.db.query(
-        "SELECT * FROM shipping_barems ORDER BY carrier,min_basket",
+        "SELECT * FROM shipping_barems WHERE marketplace=$1 ORDER BY carrier,min_basket",
+        [marketplace],
       ),
-      this.db.query("SELECT * FROM packaging_rules ORDER BY min_desi"),
+      this.db.query(
+        "SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi",
+        [marketplace],
+      ),
     ]);
     return {
       rates: rates.rows,
@@ -712,18 +743,21 @@ class CostRepository {
         params,
       ),
       this.db.query(
-        `SELECT DISTINCT carrier FROM shipping_costs
-         WHERE marketplace=$1 ORDER BY carrier`,
+        `SELECT carrier FROM (
+           SELECT carrier FROM shipping_costs WHERE marketplace=$1
+           UNION
+           SELECT carrier FROM shipping_barems WHERE marketplace=$1
+         ) carriers ORDER BY carrier`,
         [normalizedMarketplace],
       ),
-      normalizedMarketplace === "TRENDYOL"
-        ? this.db.query(
-            "SELECT * FROM shipping_barems ORDER BY carrier,min_basket",
-          )
-        : Promise.resolve({ rows: [] }),
-      normalizedMarketplace === "TRENDYOL"
-        ? this.db.query("SELECT * FROM packaging_rules ORDER BY min_desi")
-        : Promise.resolve({ rows: [] }),
+      this.db.query(
+        "SELECT * FROM shipping_barems WHERE marketplace=$1 ORDER BY carrier,min_basket",
+        [normalizedMarketplace],
+      ),
+      this.db.query(
+        "SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi",
+        [normalizedMarketplace],
+      ),
     ]);
     return {
       marketplace: normalizedMarketplace,
@@ -785,11 +819,18 @@ class CostRepository {
     ).rows[0];
   }
   async saveBarem(input, id) {
+    const marketplace = String(input.marketplace || "TRENDYOL").toUpperCase();
     const overlap = await this.db.query(
-      `SELECT id FROM shipping_barems WHERE carrier=$1
-       AND ($4::bigint IS NULL OR id<>$4)
-       AND NOT($3<=min_basket OR $2>=max_basket) LIMIT 1`,
-      [input.carrier, input.min_basket, input.max_basket, id || null],
+      `SELECT id FROM shipping_barems WHERE marketplace=$1 AND carrier=$2
+       AND ($5::bigint IS NULL OR id<>$5)
+       AND NOT($4<=min_basket OR $3>=max_basket) LIMIT 1`,
+      [
+        marketplace,
+        input.carrier,
+        input.min_basket,
+        input.max_basket,
+        id || null,
+      ],
     );
     if (overlap.rowCount)
       throw new AppError(
@@ -800,11 +841,12 @@ class CostRepository {
     if (id)
       return (
         await this.db.query(
-          `UPDATE shipping_barems SET min_basket=$1,max_basket=$2,
-           barem_name=$3,carrier=$4,cost_ex_vat=$5,
-           cost_inc_vat=ROUND($5*(1+$6/100),2),vat_rate=$6,updated_at=NOW()
-           WHERE id=$7 RETURNING *`,
+          `UPDATE shipping_barems SET marketplace=$1,min_basket=$2,max_basket=$3,
+           barem_name=$4,carrier=$5,cost_ex_vat=$6,
+           cost_inc_vat=ROUND($6*(1+$7/100),2),vat_rate=$7,updated_at=NOW()
+           WHERE id=$8 RETURNING *`,
           [
+            marketplace,
             input.min_basket,
             input.max_basket,
             input.barem_name,
@@ -817,9 +859,10 @@ class CostRepository {
       ).rows[0];
     return (
       await this.db.query(
-        `INSERT INTO shipping_barems(min_basket,max_basket,barem_name,carrier,cost_ex_vat,cost_inc_vat,vat_rate,updated_at)
-    VALUES($1,$2,$3,$4,$5,ROUND($5*(1+$6/100),2),$6,NOW())ON CONFLICT(min_basket,max_basket,carrier)DO UPDATE SET barem_name=EXCLUDED.barem_name,cost_ex_vat=EXCLUDED.cost_ex_vat,cost_inc_vat=EXCLUDED.cost_inc_vat,vat_rate=EXCLUDED.vat_rate,updated_at=NOW()RETURNING *`,
+        `INSERT INTO shipping_barems(marketplace,min_basket,max_basket,barem_name,carrier,cost_ex_vat,cost_inc_vat,vat_rate,updated_at)
+    VALUES($1,$2,$3,$4,$5,$6,ROUND($6*(1+$7/100),2),$7,NOW())ON CONFLICT(marketplace,min_basket,max_basket,carrier)DO UPDATE SET barem_name=EXCLUDED.barem_name,cost_ex_vat=EXCLUDED.cost_ex_vat,cost_inc_vat=EXCLUDED.cost_inc_vat,vat_rate=EXCLUDED.vat_rate,updated_at=NOW()RETURNING *`,
         [
+          marketplace,
           input.min_basket,
           input.max_basket,
           input.barem_name,
@@ -839,9 +882,12 @@ class CostRepository {
     ).rows[0];
   }
   async savePackaging(input, id) {
+    const marketplace = String(input.marketplace || "TRENDYOL").toUpperCase();
     const overlap = await this.db.query(
-      `SELECT id FROM packaging_rules WHERE ($3::bigint IS NULL OR id<>$3) AND NOT($2<=min_desi OR $1>=max_desi) LIMIT 1`,
-      [input.min_desi, input.max_desi, id || null],
+      `SELECT id FROM packaging_rules WHERE marketplace=$1
+       AND ($4::bigint IS NULL OR id<>$4)
+       AND NOT($3<=min_desi OR $2>=max_desi) LIMIT 1`,
+      [marketplace, input.min_desi, input.max_desi, id || null],
     );
     if (overlap.rowCount)
       throw new AppError(
@@ -852,8 +898,9 @@ class CostRepository {
     if (id)
       return (
         await this.db.query(
-          "UPDATE packaging_rules SET min_desi=$1,max_desi=$2,packaging_cost=$3,note=$4,updated_at=NOW()WHERE id=$5 RETURNING *",
+          "UPDATE packaging_rules SET marketplace=$1,min_desi=$2,max_desi=$3,packaging_cost=$4,note=$5,updated_at=NOW()WHERE id=$6 RETURNING *",
           [
+            marketplace,
             input.min_desi,
             input.max_desi,
             input.packaging_cost,
@@ -864,8 +911,14 @@ class CostRepository {
       ).rows[0];
     return (
       await this.db.query(
-        "INSERT INTO packaging_rules(min_desi,max_desi,packaging_cost,note)VALUES($1,$2,$3,$4)RETURNING *",
-        [input.min_desi, input.max_desi, input.packaging_cost, input.note],
+        "INSERT INTO packaging_rules(marketplace,min_desi,max_desi,packaging_cost,note)VALUES($1,$2,$3,$4,$5)RETURNING *",
+        [
+          marketplace,
+          input.min_desi,
+          input.max_desi,
+          input.packaging_cost,
+          input.note,
+        ],
       )
     ).rows[0];
   }

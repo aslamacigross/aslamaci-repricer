@@ -33,7 +33,18 @@ class ShippingTariffService {
          WHERE marketplace='HEPSIBURADA' AND source_version=$1 FOR UPDATE`,
         [tariff.effectiveDate],
       );
-      if (previous.rowCount && !force) {
+      const actualRates = await client.query(
+        `SELECT COUNT(*)::integer AS count FROM shipping_costs
+         WHERE marketplace='HEPSIBURADA'`,
+      );
+      const actualRateCount = Number(actualRates.rows[0]?.count || 0);
+      const recordedRateCount = Number(previous.rows[0]?.rate_count || 0);
+      if (
+        previous.rowCount &&
+        !force &&
+        actualRateCount > 0 &&
+        actualRateCount === recordedRateCount
+      ) {
         await client.query("COMMIT");
         return {
           processed: 0,
@@ -42,7 +53,7 @@ class ShippingTariffService {
           metadata: {
             skipped: true,
             sourceVersion: tariff.effectiveDate,
-            rateCount: previous.rows[0].rate_count,
+            rateCount: actualRateCount,
           },
         };
       }

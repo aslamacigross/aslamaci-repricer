@@ -55,17 +55,19 @@ const cards = [
   ["successful_actions_24h", "Başarılı aksiyon", ShieldCheck, "success"],
   ["failed_actions_24h", "Başarısız aksiyon", TriangleAlert, "danger"],
 ];
-export default function Dashboard({ notify }) {
+export default function Dashboard({ notify, marketplace = "TRENDYOL" }) {
   const { data, loading, error, reload } = useRemote(
-    () => get("/api/dashboard"),
-    [],
+    () => get(`/api/dashboard?marketplace=${marketplace}`),
+    [marketplace],
   );
   const [liveRefreshing, setLiveRefreshing] = useState(false),
     [metricDetail, setMetricDetail] = useState(null);
   async function refreshLiveData() {
     setLiveRefreshing(true);
     try {
-      const response = await post("/api/dashboard/live-refresh");
+      const response = await post("/api/dashboard/live-refresh", {
+        marketplace,
+      });
       await reload();
       const failed = (response.data?.runs || []).filter(
         (run) => run.status === "FAILED",
@@ -85,7 +87,9 @@ export default function Dashboard({ notify }) {
   async function openMetric([key, label]) {
     setMetricDetail({ key, label, loading: true, items: [] });
     try {
-      const response = await get(`/api/dashboard/metrics/${key}?limit=100`);
+      const response = await get(
+        `/api/dashboard/metrics/${key}?limit=100&marketplace=${marketplace}`,
+      );
       setMetricDetail({ key, label, loading: false, ...response.data });
     } catch (nextError) {
       setMetricDetail(null);
@@ -104,7 +108,7 @@ export default function Dashboard({ notify }) {
     <>
       <PageHeader
         title="Genel Bakış"
-        description="Mağaza sağlığı, kârlılık ve repricer operasyonlarının güncel özeti"
+        description={`${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} mağaza sağlığı, kârlılık ve repricer operasyonlarının güncel özeti`}
         actions={
           <>
             <Button

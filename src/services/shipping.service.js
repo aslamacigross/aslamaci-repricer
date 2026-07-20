@@ -9,8 +9,8 @@ class ShippingService {
     this.costs = costs;
   }
 
-  async preview({ sale_price, desi, carrier }) {
-    const data = await this.costs.shipping();
+  async preview({ sale_price, desi, carrier, marketplace = "TRENDYOL" }) {
+    const data = await this.costs.shipping(marketplace);
     const salePrice = Number(sale_price);
     const dimensionalWeight = Number(desi);
     const selectedBarem = data.barems.find(
@@ -50,6 +50,7 @@ class ShippingService {
       desi: dimensionalWeight,
       roundedDesi,
       carrier,
+      marketplace,
       shippingSource: selectedBarem ? "BAREM" : selectedRate ? "DESI" : "NONE",
       shippingCost,
       packagingCost,
@@ -64,8 +65,8 @@ class ShippingService {
     };
   }
 
-  async coverage() {
-    const data = await this.costs.shipping();
+  async coverage(marketplace = "TRENDYOL") {
+    const data = await this.costs.shipping(marketplace);
     const carriers = [...new Set(data.rates.map((item) => item.carrier))].map(
       (carrier) => {
         const desiValues = data.rates

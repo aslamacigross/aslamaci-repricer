@@ -224,6 +224,10 @@ const settingsItems = [
   { key: "log_retention_days", value: 90 },
   { key: "default_carrier", value: "TEX" },
   { key: "service_fee", value: 13.19 },
+  { key: "default_carrier_trendyol", value: "TEX" },
+  { key: "service_fee_trendyol", value: 13.19 },
+  { key: "default_carrier_hepsiburada", value: "hepsiJET" },
+  { key: "service_fee_hepsiburada", value: 10.5 },
 ];
 const fileMarketItems = [
   {
@@ -587,7 +591,28 @@ const costs = {
             },
           ],
       barems: hepsiburada
-        ? []
+        ? [
+            {
+              id: 2,
+              marketplace,
+              carrier: "hepsiJET",
+              barem_name: "BAREM",
+              min_basket: 0,
+              max_basket: 199.99,
+              cost_ex_vat: 42,
+              cost_inc_vat: 50.4,
+            },
+            {
+              id: 3,
+              marketplace,
+              carrier: "hepsiJET",
+              barem_name: "BAREM2",
+              min_basket: 200,
+              max_basket: 399.99,
+              cost_ex_vat: 72,
+              cost_inc_vat: 86.4,
+            },
+          ]
         : [
             {
               id: 1,
@@ -600,9 +625,18 @@ const costs = {
             },
           ],
       packaging: hepsiburada
-        ? []
+        ? [
+            {
+              id: 2,
+              marketplace,
+              min_desi: 1,
+              max_desi: 3,
+              packaging_cost: 15,
+              note: "Hepsiburada standart paket",
+            },
+          ]
         : [{ id: 1, min_desi: 1, max_desi: 3, packaging_cost: 15 }],
-      carriers: [hepsiburada ? "Aras" : "TEX"],
+      carriers: hepsiburada ? ["hepsiJET", "Aras"] : ["TEX"],
       pagination: {
         page: Number(page),
         limit: Number(limit),

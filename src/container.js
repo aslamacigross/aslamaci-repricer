@@ -106,6 +106,30 @@ function createContainer(overrides = {}) {
     overrides.health || new HealthService({ db, trendyol, hepsiburada });
   const finance =
     overrides.finance || new FinanceService({ db, trendyol, hepsiburada });
+  const recalculateAllMarketplaces = async () => {
+    const results = await Promise.all(
+      ["TRENDYOL", "HEPSIBURADA"].map((marketplace) =>
+        costEngine.recalculate(undefined, undefined, marketplace),
+      ),
+    );
+    return {
+      processed: results.reduce(
+        (total, result) => total + Number(result.processed || 0),
+        0,
+      ),
+      successful: results.reduce(
+        (total, result) => total + Number(result.processed || 0),
+        0,
+      ),
+      failed: 0,
+      metadata: {
+        marketplaces: {
+          TRENDYOL: results[0].processed,
+          HEPSIBURADA: results[1].processed,
+        },
+      },
+    };
+  };
   jobService.register("sync-file-market-prices", () =>
     mappingAutomation.syncLiveFileItems(fileMarket),
   );
@@ -118,8 +142,8 @@ function createContainer(overrides = {}) {
   jobService.register("sync-products", () => sync.products());
   jobService.register("sync-buybox", () => sync.buybox());
   jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
-  jobService.register("calculate-costs", () => costEngine.recalculate());
-  jobService.register("validate-data", () => costEngine.recalculate());
+  jobService.register("calculate-costs", recalculateAllMarketplaces);
+  jobService.register("validate-data", recalculateAllMarketplaces);
   jobService.register("generate-mapping-suggestions", () =>
     mappingAutomation.generate({ limit: 1000 }),
   );
@@ -144,7 +168,7 @@ function createContainer(overrides = {}) {
       failed = 0;
     for (const action of generated.items) {
       try {
-        const product = await products.get(action.barcode);
+        const product = await products.get(action.barcode, action.marketplace);
         if (
           product?.settings?.mode !== "AUTOMATIC" ||
           !product?.settings?.auto_update
@@ -172,7 +196,20 @@ function createContainer(overrides = {}) {
     const current = await settings.getAll();
     return maintenance.cleanup(current.log_retention_days);
   });
-  jobService.register("dashboard-cache-refresh", () => dashboard.refresh());
+  jobService.register("dashboard-cache-refresh", async () => {
+    const results = await Promise.all([
+      dashboard.refresh("TRENDYOL"),
+      dashboard.refresh("HEPSIBURADA"),
+    ]);
+    return {
+      processed: 2,
+      successful: results.filter((result) => !result.failed).length,
+      failed: results.reduce(
+        (total, result) => total + Number(result.failed || 0),
+        0,
+      ),
+    };
+  });
   jobService.register("daily-system-health", () => health.scan());
   jobService.register("estimate-cost-desi", () => desi.estimateSupplierCosts());
   jobService.register("import-hepsiburada-shipping", () =>

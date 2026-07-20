@@ -23,15 +23,23 @@ function systemRoutes({
   r.get(
     "/buybox",
     asyncRoute(async (req, res) => {
+      const marketplace = String(
+        req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
       const result = await products.list({
         ...productFilters(req.query),
+        marketplace,
         status: req.query.status || undefined,
         limit: req.query.limit || 100,
         sort: "rank",
       });
-      const previews = await repricer.preview(
-        result.items.map((item) => item.barcode),
-      );
+      const previews =
+        marketplace === "TRENDYOL"
+          ? await repricer.preview(
+              result.items.map((item) => item.barcode),
+              marketplace,
+            )
+          : [];
       const previewByBarcode = new Map(
         previews.map((preview) => [preview.barcode, preview]),
       );
@@ -46,8 +54,16 @@ function systemRoutes({
             preview_proposed_price: preview?.proposedPrice ?? item.my_price,
             preview_difference: preview?.difference ?? 0,
             preview_expected_profit: preview?.expectedProfit ?? null,
-            preview_reason: preview?.reason || "Fiyat korunuyor",
-            preview_blocked_reasons: preview?.blockedReasons || [],
+            preview_reason:
+              preview?.reason ||
+              (marketplace === "HEPSIBURADA"
+                ? "Hepsiburada repricer bağlantısı credentials bekliyor"
+                : "Fiyat korunuyor"),
+            preview_blocked_reasons:
+              preview?.blockedReasons ||
+              (marketplace === "HEPSIBURADA"
+                ? ["MARKETPLACE_CREDENTIALS_MISSING"]
+                : []),
             preview_target_rank: preview?.targetRank ?? item.rank ?? null,
             preview_effective_undercut: preview?.effectiveUndercut ?? null,
           };
@@ -57,12 +73,21 @@ function systemRoutes({
   );
   r.post(
     "/sync/buybox",
-    asyncRoute(async (req, res) =>
+    asyncRoute(async (req, res) => {
+      const marketplace = String(
+        req.body.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace !== "TRENDYOL")
+        throw new AppError(
+          "Hepsiburada buybox bağlantısı credentials bekliyor",
+          409,
+          "MARKETPLACE_CREDENTIALS_MISSING",
+        );
       res.json({
         status: "ok",
         data: await jobService.run("sync-buybox", { source: "web" }),
-      }),
-    ),
+      });
+    }),
   );
   r.get(
     "/jobs",
@@ -168,7 +193,11 @@ function systemRoutes({
         "global_max_daily_decrease_pct",
         "global_unlimited_increase",
         "default_carrier",
+        "default_carrier_trendyol",
+        "default_carrier_hepsiburada",
         "service_fee",
+        "service_fee_trendyol",
+        "service_fee_hepsiburada",
         "buybox_max_age_minutes",
         "product_sync_cron_minutes",
         "buybox_sync_cron_minutes",
@@ -183,6 +212,8 @@ function systemRoutes({
         "global_max_price_change_pct",
         "global_max_daily_decrease_pct",
         "service_fee",
+        "service_fee_trendyol",
+        "service_fee_hepsiburada",
         "buybox_max_age_minutes",
         "product_sync_cron_minutes",
         "buybox_sync_cron_minutes",
@@ -211,7 +242,7 @@ function systemRoutes({
         "log_retention_days",
       ]);
       const changed = [];
-      let recalculateNeeded = false;
+      const recalculateMarketplaces = new Set();
       for (const [key, value] of Object.entries(input)) {
         if (!allowed.has(key))
           throw new AppError(
@@ -225,7 +256,7 @@ function systemRoutes({
             400,
             "VALIDATION_ERROR",
           );
-        if (key === "default_carrier" && !String(value || "").trim())
+        if (key.startsWith("default_carrier") && !String(value || "").trim())
           throw new AppError(
             "Varsayılan kargo firması boş olamaz",
             400,
@@ -245,17 +276,29 @@ function systemRoutes({
       }
       for (const [key, value] of Object.entries(input)) {
         changed.push(await settings.set(key, value, req.user.username));
-        if (key === "service_fee")
-          await settings.applyServiceFeeToProducts(Number(value));
-        if (["service_fee", "default_carrier"].includes(key))
-          recalculateNeeded = true;
+        if (key === "service_fee" || key === "service_fee_trendyol") {
+          await settings.applyServiceFeeToProducts(Number(value), "TRENDYOL");
+          recalculateMarketplaces.add("TRENDYOL");
+        }
+        if (key === "service_fee_hepsiburada") {
+          await settings.applyServiceFeeToProducts(
+            Number(value),
+            "HEPSIBURADA",
+          );
+          recalculateMarketplaces.add("HEPSIBURADA");
+        }
+        if (["default_carrier", "default_carrier_trendyol"].includes(key))
+          recalculateMarketplaces.add("TRENDYOL");
+        if (key === "default_carrier_hepsiburada")
+          recalculateMarketplaces.add("HEPSIBURADA");
         if (jobForSetting[key])
           await jobs.update(jobForSetting[key], {
             schedule_minutes: Number(value),
             enabled: null,
           });
       }
-      if (recalculateNeeded) await costEngine.recalculate();
+      for (const selectedMarketplace of recalculateMarketplaces)
+        await costEngine.recalculate(undefined, undefined, selectedMarketplace);
       await audit.record({
         actor: req.user.username,
         action: "SYSTEM_SETTINGS_UPDATED",

@@ -5,19 +5,34 @@ class CostEngineService {
     this.db = db;
   }
 
-  async recalculate(barcode, queryable = this.db) {
+  async recalculate(barcode, queryable = this.db, marketplace = "TRENDYOL") {
+    queryable = queryable || this.db;
+    const normalizedMarketplace = String(
+      marketplace || "TRENDYOL",
+    ).toUpperCase();
     const stored = (
       await queryable.query(
         `SELECT key,value FROM system_settings
-         WHERE key IN('default_carrier','service_fee')`,
+         WHERE key IN(
+           'default_carrier','service_fee',
+           'default_carrier_trendyol','default_carrier_hepsiburada',
+           'service_fee_trendyol','service_fee_hepsiburada'
+         )`,
       )
     ).rows;
     const settings = Object.fromEntries(
       stored.map((row) => [row.key, row.value]),
     );
     const params = [
-      settings.default_carrier || env.defaultCarrier,
-      Number(settings.service_fee ?? env.defaultServiceFee),
+      settings[`default_carrier_${normalizedMarketplace.toLowerCase()}`] ||
+        settings.default_carrier ||
+        env.defaultCarrier,
+      Number(
+        settings[`service_fee_${normalizedMarketplace.toLowerCase()}`] ??
+          settings.service_fee ??
+          env.defaultServiceFee,
+      ),
+      normalizedMarketplace,
     ];
     let filter = "";
     if (barcode) {
@@ -34,7 +49,7 @@ class CostEngineService {
           COUNT(*) FILTER(WHERE ci.item_code IS NOT NULL AND (ci.unit_cost<=0 OR COALESCE(ci.unit_desi,0)<=0)) incomplete_cost_count,
           COUNT(*) mapping_count
         FROM product_cost_mappings pcm LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-        WHERE pcm.marketplace='TRENDYOL' GROUP BY pcm.marketplace,pcm.barcode
+        WHERE pcm.marketplace=$3 GROUP BY pcm.marketplace,pcm.barcode
       ), calculated AS (
         SELECT p.marketplace,p.barcode,COALESCE(mt.product_cost,0) product_cost,
           CEIL(COALESCE(mt.total_desi,0)) total_desi,
@@ -45,7 +60,8 @@ class CostEngineService {
           (pr.id IS NOT NULL) packaging_rule_found
         FROM products p LEFT JOIN mapping_totals mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
         LEFT JOIN LATERAL(
-          SELECT * FROM shipping_barems x WHERE x.carrier=$1 AND p.my_price BETWEEN x.min_basket AND x.max_basket
+          SELECT * FROM shipping_barems x WHERE x.marketplace=p.marketplace
+            AND x.carrier=$1 AND p.my_price BETWEEN x.min_basket AND x.max_basket
           ORDER BY x.min_basket DESC LIMIT 1
         ) sb ON TRUE
         LEFT JOIN LATERAL(
@@ -54,10 +70,11 @@ class CostEngineService {
             AND x.desi_kg=CEIL(COALESCE(mt.total_desi,0)) LIMIT 1
         ) sc ON sb.id IS NULL
         LEFT JOIN LATERAL(
-          SELECT * FROM packaging_rules x WHERE CEIL(COALESCE(mt.total_desi,0)) BETWEEN x.min_desi AND x.max_desi
+          SELECT * FROM packaging_rules x WHERE x.marketplace=p.marketplace
+            AND CEIL(COALESCE(mt.total_desi,0)) BETWEEN x.min_desi AND x.max_desi
           ORDER BY x.min_desi DESC LIMIT 1
         ) pr ON TRUE
-        WHERE p.marketplace='TRENDYOL' ${filter}
+        WHERE p.marketplace=$3 ${filter}
       )
       UPDATE products p SET
         calculated_product_cost=c.product_cost,desi=c.total_desi,calculated_shipping_cost=c.shipping_cost,

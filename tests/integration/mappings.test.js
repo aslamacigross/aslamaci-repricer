@@ -4,8 +4,13 @@ const { CostRepository } = require("../../src/repositories/cost.repository");
 function queryResult(sql, rows) {
   if (sql.includes("SELECT item_code"))
     return { rows: rows.map((x) => ({ item_code: x.cost_item_code })) };
-  if (sql.includes("SELECT barcode"))
-    return { rows: rows.map((x) => ({ barcode: x.barcode })) };
+  if (sql.includes("FROM products"))
+    return {
+      rows: rows.map((x) => ({
+        marketplace: x.marketplace || "TRENDYOL",
+        barcode: x.barcode,
+      })),
+    };
   if (sql.includes("RETURNING id"))
     return { rows: rows.map((_, i) => ({ id: i + 1 })), rowCount: rows.length };
   return { rows: [], rowCount: 0 };
@@ -103,7 +108,54 @@ test("panel toplu mapping islemi yalnizca gonderilen barkodlari yeniler", async 
   const result = await repo.replaceMappingsForBarcodes(rows);
   assert.equal(result.replacedBarcodes, 2);
   assert.equal(result.insertedMappings, 3);
-  const deletion = calls.find((call) => call.sql.includes("DELETE FROM"));
-  assert.deepEqual(deletion.params[0], ["1", "2"]);
-  assert.match(deletion.sql, /barcode=ANY/);
+  const deletions = calls.filter((call) => call.sql.includes("DELETE FROM"));
+  assert.deepEqual(
+    deletions.map((call) => call.params),
+    [
+      ["TRENDYOL", "1"],
+      ["TRENDYOL", "2"],
+    ],
+  );
+  assert.ok(deletions.every((call) => call.sql.includes("marketplace=$1")));
+});
+
+test("ayni barkodun pazaryeri mappingleri birbirinden bagimsiz yenilenir", async () => {
+  const rows = [
+    {
+      marketplace: "TRENDYOL",
+      barcode: "ORTAK",
+      cost_item_code: "A",
+      quantity: 1,
+    },
+    {
+      marketplace: "HEPSIBURADA",
+      barcode: "ORTAK",
+      cost_item_code: "B",
+      quantity: 2,
+    },
+  ];
+  const calls = [];
+  const db = { query: async (sql) => queryResult(sql, rows) };
+  const repo = new CostRepository(db, async (work) =>
+    work({
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [], rowCount: 1 };
+      },
+    }),
+  );
+
+  const result = await repo.replaceMappingsForBarcodes(rows);
+
+  assert.equal(result.replacedBarcodes, 2);
+  assert.deepEqual(result.marketplaces.sort(), ["HEPSIBURADA", "TRENDYOL"]);
+  assert.deepEqual(
+    calls
+      .filter((call) => call.sql.includes("DELETE FROM"))
+      .map((call) => call.params),
+    [
+      ["TRENDYOL", "ORTAK"],
+      ["HEPSIBURADA", "ORTAK"],
+    ],
+  );
 });

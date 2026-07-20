@@ -230,7 +230,10 @@ class ActionService {
         409,
         "REVERSAL_EXISTS",
       );
-    const product = await this.products.get(original.barcode);
+    const product = await this.products.get(
+      original.barcode,
+      original.marketplace,
+    );
     if (!product)
       throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
     if (Number(product.my_price) !== Number(original.applied_price))
@@ -239,7 +242,12 @@ class ActionService {
         409,
         "PRICE_MISMATCH",
       );
-    const open = await this.actions.findOpen(original.barcode);
+    const open = await this.actions.findOpen(
+      original.barcode,
+      undefined,
+      null,
+      original.marketplace,
+    );
     if (open)
       throw new AppError(
         "Ürün için açık bir fiyat aksiyonu var",
@@ -252,6 +260,7 @@ class ActionService {
       actor,
       {
         source: "ROLLBACK",
+        marketplace: original.marketplace,
         strategy: "Manuel",
         reason: `#${original.id} fiyat aksiyonunu güvenli geri alma`,
         revertsActionId: original.id,
@@ -292,7 +301,10 @@ class ActionService {
         );
       if (locked.expires_at && new Date(locked.expires_at) < new Date())
         throw new AppError("Aksiyonun süresi dolmuş", 409, "ACTION_EXPIRED");
-      const product = await this.products.get(locked.barcode);
+      const product = await this.products.get(
+        locked.barcode,
+        locked.marketplace,
+      );
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
       if (Number(product.my_price) !== Number(locked.old_price))
@@ -301,7 +313,12 @@ class ActionService {
           409,
           "PRICE_MISMATCH",
         );
-      const open = await this.actions.findOpen(locked.barcode, client, id);
+      const open = await this.actions.findOpen(
+        locked.barcode,
+        client,
+        id,
+        locked.marketplace,
+      );
       if (open)
         throw new AppError(
           "Ürün için başka açık aksiyon var",
@@ -328,7 +345,11 @@ class ActionService {
       };
       proposal.expectedProfit = calculateNetProfit(moneyInput);
       proposal.expectedMargin = calculateNetMargin(moneyInput);
-      const today = await this.actions.todayStats(product.barcode, client);
+      const today = await this.actions.todayStats(
+        product.barcode,
+        locked.marketplace,
+        client,
+      );
       const safety = safetyCheck({
         product,
         settings: {
@@ -375,6 +396,12 @@ class ActionService {
     }
     const locked = preparation.locked;
     try {
+      if (locked.marketplace !== "TRENDYOL")
+        throw new AppError(
+          "Hepsiburada fiyat gönderimi credentials tamamlanana kadar kilitli",
+          409,
+          "MARKETPLACE_CREDENTIALS_MISSING",
+        );
       const marketProduct = await this.trendyol.getProductByBarcode(
         locked.barcode,
       );

@@ -63,7 +63,7 @@ test("toplu maliyet, CSV ve öğrenme detayı", async ({ page }) => {
   const downloadPromise = page.waitForEvent("download");
   await page.getByLabel("CSV dışa aktar").click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("costs-costs.csv");
+  expect(download.suggestedFilename()).toBe("costs-TRENDYOL-costs.csv");
 
   await page.getByRole("button", { name: "Toplu maliyet" }).click();
   await page
@@ -185,20 +185,61 @@ test("kargo tarifeleri pazaryerine göre ayrılır ve sayfalanır", async ({
   await expect(
     page.getByText("Hepsiburada anlaşmalı kargo tarifesi"),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Sepet baremleri" }).click();
   await expect(
-    page.getByRole("button", { name: "Sepet baremleri" }),
-  ).toHaveCount(0);
-  await expect(page.getByText("Kargo maliyeti hesapla")).toHaveCount(0);
+    page.getByRole("cell", { name: "hepsiJET" }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("Kargo maliyeti hesapla")).toBeVisible();
+
+  await page.getByRole("button", { name: "Sistem Ayarları" }).click();
+  await expect(page.getByLabel("Hepsiburada hizmet bedeli")).toHaveValue(
+    "10.5",
+  );
+  await expect(page.getByLabel("Hepsiburada varsayılan kargo")).toHaveValue(
+    "hepsiJET",
+  );
+
+  await page.getByRole("button", { name: "Repricer", exact: true }).click();
+  await expect(
+    page.getByText("Hepsiburada repricer bağlantısı bekleniyor"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Aksiyon oluştur" }),
+  ).toBeDisabled();
+
+  await page.getByRole("button", { name: "Kargo & Ambalaj" }).click();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
   await expect(
     page.getByRole("heading", { name: "Kargo & Ambalaj" }),
   ).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
-  if (process.env.VISUAL_QA)
+  const mobileLayout = await page.evaluate(() => {
+    const pageDocument = globalThis.document;
+    const topbar = pageDocument
+      .querySelector(".topbar")
+      ?.getBoundingClientRect();
+    const main = pageDocument
+      .querySelector(".main-area main")
+      ?.getBoundingClientRect();
+    return {
+      viewportWidth: globalThis.innerWidth,
+      documentWidth: pageDocument.documentElement.scrollWidth,
+      topbarBottom: topbar?.bottom || 0,
+      mainTop: main?.top || 0,
+    };
+  });
+  expect(mobileLayout.documentWidth).toBeLessThanOrEqual(
+    mobileLayout.viewportWidth,
+  );
+  expect(mobileLayout.mainTop).toBeGreaterThanOrEqual(
+    mobileLayout.topbarBottom,
+  );
+  if (process.env.VISUAL_QA) {
+    await page.waitForTimeout(350);
     await page.screenshot({
       path: "tmp/shipping-mobile.png",
       fullPage: true,
     });
+  }
 });

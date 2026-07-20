@@ -51,9 +51,14 @@ function fixture(status = "APPROVED") {
 test("dry-run onayli aksiyonda Trendyol cagrisi yapmaz", async () => {
   const { action, product } = fixture();
   let calls = 0;
+  let productMarketplace;
+  let statsMarketplace;
   const actions = {
     findOpen: async () => null,
-    todayStats: async () => ({ action_count: 0 }),
+    todayStats: async (barcode, marketplace) => {
+      statsMarketplace = marketplace;
+      return { action_count: 0 };
+    },
     updateStatus: async (id, status, fields) => ({
       ...action,
       status,
@@ -65,7 +70,12 @@ test("dry-run onayli aksiyonda Trendyol cagrisi yapmaz", async () => {
     withTransaction: async (work) =>
       work({ query: async () => ({ rows: [action] }) }),
     actions,
-    products: { get: async () => product },
+    products: {
+      get: async (barcode, marketplace) => {
+        productMarketplace = marketplace;
+        return product;
+      },
+    },
     settings: {},
     trendyol: {
       updatePrices: async () => {
@@ -86,6 +96,8 @@ test("dry-run onayli aksiyonda Trendyol cagrisi yapmaz", async () => {
   const result = await service.apply(1, "admin");
   assert.equal(result.status, "DRY_RUN");
   assert.equal(calls, 0);
+  assert.equal(productMarketplace, "TRENDYOL");
+  assert.equal(statsMarketplace, "TRENDYOL");
 });
 test("ayni aksiyon ikinci kez uygulanamaz", async () => {
   const { action, product } = fixture("DRY_RUN");
@@ -344,5 +356,55 @@ test("geri alma istegi dogrudan fiyat gondermeden bagli aksiyon olusturur", asyn
   assert.equal(result.status, "PENDING");
   assert.equal(request.price, action.old_price);
   assert.equal(request.options.source, "ROLLBACK");
+  assert.equal(request.options.marketplace, "TRENDYOL");
   assert.equal(request.options.revertsActionId, action.id);
+});
+
+test("Hepsiburada aksiyonu Trendyol fiyat servisine asla gönderilmez", async () => {
+  const { action, product } = fixture();
+  action.marketplace = "HEPSIBURADA";
+  product.marketplace = "HEPSIBURADA";
+  let trendyolCalls = 0;
+  let failedStatus;
+  const actions = {
+    findOpen: async () => null,
+    todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+    updateStatus: async (id, status) => {
+      if (status === "FAILED") failedStatus = status;
+      return { ...action, status };
+    },
+  };
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions,
+    products: { get: async () => product },
+    settings: {},
+    trendyol: {
+      getProductByBarcode: async () => {
+        trendyolCalls++;
+      },
+      updatePrices: async () => {
+        trendyolCalls++;
+      },
+    },
+    audit: { record: async () => {} },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: false,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+  });
+
+  await assert.rejects(
+    service.apply(action.id, "admin"),
+    (error) => error.code === "MARKETPLACE_CREDENTIALS_MISSING",
+  );
+  assert.equal(trendyolCalls, 0);
+  assert.equal(failedStatus, "FAILED");
 });

@@ -9,8 +9,22 @@ function repricerRoutes({
   audit,
 }) {
   const r = express.Router();
-  async function updateLearning(barcode, input, actor, action) {
-    const data = await actions.updateLearning(barcode, input);
+  const marketplace = (req) =>
+    String(
+      req.body?.marketplace || req.query?.marketplace || "TRENDYOL",
+    ).toUpperCase();
+  async function updateLearning(
+    barcode,
+    input,
+    actor,
+    action,
+    selectedMarketplace,
+  ) {
+    const data = await actions.updateLearning(
+      barcode,
+      input,
+      selectedMarketplace,
+    );
     await audit.record({
       actor,
       action,
@@ -31,7 +45,7 @@ function repricerRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        items: await repricer.preview(req.body.barcode),
+        items: await repricer.preview(req.body.barcode, marketplace(req)),
       }),
     ),
   );
@@ -43,6 +57,7 @@ function repricerRoutes({
         data: await repricer.generate({
           barcode: req.body.barcode,
           source: "WEB",
+          marketplace: marketplace(req),
         }),
       }),
     ),
@@ -56,18 +71,20 @@ function repricerRoutes({
         data: await repricer.generate({
           barcode: req.body.barcode,
           source: "DRY_RUN",
+          marketplace: marketplace(req),
         }),
       }),
     ),
   );
   r.post(
     "/repricer/run-auto",
-    asyncRoute(async (req, res) =>
+    asyncRoute(async (req, res) => {
+      repricer.ensureSupportedMarketplace(marketplace(req));
       res.json({
         status: "ok",
         data: await jobService.run("run-auto-repricer", { source: "web" }),
-      }),
-    ),
+      });
+    }),
   );
   r.get(
     "/actions",
@@ -175,7 +192,10 @@ function repricerRoutes({
   r.get(
     "/learning",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await actions.learningList() }),
+      res.json({
+        status: "ok",
+        items: await actions.learningList(undefined, marketplace(req)),
+      }),
     ),
   );
   r.get(
@@ -183,7 +203,10 @@ function repricerRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await actions.learningDetail(req.params.barcode),
+        data: await actions.learningDetail(
+          req.params.barcode,
+          marketplace(req),
+        ),
       }),
     ),
   );
@@ -197,6 +220,7 @@ function repricerRoutes({
           req.body,
           req.user.username,
           "REPRICER_LEARNING_UPDATED",
+          marketplace(req),
         ),
       }),
     ),
@@ -217,6 +241,7 @@ function repricerRoutes({
           },
           req.user.username,
           "REPRICER_LEARNING_RESET",
+          marketplace(req),
         ),
       }),
     ),
@@ -231,6 +256,7 @@ function repricerRoutes({
           { paused: true },
           req.user.username,
           "REPRICER_LEARNING_PAUSED",
+          marketplace(req),
         ),
       }),
     ),
@@ -249,6 +275,7 @@ function repricerRoutes({
           },
           req.user.username,
           "REPRICER_LEARNING_RESUMED",
+          marketplace(req),
         ),
       }),
     ),

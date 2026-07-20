@@ -89,6 +89,10 @@ function normalizeImageUrl(url) {
 
 function productsRoutes({ products, costEngine, audit, repricer }) {
   const r = express.Router();
+  const marketplace = (req) =>
+    String(
+      req.body?.marketplace || req.query?.marketplace || "TRENDYOL",
+    ).toUpperCase();
   r.get(
     "/",
     asyncRoute(async (req, res) => {
@@ -101,7 +105,7 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
     "/bulk-settings/preview",
     asyncRoute(async (req, res) => {
       const settings = validateSettings(req.body.settings || {});
-      const target = bulkTarget(req.body);
+      const target = { ...bulkTarget(req.body), marketplace: marketplace(req) };
       const data = await products.previewBulkSettings(target);
       res.json({ status: "ok", data: { ...data, settings } });
     }),
@@ -112,7 +116,7 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
       const settings = validateSettings(req.body.settings || {});
       if (!Object.keys(settings).length)
         throw new AppError("En az bir ayar seçilmeli", 400, "VALIDATION_ERROR");
-      const target = bulkTarget(req.body);
+      const target = { ...bulkTarget(req.body), marketplace: marketplace(req) };
       const preview = await products.previewBulkSettings(target);
       if (!preview.total)
         throw new AppError("Uygulanacak ürün bulunamadı", 400, "NO_TARGETS");
@@ -123,7 +127,7 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
       });
       if (settings.minimum_profit_tl !== undefined) {
         for (const barcode of data.barcodes)
-          await costEngine.recalculate(barcode);
+          await costEngine.recalculate(barcode, undefined, target.marketplace);
       }
       await audit.record({
         actor: req.user.username,
@@ -141,7 +145,7 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
   r.get(
     "/:barcode/image",
     asyncRoute(async (req, res) => {
-      const item = await products.get(req.params.barcode);
+      const item = await products.get(req.params.barcode, marketplace(req));
       const imageUrl = normalizeImageUrl(item?.product_image_url);
       if (!imageUrl)
         throw new AppError("Ürün görseli bulunamadı", 404, "IMAGE_NOT_FOUND");
@@ -173,7 +177,7 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
   r.get(
     "/:barcode",
     asyncRoute(async (req, res) => {
-      const item = await products.get(req.params.barcode);
+      const item = await products.get(req.params.barcode, marketplace(req));
       if (!item)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
       res.json({ status: "ok", data: item });
@@ -182,15 +186,24 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
   r.patch(
     "/:barcode",
     asyncRoute(async (req, res) => {
-      const before = await products.get(req.params.barcode);
+      const selectedMarketplace = marketplace(req);
+      const before = await products.get(
+        req.params.barcode,
+        selectedMarketplace,
+      );
       if (!before)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
       const data = await products.updateSettings(
         req.params.barcode,
         validateSettings(req.body),
+        selectedMarketplace,
       );
       if (req.body.minimum_profit_tl !== undefined)
-        await costEngine.recalculate(req.params.barcode);
+        await costEngine.recalculate(
+          req.params.barcode,
+          undefined,
+          selectedMarketplace,
+        );
       await audit.record({
         actor: req.user.username,
         action: "PRODUCT_SETTINGS_UPDATED",
@@ -207,7 +220,10 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
   r.get(
     "/:barcode/cost-breakdown",
     asyncRoute(async (req, res) => {
-      const data = await products.breakdown(req.params.barcode);
+      const data = await products.breakdown(
+        req.params.barcode,
+        marketplace(req),
+      );
       if (!data)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
       res.json({ status: "ok", data });
@@ -223,14 +239,22 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
       asyncRoute(async (req, res) =>
         res.json({
           status: "ok",
-          items: await products.history(req.params.barcode, type),
+          items: await products.history(
+            req.params.barcode,
+            type,
+            marketplace(req),
+          ),
         }),
       ),
     );
   r.post(
     "/:barcode/recalculate",
     asyncRoute(async (req, res) => {
-      const data = await costEngine.recalculate(req.params.barcode);
+      const data = await costEngine.recalculate(
+        req.params.barcode,
+        undefined,
+        marketplace(req),
+      );
       await audit.record({
         actor: req.user.username,
         action: "PRODUCT_COST_RECALCULATED",
@@ -253,6 +277,7 @@ function productsRoutes({ products, costEngine, audit, repricer }) {
         req.params.barcode,
         price,
         req.user.username,
+        { marketplace: marketplace(req) },
       );
       await audit.record({
         actor: req.user.username,

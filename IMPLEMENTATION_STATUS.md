@@ -1,6 +1,6 @@
 # Implementation Status
 
-Son güncelleme: 2026-07-20 (Europe/Istanbul)
+Son güncelleme: 2026-07-21 (Europe/Istanbul)
 
 ## Tamamlanan
 
@@ -28,7 +28,7 @@ Son güncelleme: 2026-07-20 (Europe/Istanbul)
 - [x] Background joblar ve PostgreSQL advisory lock
 - [x] React/Vite web panel ve mobil responsive düzen
 - [x] Ürün, maliyet, mapping, komisyon, kargo, buybox, repricer, aksiyon, öğrenme, job, log ve ayar sayfaları
-- [x] Unit/integration/regression testleri: 138/138 başarılı
+- [x] Unit/integration/regression testleri: 170/170 başarılı
 - [x] `004` migration ve atomik fiyat doğrulamasının gerçek PostgreSQL motorunda up/down testi
 - [x] Menekşe fixture: 312,28 TL
 - [x] Production frontend build ve code splitting
@@ -53,9 +53,9 @@ Son güncelleme: 2026-07-20 (Europe/Istanbul)
 - [x] Buybox geçmiş grafiği ve öğrenme/strateji dashboard grafikleri
 - [x] Fiyat aksiyonunu minimum fiyat korumasıyla düzenleyip onaylama
 - [x] Seçili aksiyona özel sonuç tekrar kontrolü
-- [x] React bileşen testleri: 14/14 başarılı
-- [x] Chrome masaüstü/mobil uçtan uca testleri: 6/6 başarılı
-- [x] Backend testleri: 138/138 başarılı
+- [x] React bileşen testleri: 20/20 başarılı
+- [x] Chrome masaüstü/mobil uçtan uca testleri: 8/8 başarılı
+- [x] Backend testleri: 170/170 başarılı
 - [x] Sıfır maliyet/desili cost item mappinglerinin `Maliyet eksik` ayrımı ve kayıt engeli
 - [x] Railway preview son kabulü: branch HEAD, `/health`, `/ready` ve `/version` eşleşmesi başarılı
 - [x] Panel kabuğunda `no-store`, hash'li statik dosyalarda uzun süreli immutable cache kontrolü
@@ -116,6 +116,12 @@ Son güncelleme: 2026-07-20 (Europe/Istanbul)
 - [x] Hepsiburada salt-okunur sipariş ve bağlantı sağlığı istemcisi
 - [x] Hepsiburada 13.07.2026 kargo PDF'inin 4.501 desi ve 11 taşıyıcıyla yapılandırılmış tarife importu
 - [x] Trendyol/Hepsiburada segmentli aylık finans görünümü
+- [x] Tek panelde global Trendyol/Hepsiburada seçimi
+- [x] Ürün, mapping, komisyon, kargo, finans, dashboard, buybox, aksiyon ve öğrenme sorgularında pazaryeri izolasyonu
+- [x] Aynı barkodun iki pazaryerindeki mapping ve desi hesaplarının bağımsız regresyon testi
+- [x] Hepsiburada varsayılan `hepsiJET`, KDV dahil `10,50 TL` hizmet bedeli ve ayrı sepet baremleri
+- [x] Hepsiburada aksiyonunun Trendyol fiyat servisine gidemediğini kanıtlayan sert entegrasyon kilidi
+- [x] Backend testleri: 170/170; React testleri: 20/20; Chrome E2E testleri: 8/8; ESLint ve production build başarılı
 
 ## PR Öncesi Kapsam Denetimi
 
@@ -135,7 +141,7 @@ Son güncelleme: 2026-07-20 (Europe/Istanbul)
 - [ ] Railway preview deneme planı sona ermeden kalıcı plan veya ortam kapatma kararı
 - [ ] Railway preview'a `HB_MERCHANT_ID` ve gizli `HB_INTEGRATOR_KEY` tanımlayıp salt-okunur bağlantı testi
 - [ ] Hepsiburada gerçek sipariş cevabıyla alan eşlemesini doğrulama ve komisyon/hizmet kesintisi mutabakatı
-- [ ] Hepsiburada ürün, buybox ve repricer eşdeğerliği; ilk sürümde fiyat yazma uygulanmadı
+- [ ] Hepsiburada Merchant ID ve tam katalog/buybox/fiyat API kimlikleriyle hazır veri yüzeylerini canlı adaptöre bağlama
 - [ ] Global dry-run kapatma ve canlı Trendyol repricer başlatma için ayrı kullanıcı onayı ve pilot kabulü
 
 ## Güvenlik Durumu
@@ -149,4 +155,4 @@ Son güncelleme: 2026-07-20 (Europe/Istanbul)
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.
 - Hepsiburada servis anahtarı repository, log ve test fixture'larına yazılmadı.
-- Hepsiburada entegrasyonu salt-okunurdur; ürün veya fiyat güncelleme metodu bulunmaz.
+- Hepsiburada sipariş adaptörü salt-okunurdur. Diğer ekranlar ve veri modeli platform bazında hazırdır; canlı katalog/buybox/fiyat adaptörü kimlikler gelene kadar sert kilitlidir.

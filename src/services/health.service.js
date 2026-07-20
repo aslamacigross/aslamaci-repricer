@@ -51,9 +51,9 @@ class HealthService {
       }
     }
 
-    const productHealth = (
+    const productHealthRows = (
       await this.db.query(
-        `SELECT
+        `SELECT marketplace,
            COUNT(*) FILTER(WHERE is_active) active_count,
            COUNT(*) FILTER(WHERE is_active AND NOT data_complete) incomplete_count,
            COUNT(*) FILTER(WHERE is_active AND data_status='ORPHAN_MAPPING') orphan_count,
@@ -62,29 +62,41 @@ class HealthService {
                buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '30 minutes'
              )
            ) stale_buybox_count
-         FROM products WHERE marketplace='TRENDYOL'`,
+         FROM products
+         WHERE marketplace IN('TRENDYOL','HEPSIBURADA')
+         GROUP BY marketplace`,
       )
-    ).rows[0];
-    const active = Number(productHealth.active_count || 0);
-    const incomplete = Number(productHealth.incomplete_count || 0);
-    const orphan = Number(productHealth.orphan_count || 0);
-    const staleBuybox = Number(productHealth.stale_buybox_count || 0);
-    add(
-      "PRODUCT_DATA",
-      orphan > 0 ? "FAIL" : incomplete > 0 ? "WARN" : "PASS",
-      `${active} aktif ürünün ${incomplete} tanesinde maliyet verisi eksik`,
-      { active, incomplete, orphan },
-    );
-    add(
-      "BUYBOX_FRESHNESS",
-      staleBuybox > Math.max(active * 0.1, 10)
-        ? "FAIL"
-        : staleBuybox > 0
-          ? "WARN"
-          : "PASS",
-      `${staleBuybox} aktif üründe buybox verisi 30 dakikadan eski`,
-      { active, staleBuybox },
-    );
+    ).rows;
+    for (const marketplace of ["TRENDYOL", "HEPSIBURADA"]) {
+      const productHealth = productHealthRows.find(
+        (row) => row.marketplace === marketplace,
+      ) || {
+        active_count: 0,
+        incomplete_count: 0,
+        orphan_count: 0,
+        stale_buybox_count: 0,
+      };
+      const active = Number(productHealth.active_count || 0);
+      const incomplete = Number(productHealth.incomplete_count || 0);
+      const orphan = Number(productHealth.orphan_count || 0);
+      const staleBuybox = Number(productHealth.stale_buybox_count || 0);
+      add(
+        `${marketplace}_PRODUCT_DATA`,
+        orphan > 0 ? "FAIL" : incomplete > 0 ? "WARN" : "PASS",
+        `${marketplace}: ${active} aktif ürünün ${incomplete} tanesinde maliyet verisi eksik`,
+        { marketplace, active, incomplete, orphan },
+      );
+      add(
+        `${marketplace}_BUYBOX_FRESHNESS`,
+        staleBuybox > Math.max(active * 0.1, 10)
+          ? "FAIL"
+          : staleBuybox > 0
+            ? "WARN"
+            : "PASS",
+        `${marketplace}: ${staleBuybox} aktif üründe buybox verisi 30 dakikadan eski`,
+        { marketplace, active, staleBuybox },
+      );
+    }
 
     const supplierJobs = (
       await this.db.query(

@@ -68,6 +68,67 @@
   box-shadow: 0 1px 3px rgb(23 45 35 / 12%);
   color: var(--green);
 }
+
+.marketplace-switch {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.topbar > .marketplace-switch + .badge {
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    align-content: center;
+    display: grid;
+    gap: 6px 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 92px;
+    padding: 6px 10px;
+  }
+
+  .topbar > .icon-btn {
+    margin-right: 0;
+  }
+
+  .top-title {
+    min-width: 0;
+  }
+
+  .top-status {
+    display: none;
+  }
+
+  .marketplace-switch {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-left: 0;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .marketplace-switch button {
+    min-width: 0;
+    padding: 0 6px;
+  }
+
+  .topbar > .marketplace-switch + .badge {
+    display: none;
+  }
+
+  .page-header > div:first-child,
+  .shipping-tariff-banner > div {
+    min-width: 0;
+  }
+
+  .page-header h1,
+  .shipping-tariff-banner p {
+    overflow-wrap: anywhere;
+  }
+}
 .shipping-toolbar {
   align-items: center;
   margin-bottom: 12px;

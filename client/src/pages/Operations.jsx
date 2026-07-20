@@ -77,6 +77,8 @@ const SAFETY_REASON_LABELS = {
   ABOVE_MAX_PRICE: "Önerilen fiyat maksimum fiyatın üstünde.",
   BELOW_MIN_DECREASE: "Fiyat düşüşü minimum fiyat sınırını zorlar.",
   COOLDOWN_ACTIVE: "İki fiyat aksiyonu arası bekleme süresi dolmamış.",
+  MARKETPLACE_CREDENTIALS_MISSING:
+    "Hepsiburada entegrasyon bilgileri henüz tamamlanmadı.",
 };
 
 function safetyReasonText(code) {
@@ -110,14 +112,19 @@ const info = {
   logs: ["Loglar", "Entegrasyon, kullanıcı ve sistem olaylarını izleyin"],
   settings: ["Sistem Ayarları", "Global güvenlik ve operasyon varsayılanları"],
 };
-export default function Operations({ mode, notify, setDryRun }) {
+export default function Operations({
+  mode,
+  notify,
+  setDryRun,
+  marketplace = "TRENDYOL",
+}) {
   const [refresh, setRefresh] = useState(0);
   const [t, d] = info[mode];
   return (
     <>
       <PageHeader
         title={t}
-        description={d}
+        description={`${["jobs", "logs", "settings"].includes(mode) ? "Sistem geneli" : marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} · ${d}`}
         actions={
           <IconButton
             icon={RefreshCw}
@@ -126,14 +133,27 @@ export default function Operations({ mode, notify, setDryRun }) {
           />
         }
       />
-      {mode === "buybox" && <Buybox key={refresh} notify={notify} />}{" "}
-      {mode === "repricer" && <Repricer key={refresh} notify={notify} />}{" "}
-      {mode === "actions" && <Actions key={refresh} notify={notify} />}{" "}
-      {mode === "learning" && <Learning key={refresh} notify={notify} />}{" "}
+      {mode === "buybox" && (
+        <Buybox key={refresh} notify={notify} marketplace={marketplace} />
+      )}{" "}
+      {mode === "repricer" && (
+        <Repricer key={refresh} notify={notify} marketplace={marketplace} />
+      )}{" "}
+      {mode === "actions" && (
+        <Actions key={refresh} notify={notify} marketplace={marketplace} />
+      )}{" "}
+      {mode === "learning" && (
+        <Learning key={refresh} notify={notify} marketplace={marketplace} />
+      )}{" "}
       {mode === "jobs" && <Jobs key={refresh} notify={notify} />}{" "}
       {mode === "logs" && <Logs key={refresh} />}{" "}
       {mode === "settings" && (
-        <Settings key={refresh} notify={notify} setDryRun={setDryRun} />
+        <Settings
+          key={refresh}
+          notify={notify}
+          setDryRun={setDryRun}
+          marketplace={marketplace}
+        />
       )}
     </>
   );
@@ -148,7 +168,7 @@ function Remote({ url, children }) {
   if (!data) return <Loading />;
   return children(data);
 }
-function Buybox({ notify }) {
+function Buybox({ notify, marketplace }) {
   const [payload, setPayload] = useState(null),
     [filters, setFilters] = useState({
       search: "",
@@ -167,7 +187,7 @@ function Buybox({ notify }) {
     const id = setTimeout(
       () => {
         const query = new URLSearchParams(
-          Object.entries({ ...filters, limit: 100 }).filter(
+          Object.entries({ ...filters, marketplace, limit: 100 }).filter(
             ([, value]) => value !== "",
           ),
         );
@@ -176,12 +196,12 @@ function Buybox({ notify }) {
       filters.search ? 250 : 0,
     );
     return () => clearTimeout(id);
-  }, [filters, reload]);
+  }, [filters, reload, marketplace]);
   async function exportAll(columns) {
     try {
       const limit = 1000;
       const query = new URLSearchParams(
-        Object.entries({ ...filters, page: 1, limit }).filter(
+        Object.entries({ ...filters, marketplace, page: 1, limit }).filter(
           ([, value]) => value !== "",
         ),
       );
@@ -442,7 +462,7 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
 function ProductThumb({ product }) {
   const [failed, setFailed] = useState(false);
   const src = product?.product_image_url
-    ? `/api/products/${encodeURIComponent(product.barcode)}/image`
+    ? `/api/products/${encodeURIComponent(product.barcode)}/image?marketplace=${product.marketplace || "TRENDYOL"}`
     : null;
   useEffect(() => setFailed(false), [src]);
   if (!src || failed)
@@ -489,7 +509,9 @@ function BuyboxHistory({ product, onClose }) {
   useEffect(() => {
     setItems(null);
     if (!product) return;
-    get(`/api/products/${product.barcode}/buybox-history`)
+    get(
+      `/api/products/${product.barcode}/buybox-history?marketplace=${product.marketplace || "TRENDYOL"}`,
+    )
       .then((result) => setItems(result.items || []))
       .catch(() => setItems([]));
   }, [product]);
@@ -573,7 +595,7 @@ function BuyboxHistory({ product, onClose }) {
     </Drawer>
   );
 }
-function Repricer({ notify }) {
+function Repricer({ notify, marketplace }) {
   const [barcode, setBarcode] = useState(""),
     [items, setItems] = useState(null),
     [selectedPreview, setSelectedPreview] = useState(null),
@@ -583,6 +605,7 @@ function Repricer({ notify }) {
     try {
       const x = await post("/api/repricer/preview", {
         barcode: barcode || undefined,
+        marketplace,
       });
       setItems(x.items);
     } catch (e) {
@@ -596,6 +619,7 @@ function Repricer({ notify }) {
     try {
       const x = await post("/api/repricer/generate-actions", {
         barcode: barcode || undefined,
+        marketplace,
       });
       notify(`${x.data.created} aksiyon oluşturuldu`);
       setItems(null);
@@ -684,6 +708,18 @@ function Repricer({ notify }) {
   ];
   return (
     <>
+      {marketplace === "HEPSIBURADA" && (
+        <div className="info-banner warning">
+          <ShieldAlert />
+          <div>
+            <strong>Hepsiburada repricer bağlantısı bekleniyor</strong>
+            <p>
+              Karar motoru ve güvenlik katmanı ayrıldı. Credentials ile ürün,
+              buybox ve fiyat servisleri bağlanmadan aksiyon üretilemez.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="info-banner warning">
         <ShieldAlert />
         <div>
@@ -704,11 +740,15 @@ function Repricer({ notify }) {
           variant="secondary"
           icon={Eye}
           onClick={preview}
-          disabled={loading}
+          disabled={loading || marketplace === "HEPSIBURADA"}
         >
           Önizle
         </Button>
-        <Button icon={Play} onClick={generate} disabled={loading}>
+        <Button
+          icon={Play}
+          onClick={generate}
+          disabled={loading || marketplace === "HEPSIBURADA"}
+        >
           Aksiyon oluştur
         </Button>
       </div>
@@ -835,7 +875,7 @@ function RepricerPreviewDetail({ item, onClose }) {
     </Drawer>
   );
 }
-function Actions({ notify }) {
+function Actions({ notify, marketplace }) {
   const [data, setData] = useState(null),
     [status, setStatus] = useState(""),
     [page, setPage] = useState(1),
@@ -843,7 +883,7 @@ function Actions({ notify }) {
     [selected, setSelected] = useState([]),
     [editing, setEditing] = useState(null);
   async function load() {
-    const query = new URLSearchParams({ page, limit: 50 });
+    const query = new URLSearchParams({ page, limit: 50, marketplace });
     if (status) query.set("status", status);
     setData(await get(`/api/actions?${query}`));
     setSelected([]);
@@ -860,7 +900,7 @@ function Actions({ notify }) {
   }
   useEffect(() => {
     load().catch((e) => notify(e.message, "error"));
-  }, [status, page]);
+  }, [status, page, marketplace]);
   async function act(action, row) {
     try {
       await post(
@@ -898,7 +938,7 @@ function Actions({ notify }) {
   async function exportAll(columns) {
     try {
       const limit = 200;
-      const query = new URLSearchParams({ page: 1, limit });
+      const query = new URLSearchParams({ page: 1, limit, marketplace });
       if (status) query.set("status", status);
       const first = await get(`/api/actions?${query}`);
       const items = [...first.items];
@@ -1109,20 +1149,22 @@ function Actions({ notify }) {
             ? `${selected.length} bekleyen aksiyon onaylanacak; fiyatlar henüz gönderilmeyecek.`
             : confirm?.type === "revert"
               ? "Eski fiyata dönmek için yeni ve bağlı bir aksiyon oluşturulacak. Bu aksiyon ayrıca onaylanmadan ve güvenlik kontrollerinden geçmeden gönderilmeyecek."
-              : "Aksiyon tüm güvenlik kontrollerinden yeniden geçecek. Global dry-run açıksa Trendyol'a hiçbir fiyat gönderilmeyecek."
+              : "Aksiyon tüm güvenlik kontrollerinden yeniden geçecek. Global dry-run açıksa seçili pazaryerine hiçbir fiyat gönderilmeyecek."
         }
       />
     </>
   );
 }
-function Learning({ notify }) {
+function Learning({ notify, marketplace }) {
   return (
-    <Remote url="/api/learning">
-      {(data) => <LearningTable data={data} notify={notify} />}
+    <Remote url={`/api/learning?marketplace=${marketplace}`}>
+      {(data) => (
+        <LearningTable data={data} notify={notify} marketplace={marketplace} />
+      )}
     </Remote>
   );
 }
-function LearningTable({ data, notify }) {
+function LearningTable({ data, notify, marketplace }) {
   const [rows, setRows] = useState(data.items),
     [selected, setSelected] = useState(null),
     [detail, setDetail] = useState(null);
@@ -1130,14 +1172,17 @@ function LearningTable({ data, notify }) {
     setSelected(row);
     setDetail(null);
     try {
-      setDetail((await get(`/api/learning/${row.barcode}`)).data);
+      setDetail(
+        (await get(`/api/learning/${row.barcode}?marketplace=${marketplace}`))
+          .data,
+      );
     } catch (error) {
       notify(error.message, "error");
     }
   }
   async function action(barcode, type) {
     try {
-      await post(`/api/learning/${barcode}/${type}`);
+      await post(`/api/learning/${barcode}/${type}`, { marketplace });
       notify(
         type === "reset"
           ? "Öğrenilen değer sıfırlandı"
@@ -1145,7 +1190,7 @@ function LearningTable({ data, notify }) {
             ? "Öğrenme devam ettirildi"
             : "Öğrenme duraklatıldı",
       );
-      setRows((await get("/api/learning")).items);
+      setRows((await get(`/api/learning?marketplace=${marketplace}`)).items);
     } catch (e) {
       notify(e.message, "error");
     }
@@ -1601,7 +1646,7 @@ function Logs() {
     </Remote>
   );
 }
-function Settings({ notify, setDryRun }) {
+function Settings({ notify, setDryRun, marketplace }) {
   const [data, setData] = useState(null),
     [form, setForm] = useState({}),
     [baseline, setBaseline] = useState({}),
@@ -1644,6 +1689,18 @@ function Settings({ notify, setDryRun }) {
     ["global_unlimited_increase", "Yukarı yönlü artış limitsiz"],
     ["maintenance_mode", "Bakım modu"],
   ];
+  const marketplaceLabel =
+    marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
+  const serviceFeeKey =
+    marketplace === "HEPSIBURADA"
+      ? "service_fee_hepsiburada"
+      : "service_fee_trendyol";
+  const carrierKey =
+    marketplace === "HEPSIBURADA"
+      ? "default_carrier_hepsiburada"
+      : "default_carrier_trendyol";
+  const legacyServiceFee = form.service_fee ?? "";
+  const legacyCarrier = form.default_carrier ?? "";
   return (
     <>
       <div className="settings-band">
@@ -1651,7 +1708,9 @@ function Settings({ notify, setDryRun }) {
           <Activity />
           <section>
             <strong>Fiyat güvenlik durumu</strong>
-            <p>Dry-run açıkken hiçbir aksiyon Trendyol'a gönderilmez.</p>
+            <p>
+              Dry-run açıkken hiçbir aksiyon hiçbir pazaryerine gönderilmez.
+            </p>
           </section>
         </div>
         <Badge tone={form.global_dry_run ? "warning" : "danger"}>
@@ -1678,7 +1737,7 @@ function Settings({ notify, setDryRun }) {
             ["default_max_increase_tl", "Varsayılan maksimum artış"],
             ["global_max_price_change_pct", "Maksimum değişim %"],
             ["global_max_daily_decrease_pct", "Aşağı yönlü günlük maksimum %"],
-            ["service_fee", "Hizmet bedeli"],
+            [serviceFeeKey, `${marketplaceLabel} hizmet bedeli`],
             ["buybox_max_age_minutes", "Buybox veri yaşı (dk)"],
             ["product_sync_cron_minutes", "Ürün sync sıklığı (dk)"],
             ["buybox_sync_cron_minutes", "Buybox sync sıklığı (dk)"],
@@ -1690,18 +1749,20 @@ function Settings({ notify, setDryRun }) {
               <input
                 type="number"
                 step="0.01"
-                value={form[key] ?? ""}
+                value={
+                  form[key] ?? (key === serviceFeeKey ? legacyServiceFee : "")
+                }
                 onChange={(e) =>
                   setForm({ ...form, [key]: Number(e.target.value) })
                 }
               />
             </Field>
           ))}
-          <Field label="Varsayılan kargo">
+          <Field label={`${marketplaceLabel} varsayılan kargo`}>
             <input
-              value={form.default_carrier || ""}
+              value={form[carrierKey] ?? legacyCarrier}
               onChange={(e) =>
-                setForm({ ...form, default_carrier: e.target.value })
+                setForm({ ...form, [carrierKey]: e.target.value })
               }
             />
           </Field>
@@ -1717,7 +1778,7 @@ function Settings({ notify, setDryRun }) {
         onClose={() => setConfirmLive(false)}
         onConfirm={() => save(true)}
         title="Canlı fiyat güvenliğini değiştir"
-        message="Dry-run kapatılıyor veya otomatik repricer açılıyor. Bu değişiklikten sonra ayrıca onaylanan fiyat aksiyonları Trendyol'a gönderilebilir. Devam etmek istediğinizden emin misiniz?"
+        message="Dry-run kapatılıyor veya otomatik repricer açılıyor. Bu değişiklikten sonra ayrıca onaylanan fiyat aksiyonları ilgili pazaryerine gönderilebilir. Devam etmek istediğinizden emin misiniz?"
         confirmLabel="Canlı modu onayla"
       />
     </>

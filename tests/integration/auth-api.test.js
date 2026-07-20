@@ -30,7 +30,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "010_product_images" }],
+                  : [{ version: "018_hepsiburada_shipping_barems" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },

@@ -353,7 +353,7 @@ class FinanceService {
       ? (
           await this.db.query(
             `SELECT barcode,calculated_product_cost,desi,service_fee
-             FROM products WHERE marketplace='TRENDYOL'
+             FROM products WHERE marketplace='HEPSIBURADA'
                AND barcode=ANY($1::text[])`,
             [barcodes],
           )
@@ -395,10 +395,18 @@ class FinanceService {
     const shipping = carrier
       ? (
           await this.db.query(
-            `SELECT cost_inc_vat FROM shipping_costs
-             WHERE marketplace='HEPSIBURADA' AND carrier=$1
-               AND desi_kg=CEIL($2::numeric) LIMIT 1`,
-            [carrier, totalDesi],
+            `SELECT cost_inc_vat,source FROM (
+               SELECT cost_inc_vat,'BAREM' AS source,0 AS priority
+               FROM shipping_barems
+               WHERE marketplace='HEPSIBURADA' AND carrier=$1
+                 AND $2::numeric BETWEEN min_basket AND max_basket
+               UNION ALL
+               SELECT cost_inc_vat,'DESI' AS source,1 AS priority
+               FROM shipping_costs
+               WHERE marketplace='HEPSIBURADA' AND carrier=$1
+                 AND desi_kg=CEIL($3::numeric)
+             ) selected ORDER BY priority LIMIT 1`,
+            [carrier, grossRevenue, totalDesi],
           )
         ).rows[0]
       : null;
@@ -560,17 +568,23 @@ class FinanceService {
     return { processed, successful: processed, failed: 0 };
   }
 
-  async setPackagingExpense(month, amount, actor, note = "") {
+  async setPackagingExpense(
+    month,
+    amount,
+    actor,
+    note = "",
+    marketplace = "TRENDYOL",
+  ) {
     const period = `${String(month).slice(0, 7)}-01`;
     return (
       await this.db.query(
         `INSERT INTO monthly_packaging_expenses(
            marketplace,period_month,amount,note,updated_by
-         )VALUES('ALL',$1,$2,$3,$4)
+         )VALUES($1,$2,$3,$4,$5)
          ON CONFLICT(marketplace,period_month)DO UPDATE SET
            amount=EXCLUDED.amount,note=EXCLUDED.note,updated_by=EXCLUDED.updated_by,
            updated_at=NOW() RETURNING *`,
-        [period, Number(amount) || 0, note, actor],
+        [marketplace, period, Number(amount) || 0, note, actor],
       )
     ).rows[0];
   }
@@ -660,8 +674,7 @@ class FinanceService {
         ),
         this.db.query(
           `SELECT * FROM monthly_packaging_expenses
-           WHERE marketplace IN('ALL',$1) AND period_month=$2::date
-           ORDER BY marketplace DESC LIMIT 1`,
+           WHERE marketplace=$1 AND period_month=$2::date LIMIT 1`,
           [marketplace, start],
         ),
       ]);

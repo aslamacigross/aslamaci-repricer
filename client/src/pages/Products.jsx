@@ -153,7 +153,7 @@ const columns = [
 function ProductThumb({ product }) {
   const [failed, setFailed] = useState(false);
   const src = product?.product_image_url
-    ? `/api/products/${encodeURIComponent(product.barcode)}/image`
+    ? `/api/products/${encodeURIComponent(product.barcode)}/image?marketplace=${product.marketplace || "TRENDYOL"}`
     : null;
   useEffect(() => setFailed(false), [src]);
   if (!src || failed)
@@ -214,7 +214,7 @@ export async function fetchAllProducts(filters, fetchPage = get) {
   return items;
 }
 
-export default function Products({ notify }) {
+export default function Products({ notify, marketplace = "TRENDYOL" }) {
   const [filters, setFilters] = useState(initialFilters),
     [result, setResult] = useState(null),
     [loading, setLoading] = useState(true),
@@ -232,6 +232,7 @@ export default function Products({ notify }) {
       const query = new URLSearchParams(
         Object.entries(filters).filter(([, v]) => v !== ""),
       );
+      query.set("marketplace", marketplace);
       setResult(await get(`/api/products?${query}`));
     } catch (e) {
       setError(e);
@@ -242,14 +243,16 @@ export default function Products({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, filters.search ? 300 : 0);
     return () => clearTimeout(id);
-  }, [filters]);
+  }, [filters, marketplace]);
   async function open(row) {
     setSelected(row);
     setDetail(null);
     try {
       const [x, b] = await Promise.all([
-        get(`/api/products/${row.barcode}`),
-        get(`/api/products/${row.barcode}/cost-breakdown`),
+        get(`/api/products/${row.barcode}?marketplace=${marketplace}`),
+        get(
+          `/api/products/${row.barcode}/cost-breakdown?marketplace=${marketplace}`,
+        ),
       ]);
       setDetail({ ...x.data, breakdown: b.data });
     } catch (e) {
@@ -260,7 +263,13 @@ export default function Products({ notify }) {
     setSaving(true);
     try {
       const body = detail.settings || {};
-      await patch(`/api/products/${detail.barcode}`, body);
+      await patch(
+        `/api/products/${detail.barcode}?marketplace=${marketplace}`,
+        {
+          ...body,
+          marketplace,
+        },
+      );
       notify("Repricer ayarları kaydedildi");
       await open(detail);
       load();
@@ -272,7 +281,7 @@ export default function Products({ notify }) {
   }
   async function exportAll(exportColumns) {
     try {
-      const items = await fetchAllProducts(filters);
+      const items = await fetchAllProducts({ ...filters, marketplace });
       downloadCsv(exportColumns, items, "urunler");
       notify(`${items.length} ürün CSV dosyasına hazırlandı`);
     } catch (error) {
@@ -283,7 +292,7 @@ export default function Products({ notify }) {
     <>
       <PageHeader
         title="Ürünler"
-        description="Maliyet, kârlılık, buybox ve repricer durumunu tek listede yönetin"
+        description={`${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} maliyet, kârlılık, buybox ve repricer durumunu yönetin`}
         actions={
           <>
             <Button
@@ -411,6 +420,7 @@ export default function Products({ notify }) {
         filters={filters}
         total={result?.total || 0}
         notify={notify}
+        marketplace={marketplace}
         onDone={() => {
           setSelectedIds([]);
           load();
@@ -486,9 +496,15 @@ export default function Products({ notify }) {
                 save={save}
                 saving={saving}
                 notify={notify}
+                marketplace={marketplace}
               />
             )}{" "}
-            {tab === "history" && <HistoryPanel barcode={detail.barcode} />}
+            {tab === "history" && (
+              <HistoryPanel
+                barcode={detail.barcode}
+                marketplace={marketplace}
+              />
+            )}
           </>
         )}
       </Drawer>
@@ -552,6 +568,7 @@ function BulkSettingsDrawer({
   total,
   notify,
   onDone,
+  marketplace,
 }) {
   const [scope, setScope] = useState("selected"),
     [form, setForm] = useState(bulkDefaults),
@@ -567,6 +584,7 @@ function BulkSettingsDrawer({
   if (!open) return null;
   const targetCount = scope === "selected" ? selectedIds.length : total;
   const payload = {
+    marketplace,
     settings: cleanBulkSettings(form),
     ...(scope === "selected"
       ? { barcodes: selectedIds }
@@ -848,7 +866,14 @@ function CostBreakdown({ data }) {
     </div>
   );
 }
-function SettingsForm({ detail, setDetail, save, saving, notify }) {
+function SettingsForm({
+  detail,
+  setDetail,
+  save,
+  saving,
+  notify,
+  marketplace,
+}) {
   const [manualPrice, setManualPrice] = useState(detail.my_price);
   const s = detail.settings || {
     strategy: "Manuel",
@@ -875,6 +900,7 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
     try {
       await post(`/api/products/${detail.barcode}/manual-price-action`, {
         price: Number(manualPrice),
+        marketplace,
       });
       notify("Manuel fiyat aksiyonu onaya gönderildi");
     } catch (e) {
@@ -994,18 +1020,20 @@ function SettingsForm({ detail, setDetail, save, saving, notify }) {
     </div>
   );
 }
-function HistoryPanel({ barcode }) {
+function HistoryPanel({ barcode, marketplace }) {
   const [data, setData] = useState(null),
     [type, setType] = useState("repricer");
   useEffect(() => {
     Promise.all([
-      get(`/api/products/${barcode}/price-history`),
-      get(`/api/products/${barcode}/buybox-history`),
-      get(`/api/products/${barcode}/repricer-history`),
+      get(`/api/products/${barcode}/price-history?marketplace=${marketplace}`),
+      get(`/api/products/${barcode}/buybox-history?marketplace=${marketplace}`),
+      get(
+        `/api/products/${barcode}/repricer-history?marketplace=${marketplace}`,
+      ),
     ]).then(([p, b, r]) =>
       setData({ price: p.items, buybox: b.items, repricer: r.items }),
     );
-  }, [barcode]);
+  }, [barcode, marketplace]);
   if (!data) return <Loading />;
   const tabs = [
     ["repricer", "Repricer aksiyonları"],

@@ -42,7 +42,7 @@ const titles = {
   ],
   commissions: [
     "Komisyonlar",
-    "Trendyol API kaynaklı kategori komisyon raporu",
+    "Pazaryeri API kaynaklı kategori komisyon raporu",
   ],
   shipping: [
     "Kargo & Ambalaj",
@@ -111,14 +111,14 @@ function normalizeMappingForm(form) {
   };
 }
 
-export default function Costs({ mode, notify }) {
+export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
   const [items, setItems] = useState(null),
     [search, setSearch] = useState(""),
     [error, setError] = useState(null),
     [editing, setEditing] = useState(null),
     [mappingView, setMappingView] = useState("manual"),
     [shippingQuery, setShippingQuery] = useState({
-      marketplace: "TRENDYOL",
+      marketplace,
       page: 1,
       limit: 50,
       carrier: "",
@@ -137,14 +137,31 @@ export default function Costs({ mode, notify }) {
         if (shippingQuery.desi !== "")
           params.set("desi", String(shippingQuery.desi));
         setItems((await get(`/api/shipping?${params}`)).data);
-      } else
+      } else {
+        const endpoint = mode === "costs" ? "cost-items" : mode;
+        const params = new URLSearchParams();
+        if (["mappings", "commissions"].includes(mode))
+          params.set("marketplace", marketplace);
         setItems(
-          (await get(`/api/${mode === "costs" ? "cost-items" : mode}`)).items,
+          (await get(`/api/${endpoint}${params.size ? `?${params}` : ""}`))
+            .items,
         );
+      }
     } catch (e) {
       setError(e);
     }
   }
+  useEffect(() => {
+    setItems(null);
+    setEditing(null);
+    setShippingQuery((current) => ({
+      ...current,
+      marketplace,
+      page: 1,
+      carrier: "",
+      desi: "",
+    }));
+  }, [marketplace]);
   useEffect(() => {
     load();
   }, [
@@ -154,6 +171,7 @@ export default function Costs({ mode, notify }) {
     shippingQuery.limit,
     shippingQuery.carrier,
     shippingQuery.desi,
+    marketplace,
   ]);
   if (!items && !error) return <Loading />;
   const [t, d] = titles[mode];
@@ -161,14 +179,10 @@ export default function Costs({ mode, notify }) {
     <>
       <PageHeader
         title={t}
-        description={d}
+        description={`${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} · ${d}`}
         actions={
           <>
             {mode !== "commissions" &&
-              !(
-                mode === "shipping" &&
-                shippingQuery.marketplace === "HEPSIBURADA"
-              ) &&
               !(mode === "mappings" && mappingView !== "manual") && (
                 <Button
                   icon={Plus}
@@ -176,7 +190,9 @@ export default function Costs({ mode, notify }) {
                     setEditing(
                       mode === "shipping"
                         ? { marketplace: shippingQuery.marketplace }
-                        : {},
+                        : mode === "mappings"
+                          ? { marketplace }
+                          : {},
                     )
                   }
                 >
@@ -187,6 +203,18 @@ export default function Costs({ mode, notify }) {
           </>
         }
       />
+      {mode === "mappings" && marketplace === "HEPSIBURADA" && (
+        <div className="info-banner warning">
+          <TriangleAlert />
+          <div>
+            <strong>Hepsiburada ürün kataloğu bağlantısı bekleniyor</strong>
+            <p>
+              Mapping çalışma alanı hazır. Credentials ile ürünler alındığında
+              Hepsiburada reçeteleri burada Trendyol'dan bağımsız yönetilecek.
+            </p>
+          </div>
+        </div>
+      )}
       {mode === "mappings" && (
         <div className="tabs page-tabs mapping-tabs">
           <button
@@ -195,60 +223,68 @@ export default function Costs({ mode, notify }) {
           >
             <GitBranch /> Mevcut mappingler
           </button>
-          <button
-            className={mappingView === "suggestions" ? "active" : ""}
-            onClick={() => setMappingView("suggestions")}
-          >
-            <Sparkles /> Akıllı öneriler
-          </button>
-          <button
-            className={mappingView === "file" ? "active" : ""}
-            onClick={() => setMappingView("file")}
-          >
-            <Store /> File fiyat havuzu
-          </button>
-          <button
-            className={mappingView === "bizim" ? "active" : ""}
-            onClick={() => setMappingView("bizim")}
-          >
-            <Store /> Bizim Toptan havuzu
-          </button>
-          <button
-            className={mappingView === "bim" ? "active" : ""}
-            onClick={() => setMappingView("bim")}
-          >
-            <Store /> BİM havuzu
-          </button>
-          <button
-            className={mappingView === "other" ? "active" : ""}
-            onClick={() => setMappingView("other")}
-          >
-            <Store /> Diğer maliyet havuzu
-          </button>
-          <button
-            className={mappingView === "diagnostics" ? "active" : ""}
-            onClick={() => setMappingView("diagnostics")}
-          >
-            <SearchCheck /> Teşhis
-          </button>
-          <button
-            className={mappingView === "manual-costs" ? "active" : ""}
-            onClick={() => setMappingView("manual-costs")}
-          >
-            <PencilLine /> Manuel bekleyenler
-          </button>
-          <button
-            className={mappingView === "learning" ? "active" : ""}
-            onClick={() => setMappingView("learning")}
-          >
-            <BrainCircuit /> Karar geçmişi
-          </button>
+          {marketplace === "TRENDYOL" && (
+            <>
+              <button
+                className={mappingView === "suggestions" ? "active" : ""}
+                onClick={() => setMappingView("suggestions")}
+              >
+                <Sparkles /> Akıllı öneriler
+              </button>
+              <button
+                className={mappingView === "file" ? "active" : ""}
+                onClick={() => setMappingView("file")}
+              >
+                <Store /> File fiyat havuzu
+              </button>
+              <button
+                className={mappingView === "bizim" ? "active" : ""}
+                onClick={() => setMappingView("bizim")}
+              >
+                <Store /> Bizim Toptan havuzu
+              </button>
+              <button
+                className={mappingView === "bim" ? "active" : ""}
+                onClick={() => setMappingView("bim")}
+              >
+                <Store /> BİM havuzu
+              </button>
+              <button
+                className={mappingView === "other" ? "active" : ""}
+                onClick={() => setMappingView("other")}
+              >
+                <Store /> Diğer maliyet havuzu
+              </button>
+              <button
+                className={mappingView === "diagnostics" ? "active" : ""}
+                onClick={() => setMappingView("diagnostics")}
+              >
+                <SearchCheck /> Teşhis
+              </button>
+              <button
+                className={mappingView === "manual-costs" ? "active" : ""}
+                onClick={() => setMappingView("manual-costs")}
+              >
+                <PencilLine /> Manuel bekleyenler
+              </button>
+              <button
+                className={mappingView === "learning" ? "active" : ""}
+                onClick={() => setMappingView("learning")}
+              >
+                <BrainCircuit /> Karar geçmişi
+              </button>
+            </>
+          )}
         </div>
       )}
       {error ? (
         <ErrorState error={error} retry={load} />
       ) : mode === "mappings" && mappingView !== "manual" ? (
-        <MappingSuggestions view={mappingView} notify={notify} />
+        <MappingSuggestions
+          view={mappingView}
+          notify={notify}
+          marketplace={marketplace}
+        />
       ) : mode === "shipping" ? (
         <Shipping
           data={items}
@@ -269,6 +305,7 @@ export default function Costs({ mode, notify }) {
           setEditing={setEditing}
           notify={notify}
           reload={load}
+          marketplace={marketplace}
         />
       )}
     </>
@@ -283,6 +320,7 @@ function ResourceTable({
   setEditing,
   notify,
   reload,
+  marketplace,
 }) {
   const [missingCommissions, setMissingCommissions] = useState([]),
     [page, setPage] = useState(1),
@@ -293,14 +331,14 @@ function ResourceTable({
       setMissingCommissions([]);
       return;
     }
-    get("/api/commissions/missing/categories")
+    get(`/api/commissions/missing/categories?marketplace=${marketplace}`)
       .then((result) => setMissingCommissions(result.items || []))
       .catch(() => setMissingCommissions([]));
   }, [mode, items]);
   useEffect(() => setPage(1), [mode, search]);
   useEffect(() => {
     if (mode !== "costs") setDuplicateReport(null);
-  }, [mode]);
+  }, [mode, marketplace]);
   async function scanDuplicateCosts() {
     setScanningDuplicates(true);
     try {
@@ -481,10 +519,14 @@ function ResourceTable({
         <div className="info-banner">
           <TriangleAlert />
           <div>
-            <strong>Komisyon verisi Trendyol API'den gelir</strong>
+            <strong>
+              Komisyon verisi{" "}
+              {marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} API'den
+              gelir
+            </strong>
             <p>
               Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası
-              Trendyol'dan gelen barkod verileriyle güncellenir.
+              seçili pazaryerinden gelen ürün verileriyle güncellenir.
             </p>
           </div>
         </div>
@@ -511,7 +553,7 @@ function ResourceTable({
           columns={columns}
           rows={paged}
           exportRows={filtered}
-          columnVisibilityKey={`costs-${mode}`}
+          columnVisibilityKey={`costs-${marketplace}-${mode}`}
           onRowClick={
             mode === "commissions" ? undefined : (row) => setEditing(row)
           }
@@ -532,11 +574,12 @@ function ResourceTable({
           reload();
         }}
         notify={notify}
+        marketplace={marketplace}
       />
     </>
   );
 }
-function ResourceModal({ mode, value, onClose, onSaved, notify }) {
+function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
   const [form, setForm] = useState(value || {}),
     [saving, setSaving] = useState(false),
     [preview, setPreview] = useState(null),
@@ -566,7 +609,10 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
   async function runPreview() {
     try {
       const result = await post("/api/mappings/preview", {
-        rows: parseBulkRows(form.text, mode),
+        rows: parseBulkRows(form.text, mode).map((row) => ({
+          ...row,
+          marketplace,
+        })),
       });
       if (!result.data.valid)
         throw new Error(
@@ -583,7 +629,10 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
     setSaving(true);
     try {
       if (value.bulk) {
-        const rows = parseBulkRows(form.text, mode);
+        const rows = parseBulkRows(form.text, mode).map((row) => ({
+          ...row,
+          ...(mode === "mappings" ? { marketplace } : {}),
+        }));
         if (mode === "costs") await post("/api/cost-items/bulk", { rows });
         else if (mode === "commissions")
           await post("/api/commissions/bulk", { rows });
@@ -600,6 +649,7 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
         await post("/api/mappings/clone", {
           sourceBarcode: form.sourceBarcode,
           targetBarcodes,
+          marketplace,
         });
       } else if (mode === "costs") {
         const path = value.id
@@ -607,7 +657,7 @@ function ResourceModal({ mode, value, onClose, onSaved, notify }) {
           : "/api/cost-items";
         await (value.id ? patch(path, form) : post(path, form));
       } else if (mode === "mappings") {
-        const mappingForm = normalizeMappingForm(form);
+        const mappingForm = normalizeMappingForm({ ...form, marketplace });
         await (value.id
           ? patch(`/api/mappings/${value.id}`, mappingForm)
           : post("/api/mappings", mappingForm));
@@ -944,12 +994,7 @@ function Shipping({
   const [coverage, setCoverage] = useState(null);
   const [importingTariff, setImportingTariff] = useState(false);
   useEffect(() => {
-    if (query.marketplace !== "TRENDYOL") {
-      setCoverage(null);
-      setType("rates");
-      return;
-    }
-    get("/api/shipping/coverage")
+    get(`/api/shipping/coverage?marketplace=${query.marketplace}`)
       .then((result) => setCoverage(result.data))
       .catch(() => setCoverage(null));
   }, [query.marketplace]);
@@ -960,7 +1005,10 @@ function Shipping({
   }, [data.carriers]);
   async function calculate() {
     try {
-      const result = await post("/api/shipping/preview", calculator);
+      const result = await post("/api/shipping/preview", {
+        ...calculator,
+        marketplace: query.marketplace,
+      });
       setCalculation(result.data);
     } catch (error) {
       notify(error.message, "error");
@@ -1043,42 +1091,16 @@ function Shipping({
       ],
     ],
   };
-  const visibleSets =
-    query.marketplace === "HEPSIBURADA" ? { rates: sets.rates } : sets;
+  const visibleSets = sets;
   const [label, cols] = sets[type];
   const pagination = data.pagination || {
     page: 1,
     limit: data.rates.length || 50,
     total: data.rates.length,
   };
-  function changeMarketplace(marketplace) {
-    setType("rates");
-    setCalculation(null);
-    setQuery({
-      ...query,
-      marketplace,
-      page: 1,
-      carrier: "",
-      desi: "",
-    });
-  }
   return (
     <>
       <div className="toolbar shipping-toolbar">
-        <div className="segmented" aria-label="Pazaryeri seçimi">
-          <button
-            className={query.marketplace === "TRENDYOL" ? "active" : ""}
-            onClick={() => changeMarketplace("TRENDYOL")}
-          >
-            Trendyol
-          </button>
-          <button
-            className={query.marketplace === "HEPSIBURADA" ? "active" : ""}
-            onClick={() => changeMarketplace("HEPSIBURADA")}
-          >
-            Hepsiburada
-          </button>
-        </div>
         {type === "rates" && (
           <>
             <select
@@ -1145,7 +1167,7 @@ function Shipping({
           ) : (
             <p>
               {pagination.total > 0
-                ? "13 Temmuz 2026 tarihli kaynak tarifeden aktarılmıştır. Bu alan salt okunurdur; Trendyol baremleri ve ambalaj kurallarıyla karışmaz."
+                ? "13 Temmuz 2026 tarihli kaynak tarifeden aktarılmıştır. Hepsiburada baremleri ve ambalaj kuralları ayrı tablolardan uygulanır."
                 : "Henüz Hepsiburada tarifesi yüklenmemiş. Paketli 13 Temmuz 2026 tarifesini güvenli biçimde içe aktarabilirsiniz."}
             </p>
           )}
@@ -1161,7 +1183,7 @@ function Shipping({
           </Button>
         )}
       </div>
-      {coverage?.warnings.length > 0 && (
+      {(coverage?.warnings?.length || 0) > 0 && (
         <div className="info-banner warning">
           <TriangleAlert />
           <div>
@@ -1176,95 +1198,90 @@ function Shipping({
           </div>
         </div>
       )}
-      {query.marketplace === "TRENDYOL" && (
-        <section className="panel shipping-calculator">
-          <div className="panel-header">
+      <section className="panel shipping-calculator">
+        <div className="panel-header">
+          <div>
+            <h2>Kargo maliyeti hesapla</h2>
+            <p>
+              Sepet baremi, desi tarifesi ve ambalaj kuralı birlikte uygulanır.
+            </p>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field label="Satış fiyatı">
+            <input
+              type="number"
+              step="0.01"
+              value={calculator.sale_price}
+              onChange={(event) =>
+                setCalculator({
+                  ...calculator,
+                  sale_price: Number(event.target.value),
+                })
+              }
+            />
+          </Field>
+          <Field label="Desi">
+            <input
+              type="number"
+              step="0.01"
+              value={calculator.desi}
+              onChange={(event) =>
+                setCalculator({
+                  ...calculator,
+                  desi: Number(event.target.value),
+                })
+              }
+            />
+          </Field>
+          <Field label="Kargo firması">
+            <select
+              value={calculator.carrier}
+              onChange={(event) =>
+                setCalculator({ ...calculator, carrier: event.target.value })
+              }
+            >
+              {(data.carriers || []).map((carrier) => (
+                <option key={carrier}>{carrier}</option>
+              ))}
+            </select>
+          </Field>
+          <div className="field action-field">
+            <Button icon={Calculator} onClick={calculate}>
+              Hesapla
+            </Button>
+          </div>
+        </div>
+        {calculation && (
+          <div className="metric-row calculation-result">
             <div>
-              <h2>Kargo maliyeti hesapla</h2>
-              <p>
-                Sepet baremi, desi tarifesi ve ambalaj kuralı birlikte
-                uygulanır.
-              </p>
+              <span>Kargo kaynağı</span>
+              <b>{calculation.shippingSource}</b>
+            </div>
+            <div>
+              <span>Kargo</span>
+              <b>{money(calculation.shippingCost)}</b>
+            </div>
+            <div>
+              <span>Ambalaj</span>
+              <b>{money(calculation.packagingCost)}</b>
+            </div>
+            <div>
+              <span>Toplam</span>
+              <b>{money(calculation.totalFulfillmentCost)}</b>
             </div>
           </div>
-          <div className="form-grid">
-            <Field label="Satış fiyatı">
-              <input
-                type="number"
-                step="0.01"
-                value={calculator.sale_price}
-                onChange={(event) =>
-                  setCalculator({
-                    ...calculator,
-                    sale_price: Number(event.target.value),
-                  })
-                }
-              />
-            </Field>
-            <Field label="Desi">
-              <input
-                type="number"
-                step="0.01"
-                value={calculator.desi}
-                onChange={(event) =>
-                  setCalculator({
-                    ...calculator,
-                    desi: Number(event.target.value),
-                  })
-                }
-              />
-            </Field>
-            <Field label="Kargo firması">
-              <select
-                value={calculator.carrier}
-                onChange={(event) =>
-                  setCalculator({ ...calculator, carrier: event.target.value })
-                }
-              >
-                {[...new Set(data.rates.map((item) => item.carrier))].map(
-                  (carrier) => (
-                    <option key={carrier}>{carrier}</option>
-                  ),
-                )}
-              </select>
-            </Field>
-            <div className="field action-field">
-              <Button icon={Calculator} onClick={calculate}>
-                Hesapla
-              </Button>
-            </div>
-          </div>
-          {calculation && (
-            <div className="metric-row calculation-result">
-              <div>
-                <span>Kargo kaynağı</span>
-                <b>{calculation.shippingSource}</b>
-              </div>
-              <div>
-                <span>Kargo</span>
-                <b>{money(calculation.shippingCost)}</b>
-              </div>
-              <div>
-                <span>Ambalaj</span>
-                <b>{money(calculation.packagingCost)}</b>
-              </div>
-              <div>
-                <span>Toplam</span>
-                <b>{money(calculation.totalFulfillmentCost)}</b>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
+        )}
+      </section>
       <div className="panel table-panel">
         <DataTable
           columns={cols}
-          rows={data[type]}
+          rows={data[type] || []}
           columnVisibilityKey={`shipping-${query.marketplace}-${type}`}
           onRowClick={
-            query.marketplace === "TRENDYOL"
-              ? (row) => setEditing({ ...row, type })
-              : undefined
+            query.marketplace === "HEPSIBURADA" && type === "rates"
+              ? undefined
+              : (row) => setEditing({ ...row, type })
           }
         />
         {type === "rates" && (

@@ -77,6 +77,10 @@ function costsRoutes({
       ip: req.ip,
       requestId: req.id,
     });
+  const recalculateAllMarketplaces = async () => {
+    await costEngine.recalculate(undefined, undefined, "TRENDYOL");
+    await costEngine.recalculate(undefined, undefined, "HEPSIBURADA");
+  };
   r.get(
     "/cost-items",
     asyncRoute(async (req, res) =>
@@ -94,7 +98,7 @@ function costsRoutes({
       if (req.body.unit_desi !== undefined)
         positive(req.body, ["unit_desi"], { allowZero: true });
       const data = await costs.saveCostItem(req.body);
-      await costEngine.recalculate();
+      await recalculateAllMarketplaces();
       await logged(req, "COST_ITEM_CREATED", "cost_item", data.id, null, data);
       res.status(201).json({ status: "ok", data });
     }),
@@ -104,7 +108,7 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const rows = normalizeCostItemRows(req.body.rows);
       const data = await costs.saveCostItems(rows);
-      await costEngine.recalculate();
+      await recalculateAllMarketplaces();
       await logged(req, "COST_ITEMS_BULK_UPSERTED", "cost_item", "bulk", null, {
         processed: data.processed,
         itemCodes: rows.map((row) => row.item_code),
@@ -184,7 +188,7 @@ function costsRoutes({
         positive(req.body, ["unit_desi"], { allowZero: true });
       const data = await costs.saveCostItem(req.body, req.params.id);
       if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
-      await costEngine.recalculate();
+      await recalculateAllMarketplaces();
       await logged(req, "COST_ITEM_UPDATED", "cost_item", data.id, null, data);
       res.json({ status: "ok", data });
     }),
@@ -194,7 +198,7 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const data = await costs.deleteCostItem(req.params.id);
       if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
-      await costEngine.recalculate();
+      await recalculateAllMarketplaces();
       await logged(req, "COST_ITEM_DELETED", "cost_item", data.id, data, null);
       res.json({ status: "ok" });
     }),
@@ -229,9 +233,14 @@ function costsRoutes({
       const data = await costs.cloneMappings(
         req.body.sourceBarcode,
         req.body.targetBarcodes,
+        req.body.marketplace || "TRENDYOL",
       );
       for (const barcode of data.barcodes)
-        await costEngine.recalculate(barcode);
+        await costEngine.recalculate(
+          barcode,
+          undefined,
+          req.body.marketplace || "TRENDYOL",
+        );
       await logged(
         req,
         "MAPPINGS_CLONED",
@@ -247,13 +256,17 @@ function costsRoutes({
     "/mappings/bulk-upsert",
     asyncRoute(async (req, res) => {
       const data = await costs.replaceMappingsForBarcodes(req.body.rows);
-      for (const barcode of data.barcodes)
-        await costEngine.recalculate(barcode);
+      for (const target of data.targets || [])
+        await costEngine.recalculate(
+          target.barcode,
+          undefined,
+          target.marketplace,
+        );
       await logged(
         req,
         "MAPPINGS_BARCODE_SCOPED_REPLACE",
         "mapping",
-        "TRENDYOL",
+        (data.marketplaces || ["TRENDYOL"]).join(","),
         null,
         data,
       );
@@ -270,12 +283,21 @@ function costsRoutes({
           "FULL_MAPPING_REPLACE_CONFIRMATION_REQUIRED",
         );
       const data = await costs.replaceMappings(req.body.rows);
-      await costEngine.recalculate();
+      for (const selectedMarketplace of [
+        ...new Set(
+          (req.body.rows || []).map((row) => row.marketplace || "TRENDYOL"),
+        ),
+      ])
+        await costEngine.recalculate(undefined, undefined, selectedMarketplace);
       await logged(
         req,
         "MAPPINGS_ATOMIC_REPLACE",
         "mapping",
-        "TRENDYOL",
+        [
+          ...new Set(
+            (req.body.rows || []).map((row) => row.marketplace || "TRENDYOL"),
+          ),
+        ].join(","),
         null,
         data,
       );
@@ -286,7 +308,11 @@ function costsRoutes({
     "/mappings",
     asyncRoute(async (req, res) => {
       const data = await costs.upsertMapping(req.body);
-      await costEngine.recalculate(req.body.barcode);
+      await costEngine.recalculate(
+        req.body.barcode,
+        undefined,
+        req.body.marketplace || "TRENDYOL",
+      );
       await logged(req, "MAPPING_UPSERTED", "mapping", data.id, null, data);
       res.status(201).json({ status: "ok", data });
     }),
@@ -296,9 +322,13 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const data = await costs.updateMapping(req.params.id, req.body);
       if (!data) throw new AppError("Mapping bulunamadı", 404);
-      await costEngine.recalculate(data.barcode);
+      await costEngine.recalculate(data.barcode, undefined, data.marketplace);
       if (data.old_barcode && data.old_barcode !== data.barcode)
-        await costEngine.recalculate(data.old_barcode);
+        await costEngine.recalculate(
+          data.old_barcode,
+          undefined,
+          data.marketplace,
+        );
       await logged(req, "MAPPING_UPDATED", "mapping", data.id, null, data);
       res.json({ status: "ok", data });
     }),
@@ -318,7 +348,7 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const data = await costs.deleteMapping(req.params.id);
       if (!data) throw new AppError("Mapping bulunamadı", 404);
-      await costEngine.recalculate(data.barcode);
+      await costEngine.recalculate(data.barcode, undefined, data.marketplace);
       await logged(req, "MAPPING_DELETED", "mapping", data.id, data, null);
       res.json({ status: "ok" });
     }),
@@ -326,7 +356,10 @@ function costsRoutes({
   r.get(
     "/commissions",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await costs.listCommissions() }),
+      res.json({
+        status: "ok",
+        items: await costs.listCommissions(req.query.marketplace || "TRENDYOL"),
+      }),
     ),
   );
   r.get(
@@ -334,7 +367,9 @@ function costsRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        items: await costs.missingCommissionCategories(),
+        items: await costs.missingCommissionCategories(
+          req.query.marketplace || "TRENDYOL",
+        ),
       }),
     ),
   );
@@ -390,6 +425,7 @@ function costsRoutes({
       const data = await shippingTariff.importHepsiburada({
         force: req.body.force === true,
       });
+      await costEngine.recalculate(undefined, undefined, "HEPSIBURADA");
       await logged(
         req,
         "HEPSIBURADA_SHIPPING_IMPORTED",
@@ -418,7 +454,12 @@ function costsRoutes({
   r.get(
     "/shipping/coverage",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", data: await shippingService.coverage() }),
+      res.json({
+        status: "ok",
+        data: await shippingService.coverage(
+          req.query.marketplace || "TRENDYOL",
+        ),
+      }),
     ),
   );
   r.get(
@@ -434,13 +475,21 @@ function costsRoutes({
   r.get(
     "/shipping/barems",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: (await costs.shipping()).barems }),
+      res.json({
+        status: "ok",
+        items: (await costs.shipping(req.query.marketplace || "TRENDYOL"))
+          .barems,
+      }),
     ),
   );
   r.get(
     "/packaging-rules",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: (await costs.shipping()).packaging }),
+      res.json({
+        status: "ok",
+        items: (await costs.shipping(req.query.marketplace || "TRENDYOL"))
+          .packaging,
+      }),
     ),
   );
   r.post(
@@ -454,7 +503,7 @@ function costsRoutes({
       positive(req.body, ["desi_kg"], { allowZero: true });
       positive(req.body, ["cost_ex_vat"]);
       const data = await costs.saveShippingRate(req.body);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "SHIPPING_RATE_SAVED",
@@ -478,7 +527,7 @@ function costsRoutes({
       positive(req.body, ["cost_ex_vat"]);
       const data = await costs.saveShippingRate(req.body, req.params.id);
       if (!data) throw new AppError("Kargo tarifesi bulunamadı", 404);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "SHIPPING_RATE_UPDATED",
@@ -495,7 +544,7 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const data = await costs.deleteShippingRate(req.params.id);
       if (!data) throw new AppError("Kargo tarifesi bulunamadı", 404);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "SHIPPING_RATE_DELETED",
@@ -528,7 +577,7 @@ function costsRoutes({
       positive(req.body, ["min_basket"], { allowZero: true });
       positive(req.body, ["max_basket", "cost_ex_vat"]);
       const data = await costs.saveBarem(req.body);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "SHIPPING_BAREM_SAVED",
@@ -562,7 +611,7 @@ function costsRoutes({
       positive(req.body, ["max_basket", "cost_ex_vat"]);
       const data = await costs.saveBarem(req.body, req.params.id);
       if (!data) throw new AppError("Kargo baremi bulunamadı", 404);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "SHIPPING_BAREM_UPDATED",
@@ -579,7 +628,7 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const data = await costs.deleteBarem(req.params.id);
       if (!data) throw new AppError("Kargo baremi bulunamadı", 404);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "SHIPPING_BAREM_DELETED",
@@ -607,7 +656,7 @@ function costsRoutes({
           "VALIDATION_ERROR",
         );
       const data = await costs.savePackaging(req.body);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "PACKAGING_RULE_SAVED",
@@ -636,7 +685,7 @@ function costsRoutes({
         );
       const data = await costs.savePackaging(req.body, req.params.id);
       if (!data) throw new AppError("Ambalaj kuralı bulunamadı", 404);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "PACKAGING_RULE_UPDATED",
@@ -653,7 +702,7 @@ function costsRoutes({
     asyncRoute(async (req, res) => {
       const data = await costs.deletePackaging(req.params.id);
       if (!data) throw new AppError("Ambalaj kuralı bulunamadı", 404);
-      await costEngine.recalculate();
+      await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
         req,
         "PACKAGING_RULE_DELETED",

@@ -30,11 +30,11 @@ class SettingsRepository {
     ).rows[0];
   }
 
-  async applyServiceFeeToProducts(value) {
+  async applyServiceFeeToProducts(value, marketplace = "TRENDYOL") {
     return this.db.query(
       `UPDATE products SET service_fee=$1,updated_at=NOW()
-       WHERE marketplace='TRENDYOL'`,
-      [value],
+       WHERE marketplace=$2`,
+      [value, marketplace],
     );
   }
 }

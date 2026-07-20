@@ -75,7 +75,7 @@ DEFAULT_MAX_INCREASE_TL=10
 ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 ```
 
-Hepsiburada read-only bağlantısı için:
+Hepsiburada read-only sipariş bağlantısı için:
 
 ```text
 HB_MERCHANT_ID=<satici-id>
@@ -84,6 +84,8 @@ HB_INTEGRATOR_KEY=<Railway-secret>
 ```
 
 Servis anahtarı repo, ekran görüntüsü veya loga yazılmaz. `HB_PASSWORD` yalnız Hepsiburada hesabı servis anahtarından ayrı bir API parolası veriyorsa kullanılır.
+
+Hepsiburada katalog, komisyon, buybox ve fiyat yazma yolları tam hesap yetkileri doğrulanana kadar kilitli kalır. Sadece entegratör anahtarı bu kilidi açmaz; Merchant ID ve ilgili API erişimleri birlikte gerekir.
 
 Parola hash'i yerelde üretilir:
 
@@ -99,6 +101,7 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - `GET /ready`: son migration uygulanmış ve durum `ready`
 - Login ve logout
 - Dashboard KPI ve grafikler
+- Üst pazaryeri seçicisinde Trendyol ve Hepsiburada arasında geçiş; iki tarafta sayıların ve kayıtların karışmaması
 - Ürün arama, filtre ve detay drawer
 - `8690609598109` maliyet kırılımı: yaklaşık 312,28 TL
 - Mapping validation ve test transaction
@@ -114,6 +117,9 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - File/Bizim/BİM joblarının `DAILY 00:00 Europe/Istanbul` görünümü
 - `Satış & Kâr` sipariş sync ve aylık ambalaj kaydı
 - Hepsiburada kargo tarifesi importu; 0-4500 desi ve platform `HEPSIBURADA`
+- Hepsiburada Sistem Ayarları: varsayılan kargo `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`
+- Hepsiburada sepet baremleri: 0-199,99 ve 200-399,99 aralıklarında 14 ayrı kayıt
+- Hepsiburada repricer denemesi: `MARKETPLACE_CREDENTIALS_MISSING`; Trendyol fiyat çağrısı yok
 - Mobil sidebar ve tablolar
 - `pnpm test:ui` ve `pnpm test:e2e`
 

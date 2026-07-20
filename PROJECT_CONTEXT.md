@@ -77,11 +77,12 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Buybox yenileme sıklığı barkodun son 24 saatteki fiyat/sıra oynaklığına göre 1, 5, 15, 60, 360 veya 1440 dakika olur. Başarısız okuma 5 dakika sonra tekrar denenir.
 - Fiyat düşüşünde global günlük üst sınır yüzde 5'tir. Yukarı yönlü değişim, ürün minimum/maksimum fiyatı ve buybox güvenliği korunarak global yüzde limitinden muaftır.
 - Satış ve kâr ekranı operasyonel nakit mutabakatıdır; sipariş gelirinden komisyon, kargo, hizmet, ürün alış ve aylık manuel ambalaj giderini düşer. Muhasebesel KDV kârı değildir.
-- Hepsiburada entegrasyonu ilk aşamada salt-okunur sipariş/sağlık bağlantısı ve 13 Temmuz 2026 tarihli kargo tarifesi altyapısıdır. Fiyat yazma yeteneği yoktur.
+- Panel tek kabuk ve üstten global pazaryeri seçimi kullanır. Trendyol/Hepsiburada ürün, mapping, komisyon, kargo, finans, dashboard, buybox ve repricer kayıtları `marketplace` anahtarıyla ayrıdır.
+- Hepsiburada için varsayılan kargo `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`'dir. Salt-okunur sipariş/sağlık bağlantısı ve kargo tarifesi hazırdır; canlı ürün/buybox/fiyat yolları tam kimlikler gelene kadar kilitlidir.
 
 ## Doğrulama Durumu
 
-- 163 backend unit/integration/regression, 18 React bileşen ve 7 Chrome uçtan uca testi geçiyor.
+- 170 backend unit/integration/regression ve 20 React bileşen testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.
 - Gerçek PostgreSQL motorunda migration, dashboard SQL'i, Menekşe hesabı ve eksik maliyet statüsü doğrulandı.
@@ -111,6 +112,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Çoklu tedarikçi kabulünde Bizim Toptan havuzu 2.781, BİM havuzu 1.147 benzersiz ürünle doğrulandı; dondurulmuş ürünler ve ürün ağırlığı olmayan yaş/kilo/kâğıt gramajı ifadeleri desi otomasyonundan çıkarıldı.
 - BİM canlı katalog sorgusu Chrome oturumu dışında doğrulandı; panel butonu ve varsayılan kapalı günlük job aynı fiyat havuzunu geçmişi koruyarak yeniler.
 - `017_operations_finance_and_safety` migrationı boş PostgreSQL uyumlu test veritabanında çalıştı ve tekrar çalıştırılabilirliği doğrulandı.
+- `018_hepsiburada_shipping_barems` migrationı Hepsiburada kargo/barem/ambalaj ayrımını, `hepsiJET` varsayılanını ve KDV dahil `10,50 TL` hizmet bedelini ekler; migration ve mobil panel regresyonları test edilmiştir.
 - Hepsiburada kargo PDF'i 4.501 desi satırı ve 11 taşıyıcı olarak yapılandırılmış veriye dönüştürüldü; hiçbir tarife satırı kaybolmadı.
 - Aylık satış/kâr ekranı gider kırılımı, saat/gün/şehir analizi ve mobil yerleşimle görsel olarak doğrulandı.
 - Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. Canlı bağlantı için Railway secret'ları ve mağaza Merchant ID hâlâ dış ortamda yapılandırılmalıdır.
