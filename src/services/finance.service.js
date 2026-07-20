@@ -1100,6 +1100,7 @@ class FinanceService {
     const items = sales.rows.map((row) => {
       const billed = charges.get(String(row.order_number || ""));
       const estimatedDesi = Number(row.estimated_desi || 0);
+      const missingDesiCount = Number(row.missing_desi_count || 0);
       const estimatedCost = selectShippingCost({
         salePrice: Number(row.sale_amount || 0),
         desi: estimatedDesi,
@@ -1111,19 +1112,27 @@ class FinanceService {
       const source =
         billedAmount > 0
           ? "BILLED"
-          : estimatedCost > 0 &&
-              estimatedDesi > 0 &&
-              Number(row.missing_desi_count || 0) === 0
+          : estimatedCost > 0 && estimatedDesi > 0 && missingDesiCount === 0
             ? "MAPPED_ESTIMATE"
             : "MISSING";
+      const missingReason =
+        source !== "MISSING"
+          ? null
+          : missingDesiCount > 0 || estimatedDesi <= 0
+            ? "MAPPING_DESI_EKSIK"
+            : estimatedCost <= 0
+              ? "KARGO_TARIFESI_EKSIK"
+              : "KARGO_FATURASI_BEKLIYOR";
       return {
         ...row,
         sale_amount: Number(row.sale_amount || 0),
         estimated_desi: estimatedDesi,
+        missing_desi_count: missingDesiCount,
         billed_desi: billed?.desi || null,
         shipping_cost:
           source === "BILLED" ? billedAmount : roundMoney(estimatedCost),
         shipping_source: source,
+        shipping_missing_reason: missingReason,
         carrier,
         invoice_date: billed?.invoice_date || null,
         charge_count: billed?.charge_count || 0,

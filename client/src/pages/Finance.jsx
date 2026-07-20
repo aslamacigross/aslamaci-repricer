@@ -78,6 +78,10 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
   const [packaging, setPackaging] = useState("");
   const packagingValue =
     packaging === "" ? report?.summary?.packaging || 0 : packaging;
+  const hasCostDetail =
+    report?.summary?.cost_source === "CURRENT_PRODUCT_COST_FALLBACK" ||
+    report?.coverage?.profitability_complete ||
+    Number(report?.summary?.product_cost || 0) > 0;
   const cards = useMemo(
     () =>
       report
@@ -103,32 +107,32 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
               report.summary.product_cost,
               CreditCard,
               "warning",
-              report.coverage.profitability_complete,
+              hasCostDetail,
             ],
             [
               "Operasyonel kâr",
               report.summary.profit_after_packaging,
               Banknote,
               "success",
-              report.coverage.profitability_complete,
+              hasCostDetail,
             ],
             [
               "Senin finanse ettiğin",
               report.summary.financed_by_bekir,
               WalletCards,
               "warning",
-              report.coverage.profitability_complete,
+              hasCostDetail,
             ],
             [
               "Sana aktarılacak",
               report.summary.transfer_to_bekir,
               PackageCheck,
               "success",
-              report.coverage.profitability_complete,
+              hasCostDetail,
             ],
           ]
         : [],
-    [report],
+    [hasCostDetail, report],
   );
   const expenseBreakdown = useMemo(() => {
     if (!report) return [];
@@ -510,6 +514,24 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
                         : "Eksik"}
                   </Badge>
                 ),
+              },
+              {
+                key: "shipping_missing_reason",
+                label: "Eksik sebebi",
+                render: (row) => {
+                  if (!row.shipping_missing_reason) return "-";
+                  const labels = {
+                    MAPPING_DESI_EKSIK: "Mapping/desi eksik",
+                    KARGO_TARIFESI_EKSIK: "Kargo tarifesi eksik",
+                    KARGO_FATURASI_BEKLIYOR: "Fatura bekliyor",
+                  };
+                  return (
+                    <Badge tone="warning">
+                      {labels[row.shipping_missing_reason] ||
+                        row.shipping_missing_reason}
+                    </Badge>
+                  );
+                },
               },
             ]}
             rows={report.shipping?.items || []}
