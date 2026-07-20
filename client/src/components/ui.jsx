@@ -218,6 +218,7 @@ export function useRemote(loader, deps = []) {
   useEffect(() => {
     let live = true;
     setLoading(true);
+    setError(null);
     loader()
       .then((x) => live && setData(x))
       .catch((x) => live && setError(x))
