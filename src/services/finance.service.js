@@ -933,7 +933,7 @@ class FinanceService {
         [marketplace, start],
       ),
       this.db.query(
-        `SELECT ft.barcode AS "barcode",MAX(p.title) AS "product_name",
+        `SELECT ft.barcode AS "barcode",MAX(p.product_name) AS "product_name",
                   NULL::numeric AS "quantity",ROUND(SUM(ft.amount),2) AS "revenue",
                   NULL::numeric AS "contribution"
            FROM marketplace_financial_transactions ft

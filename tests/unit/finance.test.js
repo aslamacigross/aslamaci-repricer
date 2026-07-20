@@ -274,6 +274,10 @@ test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () 
   assert.match(citiesQuery, /ORDER BY "orders" DESC/);
   assert.match(productsQuery, /AS "contribution"/);
   assert.match(productsQuery, /ORDER BY "contribution" DESC/);
+  const ledgerProductsQuery = queries.find((sql) =>
+    sql.includes("MAX(p.product_name)"),
+  );
+  assert.ok(ledgerProductsQuery);
   assert.match(transactionsQuery, /AS "count"/);
   assert.match(transactionsQuery, /AS "amount"/);
   assert.deepEqual(report.charts.daily, []);
