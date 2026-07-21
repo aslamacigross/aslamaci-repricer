@@ -49,7 +49,7 @@ function createApp(container = createContainer()) {
   app.use(
     requestContext,
     cors,
-    express.json({ limit: "2mb" }),
+    express.json({ limit: "25mb" }),
     createRateLimiter({ max: env.nodeEnv === "development" ? 1000 : 180 }),
   );
   app.get("/version", (req, res) =>
