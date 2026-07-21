@@ -1528,16 +1528,13 @@ class FinanceService {
     const serviceFee = useCurrentCostFallback
       ? fallbackServiceFee
       : Number(summary.service_fee || 0);
-    const profitBeforePackaging =
-      coverage.profitability_complete || useCurrentCostFallback
-        ? calculateCashProfit({
-            revenue: salesRevenue,
-            commission: commissionTotal,
-            shipping: shippingTotal,
-            serviceFee,
-            productCost,
-          })
-        : Number(summary.operational_profit || 0);
+    const profitBeforePackaging = calculateCashProfit({
+      revenue: salesRevenue,
+      commission: commissionTotal,
+      shipping: shippingTotal,
+      serviceFee,
+      productCost,
+    });
     const profitAfterPackaging = roundMoney(
       profitBeforePackaging - packagingAmount,
     );
