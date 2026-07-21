@@ -18,11 +18,7 @@ const { dashboardRoutes } = require("./routes/dashboard.routes");
 const { productsRoutes } = require("./routes/products.routes");
 const { costsRoutes } = require("./routes/costs.routes");
 const { repricerRoutes } = require("./routes/repricer.routes");
-const {
-  OPERATIONAL_TRANSFER_CONFIRMATION,
-  exportOperationalData,
-  systemRoutes,
-} = require("./routes/system.routes");
+const { systemRoutes } = require("./routes/system.routes");
 const { financeRoutes } = require("./routes/finance.routes");
 const {
   mappingAutomationRoutes,
@@ -97,21 +93,6 @@ function createApp(container = createContainer()) {
             configured: container.hepsiburada?.configured?.() || false,
           },
         },
-      });
-    }),
-  );
-  app.get(
-    "/api/maintenance/operational-data/temporary-public-export",
-    asyncRoute(async (req, res) => {
-      if (req.query.confirmation !== OPERATIONAL_TRANSFER_CONFIRMATION)
-        return res.status(400).json({
-          status: "error",
-          code: "OPERATIONAL_EXPORT_CONFIRMATION_REQUIRED",
-          message: "Operasyonel veri exportu için açık onay gerekli",
-        });
-      res.json({
-        status: "ok",
-        data: await exportOperationalData(container.db),
       });
     }),
   );

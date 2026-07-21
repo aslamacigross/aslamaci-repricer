@@ -681,19 +681,6 @@ function systemRoutes({
       res.json({ status: "ok", data });
     }),
   );
-  r.get(
-    "/maintenance/operational-data/temporary-public-export",
-    asyncRoute(async (req, res) => {
-      if (req.query.confirmation !== OPERATIONAL_TRANSFER_CONFIRMATION)
-        throw new AppError(
-          "Operasyonel veri exportu için açık onay gerekli",
-          400,
-          "OPERATIONAL_EXPORT_CONFIRMATION_REQUIRED",
-        );
-      const data = await exportOperationalData(db);
-      res.json({ status: "ok", data });
-    }),
-  );
   r.post(
     "/maintenance/operational-data/import",
     asyncRoute(async (req, res) => {
@@ -722,8 +709,4 @@ function systemRoutes({
   );
   return r;
 }
-module.exports = {
-  systemRoutes,
-  exportOperationalData,
-  OPERATIONAL_TRANSFER_CONFIRMATION,
-};
+module.exports = { systemRoutes };
