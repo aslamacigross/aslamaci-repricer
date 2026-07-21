@@ -123,6 +123,7 @@ function Recipes({ notify }) {
   const [creating, setCreating] = useState(false);
   const [recipeName, setRecipeName] = useState("");
   const [componentText, setComponentText] = useState("");
+  const [approveConfirm, setApproveConfirm] = useState(false);
   const remote = useRemote(
     () =>
       get(
@@ -150,6 +151,16 @@ function Recipes({ notify }) {
     setRecipeName("");
     setComponentText("");
     notify("Reçete taslağı oluşturuldu");
+    remote.reload();
+  }
+
+  async function approveRecipe() {
+    const response = await post(`/api/pim/recipes/${selected.id}/approve`, {
+      confirmation: "RECETEYI_ONAYLA",
+    });
+    setSelected((current) => ({ ...current, ...response.data }));
+    setApproveConfirm(false);
+    notify("Reçete yayın önizlemelerinde kullanılmak üzere onaylandı");
     remote.reload();
   }
 
@@ -201,6 +212,11 @@ function Recipes({ notify }) {
               <div><span>Nihai desi</span><strong>{selected.final_desi}</strong></div>
               <div><span>Fingerprint</span><strong title={selected.bundle_fingerprint}>{selected.bundle_fingerprint.slice(0, 12)}</strong></div>
             </div>
+            <div className="context-band">
+              <Badge tone={selected.status === "APPROVED" ? "success" : "warning"}>{selected.status}</Badge>
+              <span>{selected.status === "APPROVED" ? "Reçete yayın önizlemelerinde kullanılabilir." : "Reçete yayın önizlemesinden önce insan onayı bekliyor."}</span>
+              {selected.status !== "APPROVED" && <Button onClick={() => setApproveConfirm(true)}>Reçeteyi onayla</Button>}
+            </div>
             <h3>Bileşenler</h3>
             <div className="recipe-components">
               {selected.components.map((item) => (
@@ -222,6 +238,14 @@ function Recipes({ notify }) {
           </div>
         )}
       </Drawer>
+      <Confirm
+        open={approveConfirm}
+        onClose={() => setApproveConfirm(false)}
+        onConfirm={approveRecipe}
+        title="Reçeteyi onayla"
+        confirmLabel="Reçeteyi onayla"
+        message="Bileşenler, adetler, maliyet ve desi kontrol edildi olarak işaretlenecek. Bu işlem pazaryerinde değişiklik yapmaz."
+      />
       <Modal open={creating} onClose={() => setCreating(false)} title="Yeni reçete taslağı">
         <div className="modal-body form-grid">
           <Field label="Reçete adı"><input value={recipeName} onChange={(event) => setRecipeName(event.target.value)} /></Field>

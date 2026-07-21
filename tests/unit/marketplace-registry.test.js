@@ -23,6 +23,18 @@ function repository(records) {
 }
 
 describe("Marketplace adapter sözleşmesi", () => {
+  test("ortak adapter bütün katalog, listing ve finans operasyonlarını tanımlar", () => {
+    const adapter = new MarketplaceAdapter({ code: "TEST" });
+    for (const operation of [
+      "syncCategories", "syncCategoryAttributes", "syncBrands", "searchCatalog",
+      "getCatalogProduct", "matchExistingCatalogProduct", "validateListingPayload",
+      "createProductDraft", "createProduct", "createOfferOnExistingCatalogProduct",
+      "updateProductContent", "updatePriceAndInventory", "fetchProducts", "fetchOrders",
+      "fetchCommissions", "fetchBuybox", "fetchFinancialTransactions", "getBatchResult",
+      "verifyPublishedListing",
+    ]) assert.equal(typeof adapter[operation], "function", operation);
+  });
+
   test("capability olmayan işlemi kontrollü sonuçla reddeder", async () => {
     const adapter = new MarketplaceAdapter({
       code: "TEST",

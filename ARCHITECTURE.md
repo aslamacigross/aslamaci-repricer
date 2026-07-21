@@ -41,6 +41,25 @@ pazaryeri listing'i (`marketplace_listings`). Fiziksel maliyet ve reçete kanall
 arasında paylaşılabilir; katalog/listing kimlikleri, içerik ve fiyat alanları
 marketplace bazında ayrıdır. Ayrıntılar `PIM_AND_LISTING_MODEL.md` içindedir.
 
+Yayınlama katmanı `PublicationService` ve `PublicationRepository` üzerinden
+çalışır. Hedef kanal bağlamı merkezi reçeteyi o kanalın komisyon, kargo, hizmet,
+ambalaj, kategori, özellik, katalog eşleşmesi ve listing barkoduyla birleştirir.
+`product_publication_drafts` gerçek mutasyon payload'ından önceki denetlenebilir
+snapshot'tır; `channel_transfer_batches/items` yüzlerce reçetenin aynı istekle
+ama ürün bazında ayrı sonuçla değerlendirilmesini sağlar.
+
+```mermaid
+flowchart LR
+  R["Onaylı reçete"] --> M["Hedef katalog eşleşmesi"]
+  M -->|"eş ürün"| O["Mevcut katalog teklifi taslağı"]
+  M -->|"eş yok"| B["Listing barkodu kontrolü"]
+  B --> N["Yeni ürün taslağı"]
+  O --> V["Maliyet + kategori + özellik doğrulaması"]
+  N --> V
+  V --> D["Adapter payload dry-run"]
+  D --> X["mutationPerformed=false"]
+```
+
 `system_settings` içinde `default_carrier_trendyol`, `service_fee_trendyol`, `default_carrier_hepsiburada` ve `service_fee_hepsiburada` ayrı tutulur. Hepsiburada varsayılanı `hepsiJET` ve KDV dahil `10,50 TL` hizmet bedelidir. Kargo baremleri ile ambalaj kuralları da `marketplace` kolonuyla ayrılır.
 
 Para hesapları JavaScript kayan nokta aritmetiğiyle biriktirilmez; tutarlar kuruşa, oranlar ölçekli tam sayıya çevrilip yuvarlanarak hesaplanır. PostgreSQL tarafında parasal alanlar `NUMERIC` olarak saklanır.

@@ -13,7 +13,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Phase 1: Ürün/içerik/fırsat yayın anahtarlarının kapalı güvenlik varsayılanı
 - [x] Phase 2: Merkezi PIM, reçete/listing modeli ve kimlik katmanları
 - [x] Phase 2: Katalog eşleşmesi ve listing barkodu havuzu
-- [ ] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
+- [x] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
 - [ ] Phase 5: Ürün/bundle fırsat motoru
 - [ ] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
 - [ ] Phase 7: Tam panel, E2E kabul ve dokümantasyon
@@ -26,6 +26,13 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Açıklanabilir katalog eşleşme skoru ve kritik paket/varyant kilitleri
 - [x] Önizleme ile rezervasyonu ayıran listing barkodu havuzu
 - [x] Ana Katalog, Reçeteler & Bundle ve Listing Barkodları panel sayfaları
+- [x] `024_product_publishing_and_channel_transfer` up/down migrationı
+- [x] Kategori, zorunlu özellik, marka ve katalog eşleşmesi doğrulaması
+- [x] Pazaryeri bazlı minimum fiyat ve ekonomik 1/2/3. sıra hedefleme
+- [x] Açık reçete onayı, yayın taslağı ve adapter payload dry-run doğrulaması
+- [x] İdempotent kanal aktarımı ve ürün bazlı hazır/engelli sınıflandırması
+- [x] Ürün Yayınlama ve Kanal Aktarımı panel sayfaları
+- [x] Phase 3-4 doğrulaması: 219 backend ve 29 React testi, ESLint ve build başarılı
 
 - [x] Repo, git geçmişi ve canlı endpoint envanteri
 - [x] `feature/aslamaci-erp-v2` branch oluşturulması

@@ -1,6 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { proposePrice, safetyCheck } = require("../../src/domain/repricer");
+const {
+  proposePrice,
+  safetyCheck,
+  recommendRankPrice,
+} = require("../../src/domain/repricer");
 const base = {
   is_active: true,
   on_sale: true,
@@ -270,4 +274,25 @@ test("minimum kar ve ogrenme duraklatma guvenlik kapisidir", () => {
   assert.ok(result.failures.includes("LEARNING_PAUSED"));
   assert.ok(result.failures.includes("MIN_PROFIT_TL_VIOLATION"));
   assert.ok(result.failures.includes("MIN_PROFIT_PCT_VIOLATION"));
+});
+
+test("yayın fiyatı birinci sıra ekonomik değilse ikinci sırayı hedefler", () => {
+  const result = recommendRankPrice({
+    minimumPrice: 100,
+    competitorPrices: [90, 120, 140],
+    undercut: 0.1,
+  });
+  assert.equal(result.targetRank, 2);
+  assert.equal(result.proposedPrice, 119.9);
+  assert.equal(result.status, "ECONOMIC_RANK_FOUND");
+});
+
+test("ilk üç sıra ekonomik değilse açık sonuç verir", () => {
+  const result = recommendRankPrice({
+    minimumPrice: 150,
+    competitorPrices: [90, 120, 140],
+  });
+  assert.equal(result.targetRank, null);
+  assert.equal(result.proposedPrice, 150);
+  assert.equal(result.status, "BUYBOX_TARGET_NOT_ECONOMIC");
 });

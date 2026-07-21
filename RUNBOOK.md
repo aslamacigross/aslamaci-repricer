@@ -41,6 +41,17 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 - Tek job için `jobs.enabled=false` kullanın.
 - Çalışan duplicate job PostgreSQL advisory lock tarafından engellenir.
 
+## Ürün Yayınlama Güvenliği
+
+- Mevcut sürümde `PRODUCT_PUBLISHING_ENABLED=false` kalır.
+- `Ürün Yayınlama` dry-run'ı yalnız payload doğrular; başarılı sonuç gerçek
+  listing oluşturulduğu anlamına gelmez.
+- Credential eksikliği, adapter/capability eksikliği, düşük güvenli katalog
+  eşleşmesi veya maliyet blocker'ı kullanıcıya gösterilir ve atlanmaz.
+- Gelecekte gerçek yayın eklendiğinde batch kabulü yeterli sayılmaz; listing
+  tekrar okunup barkod, başlık, kategori, stok ve fiyat doğrulanmadan
+  `PUBLISHED` durumuna geçilmez.
+
 ## Railway Eski Committe Kalırsa
 
 - Deployment source branch ve commit SHA kontrol edilir.
@@ -64,4 +75,3 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 5. Eski uygulama commit'i deploy edilir.
 
 Production'da backup olmadan down migration çalıştırılmaz.
-

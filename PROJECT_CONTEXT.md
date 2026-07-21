@@ -29,6 +29,17 @@
   açık onay, global benzersizlik, advisory lock ve idempotency kullanır.
 - Uygulama/readiness sürümü `2.9.0` / `023_pim_and_listing_identity` olarak
   günceldir. Phase 2 hiçbir pazaryeri mutasyonu içermez.
+- `024_product_publishing_and_channel_transfer` kategori/özellik/marka
+  kataloglarını, eşleştirme tablolarını, yayın taslaklarını ve idempotent kanal
+  aktarım batchlerini ekler.
+- Reçete onayı, taslak oluşturma ve dry-run ayrı kullanıcı adımlarıdır. Dry-run
+  yalnız adapter payload doğrulaması yapar; `createProduct`, içerik, fiyat veya
+  stok mutasyonu çağırmaz.
+- Kanal aktarımı her reçeteyi katalog eşleşmesi, maliyet, desi, komisyon, kargo,
+  ambalaj, kimlik ve capability kapılarından ayrı geçirir. Credential eksikliği
+  kontrollü blocker olarak görünür.
+- Uygulama/readiness sürümü `2.9.0` / `024_product_publishing_and_channel_transfer`
+  durumundadır. Phase 3-4 production veya preview ortamına deploy edilmemiştir.
 
 ## İş Bağlamı
 
@@ -115,6 +126,8 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 ## Doğrulama Durumu
 
+- Phase 3-4 yerel kabulü: 219 backend, 29 React testi, ESLint ve production
+  build başarılıdır; hiçbir pazaryeri mutasyonu yapılmamıştır.
 - 181 backend unit/integration/regression, 21 React bileşen ve 8 tarayıcı E2E testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.

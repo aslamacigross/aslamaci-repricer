@@ -46,6 +46,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "021_product_desi_overrides",
       "022_marketplace_registry",
       "023_pim_and_listing_identity",
+      "024_product_publishing_and_channel_transfer",
     ],
   );
   const safety = await db.query(
@@ -204,6 +205,23 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   );
   assert.equal(pimJob.rowCount, 1);
   assert.equal(pimJob.rows[0].enabled, false);
+  const publicationTables = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN(
+       'marketplace_categories','marketplace_category_attributes','marketplace_brands',
+       'internal_category_mappings','attribute_mappings','brand_mappings',
+       'product_publication_drafts','channel_transfer_batches','channel_transfer_items'
+     )`,
+  );
+  assert.equal(publicationTables.rowCount, 9);
+  const publicationJobs = await db.query(
+    `SELECT name,enabled FROM jobs WHERE name IN(
+       'marketplace-category-sync','marketplace-attribute-sync','marketplace-brand-sync',
+       'catalog-matching','publish-batch-verification','listing-content-verification'
+     )`,
+  );
+  assert.equal(publicationJobs.rowCount, 6);
+  assert.equal(publicationJobs.rows.every((row) => row.enabled === false), true);
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(
@@ -240,8 +258,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "020_trendyol_cargo_reconciliation",
       "021_product_desi_overrides",
       "022_marketplace_registry",
+      "023_pim_and_listing_identity",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

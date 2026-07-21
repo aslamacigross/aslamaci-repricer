@@ -48,6 +48,10 @@ const {
 } = require("./repositories/mapping-automation.repository");
 const { PimRepository } = require("./repositories/pim.repository");
 const { PimService } = require("./services/pim.service");
+const {
+  PublicationRepository,
+} = require("./repositories/publication.repository");
+const { PublicationService } = require("./services/publication.service");
 
 function transactionFor(db) {
   if (db === pool) return withTransaction;
@@ -87,6 +91,9 @@ function createContainer(overrides = {}) {
     overrides.marketplaceRepository || new MarketplaceRepository(db);
   const pimRepository =
     overrides.pimRepository || new PimRepository(db, transaction);
+  const publicationRepository =
+    overrides.publicationRepository ||
+    new PublicationRepository(db, transaction);
   const costEngine = overrides.costEngine || new CostEngineService(db);
   const mappingAutomation =
     overrides.mappingAutomation ||
@@ -141,6 +148,14 @@ function createContainer(overrides = {}) {
       },
     });
   const pim = overrides.pim || new PimService({ repository: pimRepository });
+  const publication =
+    overrides.publication ||
+    new PublicationService({
+      repository: publicationRepository,
+      pim,
+      marketplaceRegistry,
+      settings,
+    });
   const recalculateAllMarketplaces = async () => {
     const results = await Promise.all(
       ["TRENDYOL", "HEPSIBURADA"].map((marketplace) =>
@@ -264,6 +279,45 @@ function createContainer(overrides = {}) {
     finance.backfillTrendyolHistory(),
   );
   jobService.register("bootstrap-pim", () => pim.bootstrap());
+  jobService.register("marketplace-category-sync", (metadata = {}) =>
+    marketplaceRegistry.runJob(
+      metadata.marketplace || "TRENDYOL",
+      "syncCategories",
+      metadata,
+    ),
+  );
+  jobService.register("marketplace-attribute-sync", (metadata = {}) =>
+    marketplaceRegistry.runJob(
+      metadata.marketplace || "TRENDYOL",
+      "syncCategoryAttributes",
+      metadata,
+    ),
+  );
+  jobService.register("marketplace-brand-sync", (metadata = {}) =>
+    marketplaceRegistry.runJob(
+      metadata.marketplace || "TRENDYOL",
+      "syncBrands",
+      metadata,
+    ),
+  );
+  jobService.register("catalog-matching", async () => ({
+    processed: 0,
+    successful: 0,
+    failed: 0,
+    metadata: { status: "WAITING_FOR_CATALOG_CAPABILITY" },
+  }));
+  jobService.register("publish-batch-verification", async () => ({
+    processed: 0,
+    successful: 0,
+    failed: 0,
+    metadata: { status: "SKIPPED_PRODUCT_PUBLISHING_DISABLED" },
+  }));
+  jobService.register("listing-content-verification", async () => ({
+    processed: 0,
+    successful: 0,
+    failed: 0,
+    metadata: { status: "SKIPPED_PRODUCT_PUBLISHING_DISABLED" },
+  }));
   return {
     db,
     auth,
@@ -284,6 +338,8 @@ function createContainer(overrides = {}) {
     marketplaceRegistry,
     pimRepository,
     pim,
+    publicationRepository,
+    publication,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

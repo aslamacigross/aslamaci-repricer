@@ -25,6 +25,7 @@ const {
 } = require("./routes/mapping-automation.routes");
 const { APP_VERSION, REQUIRED_MIGRATION } = require("./config/version");
 const { pimRoutes } = require("./routes/pim.routes");
+const { publicationRoutes } = require("./routes/publication.routes");
 
 function createApp(container = createContainer()) {
   const app = express();
@@ -128,6 +129,7 @@ function createApp(container = createContainer()) {
   app.use("/api", repricerRoutes(container));
   app.use("/api", financeRoutes(container));
   app.use("/api", pimRoutes(container));
+  app.use("/api", publicationRoutes(container));
   app.use("/api", systemRoutes(container));
   const dist = path.resolve(__dirname, "../dist");
   if (fs.existsSync(dist)) {

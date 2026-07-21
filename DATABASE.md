@@ -119,6 +119,18 @@
 - Para değerleri kuruş cinsinden `BIGINT` saklanır; nullable `products.recipe_id`
   mevcut veriyi bozmadan geriye uyumlu bağlantı kurar.
 
+### `024_product_publishing_and_channel_transfer`
+
+- Hedef kanal kategori ağacı, kategori özellikleri ve marka sözlüklerini
+  marketplace anahtarıyla ayrı saklar.
+- İç kategori, özellik ve marka eşleştirmeleri kullanıcı kararını ve güven
+  kanıtını korur.
+- `product_publication_drafts`, gönderim öncesi içerik/fiyat snapshot'ını,
+  blocker kodlarını ve yalnız dry-run durumunu saklar.
+- `channel_transfer_batches/items`, idempotency key ve reçete başına durumla
+  toplu kanal aktarımı önizlemesini izler.
+- Kategori/özellik/marka ve yayın doğrulama jobları varsayılan kapalı eklenir.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`

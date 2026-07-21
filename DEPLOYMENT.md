@@ -16,6 +16,10 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 8. `003_learning_contracts_and_operations` migrationının eski pilot aksiyonlarını koruduğu ve rollback ilişkilerini eklediği doğrulanır.
 9. `004_market_price_verification` migrationının tek işlem limitini mevcut günlük limitten taşıdığı ve bekleyen aksiyonları değiştirmediği doğrulanır.
 10. `005_operational_controls` migrationı ve `/ready` yanıtı doğrulanır; bakım modu kapalı bırakılır.
+11. `024_product_publishing_and_channel_transfer` ayrı preview DB'de up/down
+    test edilir; `/ready` bu migrationı beklemelidir.
+12. `PRODUCT_PUBLISHING_ENABLED=false`, `CONTENT_AUTO_UPDATE_ENABLED=false` ve
+    `OPPORTUNITY_AUTO_PUBLISH_ENABLED=false` doğrulanır.
 
 ## Doğrulanmış V2 Preview
 
@@ -71,6 +75,9 @@ NODE_ENV=production
 DRY_RUN=true
 REPRICER_ENABLED=false
 JOBS_ENABLED=true
+PRODUCT_PUBLISHING_ENABLED=false
+CONTENT_AUTO_UPDATE_ENABLED=false
+OPPORTUNITY_AUTO_PUBLISH_ENABLED=false
 DEFAULT_MAX_INCREASE_TL=10
 ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 ```
@@ -120,6 +127,8 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Hepsiburada Sistem Ayarları: varsayılan kargo `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`
 - Hepsiburada sepet baremleri: 0-199,99 ve 200-399,99 aralıklarında 14 ayrı kayıt
 - Hepsiburada repricer denemesi: `MARKETPLACE_CREDENTIALS_MISSING`; Trendyol fiyat çağrısı yok
+- Ürün Yayınlama: taslak ve adapter doğrulaması `mutationPerformed=false`
+- Kanal Aktarımı: aynı idempotency key ikinci batch oluşturmaz
 - Mobil sidebar ve tablolar
 - `pnpm test:ui` ve `pnpm test:e2e`
 

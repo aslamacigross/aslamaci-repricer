@@ -11,6 +11,14 @@
 - Açıklanabilir katalog eşleştirme, kimlik katmanları ve listing barkodu havuzu eklendi.
 - Ana Katalog, Reçeteler & Bundle ve Listing Barkodları yönetim ekranları eklendi.
 - Readiness zorunlu migration sürümü `023_pim_and_listing_identity` olarak güncellendi.
+- Kategori/özellik/marka sözlükleri ile yayın taslağı ve kanal aktarımı için
+  `024_product_publishing_and_channel_transfer` migrationı eklendi.
+- Açık reçete onayı, yalnız payload doğrulayan ürün yayınlama dry-run'ı ve
+  idempotent kanala kopyalama önizlemesi eklendi.
+- Hedef pazaryeri maliyetleriyle ekonomik 1., 2. veya 3. sıra fiyat önerisi
+  merkezi fiyat motoruna bağlandı.
+- Readiness zorunlu migration sürümü
+  `024_product_publishing_and_channel_transfer` olarak güncellendi.
 
 ## 2.0.0 - 2026-07-12
 

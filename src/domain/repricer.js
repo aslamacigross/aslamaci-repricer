@@ -21,6 +21,49 @@ function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+function recommendRankPrice({
+  minimumPrice,
+  competitorPrices = [],
+  undercut = 0.1,
+  fallbackPrice = 0,
+}) {
+  const minimum = Math.max(parseNumber(minimumPrice), 0);
+  const cut = Math.max(parseNumber(undercut, 0.1), 0.01);
+  const ranked = competitorPrices
+    .slice(0, 3)
+    .map((value) => parseNumber(value))
+    .filter((value) => value > 0);
+  for (let index = 0; index < ranked.length; index++) {
+    const candidate = roundMoney(ranked[index] - cut);
+    if (candidate >= minimum)
+      return {
+        status: "ECONOMIC_RANK_FOUND",
+        targetRank: index + 1,
+        proposedPrice: candidate,
+        referencePrice: ranked[index],
+        undercut: cut,
+        reason: `${index + 1}. sıra minimum kâr korunarak hedeflenebilir`,
+      };
+  }
+  if (ranked.length)
+    return {
+      status: "BUYBOX_TARGET_NOT_ECONOMIC",
+      targetRank: null,
+      proposedPrice: roundMoney(Math.max(minimum, parseNumber(fallbackPrice))),
+      referencePrice: null,
+      undercut: cut,
+      reason: "Bilinen ilk üç sıra minimum fiyatın altında",
+    };
+  return {
+    status: "MARKET_DATA_MISSING",
+    targetRank: null,
+    proposedPrice: roundMoney(Math.max(minimum, parseNumber(fallbackPrice))),
+    referencePrice: null,
+    undercut: cut,
+    reason: "Buybox verisi yok; minimum fiyat ve referans fiyat kullanıldı",
+  };
+}
+
 function effectiveIncreaseLimit(settings) {
   if (parseBoolean(settings.unlimited_increase)) return Infinity;
   const configured = Math.max(parseNumber(settings.max_increase_tl, 10), 0);
@@ -311,4 +354,5 @@ module.exports = {
   safetyCheck,
   visibleRankPrice,
   effectiveIncreaseLimit,
+  recommendRankPrice,
 };

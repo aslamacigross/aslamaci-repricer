@@ -10,6 +10,8 @@ const PERCENT_SCALE = 100n * RATE_SCALE;
 const cents = (value) => decimalToInteger(value, 2);
 const rateUnits = (value) => decimalToInteger(value, 4);
 const money = (value) => integerToDecimal(value, 2);
+const toMoneyMinor = (value) => Number(cents(value));
+const fromMoneyMinor = (value) => money(BigInt(value || 0));
 
 function calculateMinimumPrice(input) {
   const commissionRate = rateUnits(input.commissionRate);
@@ -105,4 +107,6 @@ module.exports = {
   selectShippingCost,
   selectPackagingCost,
   isCostComplete,
+  toMoneyMinor,
+  fromMoneyMinor,
 };

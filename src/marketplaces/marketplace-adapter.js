@@ -59,6 +59,32 @@ class MarketplaceAdapter {
     return this.credentialsMissing("testConnection");
   }
 
+  async validateListingPayload() {
+    return this.unsupported("validateListingPayload");
+  }
+
+  async createProductDraft() {
+    return this.unsupported("createProductDraft");
+  }
+
+  async syncCategories() { return this.unsupported("syncCategories"); }
+  async syncCategoryAttributes() { return this.unsupported("syncCategoryAttributes"); }
+  async syncBrands() { return this.unsupported("syncBrands"); }
+  async searchCatalog() { return this.unsupported("searchCatalog"); }
+  async getCatalogProduct() { return this.unsupported("getCatalogProduct"); }
+  async matchExistingCatalogProduct() { return this.unsupported("matchExistingCatalogProduct"); }
+  async createProduct() { return this.unsupported("createProduct"); }
+  async createOfferOnExistingCatalogProduct() { return this.unsupported("createOfferOnExistingCatalogProduct"); }
+  async updateProductContent() { return this.unsupported("updateProductContent"); }
+  async updatePriceAndInventory() { return this.unsupported("updatePriceAndInventory"); }
+  async fetchProducts() { return this.unsupported("fetchProducts"); }
+  async fetchOrders() { return this.unsupported("fetchOrders"); }
+  async fetchCommissions() { return this.unsupported("fetchCommissions"); }
+  async fetchBuybox() { return this.unsupported("fetchBuybox"); }
+  async fetchFinancialTransactions() { return this.unsupported("fetchFinancialTransactions"); }
+  async getBatchResult() { return this.unsupported("getBatchResult"); }
+  async verifyPublishedListing() { return this.unsupported("verifyPublishedListing"); }
+
   async execute(operation, input = {}) {
     if (!this.supports(operation)) return this.unsupported(operation);
     if (!this.configured()) return this.credentialsMissing(operation);

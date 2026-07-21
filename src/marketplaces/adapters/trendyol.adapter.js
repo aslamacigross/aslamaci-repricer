@@ -50,6 +50,33 @@ class TrendyolAdapter extends MarketplaceAdapter {
   async fetchFinancialTransactions(input = {}) {
     return this.service.listSettlements(input);
   }
+
+  async validateListingPayload(input = {}) {
+    const errors = [];
+    if (!input.barcode) errors.push("LISTING_BARCODE_REQUIRED");
+    if (!input.title) errors.push("TITLE_REQUIRED");
+    if (!input.categoryId) errors.push("CATEGORY_REQUIRED");
+    if (!(Number(input.stock) >= 0)) errors.push("STOCK_INVALID");
+    if (!(Number(input.salePrice) > 0)) errors.push("PRICE_REQUIRED");
+    return {
+      ok: errors.length === 0,
+      code: errors.length ? "LISTING_PAYLOAD_INVALID" : "LISTING_PAYLOAD_VALID",
+      marketplace: this.code,
+      errors,
+      dryRun: true,
+    };
+  }
+
+  async createProductDraft(input = {}) {
+    const validation = await this.validateListingPayload(input);
+    return {
+      ...validation,
+      code: validation.ok ? "PRODUCT_DRAFT_READY" : validation.code,
+      payload: input,
+      dryRun: true,
+      mutationPerformed: false,
+    };
+  }
 }
 
 module.exports = { TrendyolAdapter };

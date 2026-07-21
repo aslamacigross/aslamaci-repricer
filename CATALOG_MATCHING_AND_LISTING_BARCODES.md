@@ -37,3 +37,16 @@ doğrulaması yapılır.
 Önizleme barkodu tüketmez. Rezervasyon için kullanıcıdan
 `LISTING_BARKODU_TAHSIS_ET` onayı alınır. Başarısız yayın barkodu başka reçeteye
 aktarmaz; yayın ve doğrulama akışı ayrı durumlarla izlenir.
+
+## Dry-run Yayın ve Kanal Aktarımı
+
+`Ürün Yayınlama` bir reçeteyi önce açık insan onayından geçirir. Taslak hedef
+kategori, marka, zorunlu özellikler, içerik, görseller, stok ve pazaryeri bazlı
+fiyat kırılımını saklar. `publish-dry-run` yalnız adapter payload doğrulamasını
+çalıştırır ve sonuçta daima `mutationPerformed=false` üretir.
+
+`Kanal Aktarımı` aynı değerlendirmeyi seçilen reçeteler için idempotent batch
+olarak çalıştırır. Her satır `EXISTING_MATCH_CONFIRMED`,
+`EXISTING_MATCH_REVIEW_REQUIRED`, `NEW_PRODUCT_REQUIRED`, `READY_TO_LIST` veya
+açık maliyet/kimlik/capability blocker durumlarından birine ayrılır. Batch işlemi
+ürün, içerik, fiyat ya da stok göndermez.
