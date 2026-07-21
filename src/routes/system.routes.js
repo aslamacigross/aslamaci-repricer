@@ -664,4 +664,8 @@ function systemRoutes({
   );
   return r;
 }
-module.exports = { systemRoutes };
+module.exports = {
+  systemRoutes,
+  exportOperationalData,
+  OPERATIONAL_TRANSFER_CONFIRMATION,
+};
