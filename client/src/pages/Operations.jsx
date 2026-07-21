@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   Activity,
   Pencil,
+  Trophy,
 } from "lucide-react";
 import { get, post, patch } from "../lib/api";
 import DataTable, {
@@ -89,6 +90,35 @@ function formatSignedMoney(value) {
   const number = Number(value || 0);
   const formatted = money(number);
   return number > 0 ? `+${formatted}` : formatted;
+}
+
+function BuyboxStatusBadge({ row }) {
+  const rank = Number(row.rank || 0);
+  const hasBuybox = Number(row.buybox_price || 0) > 0;
+  if (rank === 1)
+    return (
+      <span className="buybox-status buybox-status-owned" title="Buybox bizde">
+        <Trophy size={15} />
+        Bizde
+      </span>
+    );
+  if (rank > 1)
+    return (
+      <span
+        className="buybox-status buybox-status-rank"
+        title={`${rank}. sıradayız`}
+      >
+        {rank}.
+      </span>
+    );
+  return (
+    <span
+      className="buybox-status buybox-status-out"
+      title={hasBuybox ? "Buybox'a dahil değiliz" : "Buybox verisi yok"}
+    >
+      {hasBuybox ? "Dahil değil" : "Veri yok"}
+    </span>
+  );
 }
 
 const info = {
@@ -290,12 +320,8 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
     },
     {
       key: "rank",
-      label: "Sıra",
-      render: (r) => (
-        <Badge tone={r.rank === 1 ? "success" : "warning"}>
-          {r.rank || "-"}
-        </Badge>
-      ),
+      label: "Buybox durumu",
+      render: (r) => <BuyboxStatusBadge row={r} />,
     },
     {
       key: "has_multiple_seller",
