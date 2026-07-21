@@ -28,6 +28,15 @@
 - Ürün Fırsatları ekranı filtre, CSV, veri yeterliliği, ekonomi, katalog ve olay
   geçmişi ayrıntılarıyla eklendi.
 - Readiness zorunlu migration sürümü `025_product_opportunity_engine` oldu.
+- Sağlayıcıdan bağımsız İçerik Stüdyosu, PIM kaynak gerçekleri ve provenance
+  tabanlı güvenli taslak üretimi eklendi.
+- Paket adedi uyuşmazlığını ve kaynaksız ürün iddialarını engelleyen içerik
+  doğrulaması; diff, snapshot, insan onayı ve rollback önizlemesi eklendi.
+- Kanıt, öneri, beklenen etki, ölçülecek KPI ve eksik veri gösteren açıklanabilir
+  Listing Sağlığı taraması eklendi.
+- `026_ai_content_and_listing_health` migrationı eklendi; içerik yayınlama
+  yalnız dry-run'dır ve `CONTENT_AUTO_UPDATE_ENABLED=false` kalır.
+- Readiness zorunlu migration sürümü `026_ai_content_and_listing_health` oldu.
 
 ## 2.0.0 - 2026-07-12
 

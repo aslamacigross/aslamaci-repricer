@@ -36,6 +36,9 @@ Trendyol ve Hepsiburada ürün maliyeti, minimum fiyat, buybox ve repricer opera
 - Merkezi PIM, reçete/bundle, katalog eşleşmesi ve ayrı listing kimlik katmanları
 - Açık onaylı reçete, ürün yayınlama dry-run'ı ve idempotent kanala kopyalama önizlemesi
 - Hedef pazaryerine özel maliyet ve ekonomik 1/2/3. sıra fiyat önerisi
+- PIM kaynak gerçeklerinden güvenli taslak üreten İçerik Stüdyosu
+- Diff, snapshot, insan onayı ve yalnız dry-run içerik yayınlama akışı
+- Kanıt, öneri, beklenen etki ve KPI içeren açıklanabilir Listing Sağlığı
 
 ## Gereksinimler
 
@@ -147,6 +150,14 @@ değildir; kullanılan sinyaller, eksik veriler ve güven seviyesi ayrı göster
 Öneri reçetesi insan onayı almadan PIM'e eklenmez, katalog araması listing barkodu
 tüketmez ve hiçbir fırsat otomatik yayınlanmaz. Ayrıntılar
 [PRODUCT_OPPORTUNITY_ENGINE.md](PRODUCT_OPPORTUNITY_ENGINE.md) dosyasındadır.
+
+`İçerik Stüdyosu` anahtar olmadan deterministic `MOCK_DRAFT` modunda çalışır.
+Başlık, açıklama, arama terimleri ve görsel brief'ler yalnız PIM kaynak
+gerçeklerinden üretilir. Paket adedi veya desteklenmeyen iddia doğrulaması
+başarısızsa içerik onaylanamaz. İçerik yayınlama bu sürümde yalnız dry-run'dır;
+adapter mutasyon metodu çağrılmaz. `Listing Sağlığı` skorları algoritmik yükselme
+vaadi değil, kanıtlı kalite sorunları ve ölçülebilir iyileştirme önerileridir.
+Ayrıntılar [AI_CONTENT_SAFETY.md](AI_CONTENT_SAFETY.md) dosyasındadır.
 
 Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister. Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz. Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebilir; tüm satırlar doğrulanmadan transaction başlamaz.
 

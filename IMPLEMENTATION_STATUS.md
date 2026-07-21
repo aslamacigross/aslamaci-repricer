@@ -15,7 +15,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Phase 2: Katalog eşleşmesi ve listing barkodu havuzu
 - [x] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
 - [x] Phase 5: Ürün/bundle fırsat motoru
-- [ ] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
+- [x] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
 - [ ] Phase 7: Tam panel, E2E kabul ve dokümantasyon
 
 ## Tamamlanan
@@ -40,6 +40,14 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] İnsan onaylı reçete, ret geçmişi ve katalog araması workflow'u
 - [x] Ürün Fırsatları paneli, filtreler, CSV, ayrıntı ve eksik veri görünümü
 - [x] Phase 5 doğrulaması: 230 backend ve 32 React testi, ESLint ve build başarılı
+- [x] `026_ai_content_and_listing_health` up/down migrationı
+- [x] Sağlayıcıdan bağımsız, anahtarsız deterministic mock/draft içerik adapterı
+- [x] PIM kaynak gerçekleri, provenance, paket adedi ve desteklenmeyen iddia güvenlik kontrolleri
+- [x] İçerik diff, insan onayı, dry-run yayın ve yeniden onay isteyen rollback önizlemesi
+- [x] Açıklanabilir listing kalite puanı, kanıt, öneri, beklenen etki ve ölçülecek KPI
+- [x] İçerik Stüdyosu ve Listing Sağlığı panel ekranları
+- [x] Phase 6 doğrulaması: 240 backend ve 35 React testi, migration up/down,
+  ESLint ve production build başarılı
 
 - [x] Repo, git geçmişi ve canlı endpoint envanteri
 - [x] `feature/aslamaci-erp-v2` branch oluşturulması

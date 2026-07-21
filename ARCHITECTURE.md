@@ -53,6 +53,14 @@ listing, buybox ve sipariş sinyallerini birleştirir. Puan saf domain fonksiyon
 hesaplanır; her katkı kaynağı ve eksik veri kullanıcıya döner. Öneri üretimi,
 reçete onayı, katalog araması ve yayın ayrı workflow adımlarıdır.
 
+İçerik katmanı `ContentService`, `ContentRepository` ve sağlayıcıdan bağımsız
+`ContentProvider` sözleşmesini kullanır. Sağlayıcıya yalnız PIM kaynak gerçekleri
+verilir; provenance taslakla birlikte saklanır. `CURRENT`, `PROPOSED` ve
+`APPROVED` snapshot'ları diff ve rollback önizlemesini besler. İçerik onayı ile
+yayın dry-run'ı ayrı açık onaylardır; bu sürümde adapter mutasyonu çağrılmaz.
+Listing sağlık puanı saf domain kontrollerinden oluşur ve her sorun için kanıt,
+öneri, beklenen etki ile ölçülecek KPI döndürür.
+
 ```mermaid
 flowchart LR
   R["Onaylı reçete"] --> M["Hedef katalog eşleşmesi"]

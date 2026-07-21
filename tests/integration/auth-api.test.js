@@ -30,7 +30,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "025_product_opportunity_engine" }],
+                  : [{ version: "026_ai_content_and_listing_health" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },

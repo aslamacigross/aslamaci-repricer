@@ -48,6 +48,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "023_pim_and_listing_identity",
       "024_product_publishing_and_channel_transfer",
       "025_product_opportunity_engine",
+      "026_ai_content_and_listing_health",
     ],
   );
   const safety = await db.query(
@@ -233,6 +234,19 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   );
   assert.equal(opportunityJob.rowCount, 1);
   assert.equal(opportunityJob.rows[0].enabled, false);
+  const contentTables = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN(
+       'ai_content_drafts','listing_content_snapshots','listing_health_assessments'
+     )`,
+  );
+  assert.equal(contentTables.rowCount, 3);
+  const contentJobs = await db.query(
+    `SELECT name,enabled FROM jobs
+     WHERE name IN('listing-health-scan','content-quality-scan')`,
+  );
+  assert.equal(contentJobs.rowCount, 2);
+  assert.equal(contentJobs.rows.every((row) => row.enabled === false), true);
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(
@@ -271,8 +285,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "022_marketplace_registry",
       "023_pim_and_listing_identity",
       "024_product_publishing_and_channel_transfer",
+      "025_product_opportunity_engine",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

@@ -25,6 +25,8 @@ import {
   Send,
   Shuffle,
   Lightbulb,
+  WandSparkles,
+  HeartPulse,
 } from "lucide-react";
 import { IconButton, Badge } from "./ui";
 const links = [
@@ -48,6 +50,8 @@ const links = [
   ["publishing", "Ürün Yayınlama", Send],
   ["channel-transfer", "Kanal Aktarımı", Shuffle],
   ["opportunities", "Ürün Fırsatları", Lightbulb],
+  ["content-studio", "İçerik Stüdyosu", WandSparkles],
+  ["listing-health", "Listing Sağlığı", HeartPulse],
   ["settings", "Sistem Ayarları", Settings],
 ];
 export default function Shell({

@@ -49,6 +49,18 @@
   yayın onayı birbirinden ayrıdır. Otomatik veya gerçek yayın yapılmaz.
 - Uygulama/readiness sürümü `2.9.0` / `025_product_opportunity_engine`
   durumundadır. Phase 5 production veya preview ortamına deploy edilmemiştir.
+- `026_ai_content_and_listing_health` içerik taslaklarını, mevcut/önerilen/onaylı
+  snapshot'ları ve açıklanabilir listing sağlık değerlendirmelerini ekler.
+- İçerik sağlayıcısı sözleşmesi bağımsızdır; anahtar olmayan ortamda deterministic
+  `MOCK_DRAFT` kullanılır. Taslak yalnız PIM kaynak gerçeklerinden üretilir; paket
+  adedi uyuşmazlığı ve kaynaksız iddialar onayı engeller.
+- İçerik onayı, yayın dry-run'ı ve rollback önizlemesi ayrı açık onay ister.
+  `CONTENT_AUTO_UPDATE_ENABLED=false` kalır; adapter mutasyonu çağrılmaz ve tüm
+  sonuçlar `mutationPerformed=false` döner.
+- Uygulama/readiness sürümü `2.9.0` / `026_ai_content_and_listing_health`
+  durumundadır. Phase 6 production veya preview ortamına deploy edilmemiştir.
+- Phase 6 yerel kabulü: 240 backend ve 35 React testi, migration up/down,
+  ESLint ve production build başarılıdır.
 
 ## İş Bağlamı
 

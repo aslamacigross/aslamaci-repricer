@@ -54,6 +54,11 @@ const {
 const { PublicationService } = require("./services/publication.service");
 const { OpportunityRepository } = require("./repositories/opportunity.repository");
 const { OpportunityService } = require("./services/opportunity.service");
+const { ContentRepository } = require("./repositories/content.repository");
+const { ContentService } = require("./services/content.service");
+const {
+  DeterministicContentProvider,
+} = require("./services/content-provider");
 
 function transactionFor(db) {
   if (db === pool) return withTransaction;
@@ -98,6 +103,8 @@ function createContainer(overrides = {}) {
     new PublicationRepository(db, transaction);
   const opportunityRepository =
     overrides.opportunityRepository || new OpportunityRepository(db, transaction);
+  const contentRepository =
+    overrides.contentRepository || new ContentRepository(db, transaction);
   const costEngine = overrides.costEngine || new CostEngineService(db);
   const mappingAutomation =
     overrides.mappingAutomation ||
@@ -167,6 +174,16 @@ function createContainer(overrides = {}) {
       pim,
       publication,
       marketplaceRegistry,
+    });
+  const contentProvider =
+    overrides.contentProvider || new DeterministicContentProvider();
+  const content =
+    overrides.content ||
+    new ContentService({
+      repository: contentRepository,
+      pim,
+      marketplaceRegistry,
+      provider: contentProvider,
     });
   const recalculateAllMarketplaces = async () => {
     const results = await Promise.all(
@@ -339,6 +356,21 @@ function createContainer(overrides = {}) {
       "system-job",
     ),
   );
+  jobService.register("listing-health-scan", (metadata = {}) =>
+    content.scanHealth(
+      {
+        marketplace: metadata.marketplace || "TRENDYOL",
+        confirmation: "LISTING_SAGLIGINI_TARA",
+      },
+      "system-job",
+    ),
+  );
+  jobService.register("content-quality-scan", async () => ({
+    processed: 0,
+    successful: 0,
+    failed: 0,
+    metadata: { status: "SKIPPED_REQUIRES_HUMAN_DRAFT_SELECTION" },
+  }));
   return {
     db,
     auth,
@@ -363,6 +395,9 @@ function createContainer(overrides = {}) {
     publication,
     opportunityRepository,
     opportunity,
+    contentRepository,
+    contentProvider,
+    content,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

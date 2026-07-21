@@ -27,6 +27,7 @@ const { APP_VERSION, REQUIRED_MIGRATION } = require("./config/version");
 const { pimRoutes } = require("./routes/pim.routes");
 const { publicationRoutes } = require("./routes/publication.routes");
 const { opportunityRoutes } = require("./routes/opportunity.routes");
+const { contentRoutes } = require("./routes/content.routes");
 
 function createApp(container = createContainer()) {
   const app = express();
@@ -132,6 +133,7 @@ function createApp(container = createContainer()) {
   app.use("/api", pimRoutes(container));
   app.use("/api", publicationRoutes(container));
   app.use("/api", opportunityRoutes(container));
+  app.use("/api", contentRoutes(container));
   app.use("/api", systemRoutes(container));
   const dist = path.resolve(__dirname, "../dist");
   if (fs.existsSync(dist)) {

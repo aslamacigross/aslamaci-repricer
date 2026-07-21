@@ -12,6 +12,7 @@ const Integrations = lazy(() => import("./pages/Integrations"));
 const CatalogCenter = lazy(() => import("./pages/CatalogCenter"));
 const PublishingCenter = lazy(() => import("./pages/PublishingCenter"));
 const OpportunityCenter = lazy(() => import("./pages/OpportunityCenter"));
+const ContentCenter = lazy(() => import("./pages/ContentCenter"));
 const pageMap = {
   dashboard: Dashboard,
   products: Products,
@@ -34,6 +35,8 @@ const pageMap = {
   publishing: PublishingCenter,
   "channel-transfer": PublishingCenter,
   opportunities: OpportunityCenter,
+  "content-studio": ContentCenter,
+  "listing-health": ContentCenter,
 };
 export default function App() {
   const [user, setUser] = useState(null),

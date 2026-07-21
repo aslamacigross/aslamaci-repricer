@@ -141,6 +141,17 @@
   idempotenttir. Yeniden üretim reddedilmiş veya yayınlanmış kararı ezmez.
 - `opportunity-generation` job kaydı varsayılan kapalıdır; gerçek yayın yapmaz.
 
+### `026_ai_content_and_listing_health`
+
+- `ai_content_drafts`: kaynak gerçeklerini, sağlayıcı modunu, önerilen içeriği,
+  doğrulama sonuçlarını ve insan onayı workflow'unu saklar.
+- `listing_content_snapshots`: mevcut, önerilen ve onaylı içerik snapshot'larını
+  checksum ile izler; rollback doğrudan yazma yerine yeni onaylı işlem gerektirir.
+- `listing_health_assessments`: listing kalite puanını, kanıtlı kontrolleri,
+  eksik veriyi ve ölçülecek KPI'ları marketplace/listing bazında saklar.
+- `listing-health-scan` ve `content-quality-scan` jobları varsayılan kapalı
+  eklenir. Credential veya capability yokluğu gerçek mutasyona dönüşmez.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`
