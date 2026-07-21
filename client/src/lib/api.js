@@ -1,0 +1,40 @@
+let csrfToken = sessionStorage.getItem("csrfToken") || "";
+export function setCsrf(token) {
+  csrfToken = token || "";
+  if (token) sessionStorage.setItem("csrfToken", token);
+  else sessionStorage.removeItem("csrfToken");
+}
+export async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "include",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+      ...(options.headers || {}),
+    },
+    body:
+      options.body && typeof options.body !== "string"
+        ? JSON.stringify(options.body)
+        : options.body,
+  });
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    data = { message: "Sunucudan geçersiz yanıt alındı" };
+  }
+  if (!response.ok) {
+    const error = new Error(data.message || "İşlem başarısız");
+    error.status = response.status;
+    error.code = data.code;
+    error.details = data.details;
+    throw error;
+  }
+  return data;
+}
+export const get = (path) => api(path);
+export const post = (path, body = {}) => api(path, { method: "POST", body });
+export const patch = (path, body = {}) => api(path, { method: "PATCH", body });
+export const put = (path, body = {}) => api(path, { method: "PUT", body });
+export const del = (path) => api(path, { method: "DELETE" });

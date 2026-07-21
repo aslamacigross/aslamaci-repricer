@@ -1,0 +1,866 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  FinanceService,
+  calculateCashProfit,
+  monthInTimeZone,
+  resolveReportRange,
+  signedSettlementAmount,
+} = require("../../src/services/finance.service");
+
+test("varsayilan rapor ayi Istanbul saatine gore belirlenir", () => {
+  assert.equal(
+    monthInTimeZone(new Date("2026-06-30T21:30:00.000Z")),
+    "2026-07",
+  );
+});
+
+test("satis raporu aylik, yillik, aralik ve tum zaman gorunumlerini cozer", () => {
+  assert.deepEqual(resolveReportRange({ month: "2026-06" }), {
+    scope: "month",
+    period: "2026-06",
+    label: "2026-06",
+    startDate: "2026-06-01",
+    endDate: "2026-06-30",
+  });
+  assert.deepEqual(resolveReportRange({ scope: "year", year: "2026" }), {
+    scope: "year",
+    period: "2026",
+    label: "2026 yılı",
+    startDate: "2026-01-01",
+    endDate: "2026-12-31",
+  });
+  assert.deepEqual(
+    resolveReportRange({
+      scope: "range",
+      startDate: "2026-01-03",
+      endDate: "2026-04-08",
+    }),
+    {
+      scope: "range",
+      period: "2026-01-03:2026-04-08",
+      label: "2026-01-03 - 2026-04-08",
+      startDate: "2026-01-03",
+      endDate: "2026-04-08",
+    },
+  );
+  assert.equal(resolveReportRange({ scope: "all" }).startDate, "2025-12-15");
+});
+
+test("500 TL siparis ornegi 98.77 TL operasyonel nakit kari verir", () => {
+  assert.equal(
+    calculateCashProfit({
+      revenue: 500,
+      commission: 95,
+      shipping: 93.04,
+      serviceFee: 13.19,
+      productCost: 200,
+    }),
+    98.77,
+  );
+});
+
+test("aylik ambalaj gideri nakit karindan bir kez dusulur", () => {
+  assert.equal(
+    calculateCashProfit({
+      revenue: 500,
+      commission: 95,
+      shipping: 93.04,
+      serviceFee: 13.19,
+      productCost: 200,
+      packaging: 10,
+    }),
+    88.77,
+  );
+});
+
+test("tekrar senkronlanan siparis ilk maliyet snapshotini korur", async () => {
+  let insertParams;
+  const db = {
+    async query(sql, params) {
+      if (sql.includes("SELECT * FROM marketplace_orders"))
+        return {
+          rows: [
+            {
+              id: 8,
+              product_cost_total: 200,
+              shipping_total: 93.04,
+              service_fee_total: 13.19,
+              package_desi: 1,
+              shipping_source: "BILLED",
+            },
+          ],
+        };
+      if (sql.includes("FROM products"))
+        return {
+          rows: [
+            {
+              barcode: "TEST",
+              calculated_product_cost: 999,
+              calculated_shipping_cost: 999,
+              service_fee: 99,
+              commission_rate: 19,
+              desi: 1.5,
+            },
+          ],
+        };
+      if (sql.includes("FROM system_settings"))
+        return {
+          rows: [{ key: "default_carrier_trendyol", value: "TEX" }],
+        };
+      if (sql.includes("FROM shipping_barems"))
+        return {
+          rows: [
+            {
+              source: "DESI",
+              min_basket: null,
+              max_basket: null,
+              cost_inc_vat: 93.04,
+              desi_kg: 2,
+            },
+          ],
+        };
+      if (sql.includes("INSERT INTO marketplace_orders")) {
+        insertParams = params;
+        return { rows: [{ id: 8 }] };
+      }
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  await finance.upsertOrder({
+    orderNumber: "ORDER-1",
+    id: "PACKAGE-1",
+    status: "Delivered",
+    orderDate: "2026-07-20T10:00:00Z",
+    lines: [
+      {
+        id: "LINE-1",
+        barcode: "TEST",
+        quantity: 1,
+        amount: 500,
+        commissionRate: 19,
+      },
+    ],
+  });
+
+  assert.equal(insertParams[7], 500);
+  assert.equal(insertParams[8], 95);
+  assert.equal(insertParams[9], 93.04);
+  assert.equal(insertParams[10], 13.19);
+  assert.equal(insertParams[11], 200);
+  assert.equal(insertParams[12], 98.77);
+  assert.equal(insertParams[14], 1);
+  assert.equal(insertParams[15], "BILLED");
+});
+
+test("Trendyol finans hareketlerini API limitine uygun tarih araliklarina boler", async () => {
+  const ranges = [];
+  const trendyol = {
+    async listSettlements(options) {
+      ranges.push(options);
+      return { content: [], last: true };
+    },
+  };
+  const finance = new FinanceService({ db: {}, trendyol, hepsiburada: {} });
+
+  const result = await finance.syncFinancialTransactions({ days: 35 });
+
+  assert.equal(ranges.length, 3);
+  assert.ok(
+    ranges.every(
+      ({ startDate, endDate }) => endDate - startDate <= 14 * 86400000,
+    ),
+  );
+  assert.ok(
+    ranges.slice(1).every((range, index) => {
+      return range.startDate === ranges[index].endDate + 1;
+    }),
+  );
+  assert.equal(result.processed, 0);
+  assert.equal(result.successful, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(result.metadata.windows, 3);
+});
+
+test("Trendyol siparislerini 14 gunluk pencerelerde ve secilen tarih alaninda ceker", async () => {
+  const ranges = [];
+  const trendyol = {
+    async listOrders(options) {
+      ranges.push(options);
+      return { content: [], last: true };
+    },
+  };
+  const finance = new FinanceService({ db: {}, trendyol, hepsiburada: {} });
+
+  const result = await finance.syncOrders({
+    days: 35,
+    orderByField: "CreatedDate",
+  });
+
+  assert.equal(ranges.length, 3);
+  assert.ok(
+    ranges.every(
+      ({ startDate, endDate }) => endDate - startDate <= 14 * 86400000,
+    ),
+  );
+  assert.ok(ranges.every((range) => range.orderByField === "CreatedDate"));
+  assert.equal(result.metadata.windows, 3);
+});
+
+test("settlement credit ve debt alanlarini imzali tutara cevirir", () => {
+  assert.equal(signedSettlementAmount({ credit: 304, debt: 0 }), 304);
+  assert.equal(signedSettlementAmount({ credit: 0, debt: 75.5 }), -75.5);
+  assert.equal(signedSettlementAmount({ amount: 42.25 }), 42.25);
+});
+
+test("settlement senkronu barkod ve gercek siparis tarihini saklar", async () => {
+  let query;
+  let params;
+  const db = {
+    async query(nextQuery, nextParams) {
+      query = nextQuery;
+      params = nextParams;
+      return { rows: [] };
+    },
+  };
+  const orderDate = Date.parse("2026-06-10T12:00:00Z");
+  const trendyol = {
+    async listSettlements() {
+      return {
+        content: [
+          {
+            id: "TX-1",
+            transactionType: "Satış",
+            transactionDate: Date.parse("2026-06-20T12:00:00Z"),
+            orderDate,
+            orderNumber: "ORDER-1",
+            shipmentPackageId: "PACKAGE-1",
+            barcode: "TEST",
+            credit: 500,
+            commissionAmount: 95,
+            sellerRevenue: 405,
+          },
+        ],
+        last: true,
+      };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol, hepsiburada: {} });
+
+  await finance.syncFinancialTransactions({
+    startDate: orderDate,
+    endDate: orderDate,
+  });
+
+  assert.match(query, /order_date,barcode/);
+  assert.equal(params[5], 500);
+  assert.equal(params[9].getTime(), orderDate);
+  assert.equal(params[10], "TEST");
+});
+
+test("gecmis tamamlama settlement gecmisini ve son 28 gun siparisini ayri ceker", async () => {
+  const settingsQueries = [];
+  const finance = new FinanceService({
+    db: {
+      async query(sql, params) {
+        settingsQueries.push({ sql, params });
+        return { rows: [] };
+      },
+    },
+    trendyol: {},
+    hepsiburada: {},
+  });
+  let transactionOptions;
+  let orderOptions;
+  finance.syncFinancialTransactions = async (options) => {
+    transactionOptions = options;
+    return { processed: 10, successful: 10, failed: 0 };
+  };
+  finance.syncOrders = async (options) => {
+    orderOptions = options;
+    return { processed: 3, successful: 3, failed: 0 };
+  };
+  finance.syncCargoInvoices = async () => ({
+    processed: 2,
+    successful: 2,
+    failed: 0,
+  });
+  const endDate = Date.parse("2026-07-21T12:00:00Z");
+  const startDate = Date.parse("2025-12-14T21:00:00Z");
+
+  const result = await finance.backfillTrendyolHistory({ startDate, endDate });
+
+  assert.deepEqual(transactionOptions, { startDate, endDate });
+  assert.equal(orderOptions.orderByField, "CreatedDate");
+  assert.equal(orderOptions.startDate, endDate - 28 * 86400000);
+  assert.equal(result.processed, 15);
+  assert.match(settingsQueries[0].sql, /trendyol_finance_history_backfill/);
+});
+
+test("Trendyol kargo faturasi siparis desi ve tutarini saklar", async () => {
+  let insertParams;
+  const db = {
+    async query(sql, params) {
+      if (sql.includes("INSERT INTO marketplace_cargo_charges")) {
+        insertParams = params;
+        return { rows: [] };
+      }
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const trendyol = {
+    async listOtherFinancials() {
+      return {
+        content: [
+          {
+            id: "KARGO-2026-07",
+            transactionType: "Kargo Faturası",
+            transactionDate: Date.parse("2026-07-20T10:00:00Z"),
+          },
+          { id: "OTHER", transactionType: "Hizmet Faturası" },
+        ],
+        last: true,
+      };
+    },
+    async listCargoInvoiceItems(serial) {
+      assert.equal(serial, "KARGO-2026-07");
+      return {
+        content: [
+          {
+            shipmentPackageType: "Gönderi Kargo Bedeli",
+            parcelUniqueId: 7260001151141191,
+            orderNumber: "ORDER-1",
+            amount: 93.04,
+            desi: 2,
+          },
+        ],
+        last: true,
+      };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol, hepsiburada: {} });
+
+  const result = await finance.syncCargoInvoices({
+    startDate: Date.parse("2026-07-01T00:00:00Z"),
+    endDate: Date.parse("2026-07-01T00:00:00Z"),
+  });
+
+  assert.equal(result.processed, 1);
+  assert.equal(result.metadata.invoices, 1);
+  assert.equal(insertParams[0], "KARGO-2026-07");
+  assert.equal(insertParams[2], "7260001151141191");
+  assert.equal(insertParams[3], "ORDER-1");
+  assert.equal(insertParams[5], 93.04);
+  assert.equal(insertParams[6], 2);
+});
+
+test("aylik kargo raporu faturayi, yoksa mapping desisi tahminini kullanir", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('AS "line_count"'))
+        return {
+          rows: [
+            {
+              order_number: "ORDER-1",
+              order_date: "2026-07-10T10:00:00Z",
+              sale_amount: 500,
+              estimated_desi: 2,
+              line_count: 1,
+              missing_desi_count: 0,
+              products: "Ürün 1",
+              has_return: false,
+            },
+            {
+              order_number: "ORDER-2",
+              order_date: "2026-07-11T10:00:00Z",
+              sale_amount: 500,
+              estimated_desi: 3,
+              line_count: 1,
+              missing_desi_count: 0,
+              products: "Ürün 2",
+              has_return: false,
+            },
+          ],
+        };
+      if (sql.includes("FROM marketplace_cargo_charges"))
+        return {
+          rows: [
+            {
+              external_order_number: "ORDER-1",
+              shipment_package_type: "Gönderi Kargo Bedeli",
+              amount: 100,
+              billed_desi: 2,
+              invoice_date: "2026-07-20T10:00:00Z",
+            },
+          ],
+        };
+      if (sql.includes("FROM system_settings"))
+        return {
+          rows: [{ key: "default_carrier_trendyol", value: "TEX" }],
+        };
+      if (sql.includes("FROM shipping_barems"))
+        return {
+          rows: [
+            {
+              source: "DESI",
+              min_basket: null,
+              max_basket: null,
+              cost_inc_vat: 120,
+              desi_kg: 3,
+              carrier: "TEX",
+            },
+          ],
+        };
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyShippingReport("2026-07", "TRENDYOL");
+
+  assert.equal(report.order_count, 2);
+  assert.equal(report.billed_orders, 1);
+  assert.equal(report.estimated_orders, 1);
+  assert.equal(report.total, 220);
+  assert.equal(report.items[0].shipping_source, "BILLED");
+  assert.equal(report.items[0].billed_desi, 2);
+  assert.equal(report.items[0].shipping_cost, 100);
+  assert.equal(report.items[1].shipping_source, "MAPPED_ESTIMATE");
+  assert.equal(report.items[1].estimated_desi, 3);
+  assert.equal(report.items[1].shipping_cost, 120);
+});
+
+test("iade kargo faturasi yoksa iade kargosunu gidis desisiyle tahmin eder", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('AS "line_count"'))
+        return {
+          rows: [
+            {
+              order_number: "RET-1",
+              order_date: "2026-06-10T10:00:00.000Z",
+              sale_amount: 500,
+              estimated_desi: 1,
+              line_count: 1,
+              missing_desi_count: 0,
+              products: "Test ürün",
+              has_return: true,
+            },
+          ],
+        };
+      if (sql.includes("FROM marketplace_cargo_charges")) return { rows: [] };
+      if (sql.includes("FROM system_settings"))
+        return { rows: [{ key: "default_carrier_trendyol", value: "TEX" }] };
+      if (sql.includes("FROM shipping_barems"))
+        return {
+          rows: [
+            {
+              source: "DESI",
+              min_basket: null,
+              max_basket: null,
+              cost_inc_vat: 93.04,
+              desi_kg: 1,
+              carrier: "TEX",
+            },
+          ],
+        };
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyShippingReport("2026-06", "TRENDYOL");
+
+  assert.equal(report.total, 186.08);
+  assert.equal(report.estimated_total, 186.08);
+  assert.equal(report.items[0].shipping_cost, 186.08);
+  assert.equal(report.items[0].return_shipping_cost, 93.04);
+  assert.equal(report.items[0].return_shipping_source, "MAPPED_ESTIMATE");
+});
+
+test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () => {
+  const queries = [];
+  const db = {
+    async query(sql) {
+      queries.push(sql);
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 0,
+              revenue: 0,
+              commission: 0,
+              shipping: 0,
+              service_fee: 0,
+              product_cost: 0,
+              operational_profit: 0,
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyReport("2026-07", "TRENDYOL");
+  const dailyQuery = queries.find((sql) => sql.includes("TO_CHAR(order_date"));
+  const hourlyQuery = queries.find((sql) => sql.includes("EXTRACT(HOUR"));
+  const citiesQuery = queries.find((sql) => sql.includes("customer_city"));
+  const productsQuery = queries.find((sql) =>
+    sql.includes("marketplace_order_items"),
+  );
+  const transactionsQuery = queries.find((sql) =>
+    sql.includes("marketplace_financial_transactions"),
+  );
+
+  assert.match(dailyQuery, /AS "day"/);
+  assert.match(dailyQuery, /AS "orders"/);
+  assert.match(hourlyQuery, /AS "hour"/);
+  assert.match(citiesQuery, /AS "city"/);
+  assert.match(citiesQuery, /ORDER BY "orders" DESC/);
+  assert.match(productsQuery, /AS "contribution"/);
+  assert.match(productsQuery, /ORDER BY "contribution" DESC/);
+  const ledgerProductsQuery = queries.find((sql) =>
+    sql.includes("MAX(p.product_name)"),
+  );
+  assert.ok(ledgerProductsQuery);
+  assert.match(transactionsQuery, /AS "count"/);
+  assert.match(transactionsQuery, /AS "amount"/);
+  assert.ok(
+    queries.every(
+      (sql) =>
+        !sql.includes("order_date") ||
+        sql.includes("order_date AT TIME ZONE 'Europe/Istanbul'"),
+    ),
+  );
+  const ledgerQuery = queries.find((sql) => sql.includes('AS "gross_sales"'));
+  assert.match(ledgerQuery, /WHEN amount<0 THEN -commission_amount/);
+  assert.deepEqual(report.charts.daily, []);
+  assert.deepEqual(report.charts.hourly, []);
+});
+
+test("settlement varsa aylik komisyon kesin finans kaydindan gelir", async () => {
+  let queryIndex = 0;
+  const db = {
+    async query(sql) {
+      queryIndex++;
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              revenue: 500,
+              commission: 20,
+              shipping: 10,
+              service_fee: 5,
+              product_cost: 100,
+              operational_profit: 365,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 500,
+              returns: 0,
+              discounts: 0,
+              commission: 86.45,
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyReport("2026-06", "TRENDYOL");
+
+  assert.ok(queryIndex > 0);
+  assert.equal(report.summary.commission, 86.45);
+  assert.equal(report.summary.sales_source, "SETTLEMENT");
+});
+
+test("gecmis siparis maliyeti yoksa settlement barkodlarini guncel maliyetle tamamlar", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 0,
+              revenue: 0,
+              commission: 0,
+              shipping: 0,
+              service_fee: 0,
+              product_cost: 0,
+              operational_profit: 0,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 500,
+              returns: 0,
+              discounts: 0,
+              commission: 95,
+            },
+          ],
+        };
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      )
+        return {
+          rows: [
+            { product_cost: 200, service_fee: 13.19, missing_cost_lines: 0 },
+          ],
+        };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "FINANCIAL_ONLY",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 93.04,
+    order_count: 1,
+    billed_orders: 0,
+    estimated_orders: 1,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-06", "TRENDYOL");
+
+  assert.equal(report.summary.product_cost, 200);
+  assert.equal(report.summary.service_fee, 13.19);
+  assert.equal(report.summary.profit_before_packaging, 98.77);
+  assert.equal(report.summary.cost_source, "CURRENT_PRODUCT_COST_FALLBACK");
+});
+
+test("iade urun maliyetini ve platform hizmet bedelini geri kazandirmis saymaz", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 0,
+              revenue: 0,
+              commission: 0,
+              shipping: 0,
+              service_fee: 0,
+              product_cost: 0,
+              operational_profit: 0,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 500,
+              returns: -500,
+              discounts: 0,
+              commission: 0,
+            },
+          ],
+        };
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      )
+        return {
+          rows: [
+            {
+              product_cost: 200,
+              service_fee: 13.19,
+              legacy_product_cost: 200,
+              legacy_service_fee: 13.19,
+              missing_cost_lines: 0,
+              legacy_missing_cost_lines: 0,
+            },
+          ],
+        };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "FINANCIAL_ONLY",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 186.08,
+    order_count: 1,
+    billed_orders: 1,
+    estimated_orders: 0,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-06", "TRENDYOL");
+
+  assert.equal(report.summary.sales_revenue, 0);
+  assert.equal(report.summary.product_cost, 200);
+  assert.equal(report.summary.service_fee, 13.19);
+  assert.equal(report.summary.shipping, 186.08);
+  assert.equal(report.summary.profit_before_packaging, -399.27);
+});
+
+test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullanir", async () => {
+  let ledgerCostSql = "";
+  let ledgerCostParams = [];
+  const db = {
+    async query(sql, params = []) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              revenue: 1000,
+              commission: 10,
+              shipping: 20,
+              service_fee: 50,
+              product_cost: 500,
+              operational_profit: 420,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 1000,
+              returns: 0,
+              discounts: 0,
+              commission: 100,
+            },
+          ],
+        };
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      ) {
+        ledgerCostSql = sql;
+        ledgerCostParams = params;
+        return {
+          rows: [
+            {
+              product_cost: 999,
+              service_fee: 99,
+              legacy_product_cost: 200,
+              legacy_service_fee: 10,
+              missing_cost_lines: 0,
+              legacy_missing_cost_lines: 0,
+            },
+          ],
+        };
+      }
+      if (sql.includes("SUM(product_cost_total)"))
+        return { rows: [{ product_cost: 30, service_fee: 2 }] };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "PARTIAL_DETAILS",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 20,
+    order_count: 1,
+    billed_orders: 0,
+    estimated_orders: 1,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-07", "TRENDYOL");
+
+  assert.match(ledgerCostSql, /<\$4::date/);
+  assert.equal(ledgerCostParams[3], "2026-07-22");
+  assert.equal(report.summary.cost_source, "MIXED_CURRENT_AND_SNAPSHOT");
+  assert.equal(report.summary.product_cost, 230);
+  assert.equal(report.summary.service_fee, 12);
+  assert.equal(report.summary.profit_before_packaging, 638);
+});
+
+test("kismi siparis detayinda kar gosterilen kalemlerden hesaplanir", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              revenue: 1000,
+              commission: 10,
+              shipping: 20,
+              service_fee: 5,
+              product_cost: 100,
+              operational_profit: 999,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 1000,
+              returns: 0,
+              discounts: 0,
+              commission: 100,
+            },
+          ],
+        };
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      )
+        return {
+          rows: [{ product_cost: 80, service_fee: 5, missing_cost_lines: 1 }],
+        };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "PARTIAL_DETAILS",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 20,
+    order_count: 1,
+    billed_orders: 0,
+    estimated_orders: 1,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-08", "TRENDYOL");
+
+  assert.equal(report.summary.cost_source, "PARTIAL_ORDER_SNAPSHOT");
+  assert.equal(report.summary.product_cost, 100);
+  assert.equal(report.summary.profit_before_packaging, 775);
+});

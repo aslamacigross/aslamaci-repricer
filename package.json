@@ -1,14 +1,58 @@
 {
   "name": "aslamaci-repricer",
-  "version": "1.0.0",
+  "version": "2.9.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "description": "Aslamaci ERP and marketplace repricer",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "dev": "concurrently \"node --watch src/server.js\" \"vite --config client/vite.config.js\"",
+    "dev:server": "node --watch src/server.js",
+    "demo": "node scripts/demo-server.js",
+    "hash-password": "node scripts/hash-password.js",
+    "build": "vite build --config client/vite.config.js",
+    "start": "node index.js",
+    "migrate": "node src/db/migrate.js up",
+    "migrate:down": "node src/db/migrate.js down",
+    "test": "node --test --test-reporter=spec tests/**/*.test.js",
+    "test:ui": "vitest run --config client/vite.config.js",
+    "test:e2e": "pnpm test:e2e:demo && pnpm test:e2e:backend",
+    "test:e2e:demo": "playwright test",
+    "test:e2e:backend": "node --test --test-reporter=spec tests/backend-e2e/**/*.test.js",
+    "test:all": "pnpm test && pnpm test:ui",
+    "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js",
+    "check": "node --check index.js && node --check src/server.js",
+    "lint": "eslint src scripts tests client/src --ext .js,.jsx",
+    "format:check": "prettier --check src client scripts tests package.json .eslintrc.cjs"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
-  "dotenv": "^16.4.5",
-  "express": "^4.19.2",
-  "googleapis": "^140.0.1",
-  "pg": "^8.12.0"
-}
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "helmet": "^8.2.0",
+    "lucide-react": "^0.468.0",
+    "pg": "^8.13.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.14",
+    "@playwright/test": "1.54.1",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.3.0",
+    "@testing-library/user-event": "14.6.1",
+    "concurrently": "^9.1.2",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react": "^7.37.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "jsdom": "26.1.0",
+    "pg-mem": "^3.0.5",
+    "prettier": "^3.5.3",
+    "supertest": "^7.0.0",
+    "vite": "^6.0.7",
+    "vitest": "3.2.4"
+  }
 }
