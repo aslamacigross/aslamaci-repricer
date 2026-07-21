@@ -44,6 +44,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "019_trendyol_finance_history",
       "020_trendyol_cargo_reconciliation",
       "021_product_desi_overrides",
+      "022_marketplace_registry",
     ],
   );
   const safety = await db.query(
@@ -168,6 +169,26 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
                           'special_commission_note')`,
   );
   assert.equal(specialCommissionColumns.rowCount, 5);
+  const marketplaceRegistry = await db.query(
+    `SELECT code,enabled,adapter_status,default_service_fee_minor
+     FROM marketplace_registry ORDER BY sort_order`,
+  );
+  assert.deepEqual(
+    marketplaceRegistry.rows.map((row) => row.code),
+    ["TRENDYOL", "HEPSIBURADA", "PAZARAMA", "IDEFIX", "N11", "PTTAVM"],
+  );
+  assert.equal(marketplaceRegistry.rows[0].enabled, true);
+  assert.equal(Number(marketplaceRegistry.rows[0].default_service_fee_minor), 1319);
+  const publishingFlags = await db.query(
+    `SELECT key,value FROM system_settings
+     WHERE key IN(
+       'product_publishing_enabled',
+       'content_auto_update_enabled',
+       'opportunity_auto_publish_enabled'
+     )`,
+  );
+  assert.equal(publishingFlags.rowCount, 3);
+  assert.equal(publishingFlags.rows.every((row) => row.value === false), true);
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(
@@ -202,8 +223,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "018_hepsiburada_shipping_barems",
       "019_trendyol_finance_history",
       "020_trendyol_cargo_reconciliation",
+      "021_product_desi_overrides",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

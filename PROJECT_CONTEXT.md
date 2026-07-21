@@ -1,5 +1,22 @@
 # Aşlamacı ERP V2 Proje Bağlamı
 
+## 2026-07-21 Çoklu Pazaryeri Genişlemesi
+
+- Yeni geliştirme migration `022_marketplace_registry` ile başladı; mevcut
+  `001-021` migrationları değiştirilmedi.
+- Registry Trendyol, Hepsiburada, Pazarama, İdefix, N11 ve PTTAVM'yi tanır.
+- Trendyol adapteri mevcut gerçek servisleri sarar; eski ürün, finans, buybox ve
+  repricer akışlarını değiştirmez.
+- Hepsiburada salt-okunur sipariş capability'si korunur. Credential gelene kadar
+  kontrollü bekleme durumundadır ve mutasyon capability'leri kapalıdır.
+- Pazarama, İdefix, N11 ve PTTAVM pasif skeleton adapterdır; gerçek çağrı yapmaz.
+- Ürün yayınlama, otomatik içerik güncelleme ve fırsat otomatik yayın anahtarları
+  varsayılan `false` durumundadır.
+- Uygulama/readiness sürümü `2.9.0` / `022_marketplace_registry` olarak
+  merkezileştirildi.
+- Phase 1 testleri: adapter/registry unit testleri, migration up/down, React
+  entegrasyon görünümü, ESLint ve production build başarılı.
+
 ## İş Bağlamı
 
 Aşlamacı Gross, stok tutmadan sipariş üzerine tedarik yapan bir süpermarket pazaryeri mağazasıdır. Trendyol kataloğu yaklaşık 755 barkoddur ve ayda yaklaşık 100 barkod büyümektedir. Aynı fiziksel ürün farklı paket adetleriyle birden fazla barkodda satıldığı için maliyet kalemleri `MaliyetIndex`, barkod bileşimleri `UrunMaliyetMap` mantığıyla yönetilir.

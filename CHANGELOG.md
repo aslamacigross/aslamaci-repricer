@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.9.0 - 2026-07-21
+
+- Merkezi marketplace registry ve ortak adapter/capability sözleşmesi eklendi.
+- Trendyol hazır, Hepsiburada credential bekleyen, Pazarama/İdefix/N11/PTTAVM ise güvenli skeleton olarak kaydedildi.
+- Credential değerlerini göstermeyen Entegrasyonlar sayfası ve güvenli bağlantı testi eklendi.
+- Ürün yayınlama, otomatik içerik güncelleme ve fırsat otomatik yayın bayrakları varsayılan kapalı eklendi.
+- Readiness zorunlu migration sürümü `022_marketplace_registry` olarak güncellendi.
+
 ## 2.0.0 - 2026-07-12
 
 ### Added

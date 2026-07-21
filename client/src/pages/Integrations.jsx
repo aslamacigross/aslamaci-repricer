@@ -1,0 +1,215 @@
+import React, { useState } from "react";
+import {
+  Cable,
+  CheckCircle2,
+  CircleOff,
+  Clock3,
+  KeyRound,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
+import { get, post } from "../lib/api";
+import {
+  Badge,
+  Button,
+  Drawer,
+  Empty,
+  ErrorState,
+  Loading,
+  PageHeader,
+  toneFor,
+  useRemote,
+} from "../components/ui";
+
+const capabilityLabels = {
+  supportsCatalogSearch: "Katalog arama",
+  supportsCatalogProductRead: "Katalog ürünü okuma",
+  supportsExistingCatalogOfferCreate: "Mevcut kataloğa teklif",
+  supportsNewProductCreate: "Yeni ürün oluşturma",
+  supportsCategorySync: "Kategori senkronu",
+  supportsAttributeSync: "Özellik senkronu",
+  supportsBrandSync: "Marka senkronu",
+  supportsCommissionApi: "Komisyon",
+  supportsBuybox: "Buybox",
+  supportsContentUpdate: "İçerik güncelleme",
+  supportsImageUpdate: "Görsel güncelleme",
+  supportsVideo: "Video",
+  supportsOrders: "Siparişler",
+  supportsFinancialTransactions: "Finans hareketleri",
+  supportsPriceUpdate: "Fiyat güncelleme",
+  supportsInventoryUpdate: "Stok güncelleme",
+  supportsBatchStatus: "Batch sonucu",
+  supportsListingVerification: "Listing doğrulama",
+};
+
+const syncFields = [
+  ["last_category_sync_at", "Kategori"],
+  ["last_brand_sync_at", "Marka"],
+  ["last_product_sync_at", "Ürün"],
+  ["last_buybox_sync_at", "Buybox"],
+  ["last_finance_sync_at", "Finans"],
+];
+
+function dateTime(value) {
+  return value ? new Date(value).toLocaleString("tr-TR") : "Henüz yok";
+}
+
+function adapterLabel(value) {
+  return {
+    READY: "Hazır",
+    WAITING_CREDENTIALS: "Kimlik bekliyor",
+    DISABLED: "Devre dışı",
+    SKELETON: "İskelet hazır",
+  }[value] || value;
+}
+
+export default function Integrations({ notify }) {
+  const remote = useRemote(() => get("/api/integrations"), []);
+  const [selected, setSelected] = useState(null);
+  const [testing, setTesting] = useState("");
+
+  async function testConnection(item) {
+    setTesting(item.code);
+    try {
+      const response = await post(`/api/integrations/${item.code}/test`);
+      notify(response.message || "Bağlantı doğrulandı");
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setTesting("");
+      remote.reload();
+    }
+  }
+
+  if (remote.loading) return <Loading />;
+  if (remote.error)
+    return <ErrorState error={remote.error} retry={remote.reload} />;
+  const items = remote.data?.items || [];
+
+  return (
+    <>
+      <PageHeader
+        title="Entegrasyonlar"
+        description="Pazaryeri bağlantıları, yetenekler ve güvenli çalışma durumu"
+        actions={<Badge tone="info">Pazaryerinden bağımsız</Badge>}
+      />
+      {!items.length ? (
+        <Empty label="Pazaryeri kaydı bulunamadı" />
+      ) : (
+        <div className="integration-grid">
+          {items.map((item) => {
+            const supported = Object.values(item.capabilities || {}).filter(
+              Boolean,
+            ).length;
+            return (
+              <article className="integration-card" key={item.code}>
+                <header>
+                  <div className="integration-icon">
+                    <Cable size={20} />
+                  </div>
+                  <div>
+                    <h2>{item.display_name}</h2>
+                    <small>{item.code}</small>
+                  </div>
+                  <Badge tone={item.enabled ? "success" : "neutral"}>
+                    {item.enabled ? "Aktif" : "Pasif"}
+                  </Badge>
+                </header>
+                <div className="integration-status-list">
+                  <div>
+                    <ShieldCheck size={17} />
+                    <span>Adapter</span>
+                    <Badge tone={toneFor(adapterLabel(item.adapter_status))}>
+                      {adapterLabel(item.adapter_status)}
+                    </Badge>
+                  </div>
+                  <div>
+                    <KeyRound size={17} />
+                    <span>Credential</span>
+                    <Badge
+                      tone={item.credentials_configured ? "success" : "warning"}
+                    >
+                      {item.credentials_configured ? "Yapılandırıldı" : "Eksik"}
+                    </Badge>
+                  </div>
+                  <div>
+                    <CheckCircle2 size={17} />
+                    <span>Desteklenen yetenek</span>
+                    <strong>{supported}</strong>
+                  </div>
+                  <div>
+                    <Clock3 size={17} />
+                    <span>Son başarılı bağlantı</span>
+                    <strong>{dateTime(item.last_successful_connection_at)}</strong>
+                  </div>
+                </div>
+                {item.last_error_summary && (
+                  <div className="integration-warning">
+                    <CircleOff size={17} />
+                    <span>{item.last_error_summary}</span>
+                  </div>
+                )}
+                <footer>
+                  <Button variant="secondary" onClick={() => setSelected(item)}>
+                    Detaylar
+                  </Button>
+                  <Button
+                    icon={RefreshCw}
+                    disabled={testing === item.code}
+                    onClick={() => testConnection(item)}
+                  >
+                    {testing === item.code ? "Test ediliyor" : "Bağlantıyı test et"}
+                  </Button>
+                </footer>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      <Drawer
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        title={`${selected?.display_name || "Pazaryeri"} entegrasyonu`}
+        wide
+      >
+        {selected && (
+          <div className="integration-detail">
+            <section>
+              <h3>Bağlantı durumu</h3>
+              <dl className="detail-grid">
+                <div><dt>Adapter</dt><dd>{adapterLabel(selected.adapter_status)}</dd></div>
+                <div><dt>Credential</dt><dd>{selected.credentials_configured ? "Yapılandırıldı" : "Eksik"}</dd></div>
+                <div><dt>Varsayılan kargo</dt><dd>{selected.default_carrier || "Tanımsız"}</dd></div>
+                <div><dt>Hizmet bedeli</dt><dd>₺{(Number(selected.default_service_fee_minor || 0) / 100).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</dd></div>
+                <div><dt>Para birimi</dt><dd>{selected.currency}</dd></div>
+                <div><dt>Saat dilimi</dt><dd>{selected.timezone}</dd></div>
+              </dl>
+            </section>
+            <section>
+              <h3>Capability sözleşmesi</h3>
+              <div className="capability-list">
+                {Object.entries(selected.capabilities || {}).map(([key, value]) => (
+                  <div key={key}>
+                    {value ? <CheckCircle2 size={17} /> : <CircleOff size={17} />}
+                    <span>{capabilityLabels[key] || key}</span>
+                    <Badge tone={value ? "success" : "neutral"}>
+                      {value ? "Destekleniyor" : "Kapalı"}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section>
+              <h3>Son senkronlar</h3>
+              <dl className="detail-grid">
+                {syncFields.map(([key, label]) => (
+                  <div key={key}><dt>{label}</dt><dd>{dateTime(selected[key])}</dd></div>
+                ))}
+              </dl>
+            </section>
+          </div>
+        )}
+      </Drawer>
+    </>
+  );
+}

@@ -2,6 +2,22 @@
 
 Son güncelleme: 2026-07-21 (Europe/Istanbul)
 
+## Çoklu Pazaryeri İşletim Sistemi
+
+- [x] Phase 1: Merkezi marketplace registry
+- [x] Phase 1: Ortak adapter ve capability sözleşmesi
+- [x] Phase 1: Trendyol hazır, Hepsiburada credential bekleyen adapter kaydı
+- [x] Phase 1: Pazarama, İdefix, N11 ve PTTAVM skeleton adapterları
+- [x] Phase 1: Secret göstermeyen Entegrasyonlar sayfası ve bağlantı testi
+- [x] Phase 1: Credential eksik jobların güvenli skip sözleşmesi
+- [x] Phase 1: Ürün/içerik/fırsat yayın anahtarlarının kapalı güvenlik varsayılanı
+- [ ] Phase 2: Merkezi PIM, reçete/listing modeli ve kimlik katmanları
+- [ ] Phase 2: Katalog eşleşmesi ve listing barkodu havuzu
+- [ ] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
+- [ ] Phase 5: Ürün/bundle fırsat motoru
+- [ ] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
+- [ ] Phase 7: Tam panel, E2E kabul ve dokümantasyon
+
 ## Tamamlanan
 
 - [x] Repo, git geçmişi ve canlı endpoint envanteri

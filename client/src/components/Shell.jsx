@@ -18,6 +18,7 @@ import {
   X,
   ShieldCheck,
   ChartNoAxesCombined,
+  Cable,
 } from "lucide-react";
 import { IconButton, Badge } from "./ui";
 const links = [
@@ -34,6 +35,7 @@ const links = [
   ["learning", "Öğrenme Merkezi", BrainCircuit],
   ["jobs", "Joblar", Clock3],
   ["logs", "Loglar", ScrollText],
+  ["integrations", "Entegrasyonlar", Cable],
   ["settings", "Sistem Ayarları", Settings],
 ];
 export default function Shell({

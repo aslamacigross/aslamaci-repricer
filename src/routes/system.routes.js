@@ -11,6 +11,7 @@ function systemRoutes({
   repricer,
   health,
   hepsiburada,
+  marketplaceRegistry,
 }) {
   const r = express.Router();
   const productFilters = (query = {}) => ({
@@ -335,16 +336,63 @@ function systemRoutes({
   r.get(
     "/integrations",
     asyncRoute(async (req, res) =>
-      res.json({
-        status: "ok",
-        data: {
-          trendyol: await sync.health(),
-          hepsiburada: {
-            configured: hepsiburada?.configured?.() || false,
-          },
-        },
-      }),
+      {
+        const items = marketplaceRegistry
+          ? await marketplaceRegistry.list()
+          : [];
+        const byCode = Object.fromEntries(
+          items.map((item) => [item.code.toLowerCase(), item]),
+        );
+        res.json({
+          status: "ok",
+          items,
+          data: items.length
+            ? byCode
+            : {
+                trendyol: await sync.health(),
+                hepsiburada: {
+                  configured: hepsiburada?.configured?.() || false,
+                },
+              },
+        });
+      },
     ),
+  );
+  r.get(
+    "/integrations/:marketplace",
+    asyncRoute(async (req, res) => {
+      const data = await marketplaceRegistry.get(req.params.marketplace);
+      if (!data)
+        throw new AppError(
+          "Pazaryeri bulunamadı",
+          404,
+          "MARKETPLACE_NOT_FOUND",
+        );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.post(
+    "/integrations/:marketplace/test",
+    asyncRoute(async (req, res) => {
+      const data = await marketplaceRegistry.testConnection(
+        req.params.marketplace,
+      );
+      await audit.record({
+        actor: req.user.username,
+        action: "MARKETPLACE_CONNECTION_TESTED",
+        entityType: "marketplace",
+        entityId: String(req.params.marketplace).toUpperCase(),
+        after: { ok: data.ok, code: data.code },
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.status(data.ok ? 200 : 409).json({
+        status: data.ok ? "ok" : "waiting",
+        code: data.code,
+        message: data.message,
+        data,
+      });
+    }),
   );
   r.post(
     "/integrations/hepsiburada/test",

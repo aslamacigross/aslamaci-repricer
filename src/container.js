@@ -19,6 +19,21 @@ const { HepsiburadaService } = require("./services/hepsiburada.service");
 const { DesiService } = require("./services/desi.service");
 const { ShippingTariffService } = require("./services/shipping-tariff.service");
 const {
+  MarketplaceRegistryService,
+} = require("./services/marketplace-registry.service");
+const {
+  MarketplaceRepository,
+} = require("./repositories/marketplace.repository");
+const {
+  TrendyolAdapter,
+} = require("./marketplaces/adapters/trendyol.adapter");
+const {
+  HepsiburadaAdapter,
+} = require("./marketplaces/adapters/hepsiburada.adapter");
+const {
+  SkeletonMarketplaceAdapter,
+} = require("./marketplaces/adapters/skeleton.adapter");
+const {
   MappingAutomationService,
 } = require("./services/mapping-automation.service");
 const { ProductRepository } = require("./repositories/product.repository");
@@ -66,6 +81,8 @@ function createContainer(overrides = {}) {
   const dashboard = overrides.dashboard || new DashboardRepository(db);
   const actions = overrides.actions || new ActionRepository(db, transaction);
   const jobs = overrides.jobs || new JobRepository(db);
+  const marketplaceRepository =
+    overrides.marketplaceRepository || new MarketplaceRepository(db);
   const costEngine = overrides.costEngine || new CostEngineService(db);
   const mappingAutomation =
     overrides.mappingAutomation ||
@@ -106,6 +123,19 @@ function createContainer(overrides = {}) {
     overrides.health || new HealthService({ db, trendyol, hepsiburada });
   const finance =
     overrides.finance || new FinanceService({ db, trendyol, hepsiburada });
+  const marketplaceRegistry =
+    overrides.marketplaceRegistry ||
+    new MarketplaceRegistryService({
+      repository: marketplaceRepository,
+      adapters: {
+        TRENDYOL: new TrendyolAdapter(trendyol),
+        HEPSIBURADA: new HepsiburadaAdapter(hepsiburada),
+        PAZARAMA: new SkeletonMarketplaceAdapter("PAZARAMA"),
+        IDEFIX: new SkeletonMarketplaceAdapter("IDEFIX"),
+        N11: new SkeletonMarketplaceAdapter("N11"),
+        PTTAVM: new SkeletonMarketplaceAdapter("PTTAVM"),
+      },
+    });
   const recalculateAllMarketplaces = async () => {
     const results = await Promise.all(
       ["TRENDYOL", "HEPSIBURADA"].map((marketplace) =>
@@ -244,6 +274,8 @@ function createContainer(overrides = {}) {
     desi,
     shippingTariff,
     finance,
+    marketplaceRepository,
+    marketplaceRegistry,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

@@ -30,7 +30,7 @@ function container(options = {}) {
               rows:
                 options.migration === false
                   ? []
-                  : [{ version: "020_trendyol_cargo_reconciliation" }],
+                  : [{ version: "022_marketplace_registry" }],
               rowCount: options.migration === false ? 0 : 1,
             }
           : { rows: [{}], rowCount: 1 },

@@ -23,9 +23,8 @@ const { financeRoutes } = require("./routes/finance.routes");
 const {
   mappingAutomationRoutes,
 } = require("./routes/mapping-automation.routes");
+const { APP_VERSION, REQUIRED_MIGRATION } = require("./config/version");
 
-const APP_VERSION = "2.8.0";
-const REQUIRED_MIGRATION = "020_trendyol_cargo_reconciliation";
 function createApp(container = createContainer()) {
   const app = express();
   app.set("trust proxy", 1);

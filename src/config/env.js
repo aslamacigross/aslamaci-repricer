@@ -46,6 +46,18 @@ const env = {
   minPriceChangeTl: number(process.env.MIN_PRICE_CHANGE_TL, 0.1),
   logRetentionDays: number(process.env.LOG_RETENTION_DAYS, 90),
   skipMigrations: bool(process.env.SKIP_MIGRATIONS, false),
+  productPublishingEnabled: bool(
+    process.env.PRODUCT_PUBLISHING_ENABLED,
+    false,
+  ),
+  contentAutoUpdateEnabled: bool(
+    process.env.CONTENT_AUTO_UPDATE_ENABLED,
+    false,
+  ),
+  opportunityAutoPublishEnabled: bool(
+    process.env.OPPORTUNITY_AUTO_PUBLISH_ENABLED,
+    false,
+  ),
 };
 
 function validateEnv() {
@@ -66,6 +78,8 @@ function validateEnv() {
     if (env.sessionSecret.length < 32)
       errors.push("SESSION_SECRET en az 32 karakter olmali");
   }
+  if (env.opportunityAutoPublishEnabled)
+    errors.push("OPPORTUNITY_AUTO_PUBLISH_ENABLED false kalmali");
   if (errors.length)
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }
