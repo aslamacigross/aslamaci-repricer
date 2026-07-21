@@ -52,12 +52,28 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
   tekrar okunup barkod, başlık, kategori, stok ve fiyat doğrulanmadan
   `PUBLISHED` durumuna geçilmez.
 
+## İçerik ve Fırsat Güvenliği
+
+- `CONTENT_AUTO_UPDATE_ENABLED=false` ve
+  `OPPORTUNITY_AUTO_PUBLISH_ENABLED=false` kalır.
+- İçerik taslağında paket adedi veya kaynaksız iddia engeli varsa insan onayı
+  verilmez; sağlayıcı çıktısı doğru veri kabul edilmez.
+- `Gönderim dry-run` yalnız capability/credential kapılarını raporlar ve adapter
+  mutasyonu çağırmaz.
+- Rollback snapshot'ı doğrudan geri yazılmaz; düzenleme, diff ve yeni kullanıcı
+  onayı gerekir.
+- Fırsat reçetesi onayı ürün yayınlamaz ve listing barkodu tüketmez. Önce hedef
+  katalog araması ve gerektiğinde kullanıcı eşleşme incelemesi tamamlanır.
+- Credential olmayan platform joblarının `SKIPPED_CREDENTIALS_MISSING` olması
+  beklenen güvenli durumdur; sistem arızası sayılmaz.
+
 ## Railway Eski Committe Kalırsa
 
 - Deployment source branch ve commit SHA kontrol edilir.
 - GitHub branch'in remote'a push edildiği doğrulanır.
 - Railway'de son deployment `Redeploy` edilir.
-- Build logunda V2 `vite build`, runtime logunda `server_started` ve `/version` 2.0.0 aranır.
+- Build logunda V2 `vite build`, runtime logunda `server_started` ve `/version`
+  `2.9.0` aranır.
 
 ## Migration Hatası
 
@@ -65,6 +81,9 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 - `schema_migrations` tablosu ve hata veren SQL kontrol edilir.
 - Production tablosunu drop/reset etmeyin.
 - Kod düzeltildikten sonra idempotent `pnpm migrate` yeniden çalıştırılır.
+- Çoklu pazaryeri genişlemesinde beklenen sıra `022`, `023`, `024`, `025`,
+  `026`; `/ready` gerekli migration olarak
+  `026_ai_content_and_listing_health` göstermelidir.
 
 ## Migration Geri Alma
 

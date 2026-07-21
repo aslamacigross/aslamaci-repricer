@@ -331,7 +331,9 @@ const auth = new AuthService({
 });
 const productRepo = {
   list: async (filters) => {
-    let rows = [...products];
+    let rows = products.filter(
+      (item) => item.marketplace === (filters.marketplace || "TRENDYOL"),
+    );
     if (filters.search)
       rows = rows.filter((x) =>
         JSON.stringify(x).toLowerCase().includes(filters.search.toLowerCase()),
@@ -839,6 +841,280 @@ const financeReport = {
     vat: "Bu ekran operasyonel nakit mutabakatıdır.",
   },
 };
+const demoCapabilities = {
+  supportsCatalogSearch: true,
+  supportsCatalogProductRead: true,
+  supportsExistingCatalogOfferCreate: false,
+  supportsNewProductCreate: false,
+  supportsCategorySync: true,
+  supportsAttributeSync: true,
+  supportsBrandSync: true,
+  supportsCommissionApi: true,
+  supportsBuybox: true,
+  supportsContentUpdate: false,
+  supportsImageUpdate: false,
+  supportsVideo: false,
+  supportsOrders: true,
+  supportsFinancialTransactions: true,
+  supportsPriceUpdate: false,
+  supportsInventoryUpdate: false,
+  supportsBatchStatus: true,
+  supportsListingVerification: false,
+};
+const integrationItems = [
+  {
+    code: "TRENDYOL",
+    display_name: "Trendyol",
+    enabled: true,
+    adapter_status: "READY",
+    credentials_configured: true,
+    capabilities: { ...demoCapabilities, supportsPriceUpdate: true },
+    default_carrier: "TEX",
+    default_service_fee_minor: 1319,
+    currency: "TRY",
+    timezone: "Europe/Istanbul",
+    last_successful_connection_at: now,
+    last_product_sync_at: now,
+    last_buybox_sync_at: now,
+  },
+  {
+    code: "HEPSIBURADA",
+    display_name: "Hepsiburada",
+    enabled: true,
+    adapter_status: "WAITING_CREDENTIALS",
+    credentials_configured: false,
+    capabilities: { ...demoCapabilities, supportsCatalogSearch: false },
+    default_carrier: "hepsiJET",
+    default_service_fee_minor: 1050,
+    currency: "TRY",
+    timezone: "Europe/Istanbul",
+    last_error_summary: "API kimlik bilgileri bekleniyor",
+  },
+  ...["PAZARAMA", "IDEFIX", "N11", "PTTAVM"].map((code) => ({
+    code,
+    display_name: code === "IDEFIX" ? "İdefix" : code,
+    enabled: false,
+    adapter_status: "SKELETON",
+    credentials_configured: false,
+    capabilities: Object.fromEntries(
+      Object.keys(demoCapabilities).map((key) => [key, false]),
+    ),
+    default_carrier: null,
+    default_service_fee_minor: 0,
+    currency: "TRY",
+    timezone: "Europe/Istanbul",
+  })),
+];
+const demoRecipe = {
+  id: 42,
+  recipe_code: "REC-MENEKSE-1500-X4",
+  recipe_name: "Menekşe Yumuşatıcı 1,5 L x 4",
+  recipe_type: "BUNDLE",
+  component_count: 1,
+  listing_count: 1,
+  total_cost_minor: 44800,
+  fractional_desi: 6,
+  final_desi: 6,
+  bundle_fingerprint: "demo-menekse-1500-x4-fingerprint",
+  status: "DRAFT",
+  components: [
+    {
+      id: 1,
+      cost_item_code: "ACTISOFT_MENEKSE_1500",
+      product_name: "Menekşe Yumuşatıcı 1,5 L",
+      quantity: 4,
+      unit_cost: 112,
+    },
+  ],
+  listings: [
+    {
+      id: 1,
+      marketplace: "TRENDYOL",
+      seller_listing_barcode: "8690637712143",
+      publication_state: "PUBLISHED",
+    },
+  ],
+};
+const publicationDrafts = [
+  {
+    id: 1,
+    recipe_id: 42,
+    recipe_name: demoRecipe.recipe_name,
+    source_marketplace: "TRENDYOL",
+    target_marketplace: "TRENDYOL",
+    publication_mode: "NEW_PRODUCT",
+    workflow_status: "READY_TO_PUBLISH",
+    target_category_id: "2354",
+    target_brand_id: "ACTISOFT",
+    seller_listing_barcode: "ASL-TY-DEMO-0001",
+    title: "Actisoft Menekşe Yumuşatıcı 1,5 L x 4",
+    description: "Dört adet 1,5 L Menekşe yumuşatıcı içerir.",
+    attributes: { hacim: "1,5 L", paket_adedi: 4 },
+    images: ["https://example.invalid/menekse.jpg"],
+    stock: 10,
+    validation_errors: [],
+    pricing_preview: {
+      productCost: 448,
+      shippingCost: 141.96,
+      packagingCost: 25,
+      serviceFee: 13.19,
+      minimumPrice: 805,
+      proposedPrice: 929.99,
+      expectedNetProfit: 147.04,
+      rankRecommendation: { targetRank: 1 },
+    },
+  },
+];
+const transferBatches = [
+  {
+    id: 1,
+    source_marketplace: "TRENDYOL",
+    target_marketplace: "HEPSIBURADA",
+    total_count: 2,
+    ready_count: 0,
+    blocked_count: 2,
+    status: "PARTIAL",
+    items: [
+      {
+        id: 1,
+        recipe_name: demoRecipe.recipe_name,
+        recipe_code: demoRecipe.recipe_code,
+        item_status: "EXISTING_MATCH_REVIEW_REQUIRED",
+        blocker_codes: ["MARKETPLACE_CREDENTIALS_MISSING"],
+      },
+      {
+        id: 2,
+        recipe_name: "Menekşe Yumuşatıcı 1,5 L x 6",
+        recipe_code: "REC-MENEKSE-1500-X6",
+        item_status: "NEW_PRODUCT_REQUIRED",
+        blocker_codes: [
+          "LISTING_BARCODE_REQUIRED",
+          "MARKETPLACE_CREDENTIALS_MISSING",
+        ],
+      },
+    ],
+  },
+];
+const opportunityRows = [
+  {
+    id: 1,
+    opportunity_type: "MISSING_PACK_SIZE",
+    target_marketplace: "TRENDYOL",
+    score: 82,
+    confidence: "HIGH",
+    catalog_status: "NOT_SEARCHED",
+    workflow_status: "GENERATED",
+    generation_reason: "Aynı ürün ailesinde 6'lı paket eksik",
+    listing_barcode_required: false,
+    proposed_recipe: {
+      recipeName: "Menekşe Yumuşatıcı 1,5 L x 6",
+      components: [{ costItemCode: "ACTISOFT_MENEKSE_1500", quantity: 6 }],
+    },
+    economics_json: {
+      productCost: 672,
+      desi: 9,
+      shippingCost: 166.5,
+      commissionRate: 17,
+      minimumPrice: 1101.99,
+      buyboxPrice: 1249.99,
+      proposedPrice: 1249.89,
+      expectedNetProfit: 122.4,
+    },
+    signal_breakdown: [
+      {
+        key: "missing-pack",
+        label: "Eksik paket adedi",
+        source: "PIM",
+        value: 6,
+        contribution: 28,
+      },
+    ],
+    data_quality: { missing: [] },
+    events: [],
+  },
+];
+const contentDrafts = [
+  {
+    id: 1,
+    recipe_id: 42,
+    recipe_name: demoRecipe.recipe_name,
+    marketplace: "TRENDYOL",
+    provider_mode: "MOCK_DRAFT",
+    workflow_status: "AI_DRAFT",
+    current_content: {
+      title: "Eski Menekşe başlığı",
+      description: "Eski açıklama",
+    },
+    proposed_content: {
+      title: "Actisoft Menekşe Yumuşatıcı 1,5 L x 4",
+      description: "Dört adet 1,5 L Menekşe yumuşatıcı içerir.",
+      searchTerms: "menekşe yumuşatıcı 1500 ml",
+      metadata: { packageCount: 4, marketplace: "TRENDYOL" },
+      visualBriefs: [
+        {
+          type: "PACKAGE_CONTENT",
+          brief: "Görselde dört gerçek ürün paketi görünmeli.",
+        },
+      ],
+    },
+    diff_json: [
+      {
+        field: "title",
+        current: "Eski Menekşe başlığı",
+        proposed: "Actisoft Menekşe Yumuşatıcı 1,5 L x 4",
+      },
+    ],
+    safety_errors: [],
+    safety_warnings: ["Görsel kaynakları insan tarafından doğrulanmalı"],
+    snapshots: [
+      {
+        id: 1,
+        snapshot_type: "CURRENT",
+        created_at: now,
+        content_json: {
+          title: "Eski Menekşe başlığı",
+          description: "Eski açıklama",
+        },
+      },
+    ],
+  },
+];
+const listingHealthRows = [
+  {
+    id: 1,
+    marketplace: "TRENDYOL",
+    recipe_name: demoRecipe.recipe_name,
+    title: "Menekşe Yumuşatıcı",
+    seller_listing_barcode: "8690637712143",
+    quality_score: 62,
+    confidence: "MEDIUM",
+    publication_state: "PUBLISHED",
+    summary:
+      "İçerik kalite iyileştirmesi öneriliyor; algoritma sırası garantisi değildir.",
+    checks_json: [
+      {
+        code: "PACKAGE_COUNT_TITLE",
+        label: "Paket adedi",
+        status: "ISSUE",
+        penalty: 14,
+        evidence: "Başlıkta 4'lü paket adedi bulunmuyor.",
+        recommendation: "Başlığa 4'lü paket bilgisini ekleyin.",
+        expectedImpact: "Müşterinin paket içeriğini daha hızlı anlaması",
+        kpi: "Ürün sayfası dönüşüm oranı",
+      },
+      {
+        code: "BRAND",
+        label: "Marka",
+        status: "PASS",
+        penalty: 0,
+        evidence: "Marka PIM ile uyumlu.",
+      },
+    ],
+    data_quality: {
+      missing: ["conversion", "returnRate", "customerQuestions"],
+    },
+  },
+];
 const container = {
   auth,
   db: { query: async () => ({ rows: [{}] }) },
@@ -1082,6 +1358,214 @@ const container = {
       configured: false,
       connected: false,
       message: "Demo ortamında kapalı",
+    }),
+  },
+  marketplaceRegistry: {
+    list: async () => integrationItems,
+    get: async (code) =>
+      integrationItems.find((item) => item.code === String(code).toUpperCase()),
+    testConnection: async (code) => {
+      const item = integrationItems.find(
+        (row) => row.code === String(code).toUpperCase(),
+      );
+      return item?.credentials_configured
+        ? {
+            ok: true,
+            code: "CONNECTION_OK",
+            message: "Bağlantı güvenli biçimde doğrulandı",
+          }
+        : {
+            ok: false,
+            code: "MARKETPLACE_CREDENTIALS_MISSING",
+            message: "Pazaryeri kimlik bilgileri bekleniyor",
+          };
+    },
+  },
+  pim: {
+    listPhysicalProducts: async () => ({
+      items: [
+        {
+          id: 1,
+          product_name: "Menekşe Yumuşatıcı 1,5 L",
+          brand: "Actisoft",
+          product_family: "Yumuşatıcı",
+          variant: "Menekşe",
+          cost_item_code: "ACTISOFT_MENEKSE_1500",
+          status: "ACTIVE",
+          updated_at: now,
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 50,
+    }),
+    listRecipes: async () => ({
+      items: [demoRecipe],
+      total: 1,
+      page: 1,
+      limit: 50,
+    }),
+    getRecipe: async () => demoRecipe,
+    createRecipe: async (input) => ({
+      ...demoRecipe,
+      id: 43,
+      recipe_name: input.recipeName,
+      status: "DRAFT",
+    }),
+    listListings: async () => ({
+      items: demoRecipe.listings,
+      total: 1,
+      page: 1,
+      limit: 50,
+    }),
+    bootstrapPreview: async () => ({
+      physical_product_candidates: 1,
+      listing_candidates: 1,
+    }),
+    bootstrap: async () => ({ recipes: 1, listings: 1 }),
+    listCatalogMatches: async () => [],
+    previewCatalogMatches: async () => [],
+    saveCatalogMatch: async (input) => ({ id: 1, ...input }),
+    reviewCatalogMatch: async (id, status) => ({
+      id: Number(id),
+      match_status: status,
+      match_confidence: 91,
+    }),
+    listBarcodePool: async () => ({ items: [], total: 0, page: 1, limit: 100 }),
+    previewBarcode: async (marketplace) => ({
+      existing: false,
+      barcode: `ASL-${marketplace}-DEMO-0042`,
+      recipe: demoRecipe,
+    }),
+    allocateBarcode: async (input) => ({
+      id: 1,
+      marketplace: input.marketplace,
+      barcode: `ASL-${input.marketplace}-DEMO-0042`,
+      status: "RESERVED",
+    }),
+  },
+  publication: {
+    listCategories: async () => [],
+    listBrands: async () => [],
+    approveRecipe: async () =>
+      Object.assign(demoRecipe, { status: "APPROVED" }),
+    listDrafts: async () => publicationDrafts,
+    getDraft: async () => publicationDrafts[0],
+    buildPreview: async (input) => ({
+      publicationMode:
+        Number(input.recipeId) === 42
+          ? "EXISTING_CATALOG_OFFER"
+          : "NEW_PRODUCT",
+      catalogMatch:
+        Number(input.recipeId) === 42
+          ? { status: "REVIEW_REQUIRED", confidence: 91 }
+          : null,
+      pricing: publicationDrafts[0].pricing_preview,
+      blockers:
+        input.targetMarketplace === "HEPSIBURADA"
+          ? ["MARKETPLACE_CREDENTIALS_MISSING"]
+          : [],
+      listingBarcodeRequired: Number(input.recipeId) !== 42,
+    }),
+    createDraft: async (input) => ({
+      draft: {
+        ...publicationDrafts[0],
+        id: publicationDrafts.length + 1,
+        ...input,
+      },
+    }),
+    publishDryRun: async () => ({
+      draft: { ...publicationDrafts[0], workflow_status: "APPROVED" },
+      adapter: { ok: true, code: "DRY_RUN_VALIDATED" },
+      mutationPerformed: false,
+    }),
+    listTransferBatches: async () => transferBatches,
+    getTransferBatch: async () => transferBatches[0],
+    createTransfer: async (input) => ({
+      ...transferBatches[0],
+      source_marketplace: input.sourceMarketplace,
+      target_marketplace: input.targetMarketplace,
+      total_count: input.recipeIds.length,
+      blocked_count: input.recipeIds.length,
+    }),
+  },
+  opportunity: {
+    list: async () => ({
+      items: opportunityRows,
+      total: opportunityRows.length,
+      page: 1,
+      limit: 50,
+    }),
+    get: async () => opportunityRows[0],
+    generate: async (input) => ({
+      generated: 1,
+      evaluated: 1,
+      targetMarketplace: input.targetMarketplace,
+      mutationPerformed: false,
+    }),
+    approve: async () =>
+      Object.assign(opportunityRows[0], {
+        workflow_status: "RECIPE_APPROVED",
+        recipe_id: 44,
+      }),
+    reject: async (_id, _actor, input) =>
+      Object.assign(opportunityRows[0], {
+        workflow_status: "REJECTED",
+        rejection_reason: input.reason,
+      }),
+    searchCatalog: async () => ({
+      opportunity: Object.assign(opportunityRows[0], {
+        catalog_status: "CATALOG_MATCH_REVIEW",
+      }),
+      outcome: {
+        ok: true,
+        code: "CATALOG_MATCH_REVIEW",
+        message: "Katalog eşleşmesi kullanıcı incelemesine hazır",
+      },
+    }),
+  },
+  content: {
+    listDrafts: async () => ({
+      items: contentDrafts,
+      total: contentDrafts.length,
+      page: 1,
+      limit: 50,
+    }),
+    getDraft: async () => contentDrafts[0],
+    generate: async () => ({
+      draft: contentDrafts[0],
+      provider: { mode: "MOCK_DRAFT" },
+      mutationPerformed: false,
+    }),
+    update: async (_id, input) =>
+      Object.assign(contentDrafts[0], {
+        proposed_content: input.proposedContent,
+        workflow_status: "HUMAN_REVIEW",
+      }),
+    approve: async () =>
+      Object.assign(contentDrafts[0], { workflow_status: "APPROVED" }),
+    publishDryRun: async () => ({
+      blockers: ["CONTENT_AUTO_UPDATE_DISABLED"],
+      mutationPerformed: false,
+    }),
+    rollbackPreview: async (_id, input) => ({
+      snapshot: contentDrafts[0].snapshots.find(
+        (item) => item.id === Number(input.snapshotId),
+      ),
+      mutationPerformed: false,
+    }),
+    listHealth: async () => ({
+      items: listingHealthRows,
+      total: listingHealthRows.length,
+      page: 1,
+      limit: 50,
+    }),
+    getHealth: async () => listingHealthRows[0],
+    scanHealth: async () => ({
+      processed: 1,
+      successful: 1,
+      failed: 0,
+      mutationPerformed: false,
     }),
   },
 };

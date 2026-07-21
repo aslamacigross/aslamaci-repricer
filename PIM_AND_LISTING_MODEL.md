@@ -50,3 +50,12 @@ operasyon kuralı uyarınca toplam kesirli desinin yukarı yuvarlanmasıyla olu�
 - Listing barkodu önizlemesi rezervasyon yapmaz.
 - Rezervasyon açık onay gerektirir ve advisory lock ile idempotenttir.
 - Migration mevcut ürün, mapping ve öğrenme geçmişini silmez.
+
+## İçerik ve Sağlık Bağlantısı
+
+İçerik taslakları reçete ve marketplace listing kimliğine ayrı ayrı bağlanır.
+Aynı reçete için Trendyol ve Hepsiburada başlığı, kategorisi, özellikleri ve
+görselleri farklı olabilir. `ai_content_drafts` kaynak PIM gerçeklerini ve
+provenance bilgisini; `listing_content_snapshots` mevcut, önerilen ve onaylı
+değerleri; `listing_health_assessments` ise kanal bazlı kalite kontrollerini
+saklar. Hiçbiri merkezi reçete maliyetini veya mevcut listing kimliğini ezmez.

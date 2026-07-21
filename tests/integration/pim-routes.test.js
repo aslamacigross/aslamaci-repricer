@@ -13,10 +13,7 @@ function appWith(pim) {
     req.id = "pim-test";
     next();
   });
-  app.use(
-    "/api",
-    pimRoutes({ pim, audit: { record: async () => {} } }),
-  );
+  app.use("/api", pimRoutes({ pim, audit: { record: async () => {} } }));
   app.use(errorHandler);
   return app;
 }
@@ -29,9 +26,7 @@ test("PIM bootstrap açık onay olmadan uygulanmaz", async () => {
       return {};
     },
   });
-  const response = await request(app)
-    .post("/api/pim/bootstrap/apply")
-    .send({});
+  const response = await request(app).post("/api/pim/bootstrap/apply").send({});
   assert.equal(response.status, 409);
   assert.equal(response.body.code, "PIM_BOOTSTRAP_CONFIRMATION_REQUIRED");
   assert.equal(applied, false);
@@ -42,7 +37,12 @@ test("listing barkodu yalnız açık onayla tahsis edilir", async () => {
   const app = appWith({
     allocateBarcode: async (input) => {
       calls.push(input);
-      return { id: 1, marketplace: "HEPSIBURADA", barcode: "ASL-HEP-1", status: "RESERVED" };
+      return {
+        id: 1,
+        marketplace: "HEPSIBURADA",
+        barcode: "ASL-HEP-1",
+        status: "RESERVED",
+      };
     },
   });
   const response = await request(app)

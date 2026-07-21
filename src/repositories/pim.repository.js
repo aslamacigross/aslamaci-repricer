@@ -277,7 +277,9 @@ class PimRepository {
       if (costs.length !== new Set(codes).size) {
         const found = new Set(costs.map((item) => item.item_code));
         const missing = [...new Set(codes)].filter((code) => !found.has(code));
-        const error = new Error(`Maliyet kalemi bulunamadı: ${missing.join(", ")}`);
+        const error = new Error(
+          `Maliyet kalemi bulunamadı: ${missing.join(", ")}`,
+        );
         error.code = "COST_ITEM_NOT_FOUND";
         throw error;
       }
@@ -288,11 +290,15 @@ class PimRepository {
       }));
       const fingerprint = bundleFingerprint(components);
       const totalCostMinor = components.reduce(
-        (total, item) => total + toMinor(byCode.get(item.costItemCode).unit_cost) * item.quantity,
+        (total, item) =>
+          total +
+          toMinor(byCode.get(item.costItemCode).unit_cost) * item.quantity,
         0,
       );
       const fractionalDesi = components.reduce(
-        (total, item) => total + Number(byCode.get(item.costItemCode).unit_desi || 0) * item.quantity,
+        (total, item) =>
+          total +
+          Number(byCode.get(item.costItemCode).unit_desi || 0) * item.quantity,
         0,
       );
       const recipe = (
@@ -386,7 +392,10 @@ class PimRepository {
       for (const group of groups.values()) {
         const fingerprint = bundleFingerprint(group.components);
         const totalCostMinor = Math.round(
-          group.components.reduce((total, item) => total + item.unitCost * item.quantity, 0) * 100,
+          group.components.reduce(
+            (total, item) => total + item.unitCost * item.quantity,
+            0,
+          ) * 100,
         );
         const fractionalDesi = group.components.reduce(
           (total, item) => total + item.unitDesi * item.quantity,
@@ -425,7 +434,12 @@ class PimRepository {
              )VALUES($1,$2,$3,$4)
              ON CONFLICT(recipe_id,cost_item_code) DO UPDATE SET
                quantity=EXCLUDED.quantity,updated_at=NOW()`,
-            [recipe.id, component.physicalProductId, component.costItemCode, component.quantity],
+            [
+              recipe.id,
+              component.physicalProductId,
+              component.costItemCode,
+              component.quantity,
+            ],
           );
         const listing = (
           await client.query(
@@ -450,7 +464,11 @@ class PimRepository {
               group.product.barcode,
               group.product.category_id,
               group.product.product_name,
-              JSON.stringify(group.product.product_image_url ? [group.product.product_image_url] : []),
+              JSON.stringify(
+                group.product.product_image_url
+                  ? [group.product.product_image_url]
+                  : [],
+              ),
               Number(group.product.stock_quantity || 0),
               toMinor(group.product.my_price),
               toMinor(group.product.min_price),
@@ -506,7 +524,11 @@ class PimRepository {
       allocationKey,
       barcode:
         existing?.barcode ||
-        listingBarcodeCandidate(marketplace, recipe.id, recipe.bundle_fingerprint),
+        listingBarcodeCandidate(
+          marketplace,
+          recipe.id,
+          recipe.bundle_fingerprint,
+        ),
       existing: Boolean(existing),
       status: existing?.status || "PREVIEW",
     };

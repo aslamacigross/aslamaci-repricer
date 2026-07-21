@@ -19,7 +19,9 @@ test("listing barkodu açık onay olmadan repository'ye gitmez", async () => {
 });
 
 test("manuel listing barkodu sınırlı güvenli karakter kümesi kullanır", async () => {
-  const service = new PimService({ repository: { allocateBarcode: async () => null } });
+  const service = new PimService({
+    repository: { allocateBarcode: async () => null },
+  });
   await assert.rejects(
     service.allocateBarcode({
       marketplace: "N11",

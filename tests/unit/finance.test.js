@@ -613,7 +613,10 @@ test("gecmis siparis maliyeti yoksa settlement barkodlarini guncel maliyetle tam
             },
           ],
         };
-      if (sql.includes('AS "missing_cost_lines"') && sql.includes("legacy_product_cost"))
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      )
         return {
           rows: [
             { product_cost: 200, service_fee: 13.19, missing_cost_lines: 0 },
@@ -675,7 +678,10 @@ test("iade urun maliyetini ve platform hizmet bedelini geri kazandirmis saymaz",
             },
           ],
         };
-      if (sql.includes('AS "missing_cost_lines"') && sql.includes("legacy_product_cost"))
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      )
         return {
           rows: [
             {
@@ -747,23 +753,25 @@ test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullani
             },
           ],
         };
-      if (sql.includes('AS "missing_cost_lines"') && sql.includes("legacy_product_cost"))
-        {
-          ledgerCostSql = sql;
-          ledgerCostParams = params;
-          return {
-            rows: [
-              {
-                product_cost: 999,
-                service_fee: 99,
-                legacy_product_cost: 200,
-                legacy_service_fee: 10,
-                missing_cost_lines: 0,
-                legacy_missing_cost_lines: 0,
-              },
-            ],
-          };
-        }
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      ) {
+        ledgerCostSql = sql;
+        ledgerCostParams = params;
+        return {
+          rows: [
+            {
+              product_cost: 999,
+              service_fee: 99,
+              legacy_product_cost: 200,
+              legacy_service_fee: 10,
+              missing_cost_lines: 0,
+              legacy_missing_cost_lines: 0,
+            },
+          ],
+        };
+      }
       if (sql.includes("SUM(product_cost_total)"))
         return { rows: [{ product_cost: 30, service_fee: 2 }] };
       if (sql.includes("monthly_packaging_expenses"))
@@ -824,11 +832,12 @@ test("kismi siparis detayinda kar gosterilen kalemlerden hesaplanir", async () =
             },
           ],
         };
-      if (sql.includes('AS "missing_cost_lines"') && sql.includes("legacy_product_cost"))
+      if (
+        sql.includes('AS "missing_cost_lines"') &&
+        sql.includes("legacy_product_cost")
+      )
         return {
-          rows: [
-            { product_cost: 80, service_fee: 5, missing_cost_lines: 1 },
-          ],
+          rows: [{ product_cost: 80, service_fee: 5, missing_cost_lines: 1 }],
         };
       if (sql.includes("monthly_packaging_expenses"))
         return { rows: [{ amount: 0 }] };

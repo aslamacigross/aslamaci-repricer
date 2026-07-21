@@ -5,13 +5,16 @@ function opportunityRoutes({ opportunity, audit }) {
   const r = express.Router();
   r.get(
     "/opportunities",
-    asyncRoute(async (req, res) => res.json({ status: "ok", ...(await opportunity.list(req.query)) })),
+    asyncRoute(async (req, res) =>
+      res.json({ status: "ok", ...(await opportunity.list(req.query)) }),
+    ),
   );
   r.get(
     "/opportunities/:id",
     asyncRoute(async (req, res) => {
       const data = await opportunity.get(req.params.id);
-      if (!data) throw new AppError("Fırsat bulunamadı", 404, "OPPORTUNITY_NOT_FOUND");
+      if (!data)
+        throw new AppError("Fırsat bulunamadı", 404, "OPPORTUNITY_NOT_FOUND");
       res.json({ status: "ok", data });
     }),
   );
@@ -24,7 +27,11 @@ function opportunityRoutes({ opportunity, audit }) {
         action: "PRODUCT_OPPORTUNITIES_GENERATED",
         entityType: "product_opportunity",
         entityId: data.targetMarketplace,
-        after: { generated: data.generated, evaluated: data.evaluated, mutationPerformed: false },
+        after: {
+          generated: data.generated,
+          evaluated: data.evaluated,
+          mutationPerformed: false,
+        },
         ip: req.ip,
         requestId: req.id,
       });
@@ -34,7 +41,11 @@ function opportunityRoutes({ opportunity, audit }) {
   r.post(
     "/opportunities/:id/approve-recipe",
     asyncRoute(async (req, res) => {
-      const data = await opportunity.approve(req.params.id, req.user.username, req.body.confirmation);
+      const data = await opportunity.approve(
+        req.params.id,
+        req.user.username,
+        req.body.confirmation,
+      );
       await audit.record({
         actor: req.user.username,
         action: "OPPORTUNITY_RECIPE_APPROVED",
@@ -50,7 +61,11 @@ function opportunityRoutes({ opportunity, audit }) {
   r.post(
     "/opportunities/:id/reject",
     asyncRoute(async (req, res) => {
-      const data = await opportunity.reject(req.params.id, req.user.username, req.body);
+      const data = await opportunity.reject(
+        req.params.id,
+        req.user.username,
+        req.body,
+      );
       await audit.record({
         actor: req.user.username,
         action: "OPPORTUNITY_REJECTED",
@@ -66,7 +81,10 @@ function opportunityRoutes({ opportunity, audit }) {
   r.post(
     "/opportunities/:id/catalog-search",
     asyncRoute(async (req, res) => {
-      const data = await opportunity.searchCatalog(req.params.id, req.user.username);
+      const data = await opportunity.searchCatalog(
+        req.params.id,
+        req.user.username,
+      );
       await audit.record({
         actor: req.user.username,
         action: "OPPORTUNITY_CATALOG_SEARCHED",

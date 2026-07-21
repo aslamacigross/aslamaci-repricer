@@ -53,7 +53,8 @@ function Catalog({ notify }) {
   }
 
   if (remote.loading) return <Loading />;
-  if (remote.error) return <ErrorState error={remote.error} retry={remote.reload} />;
+  if (remote.error)
+    return <ErrorState error={remote.error} retry={remote.reload} />;
   const columns = [
     { key: "product_name", label: "Fiziksel ürün" },
     { key: "brand", label: "Marka" },
@@ -61,7 +62,11 @@ function Catalog({ notify }) {
     { key: "variant", label: "Varyant" },
     { key: "cost_item_code", label: "Cost code" },
     { key: "status", label: "Durum", badge: true },
-    { key: "updated_at", label: "Güncelleme", render: (row) => date(row.updated_at) },
+    {
+      key: "updated_at",
+      label: "Güncelleme",
+      render: (row) => date(row.updated_at),
+    },
   ];
   return (
     <>
@@ -69,14 +74,20 @@ function Catalog({ notify }) {
         title="Ana Katalog"
         description="Pazaryerinden bağımsız fiziksel ürün bilgi merkezi"
         actions={
-          <Button icon={Database} variant="secondary" onClick={previewBootstrap}>
+          <Button
+            icon={Database}
+            variant="secondary"
+            onClick={previewBootstrap}
+          >
             Mevcut veriyi aktar
           </Button>
         }
       />
       <div className="context-band">
         <Badge tone="info">Pazaryerinden bağımsız</Badge>
-        <span>Cost code, fiziksel ürün ve üretici bilgisinin ortak kaynağı</span>
+        <span>
+          Cost code, fiziksel ürün ve üretici bilgisinin ortak kaynağı
+        </span>
       </div>
       <div className="filters">
         <SearchInput
@@ -143,7 +154,9 @@ function Recipes({ notify }) {
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        const [costItemCode, quantity] = line.split(";").map((item) => item.trim());
+        const [costItemCode, quantity] = line
+          .split(";")
+          .map((item) => item.trim());
         return { costItemCode, quantity: Number(quantity || 1) };
       });
     await post("/api/pim/recipes", { recipeName, components });
@@ -165,14 +178,19 @@ function Recipes({ notify }) {
   }
 
   if (remote.loading) return <Loading />;
-  if (remote.error) return <ErrorState error={remote.error} retry={remote.reload} />;
+  if (remote.error)
+    return <ErrorState error={remote.error} retry={remote.reload} />;
   const columns = [
     { key: "recipe_code", label: "Reçete kodu" },
     { key: "recipe_name", label: "Reçete" },
     { key: "recipe_type", label: "Tip", badge: true },
     { key: "component_count", label: "Bileşen" },
     { key: "listing_count", label: "Listing" },
-    { key: "total_cost_minor", label: "Toplam maliyet", render: (row) => minor(row.total_cost_minor) },
+    {
+      key: "total_cost_minor",
+      label: "Toplam maliyet",
+      render: (row) => minor(row.total_cost_minor),
+    },
     { key: "final_desi", label: "Nihai desi" },
     { key: "status", label: "Durum", badge: true },
   ];
@@ -181,14 +199,25 @@ function Recipes({ notify }) {
       <PageHeader
         title="Reçeteler ve Bundle'lar"
         description="Fiziksel ürünlerden oluşan pazaryeri bağımsız satış reçeteleri"
-        actions={<Button icon={Plus} onClick={() => setCreating(true)}>Yeni reçete</Button>}
+        actions={
+          <Button icon={Plus} onClick={() => setCreating(true)}>
+            Yeni reçete
+          </Button>
+        }
       />
       <div className="context-band">
         <Badge tone="info">Pazaryerinden bağımsız</Badge>
-        <span>Aynı reçete farklı pazaryerlerinde ayrı listing kimliği ve fiyatla kullanılabilir</span>
+        <span>
+          Aynı reçete farklı pazaryerlerinde ayrı listing kimliği ve fiyatla
+          kullanılabilir
+        </span>
       </div>
       <div className="filters">
-        <SearchInput value={search} onChange={setSearch} placeholder="Reçete ara" />
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Reçete ara"
+        />
       </div>
       <DataTable
         columns={columns}
@@ -197,7 +226,12 @@ function Recipes({ notify }) {
         columnVisibilityKey="pim-recipes"
         exportFileName="receteler"
       />
-      <Pagination page={page} limit={remote.data.limit} total={remote.data.total} onChange={setPage} />
+      <Pagination
+        page={page}
+        limit={remote.data.limit}
+        total={remote.data.total}
+        onChange={setPage}
+      />
       <Drawer
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
@@ -207,31 +241,66 @@ function Recipes({ notify }) {
         {selected && (
           <div className="recipe-detail">
             <div className="metric-row">
-              <div><span>Maliyet</span><strong>{minor(selected.total_cost_minor)}</strong></div>
-              <div><span>Kesirli desi</span><strong>{selected.fractional_desi}</strong></div>
-              <div><span>Nihai desi</span><strong>{selected.final_desi}</strong></div>
-              <div><span>Fingerprint</span><strong title={selected.bundle_fingerprint}>{selected.bundle_fingerprint.slice(0, 12)}</strong></div>
+              <div>
+                <span>Maliyet</span>
+                <strong>{minor(selected.total_cost_minor)}</strong>
+              </div>
+              <div>
+                <span>Kesirli desi</span>
+                <strong>{selected.fractional_desi}</strong>
+              </div>
+              <div>
+                <span>Nihai desi</span>
+                <strong>{selected.final_desi}</strong>
+              </div>
+              <div>
+                <span>Fingerprint</span>
+                <strong title={selected.bundle_fingerprint}>
+                  {selected.bundle_fingerprint.slice(0, 12)}
+                </strong>
+              </div>
             </div>
             <div className="context-band">
-              <Badge tone={selected.status === "APPROVED" ? "success" : "warning"}>{selected.status}</Badge>
-              <span>{selected.status === "APPROVED" ? "Reçete yayın önizlemelerinde kullanılabilir." : "Reçete yayın önizlemesinden önce insan onayı bekliyor."}</span>
-              {selected.status !== "APPROVED" && <Button onClick={() => setApproveConfirm(true)}>Reçeteyi onayla</Button>}
+              <Badge
+                tone={selected.status === "APPROVED" ? "success" : "warning"}
+              >
+                {selected.status}
+              </Badge>
+              <span>
+                {selected.status === "APPROVED"
+                  ? "Reçete yayın önizlemelerinde kullanılabilir."
+                  : "Reçete yayın önizlemesinden önce insan onayı bekliyor."}
+              </span>
+              {selected.status !== "APPROVED" && (
+                <Button onClick={() => setApproveConfirm(true)}>
+                  Reçeteyi onayla
+                </Button>
+              )}
             </div>
             <h3>Bileşenler</h3>
             <div className="recipe-components">
               {selected.components.map((item) => (
                 <div key={item.id}>
-                  <div><strong>{item.product_name}</strong><small>{item.cost_item_code}</small></div>
+                  <div>
+                    <strong>{item.product_name}</strong>
+                    <small>{item.cost_item_code}</small>
+                  </div>
                   <span>{item.quantity} adet</span>
                   <b>{money(Number(item.unit_cost) * Number(item.quantity))}</b>
                 </div>
               ))}
             </div>
             <h3>Pazaryeri listingleri</h3>
-            {!selected.listings.length ? <Empty label="Bu reçeteye bağlı listing yok" /> : (
+            {!selected.listings.length ? (
+              <Empty label="Bu reçeteye bağlı listing yok" />
+            ) : (
               <div className="recipe-components">
                 {selected.listings.map((item) => (
-                  <div key={item.id}><strong>{item.marketplace}</strong><span>{item.seller_listing_barcode}</span><Badge tone="info">{item.publication_state}</Badge></div>
+                  <div key={item.id}>
+                    <strong>{item.marketplace}</strong>
+                    <span>{item.seller_listing_barcode}</span>
+                    <Badge tone="info">{item.publication_state}</Badge>
+                  </div>
                 ))}
               </div>
             )}
@@ -246,15 +315,31 @@ function Recipes({ notify }) {
         confirmLabel="Reçeteyi onayla"
         message="Bileşenler, adetler, maliyet ve desi kontrol edildi olarak işaretlenecek. Bu işlem pazaryerinde değişiklik yapmaz."
       />
-      <Modal open={creating} onClose={() => setCreating(false)} title="Yeni reçete taslağı">
+      <Modal
+        open={creating}
+        onClose={() => setCreating(false)}
+        title="Yeni reçete taslağı"
+      >
         <div className="modal-body form-grid">
-          <Field label="Reçete adı"><input value={recipeName} onChange={(event) => setRecipeName(event.target.value)} /></Field>
+          <Field label="Reçete adı">
+            <input
+              value={recipeName}
+              onChange={(event) => setRecipeName(event.target.value)}
+            />
+          </Field>
           <Field label="Bileşenler" hint="Her satır: COST_CODE; adet">
-            <textarea rows="7" value={componentText} onChange={(event) => setComponentText(event.target.value)} placeholder="ACTISOFT_MENEKSE_1500; 2" />
+            <textarea
+              rows="7"
+              value={componentText}
+              onChange={(event) => setComponentText(event.target.value)}
+              placeholder="ACTISOFT_MENEKSE_1500; 2"
+            />
           </Field>
         </div>
         <div className="modal-actions">
-          <Button variant="secondary" onClick={() => setCreating(false)}>Vazgeç</Button>
+          <Button variant="secondary" onClick={() => setCreating(false)}>
+            Vazgeç
+          </Button>
           <Button onClick={createRecipe}>Taslağı oluştur</Button>
         </div>
       </Modal>
@@ -271,7 +356,10 @@ function BarcodePool({ notify }) {
     [marketplace],
   );
   async function prepare() {
-    const response = await post("/api/listing-barcodes/preview", { marketplace, recipeId });
+    const response = await post("/api/listing-barcodes/preview", {
+      marketplace,
+      recipeId,
+    });
     setPreview(response.data);
   }
   async function allocate() {
@@ -284,43 +372,91 @@ function BarcodePool({ notify }) {
     setPreview(null);
     remote.reload();
   }
-  const columns = useMemo(() => [
-    { key: "barcode", label: "Listing barkodu" },
-    { key: "marketplace", label: "Pazaryeri" },
-    { key: "recipe_code", label: "Reçete kodu" },
-    { key: "recipe_name", label: "Reçete" },
-    { key: "identifier_source", label: "Kaynak", badge: true },
-    { key: "status", label: "Durum", badge: true },
-    { key: "assigned_at", label: "Tahsis", render: (row) => date(row.assigned_at) },
-  ], []);
+  const columns = useMemo(
+    () => [
+      { key: "barcode", label: "Listing barkodu" },
+      { key: "marketplace", label: "Pazaryeri" },
+      { key: "recipe_code", label: "Reçete kodu" },
+      { key: "recipe_name", label: "Reçete" },
+      { key: "identifier_source", label: "Kaynak", badge: true },
+      { key: "status", label: "Durum", badge: true },
+      {
+        key: "assigned_at",
+        label: "Tahsis",
+        render: (row) => date(row.assigned_at),
+      },
+    ],
+    [],
+  );
   if (remote.loading) return <Loading />;
-  if (remote.error) return <ErrorState error={remote.error} retry={remote.reload} />;
+  if (remote.error)
+    return <ErrorState error={remote.error} retry={remote.reload} />;
   return (
     <>
-      <PageHeader title="Listing Barkod Havuzu" description="Üretici GTIN'inden ayrı, reçete ve hedef kanala bağlı listing kimlikleri" />
+      <PageHeader
+        title="Listing Barkod Havuzu"
+        description="Üretici GTIN'inden ayrı, reçete ve hedef kanala bağlı listing kimlikleri"
+      />
       <div className="context-band warning-band">
         <Badge tone="warning">Onay gerekli</Badge>
-        <span>Önizleme barkodu tüketmez. Tahsis yalnız açık onayla RESERVED durumuna geçer.</span>
+        <span>
+          Önizleme barkodu tüketmez. Tahsis yalnız açık onayla RESERVED durumuna
+          geçer.
+        </span>
       </div>
       <div className="command-bar">
-        <select value={marketplace} onChange={(event) => setMarketplace(event.target.value)}>
-          {['TRENDYOL','HEPSIBURADA','PAZARAMA','IDEFIX','N11','PTTAVM'].map((item) => <option key={item}>{item}</option>)}
+        <select
+          value={marketplace}
+          onChange={(event) => setMarketplace(event.target.value)}
+        >
+          {[
+            "TRENDYOL",
+            "HEPSIBURADA",
+            "PAZARAMA",
+            "IDEFIX",
+            "N11",
+            "PTTAVM",
+          ].map((item) => (
+            <option key={item}>{item}</option>
+          ))}
         </select>
-        <input type="number" min="1" value={recipeId} onChange={(event) => setRecipeId(event.target.value)} placeholder="Reçete ID" />
-        <Button icon={ScanBarcode} onClick={prepare} disabled={!recipeId}>Barkodu önizle</Button>
-        <Button icon={RefreshCw} variant="secondary" onClick={remote.reload}>Yenile</Button>
+        <input
+          type="number"
+          min="1"
+          value={recipeId}
+          onChange={(event) => setRecipeId(event.target.value)}
+          placeholder="Reçete ID"
+        />
+        <Button icon={ScanBarcode} onClick={prepare} disabled={!recipeId}>
+          Barkodu önizle
+        </Button>
+        <Button icon={RefreshCw} variant="secondary" onClick={remote.reload}>
+          Yenile
+        </Button>
       </div>
-      <DataTable columns={columns} rows={remote.data.items} columnVisibilityKey="listing-barcode-pool" exportFileName="listing-barkod-havuzu" />
+      <DataTable
+        columns={columns}
+        rows={remote.data.items}
+        columnVisibilityKey="listing-barcode-pool"
+        exportFileName="listing-barkod-havuzu"
+      />
       <Confirm
         open={Boolean(preview && !preview.existing)}
         onClose={() => setPreview(null)}
         onConfirm={allocate}
         title="Listing barkodunu rezerve et"
         confirmLabel="Barkodu tahsis et"
-        message={preview ? `${preview.barcode}, ${preview.recipe.recipe_name} reçetesi için ${marketplace} kanalına rezerve edilecek.` : ""}
+        message={
+          preview
+            ? `${preview.barcode}, ${preview.recipe.recipe_name} reçetesi için ${marketplace} kanalına rezerve edilecek.`
+            : ""
+        }
       />
       {preview?.existing && (
-        <div className="inline-notice success"><strong>Mevcut tahsis</strong><span>{preview.barcode} zaten bu reçeteye bağlı.</span></div>
+        <div className="inline-notice success">
+          <strong>Mevcut tahsis</strong>
+          <span>{preview.barcode} zaten bu reçeteye bağlı.</span>
+        </div>
       )}
     </>
   );

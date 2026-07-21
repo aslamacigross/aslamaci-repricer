@@ -24,7 +24,12 @@ function fixture(overrides = {}) {
       default_service_fee_minor: 1319,
       currency: "TRY",
     },
-    sourceListing: { id: 2, title: recipe.recipe_name, stock: 5, sale_price_minor: 33000 },
+    sourceListing: {
+      id: 2,
+      title: recipe.recipe_name,
+      stock: 5,
+      sale_price_minor: 33000,
+    },
     targetListing: null,
     catalogMatch: null,
     barcode: { id: 3, barcode: "ASL-TRE-TEST123" },
@@ -47,7 +52,9 @@ function fixture(overrides = {}) {
   };
   const service = new PublicationService({
     repository,
-    pim: { getRecipe: async () => ({ ...recipe, ...(overrides.recipe || {}) }) },
+    pim: {
+      getRecipe: async () => ({ ...recipe, ...(overrides.recipe || {}) }),
+    },
     marketplaceRegistry: {
       get: async () => ({ ...integration, ...(overrides.integration || {}) }),
     },
@@ -87,7 +94,10 @@ test("credential eksik hedef kanal kontrollü blocker üretir", async () => {
     targetBrandId: "brand-1",
     stock: 5,
   });
-  assert.equal(preview.blockers.includes("MARKETPLACE_CREDENTIALS_MISSING"), true);
+  assert.equal(
+    preview.blockers.includes("MARKETPLACE_CREDENTIALS_MISSING"),
+    true,
+  );
   assert.equal(classifyTransfer(preview), "BLOCKED");
 });
 
@@ -143,7 +153,11 @@ test("yayın dry-run yalnız payload doğrulaması çağırır", async () => {
     },
     settings: {},
   });
-  const result = await service.publishDryRun(7, "admin", "YAYIN_DRY_RUN_ONAYLA");
+  const result = await service.publishDryRun(
+    7,
+    "admin",
+    "YAYIN_DRY_RUN_ONAYLA",
+  );
   assert.deepEqual(operations, ["validateListingPayload"]);
   assert.equal(result.result.mutationPerformed, false);
   assert.equal(result.draft.workflow_status, "DRY_RUN_COMPLETE");

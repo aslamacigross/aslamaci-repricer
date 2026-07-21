@@ -23,7 +23,11 @@ function appWith(publication) {
 
 test("yayın önizlemesi mutation yapmadan dry-run döner", async () => {
   const app = appWith({
-    buildPreview: async () => ({ dryRun: true, mutationPerformed: false, blockers: [] }),
+    buildPreview: async () => ({
+      dryRun: true,
+      mutationPerformed: false,
+      blockers: [],
+    }),
   });
   const response = await request(app)
     .post("/api/publication-drafts/preview")

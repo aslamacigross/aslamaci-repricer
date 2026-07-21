@@ -1650,9 +1650,7 @@ class FinanceService {
     const packagingAmount = Number(packaging.rows[0]?.amount || 0);
     const fallbackProductCost = roundMoney(costFallback.product_cost || 0);
     const fallbackServiceFee = roundMoney(costFallback.service_fee || 0);
-    const legacyProductCost = roundMoney(
-      costFallback.legacy_product_cost || 0,
-    );
+    const legacyProductCost = roundMoney(costFallback.legacy_product_cost || 0);
     const legacyServiceFee = roundMoney(costFallback.legacy_service_fee || 0);
     const snapshotProductCost = roundMoney(
       modernSnapshotCosts.rows[0]?.product_cost || 0,

@@ -15,12 +15,14 @@ class ContentRepository {
       where = `l.recipe_id=$1 AND l.marketplace=$2`;
     }
     return (
-      await this.db.query(
-        `SELECT * FROM marketplace_listings l WHERE ${where}
+      (
+        await this.db.query(
+          `SELECT * FROM marketplace_listings l WHERE ${where}
          ORDER BY l.updated_at DESC,l.id DESC LIMIT 1`,
-        params,
-      )
-    ).rows[0] || null;
+          params,
+        )
+      ).rows[0] || null
+    );
   }
 
   saveDraft(input) {
@@ -65,19 +67,40 @@ class ContentRepository {
       ).rows[0];
       if (!row) {
         return (
-          await client.query(`SELECT * FROM ai_content_drafts WHERE idempotency_key=$1`, [input.idempotencyKey])
+          await client.query(
+            `SELECT * FROM ai_content_drafts WHERE idempotency_key=$1`,
+            [input.idempotencyKey],
+          )
         ).rows[0];
       }
-      await client.query(`DELETE FROM listing_content_snapshots WHERE content_draft_id=$1 AND snapshot_type IN('CURRENT','PROPOSED')`, [row.id]);
+      await client.query(
+        `DELETE FROM listing_content_snapshots WHERE content_draft_id=$1 AND snapshot_type IN('CURRENT','PROPOSED')`,
+        [row.id],
+      );
       for (const snapshot of [
-        { type: "CURRENT", content: input.currentContent, checksum: input.currentChecksum },
-        { type: "PROPOSED", content: input.proposedContent, checksum: input.proposedChecksum },
+        {
+          type: "CURRENT",
+          content: input.currentContent,
+          checksum: input.currentChecksum,
+        },
+        {
+          type: "PROPOSED",
+          content: input.proposedContent,
+          checksum: input.proposedChecksum,
+        },
       ])
         await client.query(
           `INSERT INTO listing_content_snapshots(
              content_draft_id,listing_id,snapshot_type,content_json,content_checksum,created_by
            )VALUES($1,$2,$3,$4::jsonb,$5,$6)`,
-          [row.id, input.listingId || null, snapshot.type, JSON.stringify(snapshot.content || {}), snapshot.checksum, input.actor || null],
+          [
+            row.id,
+            input.listingId || null,
+            snapshot.type,
+            JSON.stringify(snapshot.content || {}),
+            snapshot.checksum,
+            input.actor || null,
+          ],
         );
       return this.getDraft(row.id, client);
     });
@@ -98,7 +121,9 @@ class ContentRepository {
     }
     if (filters.search) {
       params.push(`%${String(filters.search).trim()}%`);
-      where.push(`(r.recipe_name ILIKE $${params.length} OR d.proposed_content::text ILIKE $${params.length})`);
+      where.push(
+        `(r.recipe_name ILIKE $${params.length} OR d.proposed_content::text ILIKE $${params.length})`,
+      );
     }
     const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const count = await this.db.query(
@@ -146,7 +171,10 @@ class ContentRepository {
   updateDraft(id, input) {
     return this.withTransaction(async (client) => {
       const before = (
-        await client.query(`SELECT * FROM ai_content_drafts WHERE id=$1 FOR UPDATE`, [id])
+        await client.query(
+          `SELECT * FROM ai_content_drafts WHERE id=$1 FOR UPDATE`,
+          [id],
+        )
       ).rows[0];
       if (!before) return null;
       const row = (
@@ -155,14 +183,26 @@ class ContentRepository {
              proposed_content=$2::jsonb,diff_json=$3::jsonb,
              safety_errors=$4::jsonb,safety_warnings=$5::jsonb,updated_at=NOW()
            WHERE id=$1 RETURNING *`,
-          [id, JSON.stringify(input.proposedContent), JSON.stringify(input.diff), JSON.stringify(input.safetyErrors), JSON.stringify(input.safetyWarnings)],
+          [
+            id,
+            JSON.stringify(input.proposedContent),
+            JSON.stringify(input.diff),
+            JSON.stringify(input.safetyErrors),
+            JSON.stringify(input.safetyWarnings),
+          ],
         )
       ).rows[0];
       await client.query(
         `INSERT INTO listing_content_snapshots(
            content_draft_id,listing_id,snapshot_type,content_json,content_checksum,created_by
          )VALUES($1,$2,'PROPOSED',$3::jsonb,$4,$5)`,
-        [id, before.listing_id, JSON.stringify(input.proposedContent), input.checksum, input.actor || null],
+        [
+          id,
+          before.listing_id,
+          JSON.stringify(input.proposedContent),
+          input.checksum,
+          input.actor || null,
+        ],
       );
       return this.getDraft(row.id, client);
     });
@@ -183,7 +223,13 @@ class ContentRepository {
         `INSERT INTO listing_content_snapshots(
            content_draft_id,listing_id,snapshot_type,content_json,content_checksum,created_by
          )VALUES($1,$2,'APPROVED',$3::jsonb,$4,$5)`,
-        [id, row.listing_id, JSON.stringify(row.proposed_content), checksum, actor],
+        [
+          id,
+          row.listing_id,
+          JSON.stringify(row.proposed_content),
+          checksum,
+          actor,
+        ],
       );
       return this.getDraft(id, client);
     });
@@ -191,8 +237,13 @@ class ContentRepository {
 
   async snapshot(id) {
     return (
-      await this.db.query(`SELECT * FROM listing_content_snapshots WHERE id=$1`, [id])
-    ).rows[0] || null;
+      (
+        await this.db.query(
+          `SELECT * FROM listing_content_snapshots WHERE id=$1`,
+          [id],
+        )
+      ).rows[0] || null
+    );
   }
 
   async listingHealthInputs(marketplace) {
@@ -211,8 +262,10 @@ class ContentRepository {
     return this.withTransaction(async (client) => {
       const saved = [];
       for (const item of items)
-        saved.push((await client.query(
-          `INSERT INTO listing_health_assessments(
+        saved.push(
+          (
+            await client.query(
+              `INSERT INTO listing_health_assessments(
              marketplace,listing_id,recipe_id,quality_score,confidence,
              checks_json,data_quality,summary,assessed_at
            )VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,NOW())
@@ -222,8 +275,19 @@ class ContentRepository {
              checks_json=EXCLUDED.checks_json,data_quality=EXCLUDED.data_quality,
              summary=EXCLUDED.summary,assessed_at=NOW(),updated_at=NOW()
            RETURNING *`,
-          [item.marketplace, item.listingId, item.recipeId, item.score, item.confidence, JSON.stringify(item.checks), JSON.stringify(item.dataQuality), item.summary],
-        )).rows[0]);
+              [
+                item.marketplace,
+                item.listingId,
+                item.recipeId,
+                item.score,
+                item.confidence,
+                JSON.stringify(item.checks),
+                JSON.stringify(item.dataQuality),
+                item.summary,
+              ],
+            )
+          ).rows[0],
+        );
       return saved;
     });
   }
@@ -239,7 +303,9 @@ class ContentRepository {
     }
     if (filters.search) {
       params.push(`%${String(filters.search).trim()}%`);
-      where.push(`(r.recipe_name ILIKE $${params.length} OR l.title ILIKE $${params.length} OR l.seller_listing_barcode ILIKE $${params.length})`);
+      where.push(
+        `(r.recipe_name ILIKE $${params.length} OR l.title ILIKE $${params.length} OR l.seller_listing_barcode ILIKE $${params.length})`,
+      );
     }
     const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const count = await this.db.query(
@@ -264,16 +330,18 @@ class ContentRepository {
 
   async getHealth(id) {
     return (
-      await this.db.query(
-        `SELECT h.*,l.title,l.description,l.attributes,l.images,l.video,
+      (
+        await this.db.query(
+          `SELECT h.*,l.title,l.description,l.attributes,l.images,l.video,
                 l.stock,l.sale_price_minor,l.minimum_price_minor,l.buybox_price_minor,
                 l.seller_listing_barcode,l.publication_state,r.recipe_name,r.recipe_type
          FROM listing_health_assessments h
          JOIN marketplace_listings l ON l.id=h.listing_id
          JOIN pim_recipes r ON r.id=h.recipe_id WHERE h.id=$1`,
-        [id],
-      )
-    ).rows[0] || null;
+          [id],
+        )
+      ).rows[0] || null
+    );
   }
 }
 

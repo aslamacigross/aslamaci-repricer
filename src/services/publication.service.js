@@ -37,7 +37,9 @@ function classifyTransfer(preview) {
   if (blockers.some((code) => code.startsWith("ATTRIBUTE_REQUIRED:")))
     return "ATTRIBUTE_MAPPING_REQUIRED";
   if (has("LISTING_BARCODE_REQUIRED")) return "LISTING_BARCODE_REQUIRED";
-  if (preview.pricing?.rankRecommendation?.status === "BUYBOX_TARGET_NOT_ECONOMIC")
+  if (
+    preview.pricing?.rankRecommendation?.status === "BUYBOX_TARGET_NOT_ECONOMIC"
+  )
     return "PRICE_NOT_PROFITABLE";
   if (
     blockers.some((code) =>
@@ -57,8 +59,7 @@ function classifyTransfer(preview) {
     return "READY_TO_LIST";
   if (preview.catalog.status === "REVIEW_REQUIRED")
     return "EXISTING_MATCH_REVIEW_REQUIRED";
-  if (preview.catalog.status === "CONFIRMED")
-    return "EXISTING_MATCH_CONFIRMED";
+  if (preview.catalog.status === "CONFIRMED") return "EXISTING_MATCH_CONFIRMED";
   if (preview.publicationMode === "NEW_PRODUCT" && blockers.length === 0)
     return "READY_TO_LIST";
   return "NEW_PRODUCT_REQUIRED";
@@ -110,18 +111,24 @@ class PublicationService {
     const productCost = fromMoneyMinor(recipe.total_cost_minor);
     const desi = Number(recipe.final_desi || 0);
     const packagingCost = selectPackagingCost(desi, context.packaging);
-    const serviceFee = fromMoneyMinor(context.registry?.default_service_fee_minor || 0);
+    const serviceFee = fromMoneyMinor(
+      context.registry?.default_service_fee_minor || 0,
+    );
     const commissionRate = Number(context.commission?.commission_rate || 0);
     const carrier = context.registry?.default_carrier || "";
     const targetProfit = fromMoneyMinor(recipe.target_profit_minor || 0);
-    const sourcePrice = fromMoneyMinor(context.sourceListing?.sale_price_minor || 0);
+    const sourcePrice = fromMoneyMinor(
+      context.sourceListing?.sale_price_minor || 0,
+    );
     const competitors = [
       input.buyboxPrice,
       input.secondPrice,
       input.thirdPrice,
     ].map(Number);
     let referencePrice =
-      Number(input.requestedPrice || 0) || competitors.find((value) => value > 0) || sourcePrice;
+      Number(input.requestedPrice || 0) ||
+      competitors.find((value) => value > 0) ||
+      sourcePrice;
     let shippingCost = 0;
     let minimumPrice = 0;
     for (let iteration = 0; iteration < 3; iteration++) {
@@ -140,7 +147,8 @@ class PublicationService {
         targetProfit,
         commissionRate,
       });
-      if (!minimumPrice || Math.abs(referencePrice - minimumPrice) < 0.01) break;
+      if (!minimumPrice || Math.abs(referencePrice - minimumPrice) < 0.01)
+        break;
       referencePrice = minimumPrice;
     }
     const rankRecommendation = recommendRankPrice({
@@ -182,7 +190,9 @@ class PublicationService {
 
   async buildPreview(input = {}) {
     const recipeId = Number(input.recipeId);
-    const targetMarketplace = String(input.targetMarketplace || "").toUpperCase();
+    const targetMarketplace = String(
+      input.targetMarketplace || "",
+    ).toUpperCase();
     const sourceMarketplace = input.sourceMarketplace
       ? String(input.sourceMarketplace).toUpperCase()
       : null;
@@ -199,7 +209,8 @@ class PublicationService {
         "SAME_MARKETPLACE_NOT_ALLOWED",
       );
     const recipe = await this.pim.getRecipe(recipeId);
-    if (!recipe) throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
+    if (!recipe)
+      throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
     const integration = await this.marketplaceRegistry.get(targetMarketplace);
     if (!integration)
       throw new AppError("Pazaryeri bulunamadı", 404, "MARKETPLACE_NOT_FOUND");
@@ -230,9 +241,11 @@ class PublicationService {
       blockers.push("MARKETPLACE_CREDENTIALS_MISSING");
     if (["SKELETON", "DISABLED"].includes(integration.adapter_status))
       blockers.push("MARKETPLACE_ADAPTER_NOT_READY");
-    if (!integration.capabilities?.[capability]) blockers.push("CAPABILITY_NOT_SUPPORTED");
+    if (!integration.capabilities?.[capability])
+      blockers.push("CAPABILITY_NOT_SUPPORTED");
     if (recipe.status !== "APPROVED") blockers.push("RECIPE_NOT_APPROVED");
-    if (!(Number(recipe.total_cost_minor) > 0)) blockers.push("COST_MAPPING_MISSING");
+    if (!(Number(recipe.total_cost_minor) > 0))
+      blockers.push("COST_MAPPING_MISSING");
     if (!(Number(recipe.final_desi) > 0)) blockers.push("DESI_MISSING");
     if (!context.categoryId) blockers.push("CATEGORY_MAPPING_REQUIRED");
     if (!(pricing.commissionRate > 0)) blockers.push("COMMISSION_MISSING");
@@ -246,8 +259,10 @@ class PublicationService {
     blockers.push(...requiredAttributeErrors(context.attributes, attributes));
     if (match && match.match_status === "REVIEW_REQUIRED")
       blockers.push("CATALOG_MATCH_REVIEW_REQUIRED");
-    const title = input.title || context.sourceListing?.title || recipe.recipe_name;
-    const description = input.description || context.sourceListing?.description || "";
+    const title =
+      input.title || context.sourceListing?.title || recipe.recipe_name;
+    const description =
+      input.description || context.sourceListing?.description || "";
     const images = input.images || context.sourceListing?.images || [];
     const payload = {
       marketplace: targetMarketplace,
@@ -287,7 +302,9 @@ class PublicationService {
 
   async createDraft(input = {}, actor) {
     const preview = await this.buildPreview(input);
-    const workflowStatus = preview.blockers.includes("CATEGORY_MAPPING_REQUIRED")
+    const workflowStatus = preview.blockers.includes(
+      "CATEGORY_MAPPING_REQUIRED",
+    )
       ? "CATEGORY_REVIEW"
       : preview.blockers.some((code) => code.startsWith("ATTRIBUTE_REQUIRED:"))
         ? "ATTRIBUTE_REVIEW"
@@ -353,9 +370,15 @@ class PublicationService {
   }
 
   async createTransfer(input = {}, actor) {
-    const sourceMarketplace = String(input.sourceMarketplace || "").toUpperCase();
-    const targetMarketplace = String(input.targetMarketplace || "").toUpperCase();
-    const recipeIds = unique((input.recipeIds || []).map(Number)).filter((id) => id > 0);
+    const sourceMarketplace = String(
+      input.sourceMarketplace || "",
+    ).toUpperCase();
+    const targetMarketplace = String(
+      input.targetMarketplace || "",
+    ).toUpperCase();
+    const recipeIds = unique((input.recipeIds || []).map(Number)).filter(
+      (id) => id > 0,
+    );
     if (!sourceMarketplace || !targetMarketplace || !recipeIds.length)
       throw new AppError(
         "Kaynak, hedef ve en az bir reçete zorunlu",
@@ -388,7 +411,9 @@ class PublicationService {
       input.idempotencyKey ||
       crypto
         .createHash("sha256")
-        .update(`${sourceMarketplace}:${targetMarketplace}:${recipeIds.sort((a, b) => a - b).join(",")}`)
+        .update(
+          `${sourceMarketplace}:${targetMarketplace}:${recipeIds.sort((a, b) => a - b).join(",")}`,
+        )
         .digest("hex");
     return this.repository.createTransferBatch(
       { sourceMarketplace, targetMarketplace, idempotencyKey, actor },

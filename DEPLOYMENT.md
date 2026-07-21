@@ -18,7 +18,10 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 10. `005_operational_controls` migrationı ve `/ready` yanıtı doğrulanır; bakım modu kapalı bırakılır.
 11. `024_product_publishing_and_channel_transfer` ayrı preview DB'de up/down
     test edilir; `/ready` bu migrationı beklemelidir.
-12. `PRODUCT_PUBLISHING_ENABLED=false`, `CONTENT_AUTO_UPDATE_ENABLED=false` ve
+12. `025_product_opportunity_engine` ile
+    `026_ai_content_and_listing_health` ayrı preview DB'de sırasıyla up/down
+    test edilir; `/ready` son olarak `026_ai_content_and_listing_health` bekler.
+13. `PRODUCT_PUBLISHING_ENABLED=false`, `CONTENT_AUTO_UPDATE_ENABLED=false` ve
     `OPPORTUNITY_AUTO_PUBLISH_ENABLED=false` doğrulanır.
 
 ## Doğrulanmış V2 Preview
@@ -129,11 +132,22 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 - Hepsiburada repricer denemesi: `MARKETPLACE_CREDENTIALS_MISSING`; Trendyol fiyat çağrısı yok
 - Ürün Yayınlama: taslak ve adapter doğrulaması `mutationPerformed=false`
 - Kanal Aktarımı: aynı idempotency key ikinci batch oluşturmaz
+- Entegrasyonlar: Trendyol hazır, Hepsiburada credential bekliyor;
+  Pazarama/İdefix/N11/PTTAVM pasif skeleton
+- Ürün Fırsatları: reçete onayı otomatik yayın veya barkod tahsisi yapmaz
+- İçerik Stüdyosu: `MOCK_DRAFT`, diff, snapshot ve onay; gönderim dry-run sonucu
+  `mutationPerformed=false`
+- Listing Sağlığı: kanıt, öneri, beklenen etki ve KPI gösterilir
 - Mobil sidebar ve tablolar
 - `pnpm test:ui` ve `pnpm test:e2e`
 
 ## Production'a Geçiş
 
-İlk production deploy da dry-run olarak yapılır. Gerçek fiyat gönderimi bu deployment işinin parçası değildir. Canlı mod, ayrı bir kullanıcı kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır; otomatik gönderim için ayrıca global repricer ve ürün bazında `AUTOMATIC + auto_update` gerekir.
+Bu branch production'a deploy edilmemiştir. İlerideki ilk production deploy da
+dry-run olarak yapılmalıdır. Gerçek fiyat, ürün, içerik veya stok gönderimi bu
+deployment işinin parçası değildir. Canlı repricer modu ayrı bir kullanıcı
+kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır;
+otomatik fiyat gönderimi için ayrıca global repricer ve ürün bazında
+`AUTOMATIC + auto_update` gerekir. Ürün ve içerik yayın anahtarları kapalı kalır.
 
 Preview ortamı Railway deneme planındadır. Deneme süresi/credit bitmeden preview kalıcı bir plana taşınmalı veya production geçişi tamamlandıktan sonra kapatılmalıdır.

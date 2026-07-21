@@ -17,7 +17,10 @@ function pimRoutes({ pim, audit }) {
   r.get(
     "/pim/products",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", ...(await pim.listPhysicalProducts(req.query)) }),
+      res.json({
+        status: "ok",
+        ...(await pim.listPhysicalProducts(req.query)),
+      }),
     ),
   );
   r.get(
@@ -30,7 +33,8 @@ function pimRoutes({ pim, audit }) {
     "/pim/recipes/:id",
     asyncRoute(async (req, res) => {
       const data = await pim.getRecipe(req.params.id);
-      if (!data) throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
+      if (!data)
+        throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
       res.json({ status: "ok", data });
     }),
   );
@@ -44,7 +48,10 @@ function pimRoutes({ pim, audit }) {
           action: "PIM_RECIPE_CREATED",
           entityType: "pim_recipe",
           entityId: String(data.id),
-          after: { recipeCode: data.recipe_code, fingerprint: data.bundle_fingerprint },
+          after: {
+            recipeCode: data.recipe_code,
+            fingerprint: data.bundle_fingerprint,
+          },
           ip: req.ip,
           requestId: req.id,
         });
@@ -91,7 +98,10 @@ function pimRoutes({ pim, audit }) {
   r.get(
     "/catalog-matches",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await pim.listCatalogMatches(req.query) }),
+      res.json({
+        status: "ok",
+        items: await pim.listCatalogMatches(req.query),
+      }),
     ),
   );
   r.post(
@@ -128,13 +138,20 @@ function pimRoutes({ pim, audit }) {
           req.user.username,
         );
         if (!data)
-          throw new AppError("Eşleşme bulunamadı", 404, "CATALOG_MATCH_NOT_FOUND");
+          throw new AppError(
+            "Eşleşme bulunamadı",
+            404,
+            "CATALOG_MATCH_NOT_FOUND",
+          );
         await audit.record({
           actor: req.user.username,
           action: "CATALOG_MATCH_REVIEWED",
           entityType: "marketplace_catalog_match",
           entityId: String(data.id),
-          after: { status: data.match_status, confidence: data.match_confidence },
+          after: {
+            status: data.match_status,
+            confidence: data.match_confidence,
+          },
           ip: req.ip,
           requestId: req.id,
         });
@@ -154,8 +171,12 @@ function pimRoutes({ pim, audit }) {
     "/listing-barcodes/preview",
     asyncRoute(async (req, res) => {
       try {
-        const data = await pim.previewBarcode(req.body.marketplace, req.body.recipeId);
-        if (!data) throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
+        const data = await pim.previewBarcode(
+          req.body.marketplace,
+          req.body.recipeId,
+        );
+        if (!data)
+          throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
         res.json({ status: "ok", data });
       } catch (error) {
         rethrow(error);
@@ -167,13 +188,18 @@ function pimRoutes({ pim, audit }) {
     asyncRoute(async (req, res) => {
       try {
         const data = await pim.allocateBarcode(req.body);
-        if (!data) throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
+        if (!data)
+          throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
         await audit.record({
           actor: req.user.username,
           action: "LISTING_BARCODE_RESERVED",
           entityType: "listing_barcode",
           entityId: String(data.id),
-          after: { marketplace: data.marketplace, barcode: data.barcode, status: data.status },
+          after: {
+            marketplace: data.marketplace,
+            barcode: data.barcode,
+            status: data.status,
+          },
           ip: req.ip,
           requestId: req.id,
         });

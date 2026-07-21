@@ -31,15 +31,23 @@ describe("Ürün Yayınlama Merkezi", () => {
       },
     });
     render(<PublishingCenter mode="publishing" notify={vi.fn()} />);
-    await user.click(await screen.findByRole("button", { name: "Yeni taslak" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Yeni taslak" }),
+    );
     await user.type(screen.getByLabelText("Reçete ID"), "9");
-    await user.selectOptions(screen.getByLabelText("Hedef pazaryeri"), "HEPSIBURADA");
+    await user.selectOptions(
+      screen.getByLabelText("Hedef pazaryeri"),
+      "HEPSIBURADA",
+    );
     await user.click(screen.getByRole("button", { name: "Önizle" }));
     expect(await screen.findByText("₺312,28")).toBeVisible();
     expect(screen.getByText("MARKETPLACE_CREDENTIALS_MISSING")).toBeVisible();
     expect(post).toHaveBeenCalledWith(
       "/api/publication-drafts/preview",
-      expect.objectContaining({ recipeId: 9, targetMarketplace: "HEPSIBURADA" }),
+      expect.objectContaining({
+        recipeId: 9,
+        targetMarketplace: "HEPSIBURADA",
+      }),
     );
   });
 
@@ -47,7 +55,9 @@ describe("Ürün Yayınlama Merkezi", () => {
     const user = userEvent.setup();
     post.mockResolvedValue({ data: { total_count: 2 } });
     render(<PublishingCenter mode="channel-transfer" notify={vi.fn()} />);
-    await user.click(await screen.findByRole("button", { name: "Kanala kopyala" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Kanala kopyala" }),
+    );
     await user.type(screen.getByPlaceholderText("12, 13, 14"), "12, 13");
     await user.click(screen.getByRole("button", { name: "Önizlemeyi başlat" }));
     expect(post).toHaveBeenCalledWith(

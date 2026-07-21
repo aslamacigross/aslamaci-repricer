@@ -58,3 +58,14 @@ aynen korunur.
 6. Credential eksik, capability eksik, idempotent retry ve marketplace
    izolasyonu testlerini ekle.
 
+## Ürün ve İçerik Sınırı
+
+Trendyol adapteri mevcut ürün, buybox, sipariş, finans ve fiyat davranışını
+korur. Yeni ürün oluşturma ve içerik güncelleme bu sürümde yalnız ortak adapter
+payload doğrulamasına kadar gider. Hepsiburada credential gelene kadar katalog,
+teklif, içerik, buybox ve fiyat mutasyonları sert biçimde kapalıdır. Pazarama,
+İdefix, N11 ve PTTAVM adapterları yalnız sözleşme/skeleton düzeyindedir.
+
+Batch kabulü yayın başarısı değildir. Gelecekte gerçek mutasyon açılırsa adapter
+batch sonucunu takip etmeli ve listing'i yeniden okuyarak barkod, başlık,
+kategori, stok ve fiyatı doğrulamalıdır.

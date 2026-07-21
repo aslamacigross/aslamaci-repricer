@@ -6,48 +6,55 @@ class OpportunityRepository {
 
   async generationInputs(targetMarketplace) {
     const target = String(targetMarketplace).toUpperCase();
-    const [physical, recipes, components, listings, matches, marketRows, sales] =
-      await Promise.all([
-        this.db.query(
-          `SELECT p.*,ci.unit_cost,ci.unit_desi,ci.source_checked_at,
+    const [
+      physical,
+      recipes,
+      components,
+      listings,
+      matches,
+      marketRows,
+      sales,
+    ] = await Promise.all([
+      this.db.query(
+        `SELECT p.*,ci.unit_cost,ci.unit_desi,ci.source_checked_at,
                   ci.price_source,ci.updated_at cost_updated_at
            FROM pim_physical_products p
            JOIN cost_items ci ON ci.item_code=p.cost_item_code
            WHERE p.status='ACTIVE' AND ci.unit_cost>0 AND ci.unit_desi>0
            ORDER BY p.id`,
-        ),
-        this.db.query(
-          `SELECT * FROM pim_recipes
+      ),
+      this.db.query(
+        `SELECT * FROM pim_recipes
            WHERE status IN('APPROVED','REVIEW') ORDER BY id`,
-        ),
-        this.db.query(
-          `SELECT c.*,p.product_name,p.brand,p.product_family,p.variant,
+      ),
+      this.db.query(
+        `SELECT c.*,p.product_name,p.brand,p.product_family,p.variant,
                   p.category,p.volume_ml,p.weight_g
            FROM pim_recipe_components c
            JOIN pim_physical_products p ON p.id=c.physical_product_id
            ORDER BY c.recipe_id,c.id`,
-        ),
-        this.db.query(
-          `SELECT * FROM marketplace_listings
+      ),
+      this.db.query(
+        `SELECT * FROM marketplace_listings
            WHERE marketplace=$1 ORDER BY recipe_id,id`,
-          [target],
-        ),
-        this.db.query(
-          `SELECT * FROM marketplace_catalog_matches
+        [target],
+      ),
+      this.db.query(
+        `SELECT * FROM marketplace_catalog_matches
            WHERE marketplace=$1 AND match_status<>'REJECTED'
            ORDER BY recipe_id,match_confidence DESC`,
-          [target],
-        ),
-        this.db.query(
-          `SELECT p.recipe_id,p.barcode,p.buybox_price,p.second_price,p.third_price,
+        [target],
+      ),
+      this.db.query(
+        `SELECT p.recipe_id,p.barcode,p.buybox_price,p.second_price,p.third_price,
                   p.rank,p.calculated_min_price,p.commission_rate,
                   p.calculated_shipping_cost,p.my_price,p.has_multiple_seller
            FROM products p
            WHERE p.marketplace=$1 AND p.recipe_id IS NOT NULL AND p.is_active=TRUE`,
-          [target],
-        ),
-        this.db.query(
-          `SELECT p.recipe_id,COALESCE(SUM(oi.quantity),0)::numeric family_sales
+        [target],
+      ),
+      this.db.query(
+        `SELECT p.recipe_id,COALESCE(SUM(oi.quantity),0)::numeric family_sales
            FROM marketplace_order_items oi
            JOIN marketplace_orders o ON o.id=oi.order_id AND o.marketplace=$1
            JOIN products p ON p.marketplace=o.marketplace AND p.barcode=oi.barcode
@@ -55,9 +62,9 @@ class OpportunityRepository {
              AND o.order_date>=NOW()-INTERVAL '180 days'
              AND COALESCE(o.status,'') NOT ILIKE '%cancel%'
            GROUP BY p.recipe_id`,
-          [target],
-        ),
-      ]);
+        [target],
+      ),
+    ]);
     return {
       physical: physical.rows,
       recipes: recipes.rows,
@@ -136,7 +143,9 @@ class OpportunityRepository {
     }
     if (filters.search) {
       params.push(`%${String(filters.search).trim()}%`);
-      where.push(`(r.recipe_name ILIKE $${params.length} OR o.proposed_recipe::text ILIKE $${params.length})`);
+      where.push(
+        `(r.recipe_name ILIKE $${params.length} OR o.proposed_recipe::text ILIKE $${params.length})`,
+      );
     }
     const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const count = await this.db.query(
@@ -179,7 +188,10 @@ class OpportunityRepository {
   transition(id, input) {
     return this.withTransaction(async (client) => {
       const before = (
-        await client.query(`SELECT * FROM product_opportunities WHERE id=$1 FOR UPDATE`, [id])
+        await client.query(
+          `SELECT * FROM product_opportunities WHERE id=$1 FOR UPDATE`,
+          [id],
+        )
       ).rows[0];
       if (!before) return null;
       const after = (
@@ -187,14 +199,28 @@ class OpportunityRepository {
           `UPDATE product_opportunities SET workflow_status=$2,recipe_id=COALESCE($3,recipe_id),
              reviewed_by=$4,reviewed_at=NOW(),rejection_reason=$5,updated_at=NOW()
            WHERE id=$1 RETURNING *`,
-          [id, input.status, input.recipeId || null, input.actor || null, input.reason || null],
+          [
+            id,
+            input.status,
+            input.recipeId || null,
+            input.actor || null,
+            input.reason || null,
+          ],
         )
       ).rows[0];
       await client.query(
         `INSERT INTO product_opportunity_events(
            opportunity_id,event_type,from_status,to_status,actor,reason,snapshot_json
          )VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-        [id, input.eventType, before.workflow_status, input.status, input.actor || null, input.reason || null, JSON.stringify(input.snapshot || {})],
+        [
+          id,
+          input.eventType,
+          before.workflow_status,
+          input.status,
+          input.actor || null,
+          input.reason || null,
+          JSON.stringify(input.snapshot || {}),
+        ],
       );
       return this.get(id, client);
     });
@@ -203,7 +229,10 @@ class OpportunityRepository {
   recordCatalogSearch(id, input) {
     return this.withTransaction(async (client) => {
       const before = (
-        await client.query(`SELECT * FROM product_opportunities WHERE id=$1 FOR UPDATE`, [id])
+        await client.query(
+          `SELECT * FROM product_opportunities WHERE id=$1 FOR UPDATE`,
+          [id],
+        )
       ).rows[0];
       if (!before) return null;
       const after = (
@@ -211,14 +240,25 @@ class OpportunityRepository {
           `UPDATE product_opportunities SET catalog_status=$2,
              listing_barcode_required=$3,workflow_status=$4,updated_at=NOW()
            WHERE id=$1 RETURNING *`,
-          [id, input.catalogStatus, input.listingBarcodeRequired === true, input.status],
+          [
+            id,
+            input.catalogStatus,
+            input.listingBarcodeRequired === true,
+            input.status,
+          ],
         )
       ).rows[0];
       await client.query(
         `INSERT INTO product_opportunity_events(
            opportunity_id,event_type,from_status,to_status,actor,snapshot_json
          )VALUES($1,'CATALOG_SEARCHED',$2,$3,$4,$5::jsonb)`,
-        [id, before.workflow_status, after.workflow_status, input.actor || null, JSON.stringify(input.snapshot || {})],
+        [
+          id,
+          before.workflow_status,
+          after.workflow_status,
+          input.actor || null,
+          JSON.stringify(input.snapshot || {}),
+        ],
       );
       return this.get(id, client);
     });

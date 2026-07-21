@@ -335,28 +335,24 @@ function systemRoutes({
   );
   r.get(
     "/integrations",
-    asyncRoute(async (req, res) =>
-      {
-        const items = marketplaceRegistry
-          ? await marketplaceRegistry.list()
-          : [];
-        const byCode = Object.fromEntries(
-          items.map((item) => [item.code.toLowerCase(), item]),
-        );
-        res.json({
-          status: "ok",
-          items,
-          data: items.length
-            ? byCode
-            : {
-                trendyol: await sync.health(),
-                hepsiburada: {
-                  configured: hepsiburada?.configured?.() || false,
-                },
+    asyncRoute(async (req, res) => {
+      const items = marketplaceRegistry ? await marketplaceRegistry.list() : [];
+      const byCode = Object.fromEntries(
+        items.map((item) => [item.code.toLowerCase(), item]),
+      );
+      res.json({
+        status: "ok",
+        items,
+        data: items.length
+          ? byCode
+          : {
+              trendyol: await sync.health(),
+              hepsiburada: {
+                configured: hepsiburada?.configured?.() || false,
               },
-        });
-      },
-    ),
+            },
+      });
+    }),
   );
   r.get(
     "/integrations/:marketplace",

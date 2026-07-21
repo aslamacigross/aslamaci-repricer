@@ -72,7 +72,11 @@ function catalogMatch(source, candidate) {
     const matches = numeric
       ? sameNumber(left, right)
       : normalized(left) === normalized(right);
-    evidence.push({ field, status: matches ? "MATCH" : "MISMATCH", points: matches ? points : 0 });
+    evidence.push({
+      field,
+      status: matches ? "MATCH" : "MISMATCH",
+      points: matches ? points : 0,
+    });
     if (matches) score += points;
     else if (hard) possible = false;
   }
@@ -82,8 +86,13 @@ function catalogMatch(source, candidate) {
     availablePoints += 10;
     const componentMatch =
       sourceComponents.length === candidateComponents.length &&
-      bundleFingerprint(sourceComponents) === bundleFingerprint(candidateComponents);
-    evidence.push({ field: "components", status: componentMatch ? "MATCH" : "MISMATCH", points: componentMatch ? 10 : 0 });
+      bundleFingerprint(sourceComponents) ===
+        bundleFingerprint(candidateComponents);
+    evidence.push({
+      field: "components",
+      status: componentMatch ? "MATCH" : "MISMATCH",
+      points: componentMatch ? 10 : 0,
+    });
     if (componentMatch) score += 10;
     else possible = false;
   }

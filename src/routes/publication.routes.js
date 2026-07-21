@@ -17,7 +17,9 @@ function publicationRoutes({ publication, audit }) {
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        items: await publication.listCategories(req.query.marketplace || "TRENDYOL"),
+        items: await publication.listCategories(
+          req.query.marketplace || "TRENDYOL",
+        ),
       }),
     ),
   );
@@ -42,7 +44,8 @@ function publicationRoutes({ publication, audit }) {
           req.user.username,
           req.body.confirmation,
         );
-        if (!data) throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
+        if (!data)
+          throw new AppError("Reçete bulunamadı", 404, "RECIPE_NOT_FOUND");
         await audit.record({
           actor: req.user.username,
           action: "PIM_RECIPE_APPROVED",
@@ -61,14 +64,18 @@ function publicationRoutes({ publication, audit }) {
   r.get(
     "/publication-drafts",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await publication.listDrafts(req.query) }),
+      res.json({
+        status: "ok",
+        items: await publication.listDrafts(req.query),
+      }),
     ),
   );
   r.get(
     "/publication-drafts/:id",
     asyncRoute(async (req, res) => {
       const data = await publication.getDraft(req.params.id);
-      if (!data) throw new AppError("Taslak bulunamadı", 404, "DRAFT_NOT_FOUND");
+      if (!data)
+        throw new AppError("Taslak bulunamadı", 404, "DRAFT_NOT_FOUND");
       res.json({ status: "ok", data });
     }),
   );
@@ -76,7 +83,10 @@ function publicationRoutes({ publication, audit }) {
     "/publication-drafts/preview",
     asyncRoute(async (req, res) => {
       try {
-        res.json({ status: "ok", data: await publication.buildPreview(req.body) });
+        res.json({
+          status: "ok",
+          data: await publication.buildPreview(req.body),
+        });
       } catch (error) {
         rethrow(error);
       }
@@ -136,14 +146,18 @@ function publicationRoutes({ publication, audit }) {
   r.get(
     "/channel-transfers",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await publication.listTransferBatches() }),
+      res.json({
+        status: "ok",
+        items: await publication.listTransferBatches(),
+      }),
     ),
   );
   r.get(
     "/channel-transfers/:id",
     asyncRoute(async (req, res) => {
       const data = await publication.getTransferBatch(req.params.id);
-      if (!data) throw new AppError("Aktarım bulunamadı", 404, "TRANSFER_NOT_FOUND");
+      if (!data)
+        throw new AppError("Aktarım bulunamadı", 404, "TRANSFER_NOT_FOUND");
       res.json({ status: "ok", data });
     }),
   );
@@ -151,7 +165,10 @@ function publicationRoutes({ publication, audit }) {
     "/channel-transfers",
     asyncRoute(async (req, res) => {
       try {
-        const data = await publication.createTransfer(req.body, req.user.username);
+        const data = await publication.createTransfer(
+          req.body,
+          req.user.username,
+        );
         await audit.record({
           actor: req.user.username,
           action: "CHANNEL_TRANSFER_PREVIEWED",

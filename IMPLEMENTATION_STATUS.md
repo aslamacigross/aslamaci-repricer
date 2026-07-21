@@ -16,7 +16,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
 - [x] Phase 5: Ürün/bundle fırsat motoru
 - [x] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
-- [ ] Phase 7: Tam panel, E2E kabul ve dokümantasyon
+- [x] Phase 7: Tam panel, E2E kabul ve dokümantasyon
 
 ## Tamamlanan
 
@@ -48,6 +48,11 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] İçerik Stüdyosu ve Listing Sağlığı panel ekranları
 - [x] Phase 6 doğrulaması: 240 backend ve 35 React testi, migration up/down,
   ESLint ve production build başarılı
+- [x] Demo fixture üzerinde Entegrasyonlar, PIM, yayın, kanal aktarımı, fırsat,
+  İçerik Stüdyosu ve Listing Sağlığı gerçek REST/UI akışları
+- [x] 13 Playwright E2E senaryosu; desktop ve 390x844 mobil görsel kabul
+- [x] Sürüm `2.9.0`, readiness `026_ai_content_and_listing_health`
+- [x] Zorunlu mimari, güvenlik, deploy, runbook ve model dokümantasyonu
 
 - [x] Repo, git geçmişi ve canlı endpoint envanteri
 - [x] `feature/aslamaci-erp-v2` branch oluşturulması

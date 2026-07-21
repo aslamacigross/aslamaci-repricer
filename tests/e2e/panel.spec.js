@@ -258,3 +258,150 @@ test("kargo tarifeleri pazaryerine göre ayrılır ve sayfalanır", async ({
     });
   }
 });
+
+test("entegrasyon registry credential ve capability durumunu güvenli gösterir", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Entegrasyonlar" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Entegrasyonlar" }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Trendyol" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Hepsiburada" }),
+  ).toBeVisible();
+  await expect(page.getByText("API kimlik bilgileri bekleniyor")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pazarama" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "İdefix" })).toBeVisible();
+
+  await page
+    .getByLabel("Pazaryeri seçimi")
+    .getByRole("button", { name: "Hepsiburada" })
+    .click();
+  await expect(
+    page.getByText("Bağlantı bekleniyor", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Ürünler" }).click();
+  await expect(
+    page.getByText("Hepsiburada maliyet, kârlılık", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText("8690609598109", { exact: true })).toHaveCount(0);
+});
+
+test("reçete onayı ve listing barkodu önizlemesi canlı işlem yapmaz", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Reçeteler & Bundle" }).click();
+  await page.getByText("Menekşe Yumuşatıcı 1,5 L x 4", { exact: true }).click();
+  await expect(page.getByText("ACTISOFT_MENEKSE_1500")).toBeVisible();
+  await page.getByRole("button", { name: "Reçeteyi onayla" }).click();
+  await page.getByRole("button", { name: "Reçeteyi onayla" }).last().click();
+  await expect(
+    page.getByText("Reçete yayın önizlemelerinde kullanılmak üzere onaylandı"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.getByRole("button", { name: "Listing Barkodları" }).click();
+  await page.getByPlaceholder("Reçete ID").fill("42");
+  await page.getByRole("button", { name: "Barkodu önizle" }).click();
+  await expect(page.getByText("ASL-HEPSIBURADA-DEMO-0042")).toBeVisible();
+  await expect(page.getByText("Önizleme barkodu tüketmez")).toBeVisible();
+});
+
+test("ürün yayınlama ve kanal aktarımı mevcut eş ile yeni ürün durumunu ayırır", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Ürün Yayınlama" }).click();
+  await expect(page.getByText("Yalnız dry-run", { exact: true })).toBeVisible();
+  await page.getByText("Menekşe Yumuşatıcı 1,5 L x 4", { exact: true }).click();
+  await page.getByRole("button", { name: "Dry-run çalıştır" }).click();
+  await page.getByRole("button", { name: "Dry-run çalıştır" }).last().click();
+  await expect(
+    page.getByText("Dry-run tamamlandı; pazaryerinde değişiklik yapılmadı"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.getByRole("button", { name: "Kanal Aktarımı" }).click();
+  await page.getByRole("row").nth(1).click();
+  await expect(page.getByText("EXISTING_MATCH_REVIEW_REQUIRED")).toBeVisible();
+  await expect(page.getByText("NEW_PRODUCT_REQUIRED")).toBeVisible();
+  await expect(
+    page.getByText("LISTING_BARCODE_REQUIRED", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("MARKETPLACE_CREDENTIALS_MISSING", { exact: false }).first(),
+  ).toBeVisible();
+});
+
+test("bundle fırsatı insan onayıyla reçeteye dönüşür fakat yayınlanmaz", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Ürün Fırsatları" }).click();
+  await page.getByText("Menekşe Yumuşatıcı 1,5 L x 6", { exact: true }).click();
+  await expect(
+    page.locator(".drawer").getByText("MISSING_PACK_SIZE", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Gerçek yayın")).toBeVisible();
+  await expect(page.getByText("Kapalı", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Reçeteyi onayla" }).click();
+  await page.getByRole("button", { name: "Reçeteyi onayla" }).last().click();
+  await expect(
+    page.getByText("Fırsat reçetesi onaylandı; otomatik yayın yapılmadı"),
+  ).toBeVisible();
+});
+
+test("içerik taslağı düzenlenir, dry-run yapılır ve listing sağlığı açıklanır", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "İçerik Stüdyosu" }).click();
+  await page.getByText("Menekşe Yumuşatıcı 1,5 L x 4", { exact: true }).click();
+  await expect(
+    page.getByText("Canlı güncelleme kapalı", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Önerilen başlık")
+    .fill("Actisoft Menekşe Yumuşatıcı 1,5 L x 4 Yeni Başlık");
+  await page.getByRole("button", { name: "Taslağı kaydet" }).click();
+  await expect(
+    page.getByText("İçerik değişikliği ve yeni snapshot kaydedildi"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "İçeriği onayla" }).click();
+  await page.getByRole("button", { name: "Onayla", exact: true }).click();
+  await expect(
+    page.getByText("İçerik insan onayı aldı; pazaryerine gönderilmedi"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Gönderim dry-run" }).click();
+  await page.getByRole("button", { name: "Dry-run yap" }).click();
+  await expect(page.getByText("CONTENT_AUTO_UPDATE_DISABLED")).toBeVisible();
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.getByRole("button", { name: "Listing Sağlığı" }).click();
+  await page.getByText("Menekşe Yumuşatıcı", { exact: true }).click();
+  await expect(
+    page.getByText("Başlıkta 4'lü paket adedi bulunmuyor."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Başlığa 4'lü paket bilgisini ekleyin."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Ölçülecek KPI: Ürün sayfası dönüşüm oranı"),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+  const dimensions = await page.evaluate(() => ({
+    viewport: globalThis.innerWidth,
+    document: globalThis.document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+  if (process.env.VISUAL_QA)
+    await page.screenshot({
+      path: "tmp/listing-health-mobile.png",
+      fullPage: true,
+    });
+});

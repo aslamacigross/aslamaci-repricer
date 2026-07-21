@@ -182,7 +182,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     ["TRENDYOL", "HEPSIBURADA", "PAZARAMA", "IDEFIX", "N11", "PTTAVM"],
   );
   assert.equal(marketplaceRegistry.rows[0].enabled, true);
-  assert.equal(Number(marketplaceRegistry.rows[0].default_service_fee_minor), 1319);
+  assert.equal(
+    Number(marketplaceRegistry.rows[0].default_service_fee_minor),
+    1319,
+  );
   const publishingFlags = await db.query(
     `SELECT key,value FROM system_settings
      WHERE key IN(
@@ -192,7 +195,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
      )`,
   );
   assert.equal(publishingFlags.rowCount, 3);
-  assert.equal(publishingFlags.rows.every((row) => row.value === false), true);
+  assert.equal(
+    publishingFlags.rows.every((row) => row.value === false),
+    true,
+  );
   const pimTables = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN(
@@ -223,7 +229,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
      )`,
   );
   assert.equal(publicationJobs.rowCount, 6);
-  assert.equal(publicationJobs.rows.every((row) => row.enabled === false), true);
+  assert.equal(
+    publicationJobs.rows.every((row) => row.enabled === false),
+    true,
+  );
   const opportunityTables = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('product_opportunities','product_opportunity_events')`,
@@ -246,7 +255,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
      WHERE name IN('listing-health-scan','content-quality-scan')`,
   );
   assert.equal(contentJobs.rowCount, 2);
-  assert.equal(contentJobs.rows.every((row) => row.enabled === false), true);
+  assert.equal(
+    contentJobs.rows.every((row) => row.enabled === false),
+    true,
+  );
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(

@@ -61,6 +61,12 @@
   durumundadır. Phase 6 production veya preview ortamına deploy edilmemiştir.
 - Phase 6 yerel kabulü: 240 backend ve 35 React testi, migration up/down,
   ESLint ve production build başarılıdır.
+- Phase 7 yerel kabulünde 13 Playwright senaryosu desktop ve 390x844 mobil
+  görünümde geçti. Entegrasyon, marketplace izolasyonu, reçete/barkod önizleme,
+  mevcut katalog eşleşmesi/yeni ürün ayrımı, fırsat onayı, içerik düzenleme,
+  dry-run ve listing sağlık açıklamaları gerçek demo REST/UI akışıyla sınandı.
+- Çoklu pazaryeri genişlemesi production veya preview ortamına deploy edilmedi;
+  production migration, gerçek pazaryeri mutasyonu ve PR merge yapılmadı.
 
 ## İş Bağlamı
 

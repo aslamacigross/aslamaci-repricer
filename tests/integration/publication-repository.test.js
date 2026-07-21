@@ -24,7 +24,10 @@ function transaction(db) {
 }
 
 test("kanal aktarımı aynı idempotency key ile ikinci batch oluşturmaz", async () => {
-  const memory = newDb({ autoCreateForeignKeyIndices: true, noAstCoverageCheck: true });
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
   memory.public.registerFunction({
     name: "hashtext",
     args: ["text"],
@@ -39,7 +42,9 @@ test("kanal aktarımı aynı idempotency key ile ikinci batch oluşturmaz", asyn
        recipe_code,recipe_name,recipe_type,bundle_fingerprint,status
      )VALUES('R1','Menekşe 1,5 L x 2','PACK','fingerprint-r1','APPROVED')`,
   );
-  const recipe = (await db.query(`SELECT id FROM pim_recipes WHERE recipe_code='R1'`)).rows[0];
+  const recipe = (
+    await db.query(`SELECT id FROM pim_recipes WHERE recipe_code='R1'`)
+  ).rows[0];
   const repository = new PublicationRepository(db, transaction(db));
   const input = {
     sourceMarketplace: "TRENDYOL",
@@ -59,7 +64,9 @@ test("kanal aktarımı aynı idempotency key ile ikinci batch oluşturmaz", asyn
   const second = await repository.createTransferBatch(input, items);
   assert.equal(first.id, second.id);
   assert.equal(second.items.length, 1);
-  const count = await db.query(`SELECT COUNT(*)::int total FROM channel_transfer_batches`);
+  const count = await db.query(
+    `SELECT COUNT(*)::int total FROM channel_transfer_batches`,
+  );
   assert.equal(count.rows[0].total, 1);
   await db.end();
 });

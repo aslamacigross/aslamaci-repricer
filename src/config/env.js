@@ -46,10 +46,7 @@ const env = {
   minPriceChangeTl: number(process.env.MIN_PRICE_CHANGE_TL, 0.1),
   logRetentionDays: number(process.env.LOG_RETENTION_DAYS, 90),
   skipMigrations: bool(process.env.SKIP_MIGRATIONS, false),
-  productPublishingEnabled: bool(
-    process.env.PRODUCT_PUBLISHING_ENABLED,
-    false,
-  ),
+  productPublishingEnabled: bool(process.env.PRODUCT_PUBLISHING_ENABLED, false),
   contentAutoUpdateEnabled: bool(
     process.env.CONTENT_AUTO_UPDATE_ENABLED,
     false,

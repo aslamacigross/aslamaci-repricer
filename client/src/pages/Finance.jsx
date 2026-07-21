@@ -158,10 +158,9 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
         : [{ name: "Kargo", value: Number(report.summary.shipping) }]),
       { name: "Hizmet", value: Number(report.summary.service_fee) },
     ];
-    return [
-      ...exactItems,
-      ...(hasCostDetail ? detailedItems : []),
-    ].filter((item) => item.value > 0);
+    return [...exactItems, ...(hasCostDetail ? detailedItems : [])].filter(
+      (item) => item.value > 0,
+    );
   }, [hasCostDetail, report]);
 
   async function sync() {
@@ -333,10 +332,9 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
           </p>
         </div>
       )}
-      {[
-        "CURRENT_PRODUCT_COST_FALLBACK",
-        "MIXED_CURRENT_AND_SNAPSHOT",
-      ].includes(report.summary.cost_source) && (
+      {["CURRENT_PRODUCT_COST_FALLBACK", "MIXED_CURRENT_AND_SNAPSHOT"].includes(
+        report.summary.cost_source,
+      ) && (
         <div className="notice notice-info">
           <strong>Geçmiş alış maliyeti güncel maliyetle tamamlandı</strong>
           <p>

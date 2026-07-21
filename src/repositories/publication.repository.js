@@ -25,82 +25,98 @@ class PublicationRepository {
     ).rows;
   }
 
-  async targetContext({ recipeId, sourceMarketplace, targetMarketplace, categoryId }) {
-    const source = sourceMarketplace ? String(sourceMarketplace).toUpperCase() : null;
+  async targetContext({
+    recipeId,
+    sourceMarketplace,
+    targetMarketplace,
+    categoryId,
+  }) {
+    const source = sourceMarketplace
+      ? String(sourceMarketplace).toUpperCase()
+      : null;
     const target = String(targetMarketplace).toUpperCase();
-    const [registry, sourceListing, targetListing, catalogMatch, barcode, categoryMapping] =
-      await Promise.all([
-        this.db.query(`SELECT * FROM marketplace_registry WHERE code=$1`, [target]),
-        source
-          ? this.db.query(
-              `SELECT * FROM marketplace_listings
+    const [
+      registry,
+      sourceListing,
+      targetListing,
+      catalogMatch,
+      barcode,
+      categoryMapping,
+    ] = await Promise.all([
+      this.db.query(`SELECT * FROM marketplace_registry WHERE code=$1`, [
+        target,
+      ]),
+      source
+        ? this.db.query(
+            `SELECT * FROM marketplace_listings
                WHERE marketplace=$1 AND recipe_id=$2 ORDER BY updated_at DESC LIMIT 1`,
-              [source, recipeId],
-            )
-          : Promise.resolve({ rows: [] }),
-        this.db.query(
-          `SELECT * FROM marketplace_listings
+            [source, recipeId],
+          )
+        : Promise.resolve({ rows: [] }),
+      this.db.query(
+        `SELECT * FROM marketplace_listings
            WHERE marketplace=$1 AND recipe_id=$2 ORDER BY updated_at DESC LIMIT 1`,
-          [target, recipeId],
-        ),
-        this.db.query(
-          `SELECT * FROM marketplace_catalog_matches
+        [target, recipeId],
+      ),
+      this.db.query(
+        `SELECT * FROM marketplace_catalog_matches
            WHERE marketplace=$1 AND recipe_id=$2
            ORDER BY CASE match_status WHEN 'CONFIRMED' THEN 0 WHEN 'REVIEW_REQUIRED' THEN 1 ELSE 2 END,
                     match_confidence DESC,updated_at DESC LIMIT 1`,
-          [target, recipeId],
-        ),
-        this.db.query(
-          `SELECT * FROM listing_barcode_pools
+        [target, recipeId],
+      ),
+      this.db.query(
+        `SELECT * FROM listing_barcode_pools
            WHERE marketplace=$1 AND assigned_recipe_id=$2
            ORDER BY created_at DESC LIMIT 1`,
-          [target, recipeId],
-        ),
-        categoryId
-          ? Promise.resolve({ rows: [] })
-          : this.db.query(
-              `SELECT m.* FROM internal_category_mappings m
+        [target, recipeId],
+      ),
+      categoryId
+        ? Promise.resolve({ rows: [] })
+        : this.db.query(
+            `SELECT m.* FROM internal_category_mappings m
                JOIN marketplace_listings l
                  ON l.marketplace=$1 AND l.recipe_id=$2
                 AND l.marketplace_category_id=m.internal_category
                WHERE m.marketplace=$3 AND m.status='CONFIRMED'
                LIMIT 1`,
-              [source, recipeId, target],
-            ),
-      ]);
+            [source, recipeId, target],
+          ),
+    ]);
     const resolvedCategory =
       categoryId ||
       catalogMatch.rows[0]?.marketplace_category_id ||
       categoryMapping.rows[0]?.marketplace_category_id ||
       null;
-    const [commission, rates, barems, packaging, attributes] = await Promise.all([
-      resolvedCategory
-        ? this.db.query(
-            `SELECT * FROM commission_rules
+    const [commission, rates, barems, packaging, attributes] =
+      await Promise.all([
+        resolvedCategory
+          ? this.db.query(
+              `SELECT * FROM commission_rules
              WHERE marketplace=$1 AND category_id=$2 LIMIT 1`,
-            [target, resolvedCategory],
-          )
-        : Promise.resolve({ rows: [] }),
-      this.db.query(
-        `SELECT * FROM shipping_costs WHERE marketplace=$1 ORDER BY carrier,desi_kg`,
-        [target],
-      ),
-      this.db.query(
-        `SELECT * FROM shipping_barems WHERE marketplace=$1 ORDER BY carrier,min_basket`,
-        [target],
-      ),
-      this.db.query(
-        `SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi`,
-        [target],
-      ),
-      resolvedCategory
-        ? this.db.query(
-            `SELECT * FROM marketplace_category_attributes
+              [target, resolvedCategory],
+            )
+          : Promise.resolve({ rows: [] }),
+        this.db.query(
+          `SELECT * FROM shipping_costs WHERE marketplace=$1 ORDER BY carrier,desi_kg`,
+          [target],
+        ),
+        this.db.query(
+          `SELECT * FROM shipping_barems WHERE marketplace=$1 ORDER BY carrier,min_basket`,
+          [target],
+        ),
+        this.db.query(
+          `SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi`,
+          [target],
+        ),
+        resolvedCategory
+          ? this.db.query(
+              `SELECT * FROM marketplace_category_attributes
              WHERE marketplace=$1 AND category_id=$2 ORDER BY required DESC,attribute_name`,
-            [target, resolvedCategory],
-          )
-        : Promise.resolve({ rows: [] }),
-    ]);
+              [target, resolvedCategory],
+            )
+          : Promise.resolve({ rows: [] }),
+      ]);
     return {
       registry: registry.rows[0] || null,
       sourceListing: sourceListing.rows[0] || null,
@@ -236,7 +252,9 @@ class PublicationRepository {
         )
       ).rows[0];
       if (existing) return this.getTransferBatch(existing.id, client);
-      const readyCount = items.filter((item) => item.itemStatus === "READY_TO_LIST").length;
+      const readyCount = items.filter(
+        (item) => item.itemStatus === "READY_TO_LIST",
+      ).length;
       const blockedCount = items.length - readyCount;
       const batch = (
         await client.query(
@@ -279,7 +297,10 @@ class PublicationRepository {
 
   async getTransferBatch(id, queryable = this.db) {
     const batch = (
-      await queryable.query(`SELECT * FROM channel_transfer_batches WHERE id=$1`, [id])
+      await queryable.query(
+        `SELECT * FROM channel_transfer_batches WHERE id=$1`,
+        [id],
+      )
     ).rows[0];
     if (!batch) return null;
     batch.items = (

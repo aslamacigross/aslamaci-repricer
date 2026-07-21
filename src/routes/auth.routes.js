@@ -8,9 +8,14 @@ const { AppError, asyncRoute } = require("../utils/errors");
 
 function authRoutes({ auth, audit, requireAuth, requireCsrf }) {
   const router = express.Router();
+  const loginRateLimit = process.env.NODE_ENV === "development" ? 100 : 8;
   router.post(
     "/login",
-    createRateLimiter({ windowMs: 15 * 60000, max: 8, keyPrefix: "login" }),
+    createRateLimiter({
+      windowMs: 15 * 60000,
+      max: loginRateLimit,
+      keyPrefix: "login",
+    }),
     asyncRoute(async (req, res) => {
       const result = auth.login(
         String(req.body.username || ""),

@@ -22,7 +22,10 @@ function transaction(db) {
 }
 
 test("mevcut mappingler aynı fingerprint ile ortak reçeteye idempotent taşınır", async () => {
-  const memory = newDb({ autoCreateForeignKeyIndices: true, noAstCoverageCheck: true });
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
   memory.public.registerFunction({
     name: "hashtext",
     args: ["text"],

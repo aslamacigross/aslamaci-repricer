@@ -37,6 +37,12 @@
 - `026_ai_content_and_listing_health` migrationı eklendi; içerik yayınlama
   yalnız dry-run'dır ve `CONTENT_AUTO_UPDATE_ENABLED=false` kalır.
 - Readiness zorunlu migration sürümü `026_ai_content_and_listing_health` oldu.
+- Demo kabul sunucusu merkezi PIM, katalog/yayın, fırsat, içerik ve listing sağlık
+  sözleşmeleriyle genişletildi; marketplace izolasyonu fixture'larda korundu.
+- Playwright kapsamı 13 uçtan uca senaryoya çıkarıldı ve 390x844 mobil görünüm
+  taşma kontrolleri eklendi.
+- Development/demo login limiti test izolasyonu için artırıldı; production
+  8 deneme / 15 dakika güvenlik sınırı değiştirilmedi.
 
 ## 2.0.0 - 2026-07-12
 

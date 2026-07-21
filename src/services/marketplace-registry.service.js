@@ -6,7 +6,10 @@ const {
 function safeErrorSummary(error) {
   return String(error?.message || "Bağlantı doğrulanamadı")
     .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, "Basic [REDACTED]")
-    .replace(/(authorization|api[-_ ]?key|secret|password|token)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
+    .replace(
+      /(authorization|api[-_ ]?key|secret|password|token)\s*[:=]\s*[^\s,;]+/gi,
+      "$1=[REDACTED]",
+    )
     .slice(0, 400);
 }
 

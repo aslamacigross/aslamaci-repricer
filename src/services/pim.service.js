@@ -1,7 +1,4 @@
-const {
-  bundleFingerprint,
-  catalogMatch,
-} = require("../domain/pim");
+const { bundleFingerprint, catalogMatch } = require("../domain/pim");
 
 function validationError(message, code = "VALIDATION_ERROR") {
   const error = new Error(message);
@@ -57,12 +54,17 @@ class PimService {
     if (!Array.isArray(input.components) || !input.components.length)
       throw validationError("En az bir reçete bileşeni zorunlu");
     const components = input.components.map((item) => ({
-      costItemCode: String(item.costItemCode || item.cost_item_code || "").trim(),
+      costItemCode: String(
+        item.costItemCode || item.cost_item_code || "",
+      ).trim(),
       quantity: Number(item.quantity),
     }));
     if (components.some((item) => !item.costItemCode || !(item.quantity > 0)))
       throw validationError("Cost code ve pozitif adet zorunlu");
-    if (new Set(components.map((item) => item.costItemCode)).size !== components.length)
+    if (
+      new Set(components.map((item) => item.costItemCode)).size !==
+      components.length
+    )
       throw validationError("Aynı cost code reçetede iki kez kullanılamaz");
     return this.repository.createRecipe({
       ...input,
@@ -82,7 +84,8 @@ class PimService {
     const first = recipe.components[0] || {};
     const homogeneous = recipe.components.every(
       (item) =>
-        String(item.product_family || "") === String(first.product_family || "") &&
+        String(item.product_family || "") ===
+          String(first.product_family || "") &&
         String(item.variant || "") === String(first.variant || ""),
     );
     return {
@@ -108,11 +111,13 @@ class PimService {
     let resolvedSource = source;
     if (recipeId) {
       const recipeSource = await this.recipeMatchSource(recipeId);
-      if (!recipeSource) throw validationError("Reçete bulunamadı", "RECIPE_NOT_FOUND");
+      if (!recipeSource)
+        throw validationError("Reçete bulunamadı", "RECIPE_NOT_FOUND");
       resolvedSource = { ...recipeSource.source, ...(source || {}) };
     }
     if (!resolvedSource) throw validationError("Kaynak ürün bilgisi zorunlu");
-    if (!Array.isArray(candidates)) throw validationError("Aday listesi geçersiz");
+    if (!Array.isArray(candidates))
+      throw validationError("Aday listesi geçersiz");
     return candidates
       .map((candidate) => ({
         candidate,
@@ -122,7 +127,11 @@ class PimService {
   }
 
   async saveCatalogMatch(input = {}) {
-    if (!input.recipeId || !input.marketplace || !input.candidate?.marketplaceProductId)
+    if (
+      !input.recipeId ||
+      !input.marketplace ||
+      !input.candidate?.marketplaceProductId
+    )
       throw validationError("Reçete, pazaryeri ve hedef katalog ürünü zorunlu");
     const previews = await this.previewCatalogMatches({
       recipeId: input.recipeId,

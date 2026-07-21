@@ -93,23 +93,49 @@ describe("Merkezi PIM ekranları", () => {
 
   test("reçete yalnız açık insan onayıyla APPROVED olur", async () => {
     get.mockImplementation(async (path) => {
-      if (path === "/api/pim/recipes/12") return { data: {
-        id: 12, recipe_name: "Menekşe 1,5 L x 2", status: "REVIEW",
-        bundle_fingerprint: "abcdef1234567890", total_cost_minor: 22400,
-        fractional_desi: 3, final_desi: 3, components: [], listings: [],
-      } };
-      return { items: [{
-        id: 12, recipe_code: "REC-MENEKSHE2", recipe_name: "Menekşe 1,5 L x 2",
-        recipe_type: "PACK", component_count: 1, listing_count: 0,
-        total_cost_minor: 22400, final_desi: 3, status: "REVIEW",
-      }], total: 1, page: 1, limit: 50 };
+      if (path === "/api/pim/recipes/12")
+        return {
+          data: {
+            id: 12,
+            recipe_name: "Menekşe 1,5 L x 2",
+            status: "REVIEW",
+            bundle_fingerprint: "abcdef1234567890",
+            total_cost_minor: 22400,
+            fractional_desi: 3,
+            final_desi: 3,
+            components: [],
+            listings: [],
+          },
+        };
+      return {
+        items: [
+          {
+            id: 12,
+            recipe_code: "REC-MENEKSHE2",
+            recipe_name: "Menekşe 1,5 L x 2",
+            recipe_type: "PACK",
+            component_count: 1,
+            listing_count: 0,
+            total_cost_minor: 22400,
+            final_desi: 3,
+            status: "REVIEW",
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 50,
+      };
     });
     post.mockResolvedValue({ data: { id: 12, status: "APPROVED" } });
     const user = userEvent.setup();
     render(<CatalogCenter mode="recipes" notify={vi.fn()} />);
     await user.click(await screen.findByText("REC-MENEKSHE2"));
-    await user.click(await screen.findByRole("button", { name: "Reçeteyi onayla" }));
-    await user.click(screen.getAllByRole("button", { name: "Reçeteyi onayla" }).at(-1));
+    await user.click(
+      await screen.findByRole("button", { name: "Reçeteyi onayla" }),
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: "Reçeteyi onayla" }).at(-1),
+    );
     expect(post).toHaveBeenCalledWith("/api/pim/recipes/12/approve", {
       confirmation: "RECETEYI_ONAYLA",
     });
@@ -129,7 +155,9 @@ describe("Merkezi PIM ekranları", () => {
     render(<CatalogCenter mode="barcode-pool" notify={vi.fn()} />);
     await user.type(await screen.findByPlaceholderText("Reçete ID"), "12");
     await user.click(screen.getByRole("button", { name: "Barkodu önizle" }));
-    expect(await screen.findByText("Listing barkodunu rezerve et")).toBeVisible();
+    expect(
+      await screen.findByText("Listing barkodunu rezerve et"),
+    ).toBeVisible();
     expect(post).toHaveBeenCalledWith("/api/listing-barcodes/preview", {
       marketplace: "HEPSIBURADA",
       recipeId: "12",

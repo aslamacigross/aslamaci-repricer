@@ -13,10 +13,9 @@ class MarketplaceRepository {
 
   async get(code) {
     return (
-      await this.db.query(
-        `SELECT * FROM marketplace_registry WHERE code=$1`,
-        [String(code || "").toUpperCase()],
-      )
+      await this.db.query(`SELECT * FROM marketplace_registry WHERE code=$1`, [
+        String(code || "").toUpperCase(),
+      ])
     ).rows[0];
   }
 

@@ -55,12 +55,14 @@ function dateTime(value) {
 }
 
 function adapterLabel(value) {
-  return {
-    READY: "Hazır",
-    WAITING_CREDENTIALS: "Kimlik bekliyor",
-    DISABLED: "Devre dışı",
-    SKELETON: "İskelet hazır",
-  }[value] || value;
+  return (
+    {
+      READY: "Hazır",
+      WAITING_CREDENTIALS: "Kimlik bekliyor",
+      DISABLED: "Devre dışı",
+      SKELETON: "İskelet hazır",
+    }[value] || value
+  );
 }
 
 export default function Integrations({ notify }) {
@@ -140,7 +142,9 @@ export default function Integrations({ notify }) {
                   <div>
                     <Clock3 size={17} />
                     <span>Son başarılı bağlantı</span>
-                    <strong>{dateTime(item.last_successful_connection_at)}</strong>
+                    <strong>
+                      {dateTime(item.last_successful_connection_at)}
+                    </strong>
                   </div>
                 </div>
                 {item.last_error_summary && (
@@ -158,7 +162,9 @@ export default function Integrations({ notify }) {
                     disabled={testing === item.code}
                     onClick={() => testConnection(item)}
                   >
-                    {testing === item.code ? "Test ediliyor" : "Bağlantıyı test et"}
+                    {testing === item.code
+                      ? "Test ediliyor"
+                      : "Bağlantıyı test et"}
                   </Button>
                 </footer>
               </article>
@@ -177,33 +183,69 @@ export default function Integrations({ notify }) {
             <section>
               <h3>Bağlantı durumu</h3>
               <dl className="detail-grid">
-                <div><dt>Adapter</dt><dd>{adapterLabel(selected.adapter_status)}</dd></div>
-                <div><dt>Credential</dt><dd>{selected.credentials_configured ? "Yapılandırıldı" : "Eksik"}</dd></div>
-                <div><dt>Varsayılan kargo</dt><dd>{selected.default_carrier || "Tanımsız"}</dd></div>
-                <div><dt>Hizmet bedeli</dt><dd>₺{(Number(selected.default_service_fee_minor || 0) / 100).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</dd></div>
-                <div><dt>Para birimi</dt><dd>{selected.currency}</dd></div>
-                <div><dt>Saat dilimi</dt><dd>{selected.timezone}</dd></div>
+                <div>
+                  <dt>Adapter</dt>
+                  <dd>{adapterLabel(selected.adapter_status)}</dd>
+                </div>
+                <div>
+                  <dt>Credential</dt>
+                  <dd>
+                    {selected.credentials_configured
+                      ? "Yapılandırıldı"
+                      : "Eksik"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Varsayılan kargo</dt>
+                  <dd>{selected.default_carrier || "Tanımsız"}</dd>
+                </div>
+                <div>
+                  <dt>Hizmet bedeli</dt>
+                  <dd>
+                    ₺
+                    {(
+                      Number(selected.default_service_fee_minor || 0) / 100
+                    ).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Para birimi</dt>
+                  <dd>{selected.currency}</dd>
+                </div>
+                <div>
+                  <dt>Saat dilimi</dt>
+                  <dd>{selected.timezone}</dd>
+                </div>
               </dl>
             </section>
             <section>
               <h3>Capability sözleşmesi</h3>
               <div className="capability-list">
-                {Object.entries(selected.capabilities || {}).map(([key, value]) => (
-                  <div key={key}>
-                    {value ? <CheckCircle2 size={17} /> : <CircleOff size={17} />}
-                    <span>{capabilityLabels[key] || key}</span>
-                    <Badge tone={value ? "success" : "neutral"}>
-                      {value ? "Destekleniyor" : "Kapalı"}
-                    </Badge>
-                  </div>
-                ))}
+                {Object.entries(selected.capabilities || {}).map(
+                  ([key, value]) => (
+                    <div key={key}>
+                      {value ? (
+                        <CheckCircle2 size={17} />
+                      ) : (
+                        <CircleOff size={17} />
+                      )}
+                      <span>{capabilityLabels[key] || key}</span>
+                      <Badge tone={value ? "success" : "neutral"}>
+                        {value ? "Destekleniyor" : "Kapalı"}
+                      </Badge>
+                    </div>
+                  ),
+                )}
               </div>
             </section>
             <section>
               <h3>Son senkronlar</h3>
               <dl className="detail-grid">
                 {syncFields.map(([key, label]) => (
-                  <div key={key}><dt>{label}</dt><dd>{dateTime(selected[key])}</dd></div>
+                  <div key={key}>
+                    <dt>{label}</dt>
+                    <dd>{dateTime(selected[key])}</dd>
+                  </div>
                 ))}
               </dl>
             </section>

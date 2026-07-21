@@ -24,9 +24,7 @@ const {
 const {
   MarketplaceRepository,
 } = require("./repositories/marketplace.repository");
-const {
-  TrendyolAdapter,
-} = require("./marketplaces/adapters/trendyol.adapter");
+const { TrendyolAdapter } = require("./marketplaces/adapters/trendyol.adapter");
 const {
   HepsiburadaAdapter,
 } = require("./marketplaces/adapters/hepsiburada.adapter");
@@ -52,13 +50,13 @@ const {
   PublicationRepository,
 } = require("./repositories/publication.repository");
 const { PublicationService } = require("./services/publication.service");
-const { OpportunityRepository } = require("./repositories/opportunity.repository");
+const {
+  OpportunityRepository,
+} = require("./repositories/opportunity.repository");
 const { OpportunityService } = require("./services/opportunity.service");
 const { ContentRepository } = require("./repositories/content.repository");
 const { ContentService } = require("./services/content.service");
-const {
-  DeterministicContentProvider,
-} = require("./services/content-provider");
+const { DeterministicContentProvider } = require("./services/content-provider");
 
 function transactionFor(db) {
   if (db === pool) return withTransaction;
@@ -102,7 +100,8 @@ function createContainer(overrides = {}) {
     overrides.publicationRepository ||
     new PublicationRepository(db, transaction);
   const opportunityRepository =
-    overrides.opportunityRepository || new OpportunityRepository(db, transaction);
+    overrides.opportunityRepository ||
+    new OpportunityRepository(db, transaction);
   const contentRepository =
     overrides.contentRepository || new ContentRepository(db, transaction);
   const costEngine = overrides.costEngine || new CostEngineService(db);
