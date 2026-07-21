@@ -1021,6 +1021,15 @@ class FinanceService {
                 COUNT(*) AS "line_count",
                 COUNT(*) FILTER(WHERE p.barcode IS NULL OR p.desi<=0)
                   AS "missing_desi_count",
+                EXISTS(
+                  SELECT 1 FROM marketplace_financial_transactions rt
+                  WHERE rt.marketplace=ft.marketplace
+                    AND rt.external_order_number=ft.external_order_number
+                    AND (rt.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+                    AND (rt.order_date AT TIME ZONE 'Europe/Istanbul')
+                      <$3::date+INTERVAL '1 day'
+                    AND rt.transaction_type IN('İade','Iade','Return')
+                ) AS "has_return",
                 STRING_AGG(
                   DISTINCT COALESCE(p.product_name,ft.barcode,'Bilinmiyor'),
                   ' + '
@@ -1089,13 +1098,22 @@ class FinanceService {
         charges.set(key, {
           amount: 0,
           desi: 0,
+          return_amount: 0,
+          return_charge_count: 0,
           invoice_date: null,
           charge_count: 0,
         });
       const current = charges.get(key);
+      const isReturnCharge = normalizeText(row.shipment_package_type).match(
+        /iade|return/,
+      );
       current.amount += Math.abs(Number(row.amount || 0));
-      if (!normalizeText(row.shipment_package_type).match(/iade|return/))
+      if (isReturnCharge) {
+        current.return_amount += Math.abs(Number(row.amount || 0));
+        current.return_charge_count++;
+      } else {
         current.desi += Number(row.billed_desi || 0);
+      }
       current.invoice_date = row.invoice_date || current.invoice_date;
       current.charge_count++;
     }
@@ -1111,6 +1129,12 @@ class FinanceService {
         carrier,
       });
       const billedAmount = roundMoney(billed?.amount || 0);
+      const hasReturn = Boolean(row.has_return);
+      const hasReturnCharge = Number(billed?.return_charge_count || 0) > 0;
+      const returnEstimateCost =
+        hasReturn && !hasReturnCharge && estimatedCost > 0
+          ? roundMoney(estimatedCost)
+          : 0;
       const source =
         billedAmount > 0
           ? "BILLED"
@@ -1132,9 +1156,22 @@ class FinanceService {
         missing_desi_count: missingDesiCount,
         billed_desi: billed?.desi || null,
         shipping_cost:
-          source === "BILLED" ? billedAmount : roundMoney(estimatedCost),
+          source === "BILLED"
+            ? roundMoney(billedAmount + returnEstimateCost)
+            : roundMoney(estimatedCost + returnEstimateCost),
         shipping_source: source,
         shipping_missing_reason: missingReason,
+        has_return: hasReturn,
+        return_shipping_cost: hasReturnCharge
+          ? roundMoney(billed?.return_amount || 0)
+          : returnEstimateCost,
+        return_shipping_source: hasReturn
+          ? hasReturnCharge
+            ? "BILLED"
+            : returnEstimateCost > 0
+              ? "MAPPED_ESTIMATE"
+              : "MISSING"
+          : null,
         carrier,
         invoice_date: billed?.invoice_date || null,
         charge_count: billed?.charge_count || 0,

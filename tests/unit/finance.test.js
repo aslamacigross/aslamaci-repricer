@@ -370,6 +370,7 @@ test("aylik kargo raporu faturayi, yoksa mapping desisi tahminini kullanir", asy
               line_count: 1,
               missing_desi_count: 0,
               products: "Ürün 1",
+              has_return: false,
             },
             {
               order_number: "ORDER-2",
@@ -379,6 +380,7 @@ test("aylik kargo raporu faturayi, yoksa mapping desisi tahminini kullanir", asy
               line_count: 1,
               missing_desi_count: 0,
               products: "Ürün 2",
+              has_return: false,
             },
           ],
         };
@@ -428,6 +430,54 @@ test("aylik kargo raporu faturayi, yoksa mapping desisi tahminini kullanir", asy
   assert.equal(report.items[1].shipping_source, "MAPPED_ESTIMATE");
   assert.equal(report.items[1].estimated_desi, 3);
   assert.equal(report.items[1].shipping_cost, 120);
+});
+
+test("iade kargo faturasi yoksa iade kargosunu gidis desisiyle tahmin eder", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('AS "line_count"'))
+        return {
+          rows: [
+            {
+              order_number: "RET-1",
+              order_date: "2026-06-10T10:00:00.000Z",
+              sale_amount: 500,
+              estimated_desi: 1,
+              line_count: 1,
+              missing_desi_count: 0,
+              products: "Test ürün",
+              has_return: true,
+            },
+          ],
+        };
+      if (sql.includes("FROM marketplace_cargo_charges")) return { rows: [] };
+      if (sql.includes("FROM system_settings"))
+        return { rows: [{ key: "default_carrier_trendyol", value: "TEX" }] };
+      if (sql.includes("FROM shipping_barems"))
+        return {
+          rows: [
+            {
+              source: "DESI",
+              min_basket: null,
+              max_basket: null,
+              cost_inc_vat: 93.04,
+              desi_kg: 1,
+              carrier: "TEX",
+            },
+          ],
+        };
+      throw new Error(`Beklenmeyen sorgu: ${sql}`);
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+
+  const report = await finance.monthlyShippingReport("2026-06", "TRENDYOL");
+
+  assert.equal(report.total, 186.08);
+  assert.equal(report.estimated_total, 186.08);
+  assert.equal(report.items[0].shipping_cost, 186.08);
+  assert.equal(report.items[0].return_shipping_cost, 93.04);
+  assert.equal(report.items[0].return_shipping_source, "MAPPED_ESTIMATE");
 });
 
 test("aylik rapor tum sonuc kolonlarini PostgreSQL uyumlu adlandirir", async () => {
