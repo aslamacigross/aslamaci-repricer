@@ -1,6 +1,170 @@
 const express = require("express");
 const { asyncRoute, AppError } = require("../utils/errors");
+
+const OPERATIONAL_TRANSFER_CONFIRMATION = "V2_OPERASYON_VERISINI_TASI";
+const OPERATIONAL_TRANSFER_TABLES = [
+  "cost_items",
+  "commission_rules",
+  "shipping_costs",
+  "shipping_barems",
+  "packaging_rules",
+  "file_market_items",
+  "file_market_price_history",
+  "cost_item_file_links",
+  "mapping_suggestions",
+  "mapping_suggestion_items",
+  "mapping_learning_profiles",
+  "mapping_feedback_events",
+  "supplier_cost_sync_events",
+  "shipping_tariff_imports",
+  "desi_review_queue",
+  "marketplace_categories",
+  "marketplace_category_attributes",
+  "marketplace_brands",
+  "internal_category_mappings",
+  "attribute_mappings",
+  "brand_mappings",
+  "pim_physical_products",
+  "pim_recipes",
+  "pim_recipe_components",
+  "marketplace_listings",
+  "marketplace_catalog_matches",
+  "marketplace_listing_identifiers",
+  "listing_barcode_pools",
+  "product_publication_drafts",
+  "channel_transfer_batches",
+  "channel_transfer_items",
+  "product_opportunities",
+  "product_opportunity_events",
+  "ai_content_drafts",
+  "listing_content_snapshots",
+  "listing_health_assessments",
+  "products",
+  "product_settings",
+  "product_cost_mappings",
+  "marketplace_orders",
+  "marketplace_order_items",
+  "marketplace_financial_transactions",
+  "marketplace_cargo_charges",
+  "monthly_packaging_expenses",
+];
+const OPERATIONAL_TRANSFER_TABLE_SET = new Set(OPERATIONAL_TRANSFER_TABLES);
+
+function quoteIdentifier(value) {
+  if (!/^[a-z_][a-z0-9_]*$/.test(String(value || "")))
+    throw new AppError("Geçersiz tablo adı", 400, "INVALID_TABLE");
+  return `"${value}"`;
+}
+
+async function tableColumns(db, table) {
+  return (
+    await db.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema='public' AND table_name=$1
+       ORDER BY ordinal_position`,
+      [table],
+    )
+  ).rows.map((row) => row.column_name);
+}
+
+async function exportOperationalData(db) {
+  const exported = {};
+  const counts = {};
+  for (const table of OPERATIONAL_TRANSFER_TABLES) {
+    const columns = await tableColumns(db, table);
+    if (!columns.length) continue;
+    const rows = (
+      await db.query(`SELECT * FROM ${quoteIdentifier(table)} ORDER BY 1`)
+    ).rows;
+    exported[table] = { columns, rows };
+    counts[table] = rows.length;
+  }
+  return {
+    exportedAt: new Date().toISOString(),
+    tables: exported,
+    counts,
+  };
+}
+
+async function resetSequence(db, table, columns) {
+  if (!columns.includes("id")) return;
+  const sequence = (
+    await db.query("SELECT pg_get_serial_sequence($1,$2) AS sequence", [
+      `public.${table}`,
+      "id",
+    ])
+  ).rows[0]?.sequence;
+  if (!sequence) return;
+  await db.query(
+    `SELECT setval($1, COALESCE((SELECT MAX(id) FROM ${quoteIdentifier(
+      table,
+    )}),0)+1, false)`,
+    [sequence],
+  );
+}
+
+async function importOperationalData(db, payload) {
+  const tables = payload?.tables || {};
+  const selectedTables = OPERATIONAL_TRANSFER_TABLES.filter(
+    (table) => tables[table],
+  );
+  const skipped = Object.keys(tables).filter(
+    (table) => !OPERATIONAL_TRANSFER_TABLE_SET.has(table),
+  );
+  if (!selectedTables.length)
+    throw new AppError(
+      "İçe aktarılacak operasyonel tablo yok",
+      400,
+      "EMPTY_OPERATIONAL_IMPORT",
+    );
+
+  await db.query("BEGIN");
+  try {
+    await db.query("SET CONSTRAINTS ALL DEFERRED");
+    await db.query("DELETE FROM dashboard_cache");
+    for (const table of [...selectedTables].reverse())
+      await db.query(`DELETE FROM ${quoteIdentifier(table)}`);
+
+    const counts = {};
+    for (const table of selectedTables) {
+      const availableColumns = await tableColumns(db, table);
+      const availableSet = new Set(availableColumns);
+      const sourceColumns = (tables[table].columns || []).filter((column) =>
+        availableSet.has(column),
+      );
+      const rows = Array.isArray(tables[table].rows) ? tables[table].rows : [];
+      if (!sourceColumns.length) {
+        counts[table] = 0;
+        continue;
+      }
+      for (const row of rows) {
+        const values = sourceColumns.map((column) =>
+          row[column] === undefined ? null : row[column],
+        );
+        const placeholders = sourceColumns
+          .map((_, index) => `$${index + 1}`)
+          .join(",");
+        const columnSql = sourceColumns.map(quoteIdentifier).join(",");
+        await db.query(
+          `INSERT INTO ${quoteIdentifier(table)}(${columnSql})
+           VALUES(${placeholders})`,
+          values,
+        );
+      }
+      await resetSequence(db, table, sourceColumns);
+      counts[table] = rows.length;
+    }
+    await db.query("COMMIT");
+    return { importedTables: selectedTables.length, counts, skipped };
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
 function systemRoutes({
+  db,
   products,
   jobs,
   jobService,
@@ -12,6 +176,7 @@ function systemRoutes({
   health,
   hepsiburada,
   marketplaceRegistry,
+  dashboard,
 }) {
   const r = express.Router();
   const productFilters = (query = {}) => ({
@@ -435,6 +600,54 @@ function systemRoutes({
         items: await audit.list({ ...req.query, type: "audit" }),
       }),
     ),
+  );
+  r.get(
+    "/maintenance/operational-data/export",
+    asyncRoute(async (req, res) => {
+      if (req.query.confirmation !== OPERATIONAL_TRANSFER_CONFIRMATION)
+        throw new AppError(
+          "Operasyonel veri exportu için açık onay gerekli",
+          409,
+          "OPERATIONAL_EXPORT_CONFIRMATION_REQUIRED",
+        );
+      const data = await exportOperationalData(db);
+      await audit.record({
+        actor: req.user.username,
+        action: "OPERATIONAL_DATA_EXPORTED",
+        entityType: "maintenance",
+        entityId: "operational-data",
+        after: { counts: data.counts },
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.post(
+    "/maintenance/operational-data/import",
+    asyncRoute(async (req, res) => {
+      if (req.body.confirmation !== OPERATIONAL_TRANSFER_CONFIRMATION)
+        throw new AppError(
+          "Operasyonel veri importu için açık onay gerekli",
+          409,
+          "OPERATIONAL_IMPORT_CONFIRMATION_REQUIRED",
+        );
+      const data = await importOperationalData(db, req.body.data);
+      await costEngine.recalculate(undefined, undefined, "TRENDYOL");
+      await costEngine.recalculate(undefined, undefined, "HEPSIBURADA");
+      await dashboard.refresh("TRENDYOL");
+      await dashboard.refresh("HEPSIBURADA");
+      await audit.record({
+        actor: req.user.username,
+        action: "OPERATIONAL_DATA_IMPORTED",
+        entityType: "maintenance",
+        entityId: "operational-data",
+        after: data,
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.json({ status: "ok", data });
+    }),
   );
   return r;
 }
