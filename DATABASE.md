@@ -108,6 +108,17 @@
 - Sipariş snapshotına hesaplanan paket desisi ve kargo veri kaynağını ekler.
 - Gerçek kargo faturası/desi senkron jobunu oluşturur; fatura yokken rapor katmanı mapping desisi ve mevcut Trendyol tarifeleriyle güvenli tahmin üretir.
 
+### `023_pim_and_listing_identity`
+
+- `pim_physical_products`: cost code bağlantılı gerçek ürün kimliği.
+- `pim_recipes`, `pim_recipe_components`: deterministik bundle fingerprint'li satış reçetesi.
+- `marketplace_listings`: reçetenin kanala özel listing, içerik ve fiyat yüzeyi.
+- `marketplace_catalog_matches`: kanıta ve kullanıcı kararına bağlı katalog eşleşmesi.
+- `marketplace_listing_identifiers`: katalog, seller listing ve dış listing kimlikleri.
+- `listing_barcode_pools`: global benzersiz, açık onaylı listing barkodu rezervasyonu.
+- Para değerleri kuruş cinsinden `BIGINT` saklanır; nullable `products.recipe_id`
+  mevcut veriyi bozmadan geriye uyumlu bağlantı kurar.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`

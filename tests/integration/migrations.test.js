@@ -45,6 +45,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "020_trendyol_cargo_reconciliation",
       "021_product_desi_overrides",
       "022_marketplace_registry",
+      "023_pim_and_listing_identity",
     ],
   );
   const safety = await db.query(
@@ -189,6 +190,20 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   );
   assert.equal(publishingFlags.rowCount, 3);
   assert.equal(publishingFlags.rows.every((row) => row.value === false), true);
+  const pimTables = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN(
+       'pim_physical_products','pim_recipes','pim_recipe_components',
+       'marketplace_listings','marketplace_catalog_matches',
+       'marketplace_listing_identifiers','listing_barcode_pools'
+     ) ORDER BY table_name`,
+  );
+  assert.equal(pimTables.rowCount, 7);
+  const pimJob = await db.query(
+    "SELECT enabled FROM jobs WHERE name='bootstrap-pim'",
+  );
+  assert.equal(pimJob.rowCount, 1);
+  assert.equal(pimJob.rows[0].enabled, false);
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(
@@ -224,8 +239,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "019_trendyol_finance_history",
       "020_trendyol_cargo_reconciliation",
       "021_product_desi_overrides",
+      "022_marketplace_registry",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

@@ -6,7 +6,11 @@
 - Trendyol hazır, Hepsiburada credential bekleyen, Pazarama/İdefix/N11/PTTAVM ise güvenli skeleton olarak kaydedildi.
 - Credential değerlerini göstermeyen Entegrasyonlar sayfası ve güvenli bağlantı testi eklendi.
 - Ürün yayınlama, otomatik içerik güncelleme ve fırsat otomatik yayın bayrakları varsayılan kapalı eklendi.
-- Readiness zorunlu migration sürümü `022_marketplace_registry` olarak güncellendi.
+- Merkezi fiziksel ürün, reçete/bundle ve marketplace listing PIM modeli eklendi.
+- Mevcut mappinglerden açık onaylı, transaction'lı ve idempotent PIM bootstrap eklendi.
+- Açıklanabilir katalog eşleştirme, kimlik katmanları ve listing barkodu havuzu eklendi.
+- Ana Katalog, Reçeteler & Bundle ve Listing Barkodları yönetim ekranları eklendi.
+- Readiness zorunlu migration sürümü `023_pim_and_listing_identity` olarak güncellendi.
 
 ## 2.0.0 - 2026-07-12
 

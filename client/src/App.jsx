@@ -9,6 +9,7 @@ const Costs = lazy(() => import("./pages/Costs"));
 const Operations = lazy(() => import("./pages/Operations"));
 const Finance = lazy(() => import("./pages/Finance"));
 const Integrations = lazy(() => import("./pages/Integrations"));
+const CatalogCenter = lazy(() => import("./pages/CatalogCenter"));
 const pageMap = {
   dashboard: Dashboard,
   products: Products,
@@ -25,6 +26,9 @@ const pageMap = {
   logs: Operations,
   settings: Operations,
   integrations: Integrations,
+  catalog: CatalogCenter,
+  recipes: CatalogCenter,
+  "barcode-pool": CatalogCenter,
 };
 export default function App() {
   const [user, setUser] = useState(null),

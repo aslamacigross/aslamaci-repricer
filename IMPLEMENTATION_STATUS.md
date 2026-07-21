@@ -11,14 +11,21 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Phase 1: Secret göstermeyen Entegrasyonlar sayfası ve bağlantı testi
 - [x] Phase 1: Credential eksik jobların güvenli skip sözleşmesi
 - [x] Phase 1: Ürün/içerik/fırsat yayın anahtarlarının kapalı güvenlik varsayılanı
-- [ ] Phase 2: Merkezi PIM, reçete/listing modeli ve kimlik katmanları
-- [ ] Phase 2: Katalog eşleşmesi ve listing barkodu havuzu
+- [x] Phase 2: Merkezi PIM, reçete/listing modeli ve kimlik katmanları
+- [x] Phase 2: Katalog eşleşmesi ve listing barkodu havuzu
 - [ ] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
 - [ ] Phase 5: Ürün/bundle fırsat motoru
 - [ ] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
 - [ ] Phase 7: Tam panel, E2E kabul ve dokümantasyon
 
 ## Tamamlanan
+
+- [x] Mevcut cost code/mapping verisini silmeden idempotent PIM bootstrap
+- [x] Fiziksel ürün, reçete ve marketplace listing kimliklerinin ayrılması
+- [x] Deterministik bundle fingerprint ve duplicate reçete engeli
+- [x] Açıklanabilir katalog eşleşme skoru ve kritik paket/varyant kilitleri
+- [x] Önizleme ile rezervasyonu ayıran listing barkodu havuzu
+- [x] Ana Katalog, Reçeteler & Bundle ve Listing Barkodları panel sayfaları
 
 - [x] Repo, git geçmişi ve canlı endpoint envanteri
 - [x] `feature/aslamaci-erp-v2` branch oluşturulması

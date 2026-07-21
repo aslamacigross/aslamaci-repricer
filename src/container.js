@@ -46,6 +46,8 @@ const { JobRepository } = require("./repositories/job.repository");
 const {
   MappingAutomationRepository,
 } = require("./repositories/mapping-automation.repository");
+const { PimRepository } = require("./repositories/pim.repository");
+const { PimService } = require("./services/pim.service");
 
 function transactionFor(db) {
   if (db === pool) return withTransaction;
@@ -83,6 +85,8 @@ function createContainer(overrides = {}) {
   const jobs = overrides.jobs || new JobRepository(db);
   const marketplaceRepository =
     overrides.marketplaceRepository || new MarketplaceRepository(db);
+  const pimRepository =
+    overrides.pimRepository || new PimRepository(db, transaction);
   const costEngine = overrides.costEngine || new CostEngineService(db);
   const mappingAutomation =
     overrides.mappingAutomation ||
@@ -136,6 +140,7 @@ function createContainer(overrides = {}) {
         PTTAVM: new SkeletonMarketplaceAdapter("PTTAVM"),
       },
     });
+  const pim = overrides.pim || new PimService({ repository: pimRepository });
   const recalculateAllMarketplaces = async () => {
     const results = await Promise.all(
       ["TRENDYOL", "HEPSIBURADA"].map((marketplace) =>
@@ -258,6 +263,7 @@ function createContainer(overrides = {}) {
   jobService.register("backfill-trendyol-finance-history", () =>
     finance.backfillTrendyolHistory(),
   );
+  jobService.register("bootstrap-pim", () => pim.bootstrap());
   return {
     db,
     auth,
@@ -276,6 +282,8 @@ function createContainer(overrides = {}) {
     finance,
     marketplaceRepository,
     marketplaceRegistry,
+    pimRepository,
+    pim,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

@@ -385,6 +385,74 @@
 .capability-list > div:nth-last-child(2) {
   border-bottom: 0;
 }
+.context-band {
+  align-items: center;
+  background: var(--blue-soft);
+  border: 1px solid #c9e1ee;
+  border-radius: 6px;
+  color: var(--blue);
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+}
+.context-band span:last-child {
+  color: var(--ink);
+  font-size: 13px;
+}
+.warning-band {
+  background: var(--amber-soft);
+  border-color: #f0d9a8;
+  color: var(--amber);
+}
+.recipe-detail {
+  display: grid;
+  gap: 16px;
+}
+.recipe-detail h3 {
+  font-size: 16px;
+  margin: 4px 0 0;
+}
+.recipe-components {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.recipe-components > div {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 11px;
+}
+.recipe-components > div:last-child {
+  border-bottom: 0;
+}
+.recipe-components > div > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.recipe-components small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inline-notice {
+  align-items: center;
+  background: var(--green-soft);
+  border: 1px solid #c9e4d8;
+  border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 11px;
+}
+.inline-notice span {
+  color: var(--muted);
+  font-size: 13px;
+}
 @media (max-width: 1200px) {
   .finance-kpis {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -433,5 +501,12 @@
   }
   .integration-card > footer .btn {
     width: 100%;
+  }
+  .context-band {
+    align-items: flex-start;
+  }
+  .recipe-components > div {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
   }
 }

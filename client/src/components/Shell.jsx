@@ -19,11 +19,16 @@ import {
   ShieldCheck,
   ChartNoAxesCombined,
   Cable,
+  Boxes,
+  PackagePlus,
+  ScanBarcode,
 } from "lucide-react";
 import { IconButton, Badge } from "./ui";
 const links = [
   ["dashboard", "Genel Bakış", LayoutDashboard],
   ["products", "Ürünler", PackageSearch],
+  ["catalog", "Ana Katalog", Boxes],
+  ["recipes", "Reçeteler & Bundle", PackagePlus],
   ["costs", "Maliyet Kalemleri", Coins],
   ["mappings", "Ürün Mapping", GitBranch],
   ["commissions", "Komisyonlar", Percent],
@@ -36,6 +41,7 @@ const links = [
   ["jobs", "Joblar", Clock3],
   ["logs", "Loglar", ScrollText],
   ["integrations", "Entegrasyonlar", Cable],
+  ["barcode-pool", "Listing Barkodları", ScanBarcode],
   ["settings", "Sistem Ayarları", Settings],
 ];
 export default function Shell({

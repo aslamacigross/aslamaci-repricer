@@ -1,0 +1,39 @@
+# Katalog Eşleştirme ve Listing Barkodları
+
+## Önce Katalog Araması
+
+Bir reçete hedef kanala taşınırken sıra şöyledir:
+
+1. Mevcut recipe-to-listing ilişkisi kontrol edilir.
+2. Kullanıcının daha önce onayladığı katalog eşleşmesi kontrol edilir.
+3. Adapter destekliyorsa hedef katalog aranır.
+4. Marka, ürün ailesi, varyant, birim hacim/gramaj, paket adedi, kategori ve
+   bundle bileşenleri karşılaştırılır.
+5. Güven skoru ve bütün kanıtlar kullanıcıya gösterilir.
+6. Eş ürün yoksa ancak o zaman yeni ürün ve listing barkodu akışına geçilir.
+
+Eksik kritik alanlar yüksek güven veremez. Paket yapısı veya varyant uyuşmazlığı
+eşleşmeyi reddeder. Bu nedenle `1,5 L x 2`, `3 L x 1` ile; Menekşe paketi de
+Çiçek Rüyası veya karma paketle aynı kabul edilmez.
+
+## Kimlik Ayrımı
+
+- ERP fiziksel ürün kimliği: alınan gerçek ürün.
+- ERP reçete kimliği: satılan paket/bundle.
+- Katalog ürün kimliği ve katalog barkodu: hedef pazaryerinin ortak kataloğu.
+- Seller listing barkodu ve SKU: satıcının o kanaldaki teklifi.
+- Dış listing kimliği: adapterın döndürdüğü yayın kimliği.
+
+Kaynak pazaryeri barkodu hedef kanala kör biçimde kopyalanmaz.
+
+## Listing Barkodu
+
+`listing_barcode_pools`, yalnız yeni ürün gereken reçeteler için barkod
+rezervasyonu yapar. Otomatik aday `ASL-{KANAL}-{HASH}` biçimindedir; bu bir
+üretici GTIN'i değildir. Aynı marketplace/reçete için tahsis idempotenttir,
+repository genelinde barkod benzersizdir ve manuel değer kullanılacaksa format
+doğrulaması yapılır.
+
+Önizleme barkodu tüketmez. Rezervasyon için kullanıcıdan
+`LISTING_BARKODU_TAHSIS_ET` onayı alınır. Başarısız yayın barkodu başka reçeteye
+aktarmaz; yayın ve doğrulama akışı ayrı durumlarla izlenir.

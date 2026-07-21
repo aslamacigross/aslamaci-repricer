@@ -16,6 +16,19 @@
   merkezileştirildi.
 - Phase 1 testleri: adapter/registry unit testleri, migration up/down, React
   entegrasyon görünümü, ESLint ve production build başarılı.
+- `023_pim_and_listing_identity` migrationı fiziksel ürün, reçete, reçete
+  bileşeni, marketplace listing'i, katalog eşleşmesi, listing kimlikleri ve
+  barkod havuzunu ekler; `001-021` migrationlarına dokunulmamıştır.
+- Mevcut cost code ve mappingler açık onaylı, transaction'lı ve idempotent PIM
+  bootstrap ile korunarak taşınır. Aynı bileşim farklı kanallarda tek reçeteyi
+  paylaşır, listing fiyat ve kimlikleri marketplace bazında ayrı kalır.
+- Katalog eşleşmesi marka, aile, varyant, hacim/gramaj, paket adedi ve bundle
+  bileşenlerini karşılaştırır. Eksik kritik kanıt yüksek güven üretemez;
+  paket/varyant uyuşmazlığı eşleşmeyi engeller.
+- Listing barkodu üretici GTIN'i değildir. Önizleme değer tüketmez; rezervasyon
+  açık onay, global benzersizlik, advisory lock ve idempotency kullanır.
+- Uygulama/readiness sürümü `2.9.0` / `023_pim_and_listing_identity` olarak
+  günceldir. Phase 2 hiçbir pazaryeri mutasyonu içermez.
 
 ## İş Bağlamı
 

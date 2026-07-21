@@ -35,6 +35,12 @@ PostgreSQL ürün, ayar, maliyet, buybox, aksiyon, öğrenme ve audit verilerini
 
 Tek React kabuğundaki üst seçici aktif pazaryerini bütün sayfalara taşır. Repository sorguları ürün, mapping, komisyon, kargo, ambalaj, dashboard, finans, buybox ve repricer tablolarında `marketplace` filtresi olmadan çalışmaz. Aynı barkod iki pazaryerinde bulunsa bile anahtarı `(marketplace, barcode)` olduğu için hesap ve aksiyonlar birbirinden bağımsızdır.
 
+Merkezi PIM bu izolasyonun üstünde üç katman kullanır: fiziksel ürün
+(`pim_physical_products`), satış reçetesi (`pim_recipes` ve bileşenleri) ve
+pazaryeri listing'i (`marketplace_listings`). Fiziksel maliyet ve reçete kanallar
+arasında paylaşılabilir; katalog/listing kimlikleri, içerik ve fiyat alanları
+marketplace bazında ayrıdır. Ayrıntılar `PIM_AND_LISTING_MODEL.md` içindedir.
+
 `system_settings` içinde `default_carrier_trendyol`, `service_fee_trendyol`, `default_carrier_hepsiburada` ve `service_fee_hepsiburada` ayrı tutulur. Hepsiburada varsayılanı `hepsiJET` ve KDV dahil `10,50 TL` hizmet bedelidir. Kargo baremleri ile ambalaj kuralları da `marketplace` kolonuyla ayrılır.
 
 Para hesapları JavaScript kayan nokta aritmetiğiyle biriktirilmez; tutarlar kuruşa, oranlar ölçekli tam sayıya çevrilip yuvarlanarak hesaplanır. PostgreSQL tarafında parasal alanlar `NUMERIC` olarak saklanır.
