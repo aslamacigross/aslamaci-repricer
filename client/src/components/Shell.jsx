@@ -24,6 +24,7 @@ import {
   ScanBarcode,
   Send,
   Shuffle,
+  Lightbulb,
 } from "lucide-react";
 import { IconButton, Badge } from "./ui";
 const links = [
@@ -46,6 +47,7 @@ const links = [
   ["barcode-pool", "Listing Barkodları", ScanBarcode],
   ["publishing", "Ürün Yayınlama", Send],
   ["channel-transfer", "Kanal Aktarımı", Shuffle],
+  ["opportunities", "Ürün Fırsatları", Lightbulb],
   ["settings", "Sistem Ayarları", Settings],
 ];
 export default function Shell({

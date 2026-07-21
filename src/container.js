@@ -52,6 +52,8 @@ const {
   PublicationRepository,
 } = require("./repositories/publication.repository");
 const { PublicationService } = require("./services/publication.service");
+const { OpportunityRepository } = require("./repositories/opportunity.repository");
+const { OpportunityService } = require("./services/opportunity.service");
 
 function transactionFor(db) {
   if (db === pool) return withTransaction;
@@ -94,6 +96,8 @@ function createContainer(overrides = {}) {
   const publicationRepository =
     overrides.publicationRepository ||
     new PublicationRepository(db, transaction);
+  const opportunityRepository =
+    overrides.opportunityRepository || new OpportunityRepository(db, transaction);
   const costEngine = overrides.costEngine || new CostEngineService(db);
   const mappingAutomation =
     overrides.mappingAutomation ||
@@ -155,6 +159,14 @@ function createContainer(overrides = {}) {
       pim,
       marketplaceRegistry,
       settings,
+    });
+  const opportunity =
+    overrides.opportunity ||
+    new OpportunityService({
+      repository: opportunityRepository,
+      pim,
+      publication,
+      marketplaceRegistry,
     });
   const recalculateAllMarketplaces = async () => {
     const results = await Promise.all(
@@ -318,6 +330,15 @@ function createContainer(overrides = {}) {
     failed: 0,
     metadata: { status: "SKIPPED_PRODUCT_PUBLISHING_DISABLED" },
   }));
+  jobService.register("opportunity-generation", (metadata = {}) =>
+    opportunity.generate(
+      {
+        targetMarketplace: metadata.marketplace || "TRENDYOL",
+        confirmation: "FIRSATLARI_URET",
+      },
+      "system-job",
+    ),
+  );
   return {
     db,
     auth,
@@ -340,6 +361,8 @@ function createContainer(overrides = {}) {
     pim,
     publicationRepository,
     publication,
+    opportunityRepository,
+    opportunity,
     mappingAutomationRepository,
     mappingAutomation,
     dashboard,

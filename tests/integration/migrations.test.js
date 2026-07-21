@@ -47,6 +47,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "022_marketplace_registry",
       "023_pim_and_listing_identity",
       "024_product_publishing_and_channel_transfer",
+      "025_product_opportunity_engine",
     ],
   );
   const safety = await db.query(
@@ -222,6 +223,16 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   );
   assert.equal(publicationJobs.rowCount, 6);
   assert.equal(publicationJobs.rows.every((row) => row.enabled === false), true);
+  const opportunityTables = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN('product_opportunities','product_opportunity_events')`,
+  );
+  assert.equal(opportunityTables.rowCount, 2);
+  const opportunityJob = await db.query(
+    "SELECT enabled FROM jobs WHERE name='opportunity-generation'",
+  );
+  assert.equal(opportunityJob.rowCount, 1);
+  assert.equal(opportunityJob.rows[0].enabled, false);
   await assert.rejects(
     db.query(
       `INSERT INTO commission_rules(
@@ -259,8 +270,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "021_product_desi_overrides",
       "022_marketplace_registry",
       "023_pim_and_listing_identity",
+      "024_product_publishing_and_channel_transfer",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

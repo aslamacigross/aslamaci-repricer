@@ -40,6 +40,15 @@
   kontrollü blocker olarak görünür.
 - Uygulama/readiness sürümü `2.9.0` / `024_product_publishing_and_channel_transfer`
   durumundadır. Phase 3-4 production veya preview ortamına deploy edilmemiştir.
+- `025_product_opportunity_engine` açıklanabilir ürün/bundle fırsatlarını, karar
+  olaylarını ve kontrollü katalog arama workflow'unu ekler. Eksik tekli, hedef
+  kanal, paket adedi, karma bundle, ekonomik buybox, düşük rekabet ve yüksek
+  marj sinyalleri deterministik hesaplanır.
+- Fırsat skoru canlı/snapshot/tahmini veriyi kaynak bazında gösterir; yetersiz
+  sinyal `INSUFFICIENT_DATA` olur. Reçete onayı, katalog araması ve ilerideki
+  yayın onayı birbirinden ayrıdır. Otomatik veya gerçek yayın yapılmaz.
+- Uygulama/readiness sürümü `2.9.0` / `025_product_opportunity_engine`
+  durumundadır. Phase 5 production veya preview ortamına deploy edilmemiştir.
 
 ## İş Bağlamı
 
@@ -128,6 +137,8 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 
 - Phase 3-4 yerel kabulü: 219 backend, 29 React testi, ESLint ve production
   build başarılıdır; hiçbir pazaryeri mutasyonu yapılmamıştır.
+- Phase 5 yerel kabulü: 230 backend, 32 React testi, ESLint ve production build
+  başarılıdır; fırsat akışında hiçbir pazaryeri mutasyonu yapılmamıştır.
 - 181 backend unit/integration/regression, 21 React bileşen ve 8 tarayıcı E2E testi geçiyor.
 - Menekşe minimum fiyat testi 312,28 TL.
 - Vite production build ve ESLint geçiyor.

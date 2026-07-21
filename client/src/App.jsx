@@ -11,6 +11,7 @@ const Finance = lazy(() => import("./pages/Finance"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const CatalogCenter = lazy(() => import("./pages/CatalogCenter"));
 const PublishingCenter = lazy(() => import("./pages/PublishingCenter"));
+const OpportunityCenter = lazy(() => import("./pages/OpportunityCenter"));
 const pageMap = {
   dashboard: Dashboard,
   products: Products,
@@ -32,6 +33,7 @@ const pageMap = {
   "barcode-pool": CatalogCenter,
   publishing: PublishingCenter,
   "channel-transfer": PublishingCenter,
+  opportunities: OpportunityCenter,
 };
 export default function App() {
   const [user, setUser] = useState(null),

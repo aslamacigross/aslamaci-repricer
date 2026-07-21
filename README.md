@@ -141,6 +141,13 @@ ambalaj, listing barkodu ve capability durumunu açık blocker kodlarıyla göst
 Adapter doğrulaması başarılı olsa bile gerçek ürün, teklif, içerik, fiyat veya stok
 çağrısı yapılmaz.
 
+`Ürün Fırsatları` ekranı tedarikçi havuzları, PIM reçeteleri, hedef listingler,
+buybox ve sipariş geçmişinden açıklanabilir adaylar üretir. Skor bir satış vaadi
+değildir; kullanılan sinyaller, eksik veriler ve güven seviyesi ayrı gösterilir.
+Öneri reçetesi insan onayı almadan PIM'e eklenmez, katalog araması listing barkodu
+tüketmez ve hiçbir fırsat otomatik yayınlanmaz. Ayrıntılar
+[PRODUCT_OPPORTUNITY_ENGINE.md](PRODUCT_OPPORTUNITY_ENGINE.md) dosyasındadır.
+
 Paneldeki toplu mapping işlemi önce maliyet/desi önizlemesi ister ve yalnızca gönderilen barkodları transaction içinde yeniler. Tüm mapping tablosunu değiştiren uyumluluk endpointi ayrıca `MAPPING_TAM_YENILE` açık onayı ister. Cost code mevcut olsa bile birim maliyeti veya desisi sıfır olan kalem `Maliyet eksik` gösterilir ve panelden yeni toplu mappinge alınmaz. Maliyet kalemleri panelden kopyala-yapıştır yöntemiyle toplu upsert edilebilir; tüm satırlar doğrulanmadan transaction başlamaz.
 
 Job sıklıkları environment yerine PostgreSQL ve Sistem Ayarları ekranından yönetilir. Böylece panelde yapılan değişiklikler servis yeniden başladığında korunur. File, Bizim ve BİM fiyat jobları `Europe/Istanbul` saat diliminde her gün 00:00'da sırayla çalışır. Onaylı tedarikçi bağlantılarında fiyat değişirse maliyet kalemi ve varsa Bizim adet kademesi güncellenir; bağlı barkodların minimum fiyatı aynı akışta yeniden hesaplanır. 00:20'de desi tahmini, 00:30'da sistem sağlık taraması çalışır.
@@ -192,3 +199,4 @@ Trendyol kargo faturası oluştuğunda siparişin gerçek kargo tutarı ve kargo
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [RUNBOOK.md](RUNBOOK.md)
 - [MAPPING_AUTOMATION.md](MAPPING_AUTOMATION.md)
+- [PRODUCT_OPPORTUNITY_ENGINE.md](PRODUCT_OPPORTUNITY_ENGINE.md)

@@ -14,7 +14,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Phase 2: Merkezi PIM, reçete/listing modeli ve kimlik katmanları
 - [x] Phase 2: Katalog eşleşmesi ve listing barkodu havuzu
 - [x] Phase 3-4: Dry-run ürün yayınlama ve kanal aktarımı
-- [ ] Phase 5: Ürün/bundle fırsat motoru
+- [x] Phase 5: Ürün/bundle fırsat motoru
 - [ ] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
 - [ ] Phase 7: Tam panel, E2E kabul ve dokümantasyon
 
@@ -33,6 +33,13 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] İdempotent kanal aktarımı ve ürün bazlı hazır/engelli sınıflandırması
 - [x] Ürün Yayınlama ve Kanal Aktarımı panel sayfaları
 - [x] Phase 3-4 doğrulaması: 219 backend ve 29 React testi, ESLint ve build başarılı
+- [x] `025_product_opportunity_engine` up/down migrationı
+- [x] Açıklanabilir fırsat puanı, veri yeterliliği ve sinyal katkıları
+- [x] Eksik tekli, kanal, paket, karma bundle, buybox, düşük rekabet ve yüksek marj fırsatları
+- [x] Deterministik bundle sınırları, fingerprint ve duplicate engeli
+- [x] İnsan onaylı reçete, ret geçmişi ve katalog araması workflow'u
+- [x] Ürün Fırsatları paneli, filtreler, CSV, ayrıntı ve eksik veri görünümü
+- [x] Phase 5 doğrulaması: 230 backend ve 32 React testi, ESLint ve build başarılı
 
 - [x] Repo, git geçmişi ve canlı endpoint envanteri
 - [x] `feature/aslamaci-erp-v2` branch oluşturulması

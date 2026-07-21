@@ -131,6 +131,16 @@
   toplu kanal aktarımı önizlemesini izler.
 - Kategori/özellik/marka ve yayın doğrulama jobları varsayılan kapalı eklenir.
 
+### `025_product_opportunity_engine`
+
+- `product_opportunities`: pazaryeri bazlı öneri türü, reçete, açıklanabilir
+  skor, veri kalitesi, ekonomi ve katalog durumunu saklar.
+- `product_opportunity_events`: üretim, insan onayı, ret nedeni ve katalog arama
+  snapshot'larını değiştirilemez karar geçmişi olarak tutar.
+- Fırsat anahtarı hedef pazaryeri, tür ve reçete/fingerprint üzerinden
+  idempotenttir. Yeniden üretim reddedilmiş veya yayınlanmış kararı ezmez.
+- `opportunity-generation` job kaydı varsayılan kapalıdır; gerçek yayın yapmaz.
+
 ## Ana İlişkiler
 
 - Ürün anahtarı: `(marketplace, barcode)`

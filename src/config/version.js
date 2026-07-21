@@ -1,5 +1,5 @@
 const { version: APP_VERSION } = require("../../package.json");
 
-const REQUIRED_MIGRATION = "024_product_publishing_and_channel_transfer";
+const REQUIRED_MIGRATION = "025_product_opportunity_engine";
 
 module.exports = { APP_VERSION, REQUIRED_MIGRATION };

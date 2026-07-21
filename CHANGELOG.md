@@ -19,6 +19,15 @@
   merkezi fiyat motoruna bağlandı.
 - Readiness zorunlu migration sürümü
   `024_product_publishing_and_channel_transfer` olarak güncellendi.
+- Açıklanabilir ürün ve bundle fırsat motoru ile
+  `025_product_opportunity_engine` migrationı eklendi.
+- Eksik tekli/kanal/paket, karma bundle, ekonomik buybox, düşük rekabet ve
+  yüksek marj fırsatları; deterministik sinyal katkılarıyla görünür hale geldi.
+- Fırsat reçetesi onayı, ret geçmişi ve kontrollü katalog araması gerçek yayın
+  adımlarından ayrıldı; tüm akış `mutationPerformed=false` güvenliğinde kaldı.
+- Ürün Fırsatları ekranı filtre, CSV, veri yeterliliği, ekonomi, katalog ve olay
+  geçmişi ayrıntılarıyla eklendi.
+- Readiness zorunlu migration sürümü `025_product_opportunity_engine` oldu.
 
 ## 2.0.0 - 2026-07-12
 

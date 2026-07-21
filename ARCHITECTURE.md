@@ -48,6 +48,11 @@ ambalaj, kategori, özellik, katalog eşleşmesi ve listing barkoduyla birleşti
 snapshot'tır; `channel_transfer_batches/items` yüzlerce reçetenin aynı istekle
 ama ürün bazında ayrı sonuçla değerlendirilmesini sağlar.
 
+Fırsat katmanı `OpportunityService` üzerinden PIM, tedarikçi maliyeti, mevcut
+listing, buybox ve sipariş sinyallerini birleştirir. Puan saf domain fonksiyonunda
+hesaplanır; her katkı kaynağı ve eksik veri kullanıcıya döner. Öneri üretimi,
+reçete onayı, katalog araması ve yayın ayrı workflow adımlarıdır.
+
 ```mermaid
 flowchart LR
   R["Onaylı reçete"] --> M["Hedef katalog eşleşmesi"]
