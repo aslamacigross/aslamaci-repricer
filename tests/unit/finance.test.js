@@ -596,6 +596,76 @@ test("gecmis siparis maliyeti yoksa settlement barkodlarini guncel maliyetle tam
   assert.equal(report.summary.cost_source, "CURRENT_PRODUCT_COST_FALLBACK");
 });
 
+test("iade urun maliyetini ve platform hizmet bedelini geri kazandirmis saymaz", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 0,
+              revenue: 0,
+              commission: 0,
+              shipping: 0,
+              service_fee: 0,
+              product_cost: 0,
+              operational_profit: 0,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 500,
+              returns: -500,
+              discounts: 0,
+              commission: 0,
+            },
+          ],
+        };
+      if (sql.includes('AS "missing_cost_lines"'))
+        return {
+          rows: [
+            {
+              product_cost: 200,
+              service_fee: 13.19,
+              legacy_product_cost: 200,
+              legacy_service_fee: 13.19,
+              missing_cost_lines: 0,
+              legacy_missing_cost_lines: 0,
+            },
+          ],
+        };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "FINANCIAL_ONLY",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 186.08,
+    order_count: 1,
+    billed_orders: 1,
+    estimated_orders: 0,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-06", "TRENDYOL");
+
+  assert.equal(report.summary.sales_revenue, 0);
+  assert.equal(report.summary.product_cost, 200);
+  assert.equal(report.summary.service_fee, 13.19);
+  assert.equal(report.summary.shipping, 186.08);
+  assert.equal(report.summary.profit_before_packaging, -399.27);
+});
+
 test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullanir", async () => {
   let ledgerCostSql = "";
   let ledgerCostParams = [];

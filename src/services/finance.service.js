@@ -1470,13 +1470,6 @@ class FinanceService {
                        THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
                      ELSE 1
                    END
-               WHEN ft.transaction_type IN('İade','Iade','Return')
-                 THEN -COALESCE(p.calculated_product_cost,0) *
-                   CASE
-                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
-                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
-                     ELSE 1
-                   END
                ELSE 0 END),0) AS "product_cost",
              COALESCE(SUM(CASE
                WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
@@ -1487,28 +1480,15 @@ class FinanceService {
                        THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
                      ELSE 1
                    END
-               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
-                 AND ft.transaction_type IN('İade','Iade','Return')
-                 THEN -COALESCE(p.calculated_product_cost,0) *
-                   CASE
-                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
-                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
-                     ELSE 1
-                   END
                ELSE 0 END),0) AS "legacy_product_cost",
              COALESCE(SUM(CASE
                WHEN ft.transaction_type IN('Satış','Sale')
                  THEN COALESCE(p.service_fee,0)
-               WHEN ft.transaction_type IN('İade','Iade','Return')
-                 THEN -COALESCE(p.service_fee,0)
                ELSE 0 END),0) AS "service_fee",
              COALESCE(SUM(CASE
                WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
                  AND ft.transaction_type IN('Satış','Sale')
                  THEN COALESCE(p.service_fee,0)
-               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
-                 AND ft.transaction_type IN('İade','Iade','Return')
-                 THEN -COALESCE(p.service_fee,0)
                ELSE 0 END),0) AS "legacy_service_fee",
              COUNT(*) FILTER(
                WHERE ft.transaction_type IN('Satış','Sale')
@@ -1539,7 +1519,7 @@ class FinanceService {
                <$3::date+INTERVAL '1 day'
              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$4::date
              AND UPPER(COALESCE(status,'')) NOT IN(
-               'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
+               'CANCELLED','CANCELLEDBYCUSTOMER','UNSUPPLIED'
              )`,
         [marketplace, startDate, endDate, ORDER_COST_SNAPSHOT_START_DATE],
       ),
