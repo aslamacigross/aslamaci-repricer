@@ -31,6 +31,7 @@ describe("Entegrasyonlar sayfası", () => {
           adapter_status: "WAITING_CREDENTIALS",
           credentials_configured: false,
           capabilities: { supportsOrders: true, supportsBuybox: false },
+          runtime: { environment: "sit", mutationsEnabled: false },
           default_carrier: "hepsiJET",
           default_service_fee_minor: 1050,
           currency: "TRY",
@@ -49,6 +50,7 @@ describe("Entegrasyonlar sayfası", () => {
     await user.click(screen.getAllByRole("button", { name: "Detaylar" })[0]);
     expect(await screen.findByText("Capability sözleşmesi")).toBeVisible();
     expect(screen.getAllByText("Buybox").length).toBeGreaterThan(0);
+    expect(screen.getByText("Mutasyon kilidi")).toBeVisible();
   });
 
   test("bağlantı testini merkezi endpoint üzerinden yapar", async () => {

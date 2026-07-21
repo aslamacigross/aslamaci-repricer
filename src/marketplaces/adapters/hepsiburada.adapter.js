@@ -4,9 +4,14 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
   constructor(service) {
     super({
       code: "HEPSIBURADA",
-      status: "WAITING_CREDENTIALS",
+      status: service?.configured?.() ? "READY" : "WAITING_CREDENTIALS",
       capabilities: {
         supportsOrders: true,
+        supportsFinancialTransactions: false,
+        supportsPriceUpdate: false,
+        supportsInventoryUpdate: false,
+        supportsExistingCatalogOfferCreate: false,
+        supportsNewProductCreate: false,
       },
     });
     this.service = service;
@@ -14,6 +19,10 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
 
   configured() {
     return Boolean(this.service?.configured?.());
+  }
+
+  getRuntimeStatus() {
+    return this.service?.runtimeStatus?.() || {};
   }
 
   async testConnection() {
@@ -26,6 +35,8 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
         ? "Hepsiburada bağlantısı doğrulandı"
         : "Hepsiburada bağlantısı doğrulanamadı",
       marketplace: this.code,
+      environment: response.environment,
+      mutationsEnabled: response.mutationsEnabled === true,
     };
   }
 

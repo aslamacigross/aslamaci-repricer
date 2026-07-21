@@ -156,7 +156,7 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Trendyol sipariş paketi API'sinin geçmiş erişim sınırı nedeniyle eski aylarda net satış ve komisyon tam, ürün adedi, iptal kırılımı ve maliyet/kâr detayı kısmi olabilir. Bu alanların kesinleştirilmesi satıcı paneli rapor içe aktarımı gerektirir.
 - Trendyol kargo faturası oluştuğunda gerçek kargo tutarı ve kargodan alınan desi siparişe bağlanır. Fatura yoksa barkod mapping desileri sipariş adediyle toplanıp yukarı yuvarlanır ve sepet baremi/desi tarifesi uygulanır; eksik desili sipariş tahmin edilmez.
 - Panel tek kabuk ve üstten global pazaryeri seçimi kullanır. Trendyol/Hepsiburada ürün, mapping, komisyon, kargo, finans, dashboard, buybox ve repricer kayıtları `marketplace` anahtarıyla ayrıdır.
-- Hepsiburada için varsayılan kargo `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`'dir. Salt-okunur sipariş/sağlık bağlantısı ve kargo tarifesi hazırdır; canlı ürün/buybox/fiyat yolları tam kimlikler gelene kadar kilitlidir.
+- Hepsiburada için varsayılan kargo `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`'dir. Salt-okunur sipariş/sağlık bağlantısı ve kargo tarifesi hazırdır. `HEPSIBURADA_ENV=sit|production`, `HEPSIBURADA_USER_AGENT`, endpoint override ve `HEPSIBURADA_MUTATIONS_ENABLED=false` ayrımı eklidir; canlı ürün/buybox/fiyat yolları resmi endpoint doğrulaması ve açık kullanıcı onayı gelene kadar kilitlidir.
 
 ## Doğrulama Durumu
 
@@ -204,4 +204,4 @@ Menekşe fixture (`8690609598109`): 112 + 79 + 15 + 13,19 + 40, yüzde 17 komisy
 - Aylık satış/kâr ekranı gider kırılımı, saat/gün/şehir analizi ve mobil yerleşimle görsel olarak doğrulandı.
 - `020_trendyol_cargo_reconciliation` migrationı, Trendyol Cargo Invoice Details istemcisi, kargo faturası/desi jobu ve mapping desisi fallback hesabı eklendi; masaüstü/mobil sipariş kargo tablosu görsel olarak doğrulandı.
 - Railway preview `2.8.0` sürümünde migration 020 readiness şartıyla doğrulandı. Kargo jobu 210 fatura satırını başarıyla işledi; Temmuz 2026 raporunda 3 sipariş gerçek fatura/desi, 124 sipariş mapping tahmini ve 69 sipariş eksik kaynakla açıkça ayrıldı.
-- Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. Canlı bağlantı için Railway secret'ları ve mağaza Merchant ID hâlâ dış ortamda yapılandırılmalıdır.
+- Hepsiburada servis anahtarı kaynak koda veya git geçmişine yazılmadı. SIT bağlantı testi için Railway secret'larına `HEPSIBURADA_ENV=sit`, `HB_MERCHANT_ID`, gizli `HB_PASSWORD` veya `HB_INTEGRATOR_KEY` ve `HEPSIBURADA_USER_AGENT` girilmelidir. Canlı bağlantı için canlı Merchant Panel API Entegrasyon Teknik Destek talebiyle production credential alınmalıdır.

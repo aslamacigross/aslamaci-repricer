@@ -196,6 +196,7 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Başarısız buybox okumasını 5 dakika sonra tekrar kuyruğa alma
 - [x] Aşağı yönde günlük yüzde 5 global sınır, yukarı yönde isteğe bağlı limitsiz adım
 - [x] Hepsiburada salt-okunur sipariş ve bağlantı sağlığı istemcisi
+- [x] Hepsiburada `SIT`/`production` ortam ayrımı, developer `User-Agent`, endpoint override ve secret göstermeyen runtime durumu
 - [x] Hepsiburada 13.07.2026 kargo PDF'inin 4.501 desi ve 11 taşıyıcıyla yapılandırılmış tarife importu
 - [x] Trendyol/Hepsiburada segmentli aylık finans görünümü
 - [x] Tek panelde global Trendyol/Hepsiburada seçimi
@@ -232,9 +233,10 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 
 - [ ] Production DB backup/snapshot ve production dry-run migration/deploy (PR merge sonrasında ayrı işlem)
 - [ ] Railway preview deneme planı sona ermeden kalıcı plan veya ortam kapatma kararı
-- [ ] Railway preview'a `HB_MERCHANT_ID` ve gizli `HB_INTEGRATOR_KEY` tanımlayıp salt-okunur bağlantı testi
+- [ ] Railway preview'a `HEPSIBURADA_ENV=sit`, `HB_MERCHANT_ID`, gizli `HB_PASSWORD` veya `HB_INTEGRATOR_KEY` ve `HEPSIBURADA_USER_AGENT` tanımlayıp salt-okunur bağlantı testi
 - [ ] Hepsiburada gerçek sipariş cevabıyla alan eşlemesini doğrulama ve komisyon/hizmet kesintisi mutabakatı
-- [ ] Hepsiburada Merchant ID ve tam katalog/buybox/fiyat API kimlikleriyle hazır veri yüzeylerini canlı adaptöre bağlama
+- [ ] Hepsiburada canlı Merchant Panel üzerinden production API erişimi talep edip gelen production credential ile read-only bağlantıyı doğrulama
+- [ ] Hepsiburada katalog/buybox/fiyat endpointleri resmi cevap örnekleriyle tamamlanınca adapter capability'lerini tek tek açma
 - [ ] Global dry-run kapatma ve canlı Trendyol repricer başlatma için ayrı kullanıcı onayı ve pilot kabulü
 
 ## Güvenlik Durumu
@@ -248,4 +250,4 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - Global migration varsayılanı dry-run açık, repricer kapalıdır; bu iki korumayı riskli yöne çevirmek ayrıca canlı-mod onayı ister.
 - Eski gerçek fiyat GET endpointi devre dışıdır.
 - Hepsiburada servis anahtarı repository, log ve test fixture'larına yazılmadı.
-- Hepsiburada sipariş adaptörü salt-okunurdur. Diğer ekranlar ve veri modeli platform bazında hazırdır; canlı katalog/buybox/fiyat adaptörü kimlikler gelene kadar sert kilitlidir.
+- Hepsiburada sipariş adaptörü salt-okunurdur. Test credential'ı `HEPSIBURADA_ENV=sit` ile, canlı credential `HEPSIBURADA_ENV=production` ile kullanılır. Diğer ekranlar ve veri modeli platform bazında hazırdır; katalog/buybox/fiyat adaptörü resmi endpoint doğrulaması ve açık kullanıcı onayı gelene kadar sert kilitlidir.

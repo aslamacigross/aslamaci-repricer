@@ -113,14 +113,17 @@ ALLOWED_ORIGIN=https://<preview-veya-production-domain>
 Hepsiburada read-only sipariş bağlantısı için:
 
 ```text
+HEPSIBURADA_ENV=sit
 HB_MERCHANT_ID=<satici-id>
 HB_USERNAME=<opsiyonel-entegrasyon-kullanici-adi>
 HB_INTEGRATOR_KEY=<Railway-secret>
+HEPSIBURADA_USER_AGENT=<developer-username>
+HEPSIBURADA_MUTATIONS_ENABLED=false
 ```
 
-Servis anahtarı repo, ekran görüntüsü veya loga yazılmaz. `HB_PASSWORD` yalnız Hepsiburada hesabı servis anahtarından ayrı bir API parolası veriyorsa kullanılır.
+Servis anahtarı repo, ekran görüntüsü veya loga yazılmaz. `HB_PASSWORD` yalnız Hepsiburada hesabı servis anahtarından ayrı bir API parolası veriyorsa kullanılır. Test bilgileri için `HEPSIBURADA_ENV=sit`, canlı bilgiler için `HEPSIBURADA_ENV=production` seçilir.
 
-Hepsiburada katalog, komisyon, buybox ve fiyat yazma yolları tam hesap yetkileri doğrulanana kadar kilitli kalır. Sadece entegratör anahtarı bu kilidi açmaz; Merchant ID ve ilgili API erişimleri birlikte gerekir.
+Hepsiburada katalog, komisyon, buybox ve fiyat yazma yolları tam hesap yetkileri ve adapter implementasyonu doğrulanana kadar kilitli kalır. Sadece entegratör anahtarı bu kilidi açmaz; Merchant ID, ilgili API erişimleri ve açık kullanıcı onayı birlikte gerekir. Canlıya geçiş için Hepsiburada canlı Merchant Panel > Yardım Merkezi > API Entegrasyon Teknik Destek üzerinden production API erişimi talep edilmelidir.
 
 Parola hash'i yerelde üretilir:
 

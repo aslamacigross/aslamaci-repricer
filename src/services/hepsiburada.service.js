@@ -1,10 +1,41 @@
 const { env } = require("../config/env");
 
+const DEFAULT_ENDPOINTS = Object.freeze({
+  production: {
+    orderBaseUrl: "https://oms-external.hepsiburada.com",
+    listingBaseUrl: "https://listing-external.hepsiburada.com",
+    productBaseUrl: "https://mpop.hepsiburada.com/product/api",
+  },
+  sit: {
+    orderBaseUrl: "https://oms-external-sit.hepsiburada.com",
+    listingBaseUrl: "https://listing-external-sit.hepsiburada.com",
+    productBaseUrl: "https://mpop-sit.hepsiburada.com/product/api",
+  },
+});
+
+function normalizedEnvironment(value = env.hepsiburadaEnv) {
+  return ["sit", "test"].includes(String(value).toLowerCase())
+    ? "sit"
+    : "production";
+}
+
 class HepsiburadaService {
   constructor(options = {}) {
     this.fetch = options.fetch || global.fetch;
+    this.environment = normalizedEnvironment(options.environment);
+    const defaults = DEFAULT_ENDPOINTS[this.environment];
     this.orderBaseUrl =
-      options.orderBaseUrl || "https://oms-external.hepsiburada.com";
+      options.orderBaseUrl ||
+      env.hepsiburadaOrderBaseUrl ||
+      defaults.orderBaseUrl;
+    this.listingBaseUrl =
+      options.listingBaseUrl ||
+      env.hepsiburadaListingBaseUrl ||
+      defaults.listingBaseUrl;
+    this.productBaseUrl =
+      options.productBaseUrl ||
+      env.hepsiburadaProductBaseUrl ||
+      defaults.productBaseUrl;
     this.timeoutMs = options.timeoutMs || 20000;
   }
 
@@ -15,6 +46,31 @@ class HepsiburadaService {
     );
   }
 
+  mutationsEnabled() {
+    return env.hepsiburadaMutationsEnabled === true;
+  }
+
+  userAgent() {
+    return (
+      env.hepsiburadaUserAgent ||
+      (env.hepsiburadaMerchantId
+        ? `${env.hepsiburadaMerchantId} - AslamaciERP`
+        : "AslamaciERP")
+    );
+  }
+
+  runtimeStatus() {
+    return {
+      environment: this.environment,
+      configured: this.configured(),
+      mutationsEnabled: this.mutationsEnabled(),
+      orderEndpointConfigured: Boolean(this.orderBaseUrl),
+      listingEndpointConfigured: Boolean(this.listingBaseUrl),
+      productEndpointConfigured: Boolean(this.productBaseUrl),
+      userAgentConfigured: Boolean(env.hepsiburadaUserAgent),
+    };
+  }
+
   headers() {
     const username = env.hepsiburadaUsername || env.hepsiburadaMerchantId || "";
     const password =
@@ -23,7 +79,7 @@ class HepsiburadaService {
       Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString(
         "base64",
       )}`,
-      "User-Agent": `${env.hepsiburadaMerchantId} - AslamaciERP`,
+      "User-Agent": this.userAgent(),
       Accept: "application/json",
       "Content-Type": "application/json",
     };
@@ -77,9 +133,15 @@ class HepsiburadaService {
     return {
       configured: true,
       connected: true,
+      environment: this.environment,
+      mutationsEnabled: this.mutationsEnabled(),
       sampleCount: Array.isArray(result) ? result.length : null,
     };
   }
 }
 
-module.exports = { HepsiburadaService };
+module.exports = {
+  HepsiburadaService,
+  DEFAULT_ENDPOINTS,
+  normalizedEnvironment,
+};

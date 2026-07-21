@@ -11,7 +11,7 @@ bloklarıyla yönetmez. Her kanal `MarketplaceAdapter` sözleşmesini uygular ve
 | Kod | Durum | Bugünkü kapsam |
 | --- | --- | --- |
 | `TRENDYOL` | Hazır | Mevcut ürün, sipariş, finans, buybox ve güvenli fiyat altyapısı |
-| `HEPSIBURADA` | Credential bekliyor | Salt-okunur sipariş adapteri; mutasyonlar kapalı |
+| `HEPSIBURADA` | SIT/canlı credential durumuna göre | Salt-okunur sipariş adapteri; mutasyonlar kapalı |
 | `PAZARAMA` | Skeleton, pasif | Gerçek çağrı yok |
 | `IDEFIX` | Skeleton, pasif | Gerçek çağrı yok |
 | `N11` | Skeleton, pasif | Gerçek çağrı yok |
@@ -37,6 +37,37 @@ olmayan bir işlem desteklenmiş sayılmaz ve `CAPABILITY_NOT_SUPPORTED` döner.
 
 Credential bulunmayan platform jobları `SKIPPED_CREDENTIALS_MISSING` olarak
 tamamlanır. Bu durum sistem sağlığında entegrasyon arızası sayılmaz.
+
+## Hepsiburada Ortamları
+
+Hepsiburada test ortamı ile canlı ortam aynı adapter sözleşmesini kullanır.
+Ortam seçimi yalnız environment değişkenlerinden yapılır:
+
+- `HEPSIBURADA_ENV=sit`: Hepsiburada Merchant SIT ve test API bilgileri.
+- `HEPSIBURADA_ENV=production`: canlı Hepsiburada satıcı API bilgileri.
+
+Hepsiburada'nın geliştirici dokümanında katalog entegrasyonu test akışı Basic
+Authentication ve `User-Agent` header'ı ile başlatılır; canlı ortam için ise
+canlı Merchant Panel içinden API Entegrasyon Teknik Destek talebi açılması
+gerekir. Test credential'ı production credential yerine geçmez.
+
+Kullanılan secret'lar:
+
+- `HB_MERCHANT_ID`
+- `HB_USERNAME` veya boşsa `HB_MERCHANT_ID`
+- `HB_PASSWORD` veya `HB_INTEGRATOR_KEY`
+- `HEPSIBURADA_USER_AGENT`
+
+Opsiyonel endpoint override değerleri yalnız Hepsiburada dokümanı değişirse veya
+destek ekibi özel URL iletirse kullanılır:
+
+- `HB_ORDER_BASE_URL`
+- `HB_LISTING_BASE_URL`
+- `HB_PRODUCT_BASE_URL`
+
+`HEPSIBURADA_MUTATIONS_ENABLED=false` kalır. Bu anahtar doğrulama sözleşmesi
+içindir; mevcut sürüm Hepsiburada ürün, teklif, fiyat veya stok mutasyonu
+uygulamaz.
 
 ## Mutasyon Güvenliği
 
@@ -65,9 +96,10 @@ aynen korunur.
 
 Trendyol adapteri mevcut ürün, buybox, sipariş, finans ve fiyat davranışını
 korur. Yeni ürün oluşturma ve içerik güncelleme bu sürümde yalnız ortak adapter
-payload doğrulamasına kadar gider. Hepsiburada credential gelene kadar katalog,
-teklif, içerik, buybox ve fiyat mutasyonları sert biçimde kapalıdır. Pazarama,
-İdefix, N11 ve PTTAVM adapterları yalnız sözleşme/skeleton düzeyindedir.
+payload doğrulamasına kadar gider. Hepsiburada credential yapılandırılsa bile bu
+sürümde katalog, teklif, içerik, buybox ve fiyat mutasyonları sert biçimde
+kapalıdır. Pazarama, İdefix, N11 ve PTTAVM adapterları yalnız
+sözleşme/skeleton düzeyindedir.
 
 Batch kabulü yayın başarısı değildir. Gelecekte gerçek mutasyon açılırsa adapter
 batch sonucunu takip etmeli ve listing'i yeniden okuyarak barkod, başlık,

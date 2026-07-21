@@ -114,10 +114,14 @@ V2 ile eklenenler:
 - `MIN_PRICE_CHANGE_TL`: varsayılan `0.10`
 - `LOG_RETENTION_DAYS`: varsayılan `90`
 - `SKIP_MIGRATIONS`: yalnızca kontrollü bakımda migration başlangıcını atlar; varsayılan `false`
+- `HEPSIBURADA_ENV`: `sit` test ortamı veya `production` canlı ortam; varsayılan `production`
 - `HB_MERCHANT_ID`: Hepsiburada Satıcı ID
 - `HB_USERNAME`: varsa ayrı Hepsiburada API kullanıcı adı; boşsa Satıcı ID kullanılır
 - `HB_PASSWORD`: varsa doğrudan API parolası
 - `HB_INTEGRATOR_KEY`: panelde üretilen servis anahtarı; yalnız secret store'da tutulur
+- `HEPSIBURADA_USER_AGENT`: Hepsiburada'nın ilettiği developer username
+- `HB_ORDER_BASE_URL`, `HB_LISTING_BASE_URL`, `HB_PRODUCT_BASE_URL`: yalnız Hepsiburada özel endpoint iletirse override edilir
+- `HEPSIBURADA_MUTATIONS_ENABLED`: varsayılan ve zorunlu `false`; HB ürün/fiyat/stok yazma kapalıdır
 - `PRODUCT_PUBLISHING_ENABLED`: varsayılan `false`; mevcut sürüm gerçek yayına izin vermez
 - `CONTENT_AUTO_UPDATE_ENABLED`: varsayılan `false`
 - `OPPORTUNITY_AUTO_PUBLISH_ENABLED`: varsayılan ve fiilî değer `false`
@@ -138,7 +142,7 @@ Panelde dry-run kapatılırken veya global repricer açılırken ikinci bir canl
 
 PostgreSQL ana ve tek uygulama veri kaynağıdır. Trendyol ürün, fiyat, stok ve komisyon bilgileri Trendyol API üzerinden alınır. Maliyet kalemleri, mapping, kargo, ambalaj ve repricer ayarları web panelden yönetilir; V2 içinde Google Sheets import/export veya eski Sheet komutları kullanılmaz.
 
-Hepsiburada seçildiğinde aynı ekranlar yalnız `marketplace='HEPSIBURADA'` kayıtlarını kullanır. Ortak fiziksel maliyet kalemleri paylaşılabilir; barkod mappingi, ürün hesapları, kargo/barem/ambalaj, hizmet bedeli, dashboard önbelleği, buybox geçmişi, repricer aksiyonu ve finans kaydı pazaryeri anahtarıyla ayrıdır. Hepsiburada varsayılan kargosu `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`'dir.
+Hepsiburada seçildiğinde aynı ekranlar yalnız `marketplace='HEPSIBURADA'` kayıtlarını kullanır. Ortak fiziksel maliyet kalemleri paylaşılabilir; barkod mappingi, ürün hesapları, kargo/barem/ambalaj, hizmet bedeli, dashboard önbelleği, buybox geçmişi, repricer aksiyonu ve finans kaydı pazaryeri anahtarıyla ayrıdır. Hepsiburada varsayılan kargosu `hepsiJET`, hizmet bedeli KDV dahil `10,50 TL`'dir. Test credential'ları `HEPSIBURADA_ENV=sit` ile kullanılır; canlı ortam için Hepsiburada canlı Merchant Panel üzerinden API Entegrasyon Teknik Destek talebiyle production credential alınır. Credential yapılandırılsa bile HB ürün, teklif, fiyat ve stok mutasyonları mevcut sürümde kapalıdır.
 
 `Ürün Yayınlama` ve `Kanal Aktarımı` ekranları bu sürümde yalnız dry-run üretir.
 Taslaklar hedef kanalın kategori, özellik, marka, maliyet, desi, komisyon, kargo,

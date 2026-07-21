@@ -55,6 +55,12 @@
 - Playwright demo UI E2E ile gerçek Express + geçici PostgreSQL backend E2E
   profilleri ayrıldı; migration up/down/idempotency gerçek PostgreSQL motorunda
   doğrulandı.
+- Hepsiburada adapteri `HEPSIBURADA_ENV=sit|production`, developer
+  `User-Agent`, endpoint override ve mutasyon kilidi bilgisini secret
+  göstermeden runtime status olarak raporlar hale getirildi.
+- Hepsiburada test credential'ları ile canlı production credential'larının
+  farklı olduğu ve canlı geçiş için Merchant Panel API Entegrasyon Teknik Destek
+  talebi gerektiği dokümante edildi.
 
 ## 2.0.0 - 2026-07-12
 

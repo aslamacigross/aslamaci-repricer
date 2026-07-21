@@ -196,6 +196,16 @@ export default function Integrations({ notify }) {
                   </dd>
                 </div>
                 <div>
+                  <dt>Ortam</dt>
+                  <dd>{selected.runtime?.environment || "Tanımsız"}</dd>
+                </div>
+                <div>
+                  <dt>Mutasyon kilidi</dt>
+                  <dd>
+                    {selected.runtime?.mutationsEnabled ? "Açık" : "Kapalı"}
+                  </dd>
+                </div>
+                <div>
                   <dt>Varsayılan kargo</dt>
                   <dd>{selected.default_carrier || "Tanımsız"}</dd>
                 </div>

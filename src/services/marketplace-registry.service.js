@@ -39,6 +39,7 @@ class MarketplaceRegistryService {
       credentials_status: configured ? "CONFIGURED" : "MISSING",
       adapter_status: adapter?.status || record.adapter_status,
       capabilities: adapter?.getCapabilities?.() || record.capabilities || {},
+      runtime: adapter?.getRuntimeStatus?.() || {},
     };
   }
 

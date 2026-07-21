@@ -20,10 +20,34 @@ const env = {
   trendyolApiSecret: process.env.TY_API_SECRET || "",
   trendyolSupplierId: process.env.TY_SUPPLIER_ID || "",
   trendyolStorefrontCode: process.env.TY_STOREFRONT_CODE || "TR",
+  hepsiburadaEnv: (
+    process.env.HEPSIBURADA_ENV ||
+    process.env.HB_ENV ||
+    "production"
+  ).toLowerCase(),
   hepsiburadaMerchantId: process.env.HB_MERCHANT_ID || "",
   hepsiburadaUsername: process.env.HB_USERNAME || "",
   hepsiburadaPassword: process.env.HB_PASSWORD || "",
   hepsiburadaIntegratorKey: process.env.HB_INTEGRATOR_KEY || "",
+  hepsiburadaUserAgent:
+    process.env.HEPSIBURADA_USER_AGENT || process.env.HB_USER_AGENT || "",
+  hepsiburadaOrderBaseUrl:
+    process.env.HB_ORDER_BASE_URL ||
+    process.env.HEPSIBURADA_ORDER_BASE_URL ||
+    "",
+  hepsiburadaListingBaseUrl:
+    process.env.HB_LISTING_BASE_URL ||
+    process.env.HEPSIBURADA_LISTING_BASE_URL ||
+    "",
+  hepsiburadaProductBaseUrl:
+    process.env.HB_PRODUCT_BASE_URL ||
+    process.env.HEPSIBURADA_PRODUCT_BASE_URL ||
+    "",
+  hepsiburadaMutationsEnabled: bool(
+    process.env.HEPSIBURADA_MUTATIONS_ENABLED ||
+      process.env.HB_MUTATIONS_ENABLED,
+    false,
+  ),
   adminUsername: process.env.ADMIN_USERNAME || "admin",
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || "",
@@ -77,6 +101,10 @@ function validateEnv() {
   }
   if (env.opportunityAutoPublishEnabled)
     errors.push("OPPORTUNITY_AUTO_PUBLISH_ENABLED false kalmali");
+  if (!["sit", "test", "production", "prod"].includes(env.hepsiburadaEnv))
+    errors.push("HEPSIBURADA_ENV sit veya production olmali");
+  if (env.hepsiburadaMutationsEnabled)
+    errors.push("HEPSIBURADA_MUTATIONS_ENABLED false kalmali");
   if (errors.length)
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }
