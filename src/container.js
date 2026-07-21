@@ -255,8 +255,18 @@ function createContainer(overrides = {}) {
         await actionService.approve(action.id, "system");
         await actionService.apply(action.id, "system");
         successful++;
-      } catch {
+      } catch (error) {
         failed++;
+        const latest = await actions.get(action.id);
+        if (
+          latest &&
+          ["PENDING", "APPROVED", "SENDING"].includes(latest.status)
+        ) {
+          await actions.updateStatus(action.id, "FAILED", {
+            actor: "system",
+            error: error.message,
+          });
+        }
       }
     }
     return { processed: generated.created, successful, failed };
