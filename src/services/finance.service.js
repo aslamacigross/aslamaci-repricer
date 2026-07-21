@@ -1296,6 +1296,7 @@ class FinanceService {
       ledgerHourly,
       ledgerProducts,
       ledgerCosts,
+      diagnosisProducts,
       modernSnapshotCosts,
       coverage,
       shippingReport,
@@ -1551,6 +1552,66 @@ class FinanceService {
       ),
       this.db.query(
         `SELECT
+             ft.barcode AS "barcode",
+             MAX(COALESCE(p.product_name,ft.barcode,'Bilinmiyor'))
+               AS "product_name",
+             COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale')
+                 THEN CASE
+                   WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                     THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                   ELSE 1 END
+               ELSE 0 END),0) AS "sale_quantity",
+             COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('İade','Iade','Return')
+                 THEN CASE
+                   WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                     THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                   ELSE 1 END
+               ELSE 0 END),0) AS "return_quantity",
+             ROUND(COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale') THEN ft.amount
+               ELSE 0 END),0),2) AS "sale_revenue",
+             ROUND(COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('İade','Iade','Return') THEN ft.amount
+               ELSE 0 END),0),2) AS "return_amount",
+             ROUND(COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale')
+                 THEN COALESCE(p.calculated_product_cost,0) *
+                   CASE
+                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                     ELSE 1 END
+               ELSE 0 END),0),2) AS "product_cost",
+             ROUND(COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale')
+                 THEN COALESCE(p.service_fee,0)
+               ELSE 0 END),0),2) AS "service_fee",
+             ROUND(COALESCE(SUM(CASE
+               WHEN ft.transaction_type IN('Satış','Sale') THEN ft.commission_amount
+               WHEN ft.transaction_type IN('İade','Iade','Return')
+                 THEN -ft.commission_amount
+               ELSE 0 END),0),2) AS "commission",
+             COUNT(*) FILTER(
+               WHERE ft.transaction_type IN('Satış','Sale')
+                 AND (p.barcode IS NULL OR p.calculated_product_cost<=0)
+             ) AS "missing_cost_lines"
+           FROM marketplace_financial_transactions ft
+           LEFT JOIN products p ON p.marketplace=ft.marketplace
+             AND p.barcode=ft.barcode
+           WHERE ft.marketplace=$1
+             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
+               <$3::date+INTERVAL '1 day'
+             AND ft.transaction_type IN('Satış','Sale','İade','Iade','Return')
+             AND ft.barcode IS NOT NULL
+           GROUP BY ft.barcode
+           ORDER BY "product_cost" DESC,"sale_revenue" DESC
+           LIMIT 80`,
+        [marketplace, startDate, endDate],
+      ),
+      this.db.query(
+        `SELECT
              COALESCE(SUM(product_cost_total),0) AS "product_cost",
              COALESCE(SUM(service_fee_total),0) AS "service_fee"
            FROM marketplace_orders
@@ -1678,6 +1739,18 @@ class FinanceService {
         title: "Kargo desisi eksik",
         text: `${shippingReport.missing_orders} siparişte ne kargo faturası ne de güvenilir mapping desisi bulundu.`,
       });
+    const returnShippingTotal = roundMoney(
+      (shippingReport.items || []).reduce(
+        (sum, row) => sum + Number(row.return_shipping_cost || 0),
+        0,
+      ),
+    );
+    const returnOrderCount = (shippingReport.items || []).filter(
+      (row) => row.has_return,
+    ).length;
+    const estimatedReturnOrderCount = (shippingReport.items || []).filter(
+      (row) => row.return_shipping_source === "MAPPED_ESTIMATE",
+    ).length;
     return {
       period,
       range,
@@ -1714,6 +1787,31 @@ class FinanceService {
       products: useFinancialSales ? ledgerProducts.rows : products.rows,
       transactions: transactions.rows,
       shipping: shippingReport,
+      diagnostics: {
+        summary: {
+          formula:
+            "Net satış - komisyon - kargo - hizmet bedeli - ürün alış maliyeti - ambalaj",
+          product_cost_source: costSource,
+          sales_source: useFinancialSales ? "SETTLEMENT" : "ORDER_DETAIL",
+          net_sales: salesRevenue,
+          gross_sales: settlementGrossSales,
+          returns: Number(financial.returns || 0),
+          discounts: Number(financial.discounts || 0),
+          commission: commissionTotal,
+          shipping: shippingTotal,
+          billed_shipping: Number(shippingReport.billed_total || 0),
+          estimated_shipping: Number(shippingReport.estimated_total || 0),
+          return_shipping: returnShippingTotal,
+          return_orders: returnOrderCount,
+          estimated_return_orders: estimatedReturnOrderCount,
+          service_fee: serviceFee,
+          product_cost: productCost,
+          packaging: packagingAmount,
+          profit: profitAfterPackaging,
+          missing_cost_lines: Number(costFallback.missing_cost_lines || 0),
+        },
+        products: diagnosisProducts.rows,
+      },
       coverage,
       packaging: packaging.rows[0] || null,
       insights,

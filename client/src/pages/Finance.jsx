@@ -75,6 +75,7 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
     [reportPath],
   );
   const report = data?.data;
+  const diagnostics = report?.diagnostics;
   const [packaging, setPackaging] = useState("");
   const packagingValue =
     packaging === "" ? report?.summary?.packaging || 0 : packaging;
@@ -367,6 +368,83 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
           </div>
         ))}
       </section>
+      {diagnostics && (
+        <section className="panel table-panel finance-diagnostics">
+          <header>
+            <div>
+              <h2>Mutabakat teşhisi</h2>
+              <span>{diagnostics.summary.formula}</span>
+            </div>
+          </header>
+          <div className="kpi-grid finance-kpis">
+            {[
+              ["İade toplamı", Math.abs(diagnostics.summary.returns || 0)],
+              ["İade kargo", diagnostics.summary.return_shipping],
+              [
+                "Tahmini iade kargo",
+                diagnostics.summary.estimated_return_orders,
+                "adet",
+              ],
+              ["Eksik maliyet satırı", diagnostics.summary.missing_cost_lines],
+            ].map(([label, value, suffix]) => (
+              <div className="kpi kpi-warning" key={label}>
+                <div>
+                  <span>{label}</span>
+                  <strong>
+                    {suffix ? `${value} ${suffix}` : money(value)}
+                  </strong>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DataTable
+            columns={[
+              { key: "barcode", label: "Barkod" },
+              { key: "product_name", label: "Ürün" },
+              { key: "sale_quantity", label: "Satış adet" },
+              { key: "return_quantity", label: "İade adet" },
+              {
+                key: "sale_revenue",
+                label: "Satış",
+                render: (row) => money(row.sale_revenue),
+              },
+              {
+                key: "return_amount",
+                label: "İade",
+                render: (row) => money(Math.abs(Number(row.return_amount))),
+              },
+              {
+                key: "product_cost",
+                label: "Ürün maliyeti",
+                render: (row) => money(row.product_cost),
+              },
+              {
+                key: "service_fee",
+                label: "Hizmet",
+                render: (row) => money(row.service_fee),
+              },
+              {
+                key: "commission",
+                label: "Komisyon",
+                render: (row) => money(row.commission),
+              },
+              {
+                key: "missing_cost_lines",
+                label: "Eksik maliyet",
+                render: (row) =>
+                  Number(row.missing_cost_lines || 0) > 0 ? (
+                    <Badge tone="danger">{row.missing_cost_lines}</Badge>
+                  ) : (
+                    "-"
+                  ),
+              },
+            ]}
+            rows={diagnostics.products || []}
+            columnVisibilityKey="finance-reconciliation-products"
+            exportFileName={`finance-reconciliation-${report.period}`}
+          />
+        </section>
+      )}
       <section className="dashboard-grid">
         <div className="panel chart-panel">
           <header>
