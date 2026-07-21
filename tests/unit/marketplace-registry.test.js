@@ -60,6 +60,20 @@ describe("Marketplace adapter sözleşmesi", () => {
     assert.equal(result.code, "CAPABILITY_NOT_SUPPORTED");
   });
 
+  test("capability mapinde bulunmayan operation fail-closed reddedilir", async () => {
+    const adapter = new MarketplaceAdapter({
+      code: "TEST",
+      status: "READY",
+      capabilities: { supportsOrders: true },
+    });
+    adapter.configured = () => true;
+    adapter.unknownOperation = async () => ({ ok: true });
+    assert.equal(adapter.supports("unknownOperation"), false);
+    const result = await adapter.execute("unknownOperation", {});
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "CAPABILITY_NOT_SUPPORTED");
+  });
+
   test("Hepsiburada credential yokluğunu hata fırlatmadan bildirir", async () => {
     const adapter = new HepsiburadaAdapter({ configured: () => false });
     const result = await adapter.testConnection();

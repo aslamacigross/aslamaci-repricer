@@ -188,6 +188,44 @@ class PublicationService {
     };
   }
 
+  draftInput(preview, input = {}, actor) {
+    const workflowStatus = preview.blockers.includes(
+      "CATEGORY_MAPPING_REQUIRED",
+    )
+      ? "CATEGORY_REVIEW"
+      : preview.blockers.some((code) => code.startsWith("ATTRIBUTE_REQUIRED:"))
+        ? "ATTRIBUTE_REVIEW"
+        : preview.blockers.length
+          ? "PRICE_REVIEW"
+          : "READY_TO_PUBLISH";
+    return {
+      recipeId: preview.recipe.id,
+      sourceMarketplace: input.sourceMarketplace
+        ? String(input.sourceMarketplace).toUpperCase()
+        : null,
+      sourceListingId: preview.context.sourceListing?.id,
+      targetMarketplace: preview.integration.code,
+      catalogMatchId: preview.catalog.matchId,
+      listingBarcodePoolId: preview.context.barcode?.id,
+      workflowStatus,
+      publicationMode: preview.publicationMode,
+      targetCategoryId: preview.context.categoryId,
+      targetBrandId: input.targetBrandId,
+      title: preview.payload.title,
+      description: preview.payload.description,
+      attributes: preview.payload.attributes,
+      images: preview.payload.images,
+      stock: preview.payload.stock,
+      requestedPriceMinor: input.requestedPrice
+        ? toMoneyMinor(input.requestedPrice)
+        : null,
+      pricingPreview: preview.pricing,
+      validationErrors: preview.blockers,
+      payload: preview.payload,
+      actor,
+    };
+  }
+
   async buildPreview(input = {}) {
     const recipeId = Number(input.recipeId);
     const targetMarketplace = String(
@@ -225,10 +263,17 @@ class PublicationService {
       match?.match_status === "CONFIRMED"
         ? "EXISTING_CATALOG_OFFER"
         : "NEW_PRODUCT";
-    const listingBarcode =
-      publicationMode === "EXISTING_CATALOG_OFFER"
-        ? match?.marketplace_catalog_barcode
-        : context.barcode?.barcode;
+    const identifiers = this.marketplaceRegistry.resolveListingIdentifiers(
+      targetMarketplace,
+      {
+        publicationMode,
+        catalogMatch: match,
+        allocatedSellerListingBarcode: context.barcode?.barcode,
+        sellerSku: input.sellerSku,
+        externalListingId: context.targetListing?.external_listing_id,
+      },
+    );
+    const listingBarcode = identifiers.sellerListingBarcode;
     const attributes = input.attributes || {};
     const pricing = this.pricingPreview(recipe, context, input);
     const capability =
@@ -269,6 +314,8 @@ class PublicationService {
       recipeId,
       marketplaceProductId: match?.marketplace_product_id || null,
       marketplaceCatalogBarcode: match?.marketplace_catalog_barcode || null,
+      sellerListingBarcode: listingBarcode || null,
+      sellerSku: identifiers.sellerSku,
       barcode: listingBarcode || null,
       categoryId: context.categoryId,
       brandId: input.targetBrandId || null,
@@ -292,6 +339,7 @@ class PublicationService {
         marketplaceCatalogBarcode: match?.marketplace_catalog_barcode || null,
       },
       listingBarcode: listingBarcode || null,
+      identifiers,
       pricing,
       payload,
       blockers: unique(blockers),
@@ -302,41 +350,9 @@ class PublicationService {
 
   async createDraft(input = {}, actor) {
     const preview = await this.buildPreview(input);
-    const workflowStatus = preview.blockers.includes(
-      "CATEGORY_MAPPING_REQUIRED",
-    )
-      ? "CATEGORY_REVIEW"
-      : preview.blockers.some((code) => code.startsWith("ATTRIBUTE_REQUIRED:"))
-        ? "ATTRIBUTE_REVIEW"
-        : preview.blockers.length
-          ? "PRICE_REVIEW"
-          : "READY_TO_PUBLISH";
-    const draft = await this.repository.saveDraft({
-      recipeId: preview.recipe.id,
-      sourceMarketplace: input.sourceMarketplace
-        ? String(input.sourceMarketplace).toUpperCase()
-        : null,
-      sourceListingId: preview.context.sourceListing?.id,
-      targetMarketplace: preview.integration.code,
-      catalogMatchId: preview.catalog.matchId,
-      listingBarcodePoolId: preview.context.barcode?.id,
-      workflowStatus,
-      publicationMode: preview.publicationMode,
-      targetCategoryId: preview.context.categoryId,
-      targetBrandId: input.targetBrandId,
-      title: preview.payload.title,
-      description: preview.payload.description,
-      attributes: preview.payload.attributes,
-      images: preview.payload.images,
-      stock: preview.payload.stock,
-      requestedPriceMinor: input.requestedPrice
-        ? toMoneyMinor(input.requestedPrice)
-        : null,
-      pricingPreview: preview.pricing,
-      validationErrors: preview.blockers,
-      payload: preview.payload,
-      actor,
-    });
+    const draft = await this.repository.saveDraft(
+      this.draftInput(preview, input, actor),
+    );
     return { draft, preview };
   }
 
@@ -385,36 +401,42 @@ class PublicationService {
         400,
         "VALIDATION_ERROR",
       );
-    const items = [];
-    for (const recipeId of recipeIds) {
-      const created = await this.createDraft(
-        { recipeId, sourceMarketplace, targetMarketplace },
-        actor,
-      );
-      const itemStatus = classifyTransfer(created.preview);
-      items.push({
-        recipeId,
-        sourceListingId: created.preview.context.sourceListing?.id,
-        publicationDraftId: created.draft.id,
-        itemStatus,
-        catalogMatchStatus: created.preview.catalog.status,
-        blockerCodes: created.preview.blockers,
-        preview: {
-          publicationMode: created.preview.publicationMode,
-          catalog: created.preview.catalog,
-          pricing: created.preview.pricing,
-          payload: created.preview.payload,
-        },
-      });
-    }
+    const sortedRecipeIds = [...recipeIds].sort((a, b) => a - b);
     const idempotencyKey =
       input.idempotencyKey ||
       crypto
         .createHash("sha256")
         .update(
-          `${sourceMarketplace}:${targetMarketplace}:${recipeIds.sort((a, b) => a - b).join(",")}`,
+          `${sourceMarketplace}:${targetMarketplace}:${sortedRecipeIds.join(",")}`,
         )
         .digest("hex");
+    const existing =
+      await this.repository.findTransferBatchByIdempotencyKey(idempotencyKey);
+    if (existing) return existing;
+    const items = [];
+    for (const recipeId of sortedRecipeIds) {
+      const draftRequest = {
+        recipeId,
+        sourceMarketplace,
+        targetMarketplace,
+      };
+      const preview = await this.buildPreview(draftRequest);
+      const itemStatus = classifyTransfer(preview);
+      items.push({
+        recipeId,
+        sourceListingId: preview.context.sourceListing?.id,
+        draftInput: this.draftInput(preview, draftRequest, actor),
+        itemStatus,
+        catalogMatchStatus: preview.catalog.status,
+        blockerCodes: preview.blockers,
+        preview: {
+          publicationMode: preview.publicationMode,
+          catalog: preview.catalog,
+          pricing: preview.pricing,
+          payload: preview.payload,
+        },
+      });
+    }
     return this.repository.createTransferBatch(
       { sourceMarketplace, targetMarketplace, idempotencyKey, actor },
       items,

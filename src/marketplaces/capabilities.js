@@ -17,6 +17,8 @@ const MARKETPLACE_CAPABILITIES = Object.freeze([
   "supportsInventoryUpdate",
   "supportsBatchStatus",
   "supportsListingVerification",
+  "supportsListingValidation",
+  "supportsProductDraft",
 ]);
 
 const OPERATION_CAPABILITIES = Object.freeze({
@@ -26,10 +28,13 @@ const OPERATION_CAPABILITIES = Object.freeze({
   searchCatalog: "supportsCatalogSearch",
   getCatalogProduct: "supportsCatalogProductRead",
   matchExistingCatalogProduct: "supportsCatalogSearch",
+  validateListingPayload: "supportsListingValidation",
+  createProductDraft: "supportsProductDraft",
   createProduct: "supportsNewProductCreate",
   createOfferOnExistingCatalogProduct: "supportsExistingCatalogOfferCreate",
   updateProductContent: "supportsContentUpdate",
   updatePriceAndInventory: "supportsPriceUpdate",
+  fetchProducts: "supportsCatalogProductRead",
   fetchOrders: "supportsOrders",
   fetchCommissions: "supportsCommissionApi",
   fetchBuybox: "supportsBuybox",

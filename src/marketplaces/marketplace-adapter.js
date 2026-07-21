@@ -36,7 +36,19 @@ class MarketplaceAdapter {
 
   supports(operation) {
     const capability = OPERATION_CAPABILITIES[operation];
-    return capability ? this.capabilities[capability] === true : true;
+    return Boolean(capability && this.capabilities[capability] === true);
+  }
+
+  resolveListingIdentifiers(input = {}) {
+    const match = input.catalogMatch || {};
+    return {
+      marketplaceProductId: match.marketplace_product_id || null,
+      marketplaceCatalogBarcode: match.marketplace_catalog_barcode || null,
+      sellerListingBarcode: input.allocatedSellerListingBarcode || null,
+      sellerSku: input.sellerSku || null,
+      externalListingId: input.externalListingId || null,
+      semanticsVerified: false,
+    };
   }
 
   unsupported(operation) {

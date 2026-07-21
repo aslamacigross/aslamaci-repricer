@@ -16,7 +16,9 @@
     "migrate:down": "node src/db/migrate.js down",
     "test": "node --test --test-reporter=spec tests/**/*.test.js",
     "test:ui": "vitest run --config client/vite.config.js",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm test:e2e:demo && pnpm test:e2e:backend",
+    "test:e2e:demo": "playwright test",
+    "test:e2e:backend": "node --test --test-reporter=spec tests/backend-e2e/**/*.test.js",
     "test:all": "pnpm test && pnpm test:ui",
     "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js",
     "check": "node --check index.js && node --check src/server.js",
@@ -37,6 +39,7 @@
     "recharts": "^2.15.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.14",
     "@playwright/test": "1.54.1",
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.3.0",

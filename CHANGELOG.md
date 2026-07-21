@@ -43,6 +43,18 @@
   taşma kontrolleri eklendi.
 - Development/demo login limiti test izolasyonu için artırıldı; production
   8 deneme / 15 dakika güvenlik sınırı değiştirilmedi.
+- Kanal aktarımı idempotency anahtarı draft öncesine taşındı; batch, draft ve
+  item yazımları tek transaction içinde duplicate/orphan bırakmadan çalışır.
+- Adapter operation-capability kontrolü fail-closed yapıldı ve bilinmeyen
+  operasyonlar `CAPABILITY_NOT_SUPPORTED` sonucuna bağlandı.
+- Katalog eşleştirmeye güvenli ölçü normalizasyonu ile ürün adı/aile fuzzy alias
+  sinyali eklendi; hard paket, varyant ve bundle kilitleri korunarak fuzzy
+  sonuçlar insan incelemesinde bırakıldı.
+- Katalog barkodu, seller listing barkodu, seller SKU ve marketplace product ID
+  semantiği adapter resolver sözleşmesiyle ayrıldı.
+- Playwright demo UI E2E ile gerçek Express + geçici PostgreSQL backend E2E
+  profilleri ayrıldı; migration up/down/idempotency gerçek PostgreSQL motorunda
+  doğrulandı.
 
 ## 2.0.0 - 2026-07-12
 

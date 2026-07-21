@@ -39,7 +39,8 @@
   ambalaj, kimlik ve capability kapılarından ayrı geçirir. Credential eksikliği
   kontrollü blocker olarak görünür.
 - Uygulama/readiness sürümü `2.9.0` / `024_product_publishing_and_channel_transfer`
-  durumundadır. Phase 3-4 production veya preview ortamına deploy edilmemiştir.
+  durumuna getirildi. Bu aşamanın kodu daha sonra `6cf32b8` içinde Railway
+  `preview-v2` ortamına deploy edildi; production'a deploy edilmedi.
 - `025_product_opportunity_engine` açıklanabilir ürün/bundle fırsatlarını, karar
   olaylarını ve kontrollü katalog arama workflow'unu ekler. Eksik tekli, hedef
   kanal, paket adedi, karma bundle, ekonomik buybox, düşük rekabet ve yüksek
@@ -48,7 +49,8 @@
   sinyal `INSUFFICIENT_DATA` olur. Reçete onayı, katalog araması ve ilerideki
   yayın onayı birbirinden ayrıdır. Otomatik veya gerçek yayın yapılmaz.
 - Uygulama/readiness sürümü `2.9.0` / `025_product_opportunity_engine`
-  durumundadır. Phase 5 production veya preview ortamına deploy edilmemiştir.
+  durumuna getirildi. Bu aşama `6cf32b8` preview deployuna dahildir;
+  production'a deploy edilmedi.
 - `026_ai_content_and_listing_health` içerik taslaklarını, mevcut/önerilen/onaylı
   snapshot'ları ve açıklanabilir listing sağlık değerlendirmelerini ekler.
 - İçerik sağlayıcısı sözleşmesi bağımsızdır; anahtar olmayan ortamda deterministic
@@ -58,15 +60,20 @@
   `CONTENT_AUTO_UPDATE_ENABLED=false` kalır; adapter mutasyonu çağrılmaz ve tüm
   sonuçlar `mutationPerformed=false` döner.
 - Uygulama/readiness sürümü `2.9.0` / `026_ai_content_and_listing_health`
-  durumundadır. Phase 6 production veya preview ortamına deploy edilmemiştir.
+  durumundadır. Migration `026` Railway `preview-v2` readiness kontrolünde
+  uygulandı; production migrationı yapılmadı.
 - Phase 6 yerel kabulü: 240 backend ve 35 React testi, migration up/down,
   ESLint ve production build başarılıdır.
 - Phase 7 yerel kabulünde 13 Playwright senaryosu desktop ve 390x844 mobil
   görünümde geçti. Entegrasyon, marketplace izolasyonu, reçete/barkod önizleme,
   mevcut katalog eşleşmesi/yeni ürün ayrımı, fırsat onayı, içerik düzenleme,
   dry-run ve listing sağlık açıklamaları gerçek demo REST/UI akışıyla sınandı.
-- Çoklu pazaryeri genişlemesi production veya preview ortamına deploy edilmedi;
-  production migration, gerçek pazaryeri mutasyonu ve PR merge yapılmadı.
+- `6cf32b8`, Railway projesi `efficient-spontaneity`, environment `preview-v2`,
+  service `aslamaci-repricer` üzerinde başarılı deployment aldı. Production
+  endpointi V2 öncesi sürümde kaldı; production migration, gerçek pazaryeri
+  mutasyonu ve PR merge yapılmadı.
+- 13 Playwright testi `scripts/demo-server.js` fixture'ını kullanır. Gerçek
+  Express + geçici PostgreSQL kabulü ayrı `test:e2e:backend` profilindedir.
 
 ## İş Bağlamı
 

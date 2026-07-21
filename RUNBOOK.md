@@ -94,3 +94,17 @@ Panel açılamıyorsa DB'de `system_settings` içindeki `global_dry_run=true`, `
 5. Eski uygulama commit'i deploy edilir.
 
 Production'da backup olmadan down migration çalıştırılmaz.
+
+## Test Profilleri
+
+- `pnpm test:e2e:demo`: `scripts/demo-server.js` fixture'ı üzerinde 13
+  Playwright UI senaryosu. Görsel, mobil ve tarayıcı davranışını doğrular; gerçek
+  backend veya PostgreSQL kanıtı değildir.
+- `pnpm test:e2e:backend`: gerçek Express `createApp`, route/service/repository
+  zinciri ve geçici PGlite PostgreSQL motorunda entegrasyon, katalog, reçete,
+  yayın preview, kanal aktarımı idempotency, fırsat onayı, içerik dry-run ve
+  migration round-trip akışlarını doğrular.
+- `pnpm test:e2e`: iki profili sırayla çalıştırır.
+
+PGlite gömülü gerçek PostgreSQL motorudur; bu test production veritabanına veya
+Railway environment'ına bağlanmaz.

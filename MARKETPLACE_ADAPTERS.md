@@ -32,6 +32,9 @@ sonuçlardan birini üretir:
 - `MARKETPLACE_DISABLED`
 - `MARKETPLACE_ADAPTER_NOT_READY`
 
+Capability kontrolü fail-closed çalışır. Operation-capability haritasında kaydı
+olmayan bir işlem desteklenmiş sayılmaz ve `CAPABILITY_NOT_SUPPORTED` döner.
+
 Credential bulunmayan platform jobları `SKIPPED_CREDENTIALS_MISSING` olarak
 tamamlanır. Bu durum sistem sağlığında entegrasyon arızası sayılmaz.
 
@@ -69,3 +72,20 @@ teklif, içerik, buybox ve fiyat mutasyonları sert biçimde kapalıdır. Pazara
 Batch kabulü yayın başarısı değildir. Gelecekte gerçek mutasyon açılırsa adapter
 batch sonucunu takip etmeli ve listing'i yeniden okuyarak barkod, başlık,
 kategori, stok ve fiyatı doğrulamalıdır.
+
+## Listing Kimliği Sözleşmesi
+
+Adapter `resolveListingIdentifiers` ile aşağıdaki rolleri ayrı döndürür:
+
+- `marketplaceProductId`: hedef ortak katalog ürün kimliği
+- `marketplaceCatalogBarcode`: hedef ortak katalogdaki barkod
+- `sellerListingBarcode`: satıcının teklif/listing barkodu
+- `sellerSku`: satıcı stok kodu
+- `externalListingId`: yayınlanan dış listing kimliği
+
+Ortak service katmanı katalog barkodunu seller listing barkodu olarak kullanmaz.
+Yeni ürün barkodu yalnız tahsis edilmiş listing barkodu havuzundan gelir; mevcut
+katalog teklifinde gerekli kimlik kararı hedef adaptera aittir. Trendyol resolver
+sözleşmesi ayrı uygulanmıştır. Hepsiburada katalog/teklif kimlikleri credentials
+ve resmi cevap örneği gelene kadar `semanticsVerified=false` kabul edilir; bu
+varsayım gerçek teklif oluşturmaya izin vermez.

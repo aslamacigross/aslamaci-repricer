@@ -147,7 +147,9 @@ class PimService {
       marketplaceCategoryId: input.candidate.marketplaceCategoryId,
       matchStatus: preview.status,
       matchConfidence: preview.confidence,
-      matchMethod: "RULE_BASED_V1",
+      matchMethod: preview.fuzzySignalUsed
+        ? "HYBRID_RULE_ALIAS_V2"
+        : "RULE_BASED_EXACT_V2",
       evidence: {
         sourceFingerprint: bundleFingerprint(
           (await this.recipeMatchSource(input.recipeId)).source.components,

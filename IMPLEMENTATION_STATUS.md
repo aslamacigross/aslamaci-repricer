@@ -18,6 +18,38 @@ Son güncelleme: 2026-07-21 (Europe/Istanbul)
 - [x] Phase 6: AI İçerik Stüdyosu ve Listing Sağlığı
 - [x] Phase 7: Tam panel, E2E kabul ve dokümantasyon
 
+## 6cf32b8 Merge Öncesi Teknik Kabul
+
+- [x] Railway success statusunun project `efficient-spontaneity`, environment
+  `preview-v2`, service `aslamaci-repricer` deploymentına ait olduğu
+  doğrulandı; build-only veya production statusu değildir
+- [x] Preview `/version`: `2.9.0`, release `6cf32b8`, `dryRun=true`
+- [x] Preview `/ready`: `026_ai_content_and_listing_health` uygulanmış
+- [x] Production endpointi V2 öncesi
+  `2026-07-10-learning-buybox-pilot` sürümünde; bu turda production deploy,
+  migration veya gerçek pazaryeri mutasyonu yok
+- [x] Preview Railway değişkenlerinde üç yayın bayrağı tanımlı değil; kod
+  varsayılanları ve DB seedleri `false`
+- [x] Kanal transferi idempotency anahtarı draft öncesine taşındı; batch, draft
+  ve item aynı transaction içinde
+- [x] İkinci aynı istekte `1 batch + 1 item + 1 draft` kaldığını doğrulayan
+  gerçek PostgreSQL backend E2E
+- [x] Adapter capability kontrolü fail-closed; bilinmeyen operation
+  `CAPABILITY_NOT_SUPPORTED`
+- [x] Katalog eşleştirme hard hacim/gramaj/paket/varyant/bundle kilitleri ve
+  fuzzy ürün adı/aile yardımcı sinyaliyle hibrit hale getirildi
+- [x] `1,5 L` / `1500 ml` normalizasyonu ve Menekşe regresyon testleri
+- [x] Katalog barkodu, seller listing barkodu, seller SKU ve marketplace product
+  ID adapter resolver sözleşmesiyle ayrıldı
+- [x] Hepsiburada kimlik semantiği credentials ve resmi cevap gelene kadar
+  `semanticsVerified=false` ve mutasyon kapalı
+- [x] Demo UI E2E: 13/13 Playwright, `scripts/demo-server.js`
+- [x] Gerçek backend E2E: 2/2 Express + geçici PGlite PostgreSQL
+- [x] Backend unit/integration/regression: 247/247
+- [x] React: 35/35
+- [x] Migration up/idempotent up/down/up round-trip: başarılı
+- [x] ESLint, Prettier, Node syntax ve production build: başarılı
+
 ## Tamamlanan
 
 - [x] Mevcut cost code/mapping verisini silmeden idempotent PIM bootstrap

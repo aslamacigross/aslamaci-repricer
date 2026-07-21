@@ -58,6 +58,19 @@ test("kanal aktarımı aynı idempotency key ile ikinci batch oluşturmaz", asyn
       itemStatus: "BLOCKED",
       blockerCodes: ["MARKETPLACE_CREDENTIALS_MISSING"],
       preview: { dryRun: true },
+      draftInput: {
+        recipeId: recipe.id,
+        sourceMarketplace: "TRENDYOL",
+        targetMarketplace: "HEPSIBURADA",
+        workflowStatus: "PRICE_REVIEW",
+        publicationMode: "NEW_PRODUCT",
+        title: "Menekşe 1,5 L x 2",
+        stock: 1,
+        pricingPreview: { minimumPrice: 312.28 },
+        validationErrors: ["MARKETPLACE_CREDENTIALS_MISSING"],
+        payload: { dryRun: true },
+        actor: "admin",
+      },
     },
   ];
   const first = await repository.createTransferBatch(input, items);
@@ -68,5 +81,17 @@ test("kanal aktarımı aynı idempotency key ile ikinci batch oluşturmaz", asyn
     `SELECT COUNT(*)::int total FROM channel_transfer_batches`,
   );
   assert.equal(count.rows[0].total, 1);
+  const drafts = await db.query(
+    `SELECT COUNT(*)::int total FROM product_publication_drafts`,
+  );
+  const transferItems = await db.query(
+    `SELECT COUNT(*)::int total FROM channel_transfer_items`,
+  );
+  assert.equal(drafts.rows[0].total, 1);
+  assert.equal(transferItems.rows[0].total, 1);
+  assert.equal(
+    first.items[0].publication_draft_id,
+    second.items[0].publication_draft_id,
+  );
   await db.end();
 });

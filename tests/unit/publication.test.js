@@ -57,6 +57,16 @@ function fixture(overrides = {}) {
     },
     marketplaceRegistry: {
       get: async () => ({ ...integration, ...(overrides.integration || {}) }),
+      resolveListingIdentifiers: (_marketplace, input) => ({
+        marketplaceProductId:
+          input.catalogMatch?.marketplace_product_id || null,
+        marketplaceCatalogBarcode:
+          input.catalogMatch?.marketplace_catalog_barcode || null,
+        sellerListingBarcode: input.allocatedSellerListingBarcode || null,
+        sellerSku: input.sellerSku || null,
+        externalListingId: input.externalListingId || null,
+        semanticsVerified: true,
+      }),
     },
     settings: {},
   });
@@ -161,4 +171,38 @@ test("yayın dry-run yalnız payload doğrulaması çağırır", async () => {
   assert.deepEqual(operations, ["validateListingPayload"]);
   assert.equal(result.result.mutationPerformed, false);
   assert.equal(result.draft.workflow_status, "DRY_RUN_COMPLETE");
+});
+
+test("aynı kanal aktarımı mevcut batchi taslak hazırlamadan döndürür", async () => {
+  let previewCalls = 0;
+  const existing = { id: 41, idempotency_key: "repeat-key", items: [] };
+  const service = new PublicationService({
+    repository: {
+      findTransferBatchByIdempotencyKey: async (key) => {
+        assert.equal(key, "repeat-key");
+        return existing;
+      },
+      createTransferBatch: async () => {
+        throw new Error("yeni batch oluşturulmamalı");
+      },
+    },
+    pim: {},
+    marketplaceRegistry: {},
+    settings: {},
+  });
+  service.buildPreview = async () => {
+    previewCalls++;
+    throw new Error("preview çalışmamalı");
+  };
+  const result = await service.createTransfer(
+    {
+      sourceMarketplace: "TRENDYOL",
+      targetMarketplace: "HEPSIBURADA",
+      recipeIds: [9],
+      idempotencyKey: "repeat-key",
+    },
+    "admin",
+  );
+  assert.equal(result, existing);
+  assert.equal(previewCalls, 0);
 });

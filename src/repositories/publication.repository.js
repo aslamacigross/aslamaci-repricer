@@ -133,9 +133,9 @@ class PublicationRepository {
     };
   }
 
-  async saveDraft(input) {
+  async saveDraft(input, queryable = this.db) {
     return (
-      await this.db.query(
+      await queryable.query(
         `INSERT INTO product_publication_drafts(
            recipe_id,source_marketplace,source_listing_id,target_marketplace,
            catalog_match_id,listing_barcode_pool_id,workflow_status,publication_mode,
@@ -245,13 +245,11 @@ class PublicationRepository {
 
   async createTransferBatch(input, items) {
     return this.withTransaction(async (client) => {
-      const existing = (
-        await client.query(
-          `SELECT * FROM channel_transfer_batches WHERE idempotency_key=$1`,
-          [input.idempotencyKey],
-        )
-      ).rows[0];
-      if (existing) return this.getTransferBatch(existing.id, client);
+      const existing = await this.findTransferBatchByIdempotencyKey(
+        input.idempotencyKey,
+        client,
+      );
+      if (existing) return existing;
       const readyCount = items.filter(
         (item) => item.itemStatus === "READY_TO_LIST",
       ).length;
@@ -261,7 +259,8 @@ class PublicationRepository {
           `INSERT INTO channel_transfer_batches(
              source_marketplace,target_marketplace,status,idempotency_key,
              total_count,ready_count,blocked_count,requested_by,completed_at
-           )VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) RETURNING *`,
+           )VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+           ON CONFLICT(idempotency_key) DO NOTHING RETURNING *`,
           [
             input.sourceMarketplace,
             input.targetMarketplace,
@@ -274,7 +273,17 @@ class PublicationRepository {
           ],
         )
       ).rows[0];
-      for (const item of items)
+      if (!batch) {
+        const existing = await this.findTransferBatchByIdempotencyKey(
+          input.idempotencyKey,
+          client,
+        );
+        return existing;
+      }
+      for (const item of items) {
+        const draft = item.draftInput
+          ? await this.saveDraft(item.draftInput, client)
+          : null;
         await client.query(
           `INSERT INTO channel_transfer_items(
              batch_id,recipe_id,source_listing_id,publication_draft_id,item_status,
@@ -284,15 +293,26 @@ class PublicationRepository {
             batch.id,
             item.recipeId,
             item.sourceListingId || null,
-            item.publicationDraftId || null,
+            draft?.id || item.publicationDraftId || null,
             item.itemStatus,
             item.catalogMatchStatus || null,
             JSON.stringify(item.blockerCodes || []),
             JSON.stringify(item.preview || {}),
           ],
         );
+      }
       return this.getTransferBatch(batch.id, client);
     });
+  }
+
+  async findTransferBatchByIdempotencyKey(idempotencyKey, queryable = this.db) {
+    const batch = (
+      await queryable.query(
+        `SELECT id FROM channel_transfer_batches WHERE idempotency_key=$1`,
+        [idempotencyKey],
+      )
+    ).rows[0];
+    return batch ? this.getTransferBatch(batch.id, queryable) : null;
   }
 
   async getTransferBatch(id, queryable = this.db) {

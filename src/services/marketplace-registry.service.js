@@ -145,6 +145,20 @@ class MarketplaceRegistryService {
     return adapter.execute(operation, input);
   }
 
+  resolveListingIdentifiers(code, input = {}) {
+    const adapter = this.adapter(code);
+    if (!adapter?.resolveListingIdentifiers)
+      return {
+        marketplaceProductId: null,
+        marketplaceCatalogBarcode: null,
+        sellerListingBarcode: null,
+        sellerSku: null,
+        externalListingId: null,
+        semanticsVerified: false,
+      };
+    return adapter.resolveListingIdentifiers(input);
+  }
+
   async runJob(code, operation, input = {}) {
     const outcome = await this.execute(code, operation, input);
     if (outcome?.ok === false) {

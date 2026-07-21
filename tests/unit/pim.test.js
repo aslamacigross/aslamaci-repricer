@@ -44,6 +44,40 @@ describe("Katalog eşleştirme", () => {
     const result = catalogMatch(menekseTwo, { ...menekseTwo });
     assert.equal(result.isMatch, true);
     assert.equal(result.level, "HIGH");
+    assert.equal(result.status, "REVIEW_REQUIRED");
+    assert.equal(result.automaticConfirmationEligible, true);
+  });
+
+  test("1,5 L ile 1500 ml aynı hacme normalize edilir", () => {
+    const result = catalogMatch(
+      { ...menekseTwo, unitVolumeMl: "1,5 L" },
+      { ...menekseTwo, unitVolumeMl: "1500 ml" },
+    );
+    assert.equal(result.isMatch, true);
+    assert.equal(result.level, "HIGH");
+  });
+
+  test("ürün ailesi alias benzerliği yardımcı sinyaldir ve inceleme ister", () => {
+    const result = catalogMatch(menekseTwo, {
+      ...menekseTwo,
+      productFamily: "Actisoft Menekşe Konsantre Yumuşatıcı",
+      productName: "Actisoft Menekşe 1500 ml 2'li paket",
+    });
+    assert.equal(result.isMatch, true);
+    assert.equal(result.fuzzySignalUsed, true);
+    assert.equal(result.status, "REVIEW_REQUIRED");
+    assert.equal(result.automaticConfirmationEligible, false);
+  });
+
+  test("fuzzy isim sinyali yanlış paket adedini geçersiz kılamaz", () => {
+    const result = catalogMatch(menekseTwo, {
+      ...menekseTwo,
+      productFamily: "Actisoft Menekşe Konsantre Yumuşatıcı",
+      unitVolumeMl: "1500 ml",
+      packCount: 1,
+    });
+    assert.equal(result.isMatch, false);
+    assert.equal(result.status, "REJECTED");
   });
 
   test("1,5 L x 2 ile 3 L x 1 aynı sayılmaz", () => {

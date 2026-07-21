@@ -38,6 +38,31 @@ Tek Railway servisi kullanılır. Build sırasında React derlenir, runtime sır
 - Product V2 ürün sync jobu 6,3 saniyede `SUCCESS`, 768 işlenen ve 0 hata sonucu verdi.
 - Panel güvenlik anahtarları tekrar doğrulandı: dry-run açık; global repricer kapalı.
 
+### 6cf32b8 Teknik Kabul Kaydı
+
+- GitHub commit status bağlamı: `efficient-spontaneity - aslamaci-repricer`.
+- Railway project: `efficient-spontaneity`
+  (`95a38fbb-ab50-4a99-8c2d-4751e8e56f62`).
+- Environment: `preview-v2`
+  (`c21381be-7ccf-44b6-a871-3be189c8c57b`).
+- Service: `aslamaci-repricer`
+  (`2bafa2bd-38f8-4421-a3f2-107fecba125e`).
+- Deployment: `c3289cb4-fbf9-44f2-8835-fbd942047b74`; durum `SUCCESS`.
+- Bu durum yalnız build sonucu değildir. Preview domainindeki `/version`, release
+  `6cf32b8`, version `2.9.0`, `dryRun=true` döndürdü; `/ready` migration
+  `026_ai_content_and_listing_health` ile `ready` döndürdü.
+- Production domain `/version` yanıtı V2 öncesi
+  `2026-07-10-learning-buybox-pilot` sürümüdür ve `/ready` endpointi yoktur.
+  Dolayısıyla bu deployment production service/environment'a ait değildir.
+- Kabul turunda production deploy, production migration veya pazaryeri mutasyonu
+  çalıştırılmadı. Preview dry-run dışında fiyat, stok, ürün veya içerik çağrısı
+  yapılmadı.
+- Railway `preview-v2` service değişkenlerinde `PRODUCT_PUBLISHING_ENABLED`,
+  `CONTENT_AUTO_UPDATE_ENABLED` ve `OPPORTUNITY_AUTO_PUBLISH_ENABLED` açıkça
+  tanımlı değildir. Runtime bunları doğrulanmış kod varsayılanıyla `false` okur;
+  migration `022` aynı üç DB ayarını da `false` seed eder. Credential veya
+  secret değeri okunmadı ya da raporlanmadı.
+
 ## Production Öncesi Yedek
 
 Railway PostgreSQL backup/snapshot özelliği kullanılır. CLI erişimi varsa standart PostgreSQL yedeği de alınabilir:
@@ -143,7 +168,8 @@ pnpm hash-password "en-az-12-karakter-guvenli-parola"
 
 ## Production'a Geçiş
 
-Bu branch production'a deploy edilmemiştir. İlerideki ilk production deploy da
+Bu branch preview'a deploy edilmiştir, fakat production'a deploy edilmemiştir.
+İlerideki ilk production deploy da
 dry-run olarak yapılmalıdır. Gerçek fiyat, ürün, içerik veya stok gönderimi bu
 deployment işinin parçası değildir. Canlı repricer modu ayrı bir kullanıcı
 kararı ve pilot ürün doğrulamasından sonra panelde ikinci risk onayıyla açılır;

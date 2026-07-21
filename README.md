@@ -77,7 +77,9 @@ Demo girişi yalnızca yerel fixture sunucusunda `admin / demo12345678` şeklind
 | `pnpm migrate:down`        | Son migration setlerini geri alır; önce yedek zorunludur |
 | `pnpm test`                | Unit, integration ve regression testleri                 |
 | `pnpm test:ui`             | React bileşen testleri                                   |
-| `pnpm test:e2e`            | Yerel dry-run fixture üzerinde Chrome uçtan uca testleri |
+| `pnpm test:e2e`            | Demo UI ve gerçek backend E2E profillerinin tamamı       |
+| `pnpm test:e2e:demo`       | `scripts/demo-server.js` üzerinde 13 Playwright testi   |
+| `pnpm test:e2e:backend`    | Gerçek Express ve geçici PostgreSQL kritik API akışları  |
 | `pnpm lint`                | Backend ve frontend statik kontrolü                      |
 | `pnpm hash-password "..."` | Production parola hash'i üretir                          |
 
@@ -180,6 +182,10 @@ Her onay ve ret `Karar geçmişi` ekranında kullanıcı, tarih, cost code, ret 
 ## Railway
 
 Repo kökündeki `railway.toml` build, start ve health check ayarlarını içerir. Ayrıntılı akış [DEPLOYMENT.md](DEPLOYMENT.md), acil durum adımları [RUNBOOK.md](RUNBOOK.md) içindedir.
+
+Playwright kabulü gerçek backend testi değildir; `scripts/demo-server.js`
+fixture'ını kullanır. Gerçek route, service, repository ve migration zinciri
+ayrıca `pnpm test:e2e:backend` ile geçici PGlite PostgreSQL motorunda doğrulanır.
 
 ### Satış ve Kâr
 

@@ -15,9 +15,18 @@ class TrendyolAdapter extends MarketplaceAdapter {
         supportsInventoryUpdate: true,
         supportsBatchStatus: true,
         supportsListingVerification: true,
+        supportsListingValidation: true,
+        supportsProductDraft: true,
       },
     });
     this.service = service;
+  }
+
+  resolveListingIdentifiers(input = {}) {
+    return {
+      ...super.resolveListingIdentifiers(input),
+      semanticsVerified: true,
+    };
   }
 
   configured() {

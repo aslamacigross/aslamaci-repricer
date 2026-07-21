@@ -16,6 +16,12 @@ Eksik kritik alanlar yüksek güven veremez. Paket yapısı veya varyant uyuşma
 eşleşmeyi reddeder. Bu nedenle `1,5 L x 2`, `3 L x 1` ile; Menekşe paketi de
 Çiçek Rüyası veya karma paketle aynı kabul edilmez.
 
+Motor güvenli hibrit çalışır: hacim, gramaj, paket adedi, varyant ve bundle
+bileşenleri hard constraint'tir. `1,5 L` ile `1500 ml`, `1,5 kg` ile
+`1500 g` ortak birime normalize edilir. Ürün adı ve ürün ailesi alias/token
+benzerliği yalnız yardımcı sinyaldir. Fuzzy sinyal kullanan aday yüksek puan alsa
+dahi otomatik `CONFIRMED` olmaz; `REVIEW_REQUIRED` ile insan incelemesine gider.
+
 ## Kimlik Ayrımı
 
 - ERP fiziksel ürün kimliği: alınan gerçek ürün.
@@ -50,3 +56,8 @@ olarak çalıştırır. Her satır `EXISTING_MATCH_CONFIRMED`,
 `EXISTING_MATCH_REVIEW_REQUIRED`, `NEW_PRODUCT_REQUIRED`, `READY_TO_LIST` veya
 açık maliyet/kimlik/capability blocker durumlarından birine ayrılır. Batch işlemi
 ürün, içerik, fiyat ya da stok göndermez.
+
+Idempotency anahtarı draft üretiminden önce hesaplanır. Mevcut batch bulunduğunda
+taslak değerlendirmesi ve DB yazımı yapılmadan aynı batch döner. Yeni batch,
+publication draft ve batch item kayıtları tek transaction içinde oluşur; ikinci
+aynı isteğin orphan veya duplicate draft bırakmaması backend E2E ile doğrulanır.
