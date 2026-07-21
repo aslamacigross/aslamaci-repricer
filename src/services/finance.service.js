@@ -1479,7 +1479,7 @@ class FinanceService {
                    END
                ELSE 0 END),0) AS "product_cost",
              COALESCE(SUM(CASE
-               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
                  AND ft.transaction_type IN('Satış','Sale')
                  THEN COALESCE(p.calculated_product_cost,0) *
                    CASE
@@ -1487,7 +1487,7 @@ class FinanceService {
                        THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
                      ELSE 1
                    END
-               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
                  AND ft.transaction_type IN('İade','Iade','Return')
                  THEN -COALESCE(p.calculated_product_cost,0) *
                    CASE
@@ -1503,10 +1503,10 @@ class FinanceService {
                  THEN -COALESCE(p.service_fee,0)
                ELSE 0 END),0) AS "service_fee",
              COALESCE(SUM(CASE
-               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
                  AND ft.transaction_type IN('Satış','Sale')
                  THEN COALESCE(p.service_fee,0)
-               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
                  AND ft.transaction_type IN('İade','Iade','Return')
                  THEN -COALESCE(p.service_fee,0)
                ELSE 0 END),0) AS "legacy_service_fee",
@@ -1516,7 +1516,7 @@ class FinanceService {
              ) AS "missing_cost_lines",
              COUNT(*) FILTER(
                WHERE ft.transaction_type IN('Satış','Sale')
-                 AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+                 AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')<$4::date
                  AND (p.barcode IS NULL OR p.calculated_product_cost<=0)
              ) AS "legacy_missing_cost_lines"
            FROM marketplace_financial_transactions ft
@@ -1526,7 +1526,7 @@ class FinanceService {
              AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
                <$3::date+INTERVAL '1 day'`,
-        [marketplace, startDate, endDate, HISTORICAL_CURRENT_COST_END_DATE],
+        [marketplace, startDate, endDate, ORDER_COST_SNAPSHOT_START_DATE],
       ),
       this.db.query(
         `SELECT

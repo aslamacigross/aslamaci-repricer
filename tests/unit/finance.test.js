@@ -597,8 +597,10 @@ test("gecmis siparis maliyeti yoksa settlement barkodlarini guncel maliyetle tam
 });
 
 test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullanir", async () => {
+  let ledgerCostSql = "";
+  let ledgerCostParams = [];
   const db = {
-    async query(sql) {
+    async query(sql, params = []) {
       if (sql.includes('COUNT(*) AS "order_count"'))
         return {
           rows: [
@@ -626,18 +628,22 @@ test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullani
           ],
         };
       if (sql.includes('AS "missing_cost_lines"'))
-        return {
-          rows: [
-            {
-              product_cost: 999,
-              service_fee: 99,
-              legacy_product_cost: 200,
-              legacy_service_fee: 10,
-              missing_cost_lines: 0,
-              legacy_missing_cost_lines: 0,
-            },
-          ],
-        };
+        {
+          ledgerCostSql = sql;
+          ledgerCostParams = params;
+          return {
+            rows: [
+              {
+                product_cost: 999,
+                service_fee: 99,
+                legacy_product_cost: 200,
+                legacy_service_fee: 10,
+                missing_cost_lines: 0,
+                legacy_missing_cost_lines: 0,
+              },
+            ],
+          };
+        }
       if (sql.includes("SUM(product_cost_total)"))
         return { rows: [{ product_cost: 30, service_fee: 2 }] };
       if (sql.includes("monthly_packaging_expenses"))
@@ -661,6 +667,8 @@ test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullani
 
   const report = await finance.monthlyReport("2026-07", "TRENDYOL");
 
+  assert.match(ledgerCostSql, /<\$4::date/);
+  assert.equal(ledgerCostParams[3], "2026-07-22");
   assert.equal(report.summary.cost_source, "MIXED_CURRENT_AND_SNAPSHOT");
   assert.equal(report.summary.product_cost, 230);
   assert.equal(report.summary.service_fee, 12);
