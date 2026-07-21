@@ -110,6 +110,13 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
               hasCostDetail,
             ],
             [
+              "Hizmet bedeli",
+              report.summary.service_fee,
+              CreditCard,
+              "warning",
+              hasCostDetail,
+            ],
+            [
               "Operasyonel kâr",
               report.summary.profit_after_packaging,
               Banknote,
@@ -152,9 +159,9 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
     ];
     return [
       ...exactItems,
-      ...(report.coverage.profitability_complete ? detailedItems : []),
+      ...(hasCostDetail ? detailedItems : []),
     ].filter((item) => item.value > 0);
-  }, [report]);
+  }, [hasCostDetail, report]);
 
   async function sync() {
     setSyncing(true);
@@ -325,13 +332,16 @@ export default function Finance({ notify, marketplace = "TRENDYOL" }) {
           </p>
         </div>
       )}
-      {report.summary.cost_source === "CURRENT_PRODUCT_COST_FALLBACK" && (
+      {[
+        "CURRENT_PRODUCT_COST_FALLBACK",
+        "MIXED_CURRENT_AND_SNAPSHOT",
+      ].includes(report.summary.cost_source) && (
         <div className="notice notice-info">
           <strong>Geçmiş alış maliyeti güncel maliyetle tamamlandı</strong>
           <p>
-            Sipariş anı maliyet snapshotı olmayan eski kayıtlar, bugünkü ürün
-            maliyetleriyle hesaplanıyor. 22.07.2026 sonrası yeni siparişlerde
-            sipariş anındaki maliyet saklanır.
+            15.12.2025 - 21.07.2026 arası satışlar bugünkü mapping ve maliyet
+            kalemleriyle hesaplanıyor. 22.07.2026 sonrası siparişlerde sipariş
+            anındaki maliyet snapshotı kullanılır.
           </p>
         </div>
       )}
