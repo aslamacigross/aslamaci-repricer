@@ -68,6 +68,45 @@ async function tableColumns(db, table) {
   ).rows.map((row) => row.column_name);
 }
 
+async function tableColumnTypes(db, table) {
+  const rows = (
+    await db.query(
+      `SELECT column_name, data_type, udt_name
+       FROM information_schema.columns
+       WHERE table_schema='public' AND table_name=$1
+       ORDER BY ordinal_position`,
+      [table],
+    )
+  ).rows;
+  return new Map(
+    rows.map((row) => [
+      row.column_name,
+      { dataType: row.data_type, udtName: row.udt_name },
+    ]),
+  );
+}
+
+function normalizeImportValue(value, columnType) {
+  if (value == null) return value;
+  if (
+    columnType?.dataType === "json" ||
+    columnType?.dataType === "jsonb" ||
+    columnType?.udtName === "json" ||
+    columnType?.udtName === "jsonb"
+  ) {
+    if (typeof value === "string") {
+      try {
+        JSON.parse(value);
+        return value;
+      } catch {
+        return JSON.stringify(value);
+      }
+    }
+    return JSON.stringify(value);
+  }
+  return value;
+}
+
 async function exportOperationalData(db) {
   const exported = {};
   const counts = {};
@@ -138,9 +177,13 @@ async function importOperationalData(db, payload) {
         counts[table] = 0;
         continue;
       }
+      const columnTypes = await tableColumnTypes(db, table);
       for (const [rowIndex, row] of rows.entries()) {
         const values = sourceColumns.map((column) =>
-          row[column] === undefined ? null : row[column],
+          normalizeImportValue(
+            row[column] === undefined ? null : row[column],
+            columnTypes.get(column),
+          ),
         );
         const placeholders = sourceColumns
           .map((_, index) => `$${index + 1}`)
