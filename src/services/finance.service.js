@@ -1007,7 +1007,17 @@ class FinanceService {
     const { startDate, endDate } = range;
     const [sales, chargeRows, settings, tariffs] = await Promise.all([
       this.db.query(
-        `SELECT ft.external_order_number AS "order_number",
+        `WITH return_orders AS(
+           SELECT DISTINCT marketplace,external_order_number
+             FROM marketplace_financial_transactions
+            WHERE marketplace=$1
+              AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+              AND (order_date AT TIME ZONE 'Europe/Istanbul')
+                <$3::date+INTERVAL '1 day'
+              AND transaction_type IN('İade','Iade','Return')
+              AND external_order_number IS NOT NULL
+         )
+         SELECT ft.external_order_number AS "order_number",
                 MIN(ft.order_date) AS "order_date",
                 ROUND(SUM(ft.amount),2) AS "sale_amount",
                 CEIL(SUM(
@@ -1021,15 +1031,7 @@ class FinanceService {
                 COUNT(*) AS "line_count",
                 COUNT(*) FILTER(WHERE p.barcode IS NULL OR p.desi<=0)
                   AS "missing_desi_count",
-                EXISTS(
-                  SELECT 1 FROM marketplace_financial_transactions rt
-                  WHERE rt.marketplace=ft.marketplace
-                    AND rt.external_order_number=ft.external_order_number
-                    AND (rt.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
-                    AND (rt.order_date AT TIME ZONE 'Europe/Istanbul')
-                      <$3::date+INTERVAL '1 day'
-                    AND rt.transaction_type IN('İade','Iade','Return')
-                ) AS "has_return",
+                BOOL_OR(ro.external_order_number IS NOT NULL) AS "has_return",
                 STRING_AGG(
                   DISTINCT COALESCE(p.product_name,ft.barcode,'Bilinmiyor'),
                   ' + '
@@ -1037,6 +1039,8 @@ class FinanceService {
            FROM marketplace_financial_transactions ft
            LEFT JOIN products p ON p.marketplace=ft.marketplace
              AND p.barcode=ft.barcode
+           LEFT JOIN return_orders ro ON ro.marketplace=ft.marketplace
+             AND ro.external_order_number=ft.external_order_number
           WHERE ft.marketplace=$1
             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
             AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
