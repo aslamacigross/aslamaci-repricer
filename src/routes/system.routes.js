@@ -138,7 +138,7 @@ async function importOperationalData(db, payload) {
         counts[table] = 0;
         continue;
       }
-      for (const row of rows) {
+      for (const [rowIndex, row] of rows.entries()) {
         const values = sourceColumns.map((column) =>
           row[column] === undefined ? null : row[column],
         );
@@ -146,11 +146,26 @@ async function importOperationalData(db, payload) {
           .map((_, index) => `$${index + 1}`)
           .join(",");
         const columnSql = sourceColumns.map(quoteIdentifier).join(",");
-        await db.query(
-          `INSERT INTO ${quoteIdentifier(table)}(${columnSql})
-           VALUES(${placeholders})`,
-          values,
-        );
+        try {
+          await db.query(
+            `INSERT INTO ${quoteIdentifier(table)}(${columnSql})
+             VALUES(${placeholders})`,
+            values,
+          );
+        } catch (error) {
+          throw new AppError(
+            `Operasyonel import ${table} tablosunda takildi`,
+            500,
+            "OPERATIONAL_IMPORT_ROW_FAILED",
+            {
+              table,
+              rowIndex,
+              columns: sourceColumns,
+              pgCode: error.code,
+              pgMessage: error.message,
+            },
+          );
+        }
       }
       await resetSequence(db, table, sourceColumns);
       counts[table] = rows.length;
