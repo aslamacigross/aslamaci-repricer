@@ -26,6 +26,8 @@ const TRANSACTION_TYPES = [
 const DAY_MS = 86400000;
 const TRENDYOL_MAX_RANGE_MS = 14 * DAY_MS;
 const TRENDYOL_HISTORY_START = Date.parse("2025-12-14T21:00:00.000Z");
+const HISTORICAL_CURRENT_COST_END_DATE = "2026-07-21";
+const ORDER_COST_SNAPSHOT_START_DATE = "2026-07-22";
 
 function monthInTimeZone(date = new Date(), timeZone = "Europe/Istanbul") {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -1253,6 +1255,7 @@ class FinanceService {
       ledgerHourly,
       ledgerProducts,
       ledgerCosts,
+      modernSnapshotCosts,
       coverage,
       shippingReport,
     ] = await Promise.all([
@@ -1476,15 +1479,46 @@ class FinanceService {
                    END
                ELSE 0 END),0) AS "product_cost",
              COALESCE(SUM(CASE
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+                 AND ft.transaction_type IN('Satış','Sale')
+                 THEN COALESCE(p.calculated_product_cost,0) *
+                   CASE
+                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                     ELSE 1
+                   END
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+                 AND ft.transaction_type IN('İade','Iade','Return')
+                 THEN -COALESCE(p.calculated_product_cost,0) *
+                   CASE
+                     WHEN ft.raw_data->>'quantity' ~ '^([0-9]+)(\\.[0-9]+)?$'
+                       THEN GREATEST((ft.raw_data->>'quantity')::numeric,1)
+                     ELSE 1
+                   END
+               ELSE 0 END),0) AS "legacy_product_cost",
+             COALESCE(SUM(CASE
                WHEN ft.transaction_type IN('Satış','Sale')
                  THEN COALESCE(p.service_fee,0)
                WHEN ft.transaction_type IN('İade','Iade','Return')
                  THEN -COALESCE(p.service_fee,0)
                ELSE 0 END),0) AS "service_fee",
+             COALESCE(SUM(CASE
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+                 AND ft.transaction_type IN('Satış','Sale')
+                 THEN COALESCE(p.service_fee,0)
+               WHEN (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+                 AND ft.transaction_type IN('İade','Iade','Return')
+                 THEN -COALESCE(p.service_fee,0)
+               ELSE 0 END),0) AS "legacy_service_fee",
              COUNT(*) FILTER(
                WHERE ft.transaction_type IN('Satış','Sale')
                  AND (p.barcode IS NULL OR p.calculated_product_cost<=0)
-             ) AS "missing_cost_lines"
+             ) AS "missing_cost_lines",
+             COUNT(*) FILTER(
+               WHERE ft.transaction_type IN('Satış','Sale')
+                 AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')<=$4::date
+                 AND (p.barcode IS NULL OR p.calculated_product_cost<=0)
+             ) AS "legacy_missing_cost_lines"
            FROM marketplace_financial_transactions ft
            LEFT JOIN products p ON p.marketplace=ft.marketplace
              AND p.barcode=ft.barcode
@@ -1492,7 +1526,22 @@ class FinanceService {
              AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
              AND (ft.order_date AT TIME ZONE 'Europe/Istanbul')
                <$3::date+INTERVAL '1 day'`,
-        [marketplace, startDate, endDate],
+        [marketplace, startDate, endDate, HISTORICAL_CURRENT_COST_END_DATE],
+      ),
+      this.db.query(
+        `SELECT
+             COALESCE(SUM(product_cost_total),0) AS "product_cost",
+             COALESCE(SUM(service_fee_total),0) AS "service_fee"
+           FROM marketplace_orders
+           WHERE marketplace=$1
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$2::date
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')
+               <$3::date+INTERVAL '1 day'
+             AND (order_date AT TIME ZONE 'Europe/Istanbul')>=$4::date
+             AND UPPER(COALESCE(status,'')) NOT IN(
+               'CANCELLED','CANCELLEDBYCUSTOMER','RETURNED','UNSUPPLIED'
+             )`,
+        [marketplace, startDate, endDate, ORDER_COST_SNAPSHOT_START_DATE],
       ),
       this.historyCoverage(period, marketplace, range),
       this.monthlyShippingReport(period, marketplace, range),
@@ -1519,15 +1568,42 @@ class FinanceService {
     const packagingAmount = Number(packaging.rows[0]?.amount || 0);
     const fallbackProductCost = roundMoney(costFallback.product_cost || 0);
     const fallbackServiceFee = roundMoney(costFallback.service_fee || 0);
-    const useCurrentCostFallback =
+    const legacyProductCost = roundMoney(
+      costFallback.legacy_product_cost || 0,
+    );
+    const legacyServiceFee = roundMoney(costFallback.legacy_service_fee || 0);
+    const snapshotProductCost = roundMoney(
+      modernSnapshotCosts.rows[0]?.product_cost || 0,
+    );
+    const snapshotServiceFee = roundMoney(
+      modernSnapshotCosts.rows[0]?.service_fee || 0,
+    );
+    const historicalCostPolicyApplies =
+      marketplace === "TRENDYOL" &&
       useFinancialSales &&
-      fallbackProductCost > Number(summary.product_cost || 0);
-    const productCost = useCurrentCostFallback
-      ? fallbackProductCost
-      : Number(summary.product_cost || 0);
-    const serviceFee = useCurrentCostFallback
-      ? fallbackServiceFee
-      : Number(summary.service_fee || 0);
+      startDate <= HISTORICAL_CURRENT_COST_END_DATE;
+    const rangeIncludesSnapshotEra = endDate >= ORDER_COST_SNAPSHOT_START_DATE;
+    const useCurrentCostFallback =
+      historicalCostPolicyApplies && !rangeIncludesSnapshotEra;
+    const useMixedCostSource =
+      historicalCostPolicyApplies && rangeIncludesSnapshotEra;
+    const productCost = useMixedCostSource
+      ? roundMoney(legacyProductCost + snapshotProductCost)
+      : useCurrentCostFallback
+        ? fallbackProductCost
+        : Number(summary.product_cost || 0);
+    const serviceFee = useMixedCostSource
+      ? roundMoney(legacyServiceFee + snapshotServiceFee)
+      : useCurrentCostFallback
+        ? fallbackServiceFee
+        : Number(summary.service_fee || 0);
+    const costSource = useMixedCostSource
+      ? "MIXED_CURRENT_AND_SNAPSHOT"
+      : useCurrentCostFallback
+        ? "CURRENT_PRODUCT_COST_FALLBACK"
+        : coverage.profitability_complete
+          ? "ORDER_SNAPSHOT"
+          : "PARTIAL_ORDER_SNAPSHOT";
     const profitBeforePackaging = calculateCashProfit({
       revenue: salesRevenue,
       commission: commissionTotal,
@@ -1563,11 +1639,11 @@ class FinanceService {
         title: "Finansal mutabakat bekleniyor",
         text: "Rapor sipariş anındaki maliyetlerle tahminidir; settlement sync çalışınca kesin kesintiler ayrıca görünür.",
       });
-    if (useCurrentCostFallback)
+    if (useCurrentCostFallback || useMixedCostSource)
       insights.unshift({
         tone: "info",
-        title: "Geçmiş maliyet güncel maliyetten tamamlandı",
-        text: "22 Temmuz 2026 öncesi siparişlerde sipariş anı maliyet snapshotı yoksa bugünkü ürün maliyeti kullanılır. Yeni siparişlerde sipariş anındaki maliyet saklanır.",
+        title: "Geçmiş maliyet güncel mappingden hesaplandı",
+        text: "15 Aralık 2025 - 21 Temmuz 2026 arasındaki siparişlerde bugünkü ürün/mapping maliyeti kullanılır; 22 Temmuz 2026 ve sonrası sipariş anındaki snapshot ile hesaplanır.",
       });
     else if (!coverage.profitability_complete)
       insights.unshift({
@@ -1600,11 +1676,7 @@ class FinanceService {
         settlement_discounts: Number(financial.discounts || 0),
         settlement_commission: Number(financial.commission || 0),
         sales_source: useFinancialSales ? "SETTLEMENT" : "ORDER_DETAIL",
-        cost_source: useCurrentCostFallback
-          ? "CURRENT_PRODUCT_COST_FALLBACK"
-          : coverage.profitability_complete
-            ? "ORDER_SNAPSHOT"
-            : "PARTIAL_ORDER_SNAPSHOT",
+        cost_source: costSource,
         missing_cost_lines: Number(costFallback.missing_cost_lines || 0),
         packaging: packagingAmount,
         profit_before_packaging: profitBeforePackaging,

@@ -596,6 +596,77 @@ test("gecmis siparis maliyeti yoksa settlement barkodlarini guncel maliyetle tam
   assert.equal(report.summary.cost_source, "CURRENT_PRODUCT_COST_FALLBACK");
 });
 
+test("cutoff gecen raporda eski donem guncel maliyet yeni donem snapshot kullanir", async () => {
+  const db = {
+    async query(sql) {
+      if (sql.includes('COUNT(*) AS "order_count"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              revenue: 1000,
+              commission: 10,
+              shipping: 20,
+              service_fee: 50,
+              product_cost: 500,
+              operational_profit: 420,
+            },
+          ],
+        };
+      if (sql.includes('AS "gross_sales"'))
+        return {
+          rows: [
+            {
+              order_count: 1,
+              gross_sales: 1000,
+              returns: 0,
+              discounts: 0,
+              commission: 100,
+            },
+          ],
+        };
+      if (sql.includes('AS "missing_cost_lines"'))
+        return {
+          rows: [
+            {
+              product_cost: 999,
+              service_fee: 99,
+              legacy_product_cost: 200,
+              legacy_service_fee: 10,
+              missing_cost_lines: 0,
+              legacy_missing_cost_lines: 0,
+            },
+          ],
+        };
+      if (sql.includes("SUM(product_cost_total)"))
+        return { rows: [{ product_cost: 30, service_fee: 2 }] };
+      if (sql.includes("monthly_packaging_expenses"))
+        return { rows: [{ amount: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const finance = new FinanceService({ db, trendyol: {}, hepsiburada: {} });
+  finance.historyCoverage = async () => ({
+    status: "PARTIAL_DETAILS",
+    profitability_complete: false,
+  });
+  finance.monthlyShippingReport = async () => ({
+    total: 20,
+    order_count: 1,
+    billed_orders: 0,
+    estimated_orders: 1,
+    missing_orders: 0,
+    items: [],
+  });
+
+  const report = await finance.monthlyReport("2026-07", "TRENDYOL");
+
+  assert.equal(report.summary.cost_source, "MIXED_CURRENT_AND_SNAPSHOT");
+  assert.equal(report.summary.product_cost, 230);
+  assert.equal(report.summary.service_fee, 12);
+  assert.equal(report.summary.profit_before_packaging, 638);
+});
+
 test("kismi siparis detayinda kar gosterilen kalemlerden hesaplanir", async () => {
   const db = {
     async query(sql) {
@@ -650,7 +721,7 @@ test("kismi siparis detayinda kar gosterilen kalemlerden hesaplanir", async () =
     items: [],
   });
 
-  const report = await finance.monthlyReport("2026-07", "TRENDYOL");
+  const report = await finance.monthlyReport("2026-08", "TRENDYOL");
 
   assert.equal(report.summary.cost_source, "PARTIAL_ORDER_SNAPSHOT");
   assert.equal(report.summary.product_cost, 100);
