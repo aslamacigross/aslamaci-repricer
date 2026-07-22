@@ -258,7 +258,7 @@ class RepricerService {
     const hardFailures = safety.failures.filter((code) => code !== "DRY_RUN");
     if (hardFailures.length)
       throw new AppError(
-        "Manuel fiyat aksiyonu güvenlik kontrollerinden geçmedi",
+        `Manuel fiyat aksiyonu güvenlik kontrollerinden geçmedi: ${hardFailures.join(", ")}`,
         409,
         "SAFETY_BLOCKED",
         hardFailures,

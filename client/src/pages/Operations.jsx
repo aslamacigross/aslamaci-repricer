@@ -60,7 +60,8 @@ const SAFETY_REASON_LABELS = {
   BUYBOX_MISSING: "Buybox verisi eksik.",
   BUYBOX_STALE: "Buybox verisi izin verilen süreden eski.",
   SINGLE_CHANGE_LIMIT: "Tek işlem fiyat değişim limiti aşılırdı.",
-  DAILY_CHANGE_LIMIT: "Günlük fiyat değişim limiti aşılırdı.",
+  DAILY_CHANGE_LIMIT:
+    "Eski günlük fiyat değişim limiti. Yeni canlı modda bu limit bloklayıcı değildir.",
   DAILY_ACTION_LIMIT: "Günlük aksiyon sayısı limiti dolmuş.",
   BLACKLISTED:
     "Üründe manuel fiyat kilidi aktif. Özel komisyon veya kampanya bitene kadar otomatik repricer devre dışı.",
@@ -1007,6 +1008,19 @@ function Actions({ notify, marketplace }) {
     { key: "outcome_result", label: "Sonuç", badge: true },
     { key: "outcome_elapsed_minutes", label: "Sonuç kontrolü (dk)" },
     { key: "reason", label: "Sebep" },
+    {
+      key: "error",
+      label: "Hata",
+      render: (r) => {
+        const detail =
+          r.error ||
+          r.verification_error ||
+          (r.api_response?.safety?.failures || [])
+            .map(safetyReasonText)
+            .join(" ");
+        return detail || "-";
+      },
+    },
     {
       key: "ops",
       label: "İşlem",

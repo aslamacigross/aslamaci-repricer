@@ -367,7 +367,7 @@ class ActionService {
       const hardFailures = safety.failures.filter((code) => code !== "DRY_RUN");
       if (hardFailures.length)
         throw new AppError(
-          "Fiyat güvenlik kontrollerinden geçmedi",
+          `Fiyat güvenlik kontrollerinden geçmedi: ${hardFailures.join(", ")}`,
           409,
           "SAFETY_BLOCKED",
           hardFailures,
