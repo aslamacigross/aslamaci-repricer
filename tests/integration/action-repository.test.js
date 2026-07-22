@@ -167,6 +167,7 @@ test("aksiyon, outcome ve rollback iliskileri gercek semada atomik calisir", asy
   const openAutomation = await actions.openAutomationActions("TRENDYOL");
   assert.equal(openAutomation.length, 1);
   assert.equal(Number(openAutomation[0].id), openAuto.id);
+
   for (const table of [
     "repricer_outcomes",
     "price_change_outcomes",

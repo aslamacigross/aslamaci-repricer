@@ -8,7 +8,7 @@ const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
 const { ActionService } = require("./services/action.service");
 const { LearningService } = require("./services/learning.service");
-const { JobService } = require("./services/job.service");
+const { JobService, safeItemError } = require("./services/job.service");
 const { MaintenanceService } = require("./services/maintenance.service");
 const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
@@ -251,6 +251,7 @@ function createContainer(overrides = {}) {
       };
     let successful = 0,
       failed = 0;
+    const itemErrors = [];
     const actionById = new Map();
     for (const action of openAutomationActions)
       actionById.set(action.id, action);
@@ -269,6 +270,7 @@ function createContainer(overrides = {}) {
         successful++;
       } catch (error) {
         failed++;
+        itemErrors.push(safeItemError(action, error));
         const latest = await actions.get(action.id);
         if (
           latest &&
@@ -290,6 +292,7 @@ function createContainer(overrides = {}) {
         skipped: generated.skipped,
         openAutomation: openAutomationActions.length,
         verification,
+        itemErrors,
       },
     };
   });

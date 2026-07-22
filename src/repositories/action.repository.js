@@ -209,11 +209,15 @@ class ActionRepository {
         `SELECT ra.*,p.buybox_price buybox_after,p.rank rank_after,p.calculated_net_profit profit_after
       FROM repricer_actions ra JOIN products p ON p.marketplace=ra.marketplace AND p.barcode=ra.barcode
       WHERE ra.status IN('SENT','AWAITING_RESULT','SUCCESS')
-      AND ($2::bigint IS NULL OR ra.id=$2)
+      AND ($3::bigint IS NULL OR ra.id=$3::bigint)
       AND ra.verified_at IS NOT NULL
-      AND ra.sent_at<=NOW()-($1||' minutes')::interval
-      AND NOT EXISTS(SELECT 1 FROM price_change_outcomes pco WHERE pco.action_id=ra.id AND pco.elapsed_minutes=$1)`,
-        [elapsedMinutes, actionId],
+      AND ra.sent_at<=NOW()-(($1::text||' minutes')::interval)
+      AND NOT EXISTS(SELECT 1 FROM price_change_outcomes pco WHERE pco.action_id=ra.id AND pco.elapsed_minutes=$2::integer)`,
+        [
+          String(elapsedMinutes),
+          elapsedMinutes,
+          actionId == null ? null : String(actionId),
+        ],
       )
     ).rows;
   }

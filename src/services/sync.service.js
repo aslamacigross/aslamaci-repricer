@@ -284,12 +284,12 @@ class SyncService {
         `INSERT INTO product_settings(
            marketplace,barcode,adaptive_sync_enabled,adaptive_sync_minutes,
            next_buybox_sync_at,competition_score,updated_at
-         )VALUES('TRENDYOL',$1,TRUE,$2,NOW()+$2*INTERVAL '1 minute',$3,NOW())
+         )VALUES('TRENDYOL',$1,TRUE,$2::integer,NOW()+(($3::text||' minutes')::interval),$4,NOW())
          ON CONFLICT(marketplace,barcode)WHERE barcode IS NOT NULL
          DO UPDATE SET adaptive_sync_minutes=EXCLUDED.adaptive_sync_minutes,
            next_buybox_sync_at=EXCLUDED.next_buybox_sync_at,
            competition_score=EXCLUDED.competition_score,updated_at=NOW()`,
-        [product.barcode, minutes, score],
+        [product.barcode, minutes, String(minutes), score],
       );
     }
     return {

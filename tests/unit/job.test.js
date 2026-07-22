@@ -1,6 +1,22 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { JobService } = require("../../src/services/job.service");
+const { JobService, safeItemError } = require("../../src/services/job.service");
+
+test("otomatik repricer ürün-bazlı hatayı güvenli job metadatasına dönüştürür", () => {
+  const item = safeItemError(
+    { id: 9007199254740993n, barcode: "8690609598109" },
+    Object.assign(new Error("token=secret-value ile istek reddedildi"), {
+      code: "TRENDYOL_REJECTED",
+    }),
+  );
+  assert.deepEqual(item, {
+    actionId: "9007199254740993",
+    barcode: "8690609598109",
+    errorCode: "TRENDYOL_REJECTED",
+    message: "token=[REDACTED] ile istek reddedildi",
+  });
+});
+
 test("advisory lock alinmazsa ayni job ikinci kez calismaz", async () => {
   let handled = 0;
   const client = {

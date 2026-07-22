@@ -1,5 +1,21 @@
 const logger = require("../config/logger");
 
+function safeItemError(action, error) {
+  const message = String(error?.message || "Fiyat aksiyonu uygulanamadı")
+    .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, "Basic [REDACTED]")
+    .replace(
+      /(authorization|api[-_ ]?key|secret|password|token)\s*[:=]\s*[^\s,;]+/gi,
+      "$1=[REDACTED]",
+    )
+    .slice(0, 400);
+  return {
+    actionId: action?.id == null ? null : String(action.id),
+    barcode: String(action?.barcode || ""),
+    errorCode: String(error?.code || "AUTO_REPRICER_ACTION_FAILED"),
+    message,
+  };
+}
+
 function zonedParts(date, timeZone) {
   return Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", {
@@ -130,4 +146,4 @@ class JobService {
   }
 }
 
-module.exports = { JobService, isJobDue, zonedParts };
+module.exports = { JobService, isJobDue, zonedParts, safeItemError };
