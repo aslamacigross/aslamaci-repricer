@@ -228,17 +228,11 @@ function safetyCheck(context) {
     parseNumber(settings.minimum_price),
   );
   const recovery = current < minimum && proposed > current;
-  const productMaxDaily = parseNumber(settings.max_daily_change_pct, Infinity);
   const productMaxSingle = parseNumber(
     settings.max_single_change_pct,
-    productMaxDaily,
+    parseNumber(global.maxChangePct, Infinity),
   );
-  const globalMaxDaily = parseNumber(
-    global.maxDailyDecreasePct,
-    parseNumber(global.maxChangePct, 5),
-  );
-  const maxDailyChangePct = Math.min(productMaxDaily, globalMaxDaily);
-  const maxSingleChangePct = Math.min(productMaxSingle, globalMaxDaily);
+  const maxSingleChangePct = productMaxSingle;
   const changePct =
     current > 0 ? (Math.abs(proposed - current) / current) * 100 : 100;
   const dayStartPrice = parseNumber(today.dayStartPrice, current);
@@ -266,8 +260,6 @@ function safetyCheck(context) {
     failures.push("BUYBOX_STALE");
   if (proposed < current && changePct > maxSingleChangePct)
     failures.push("SINGLE_CHANGE_LIMIT");
-  if (proposed < dayStartPrice && dailyNetChangePct > maxDailyChangePct)
-    failures.push("DAILY_CHANGE_LIMIT");
   if (
     parseNumber(today.actionCount) >=
     parseNumber(settings.daily_action_limit, 3)

@@ -104,7 +104,7 @@ test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   assert.equal(decrease.proposedPrice, 850);
   assert.equal(decrease.limitedBy, "KADEMELI_DUSUS");
 });
-test("tek islem ve gunluk toplam degisim limitleri ayri uygulanir", () => {
+test("tek islem limiti uygulanir, gunluk toplam degisim limiti bloklamaz", () => {
   const stepped = proposePrice(
     { ...base, my_price: 1000, min_price: 500, rank: 2, buybox_price: 700 },
     {
@@ -128,13 +128,35 @@ test("tek islem ve gunluk toplam degisim limitleri ayri uygulanir", () => {
       dryRun: false,
       buyboxMaxAgeMinutes: 20,
       maxChangePct: 15,
+      maxDailyDecreasePct: 5,
       minChangeTl: 0.1,
     },
     proposal: proposePrice(base, settings),
     today: { actionCount: 0, dayStartPrice: 1000 },
   });
-  assert.ok(result.failures.includes("DAILY_CHANGE_LIMIT"));
+  assert.ok(!result.failures.includes("DAILY_CHANGE_LIMIT"));
   assert.ok(!result.failures.includes("SINGLE_CHANGE_LIMIT"));
+
+  const wideMoveProposal = proposePrice(
+    { ...base, my_price: 1000, min_price: 500, rank: 2, buybox_price: 850 },
+    { ...settings, price_cut_tl: 1, max_single_change_pct: 20 },
+  );
+  const wideMove = safetyCheck({
+    product: { ...base, my_price: 1000, min_price: 500, buybox_price: 850 },
+    settings: { ...settings, max_single_change_pct: 20 },
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 20,
+      maxDailyDecreasePct: 5,
+      minChangeTl: 0.1,
+    },
+    proposal: wideMoveProposal,
+    today: { actionCount: 0, dayStartPrice: 1000 },
+  });
+  assert.ok(!wideMove.failures.includes("DAILY_CHANGE_LIMIT"));
+  assert.ok(!wideMove.failures.includes("SINGLE_CHANGE_LIMIT"));
 });
 test("yukari yonlu fiyat artisi limitsiz ayarda yuzde limitine takilmaz", () => {
   const product = {
