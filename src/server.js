@@ -17,7 +17,15 @@ async function start() {
       dryRun: env.dryRun,
     }),
   );
-  if (env.jobsEnabled) container.jobService.startScheduler();
+  if (!env.schedulerDisabled) {
+    container.jobService.startScheduler();
+    logger.info("scheduler_started", {
+      jobsEnabled: env.jobsEnabled,
+      source: env.jobsEnabled ? "JOBS_ENABLED" : "database_enabled_jobs",
+    });
+  } else {
+    logger.warn("scheduler_disabled", { reason: "SCHEDULER_DISABLED" });
+  }
   const shutdown = (signal) => {
     logger.info("server_stopping", { signal });
     container.jobService.stopScheduler();

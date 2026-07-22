@@ -57,6 +57,7 @@ const env = {
   dryRun: bool(process.env.DRY_RUN, true),
   repricerEnabled: bool(process.env.REPRICER_ENABLED, false),
   jobsEnabled: bool(process.env.JOBS_ENABLED, true),
+  schedulerDisabled: bool(process.env.SCHEDULER_DISABLED, false),
   defaultCarrier: process.env.DEFAULT_CARRIER || "TEX",
   defaultServiceFee: number(process.env.DEFAULT_SERVICE_FEE, 13.19),
   defaultTargetProfit: number(process.env.DEFAULT_TARGET_PROFIT, 40),

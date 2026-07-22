@@ -96,20 +96,28 @@ class JobService {
     }
   }
 
+  async runDueJobs() {
+    const due = (
+      await this.db.query("SELECT * FROM jobs WHERE enabled=TRUE")
+    ).rows.filter((job) => isJobDue(job));
+    for (const job of due) {
+      try {
+        await this.run(job.name, { source: "scheduler" });
+      } catch {
+        // JobService.run already records and logs the failure.
+      }
+    }
+    return { processed: due.length };
+  }
+
   startScheduler() {
     if (this.timer) return;
+    this.runDueJobs().catch((error) =>
+      logger.error("scheduler_failed", { message: error.message }),
+    );
     this.timer = setInterval(async () => {
       try {
-        const due = (
-          await this.db.query("SELECT * FROM jobs WHERE enabled=TRUE")
-        ).rows.filter((job) => isJobDue(job));
-        for (const job of due) {
-          try {
-            await this.run(job.name, { source: "scheduler" });
-          } catch {
-            // JobService.run already records and logs the failure.
-          }
-        }
+        await this.runDueJobs();
       } catch (error) {
         logger.error("scheduler_failed", { message: error.message });
       }
