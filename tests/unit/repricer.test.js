@@ -209,6 +209,28 @@ test("yukari yonlu fiyat artisi limitsiz ayarda yuzde limitine takilmaz", () => 
   assert.ok(!result.failures.includes("DAILY_CHANGE_LIMIT"));
   assert.ok(!result.failures.includes("SINGLE_CHANGE_LIMIT"));
 });
+test("buybox bizdeyken limitsiz artis eski sifir urun limitine takilmaz", () => {
+  const proposal = proposePrice(
+    {
+      ...base,
+      my_price: 638.44,
+      min_price: 500,
+      buybox_price: 638.44,
+      second_price: 713.44,
+      rank: 1,
+    },
+    {
+      ...settings,
+      price_cut_tl: 5,
+      max_increase_tl: 0,
+      max_single_change_pct: 0,
+      unlimited_increase: true,
+    },
+  );
+  assert.equal(proposal.proposedPrice, 708.44);
+  assert.equal(proposal.action, "FIYAT_ARTIR");
+  assert.equal(proposal.difference, 70);
+});
 test("auto update kapali urun safety gate gecemez", () => {
   const proposal = proposePrice(base, settings);
   const result = safetyCheck({

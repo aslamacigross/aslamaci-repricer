@@ -1,7 +1,7 @@
 const { AppError } = require("../utils/errors");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
-const { roundMoney } = require("../utils/numbers");
+const { roundMoney, parseBoolean } = require("../utils/numbers");
 
 class ActionService {
   constructor({
@@ -332,6 +332,10 @@ class ActionService {
         learned_price_cut_tl: product.learning?.learned_price_cut_tl,
         learned_max_increase_tl: product.learning?.learned_max_increase_tl,
         learning_paused: product.learning?.paused,
+        // Keep the final apply-time safety gate aligned with preview/generate.
+        unlimited_increase:
+          parseBoolean(global.unlimitedIncrease) ||
+          parseBoolean(settings.unlimited_increase),
       };
       const proposal = proposePrice(product, effectiveSettings);
       proposal.proposedPrice = Number(locked.proposed_price);

@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
-const { roundMoney } = require("../utils/numbers");
+const { roundMoney, parseBoolean } = require("../utils/numbers");
 const { env } = require("../config/env");
 const { AppError } = require("../utils/errors");
 
@@ -101,8 +101,11 @@ class RepricerService {
           product.target_profit ??
           global.defaultTargetProfit,
         auto_update: product.setting_auto_update,
+        // The global unlimited switch is a safety-wide override. A legacy
+        // product-level cap must not silently turn an unlimited pilot into KORU.
         unlimited_increase:
-          product.unlimited_increase ?? global.unlimitedIncrease,
+          parseBoolean(global.unlimitedIncrease) ||
+          parseBoolean(product.unlimited_increase),
       };
       const proposal = proposePrice(product, settings);
       const today = await this.actions.todayStats(
@@ -260,7 +263,8 @@ class RepricerService {
         global.defaultTargetProfit,
       auto_update: product.setting_auto_update,
       unlimited_increase:
-        product.unlimited_increase ?? global.unlimitedIncrease,
+        parseBoolean(global.unlimitedIncrease) ||
+        parseBoolean(product.unlimited_increase),
     };
     const safety = safetyCheck({
       product,
