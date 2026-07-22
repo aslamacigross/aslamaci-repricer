@@ -85,14 +85,26 @@ class LearningService {
     let pending = await this.actions.pendingOutcomes(elapsedMinutes, actionId);
     let refreshFailures = 0;
     if (pending.length && this.sync) {
-      const refresh = await this.sync.buybox(
-        pending.map((action) => action.barcode),
-      );
-      const updated = new Set(refresh.updatedBarcodes || []);
-      refreshFailures = Number(refresh.failed || 0);
-      pending = (
-        await this.actions.pendingOutcomes(elapsedMinutes, actionId)
-      ).filter((action) => updated.has(action.barcode));
+      try {
+        const refresh = await this.sync.buybox(
+          pending.map((action) => action.barcode),
+        );
+        const updated = new Set(refresh.updatedBarcodes || []);
+        refreshFailures = Number(refresh.failed || 0);
+        pending = (
+          await this.actions.pendingOutcomes(elapsedMinutes, actionId)
+        ).filter((action) => updated.has(action.barcode));
+      } catch (error) {
+        refreshFailures = pending.length;
+        pending = [];
+        await this.audit?.integration?.({
+          integration: "TRENDYOL",
+          level: "WARN",
+          operation: "PRICE_ACTION_OUTCOME_BUYBOX_REFRESH",
+          message: error.message,
+          details: { actionId, elapsedMinutes },
+        });
+      }
     }
     let successful = 0,
       failed = 0;
