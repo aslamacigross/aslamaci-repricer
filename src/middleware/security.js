@@ -64,9 +64,11 @@ function createRateLimiter({
   windowMs = 60000,
   max = 120,
   keyPrefix = "api",
+  skip = () => false,
 } = {}) {
   const buckets = new Map();
   return (req, res, next) => {
+    if (skip(req)) return next();
     const key = `${keyPrefix}:${req.ip}`;
     const now = Date.now();
     const current = buckets.get(key);

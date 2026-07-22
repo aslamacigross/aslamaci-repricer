@@ -46,11 +46,18 @@ function createApp(container = createContainer()) {
       },
     }),
   );
+  const isHeavyReadEndpoint = (req) =>
+    req.method === "GET" &&
+    (req.path === "/api/buybox" ||
+      /^\/api\/products\/[^/]+\/image$/.test(req.path));
   app.use(
     requestContext,
     cors,
     express.json({ limit: "25mb" }),
-    createRateLimiter({ max: env.nodeEnv === "development" ? 1000 : 180 }),
+    createRateLimiter({
+      max: env.nodeEnv === "development" ? 1000 : 180,
+      skip: isHeavyReadEndpoint,
+    }),
   );
   app.get("/version", (req, res) =>
     res.json({
@@ -107,6 +114,20 @@ function createApp(container = createContainer()) {
     }),
   );
   app.use("/api", requireAuth, csrfRequired);
+  app.get(
+    "/api/buybox",
+    createRateLimiter({
+      max: env.nodeEnv === "development" ? 2000 : 1200,
+      keyPrefix: "buybox-read",
+    }),
+  );
+  app.get(
+    "/api/products/:barcode/image",
+    createRateLimiter({
+      max: env.nodeEnv === "development" ? 4000 : 2500,
+      keyPrefix: "product-image-read",
+    }),
+  );
   app.use(
     "/api",
     asyncRoute(async (req, res, next) => {
