@@ -135,52 +135,63 @@ class RepricerService {
     const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
     const previews = await this.preview(barcode, normalizedMarketplace);
     const created = [];
+    const errors = [];
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
-      const validityBucket = Math.floor(
-        new Date(preview.expiresAt).getTime() / (15 * 60 * 1000),
-      );
-      const key = crypto
-        .createHash("sha256")
-        .update(
-          `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}`,
-        )
-        .digest("hex");
-      const action = await this.actions.create({
-        marketplace: normalizedMarketplace,
-        barcode: preview.barcode,
-        product_name: preview.productName,
-        old_price: preview.oldPrice,
-        proposed_price: preview.proposedPrice,
-        action: preview.action,
-        strategy: preview.strategy,
-        reason: preview.reason,
-        status: "PENDING",
-        source,
-        idempotency_key: key,
-        min_price: preview.minPrice,
-        buybox_before: preview.buyboxPrice,
-        rank_before: preview.rank,
-        target_rank: preview.targetRank,
-        second_price: preview.secondPrice,
-        third_price: preview.thirdPrice,
-        expected_profit: preview.expectedProfit,
-        expected_margin: preview.expectedMargin,
-        net_profit_before: preview.netProfitBefore,
-        safety_checks: preview.safetyChecks,
-        expires_at: preview.expiresAt,
-      });
-      await this.actions.recordDecision(
-        action.id,
-        { barcode: preview.barcode, strategy: preview.strategy },
-        preview,
-      );
-      created.push(action);
+      try {
+        const validityBucket = Math.floor(
+          new Date(preview.expiresAt).getTime() / (15 * 60 * 1000),
+        );
+        const key = crypto
+          .createHash("sha256")
+          .update(
+            `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}`,
+          )
+          .digest("hex");
+        const action = await this.actions.create({
+          marketplace: normalizedMarketplace,
+          barcode: preview.barcode,
+          product_name: preview.productName,
+          old_price: preview.oldPrice,
+          proposed_price: preview.proposedPrice,
+          action: preview.action,
+          strategy: preview.strategy,
+          reason: preview.reason,
+          status: "PENDING",
+          source,
+          idempotency_key: key,
+          min_price: preview.minPrice,
+          buybox_before: preview.buyboxPrice,
+          rank_before: preview.rank,
+          target_rank: preview.targetRank,
+          second_price: preview.secondPrice,
+          third_price: preview.thirdPrice,
+          expected_profit: preview.expectedProfit,
+          expected_margin: preview.expectedMargin,
+          net_profit_before: preview.netProfitBefore,
+          safety_checks: preview.safetyChecks,
+          expires_at: preview.expiresAt,
+        });
+        await this.actions.recordDecision(
+          action.id,
+          { barcode: preview.barcode, strategy: preview.strategy },
+          preview,
+        );
+        created.push(action);
+      } catch (error) {
+        errors.push({
+          barcode: preview.barcode,
+          code: error.code || "ACTION_CREATE_FAILED",
+          message: error.message,
+        });
+      }
     }
     return {
       processed: previews.length,
       created: created.length,
       items: created,
+      failed: errors.length,
+      errors,
     };
   }
 
