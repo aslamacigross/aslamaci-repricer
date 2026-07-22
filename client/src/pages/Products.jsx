@@ -522,6 +522,7 @@ const bulkDefaults = {
   max_single_change_pct: "",
   max_daily_change_pct: "",
   minimum_profit_tl: "",
+  min_change_interval_minutes: "",
   daily_action_limit: "",
   buybox_max_age_minutes: "",
   blacklisted: false,
@@ -551,6 +552,7 @@ function cleanBulkSettings(form) {
     "max_single_change_pct",
     "max_daily_change_pct",
     "minimum_profit_tl",
+    "min_change_interval_minutes",
     "daily_action_limit",
     "buybox_max_age_minutes",
   ]) {
@@ -728,6 +730,7 @@ function BulkSettingsDrawer({
             ["max_single_change_pct", "Tek işlem değişim limiti %"],
             ["max_daily_change_pct", "Maks. günlük değişim %"],
             ["minimum_profit_tl", "Minimum kâr TL"],
+            ["min_change_interval_minutes", "Bekleme süresi (dk)"],
             ["daily_action_limit", "Günlük aksiyon limiti"],
             ["buybox_max_age_minutes", "Buybox veri yaşı (dk)"],
           ].map(([key, label]) => (
