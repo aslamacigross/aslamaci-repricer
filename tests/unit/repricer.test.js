@@ -90,6 +90,24 @@ test("ucuncu siradan ekonomik olan en iyi bilinen siraya cikar", () => {
   assert.equal(result.targetRank, 2);
   assert.equal(result.proposedPrice, 969);
 });
+test("gorunen buybox altinda kalip sira alamazsa ek kontrollu fiyat kirar", () => {
+  const result = proposePrice(
+    {
+      ...base,
+      my_price: 831.07,
+      min_price: 733.61,
+      buybox_price: 836.07,
+      second_price: 831.07,
+      third_price: 1742.5,
+      rank: 2,
+    },
+    { ...settings, price_cut_tl: 5 },
+  );
+  assert.equal(result.targetRank, 1);
+  assert.equal(result.proposedPrice, 826.07);
+  assert.equal(result.action, "FIYAT_DUSUR");
+  assert.match(result.reason, /görünmeyen avantaj/);
+});
 test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   const increase = proposePrice(
     { ...base, my_price: 900, rank: 1, second_price: 1000 },

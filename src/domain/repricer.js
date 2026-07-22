@@ -141,7 +141,19 @@ function proposePrice(product, settings = {}) {
       }
       const visiblePrice = visibleRankPrice(product, candidateRank);
       if (visiblePrice <= 0) continue;
-      const target = visiblePrice - cut;
+      let target = roundMoney(visiblePrice - cut);
+      const currentRankPrice = visibleRankPrice(product, rank);
+      const listedAtCurrentRank =
+        currentRankPrice > 0 && Math.abs(currentRankPrice - current) < 0.01;
+      if (target >= current && listedAtCurrentRank) {
+        target = roundMoney(Math.max(minimum || 0, current - cut));
+        if (target >= current) continue;
+        proposed = target;
+        targetRank = candidateRank;
+        reason = `${candidateRank}. sıra için görünmeyen avantaj ihtimaline karşı kontrollü ek fiyat kırma`;
+        found = true;
+        break;
+      }
       if (minimum > 0 && target < minimum) {
         upperRankBlocked = true;
         continue;
