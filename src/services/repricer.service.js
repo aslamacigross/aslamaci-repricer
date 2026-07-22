@@ -137,10 +137,13 @@ class RepricerService {
     const created = [];
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
+      const validityBucket = Math.floor(
+        new Date(preview.expiresAt).getTime() / (15 * 60 * 1000),
+      );
       const key = crypto
         .createHash("sha256")
         .update(
-          `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}`,
+          `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}`,
         )
         .digest("hex");
       const action = await this.actions.create({
