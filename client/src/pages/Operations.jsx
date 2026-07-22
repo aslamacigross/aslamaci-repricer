@@ -1677,6 +1677,35 @@ function Settings({ notify, setDryRun, marketplace }) {
     [form, setForm] = useState({}),
     [baseline, setBaseline] = useState({}),
     [confirmLive, setConfirmLive] = useState(false);
+  const marketplaceLabel =
+    marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
+  const serviceFeeKey =
+    marketplace === "HEPSIBURADA"
+      ? "service_fee_hepsiburada"
+      : "service_fee_trendyol";
+  const carrierKey =
+    marketplace === "HEPSIBURADA"
+      ? "default_carrier_hepsiburada"
+      : "default_carrier_trendyol";
+  const editableKeys = [
+    "global_dry_run",
+    "global_repricer_enabled",
+    "global_unlimited_increase",
+    "maintenance_mode",
+    "default_target_profit",
+    "default_price_cut_tl",
+    "default_max_increase_tl",
+    "global_max_price_change_pct",
+    "global_max_daily_decrease_pct",
+    serviceFeeKey,
+    "buybox_max_age_minutes",
+    "product_sync_cron_minutes",
+    "buybox_sync_cron_minutes",
+    "cost_calculation_cron_minutes",
+    "repricer_cron_minutes",
+    "log_retention_days",
+    carrierKey,
+  ];
   useEffect(() => {
     get("/api/settings").then((x) => {
       const values = Object.fromEntries(x.items.map((i) => [i.key, i.value]));
@@ -1696,9 +1725,14 @@ function Settings({ notify, setDryRun, marketplace }) {
       setConfirmLive(true);
       return;
     }
+    const payload = Object.fromEntries(
+      editableKeys
+        .filter((key) => form[key] !== undefined)
+        .map((key) => [key, form[key]]),
+    );
     try {
       await patch("/api/settings", {
-        ...form,
+        ...payload,
         ...(confirmed ? { confirmation: "CANLI_FIYAT_MODUNU_AC" } : {}),
       });
       setDryRun(Boolean(form.global_dry_run));
@@ -1715,16 +1749,6 @@ function Settings({ notify, setDryRun, marketplace }) {
     ["global_unlimited_increase", "Yukarı yönlü artış limitsiz"],
     ["maintenance_mode", "Bakım modu"],
   ];
-  const marketplaceLabel =
-    marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
-  const serviceFeeKey =
-    marketplace === "HEPSIBURADA"
-      ? "service_fee_hepsiburada"
-      : "service_fee_trendyol";
-  const carrierKey =
-    marketplace === "HEPSIBURADA"
-      ? "default_carrier_hepsiburada"
-      : "default_carrier_trendyol";
   const legacyServiceFee = form.service_fee ?? "";
   const legacyCarrier = form.default_carrier ?? "";
   return (
