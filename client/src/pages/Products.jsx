@@ -572,6 +572,7 @@ function BulkSettingsDrawer({
 }) {
   const [scope, setScope] = useState("selected"),
     [form, setForm] = useState(bulkDefaults),
+    [barcodeText, setBarcodeText] = useState(""),
     [preview, setPreview] = useState(null),
     [loading, setLoading] = useState(false),
     [applying, setApplying] = useState(false);
@@ -582,13 +583,24 @@ function BulkSettingsDrawer({
     }
   }, [open, selectedIds.length]);
   if (!open) return null;
-  const targetCount = scope === "selected" ? selectedIds.length : total;
+  const pastedBarcodes = barcodeText
+    .split(/[\s,;]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const targetCount =
+    scope === "selected"
+      ? selectedIds.length
+      : scope === "barcodes"
+        ? pastedBarcodes.length
+        : total;
   const payload = {
     marketplace,
     settings: cleanBulkSettings(form),
     ...(scope === "selected"
       ? { barcodes: selectedIds }
-      : { filters: cleanFilters(filters) }),
+      : scope === "barcodes"
+        ? { barcodes: pastedBarcodes }
+        : { filters: cleanFilters(filters) }),
   };
   const update = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -647,6 +659,17 @@ function BulkSettingsDrawer({
           <label>
             <input
               type="radio"
+              checked={scope === "barcodes"}
+              onChange={() => {
+                setScope("barcodes");
+                setPreview(null);
+              }}
+            />
+            <span>Barkod listesi ({pastedBarcodes.length})</span>
+          </label>
+          <label>
+            <input
+              type="radio"
               checked={scope === "filtered"}
               onChange={() => {
                 setScope("filtered");
@@ -656,6 +679,19 @@ function BulkSettingsDrawer({
             <span>Filtrelenen tüm ürünler ({total})</span>
           </label>
         </div>
+        {scope === "barcodes" && (
+          <Field label="Barkod listesi">
+            <textarea
+              rows={8}
+              value={barcodeText}
+              placeholder="Her satıra bir barkod yazın veya listeyi direkt yapıştırın"
+              onChange={(event) => {
+                setBarcodeText(event.target.value);
+                setPreview(null);
+              }}
+            />
+          </Field>
+        )}
         <div className="form-grid">
           <Field label="Çalışma modu">
             <select
