@@ -90,7 +90,9 @@ test("aksiyon, outcome ve rollback iliskileri gercek semada atomik calisir", asy
     },
   });
   assert.equal(Number(confirmed.applied_price), 312.28);
+  assert.equal(confirmed.status, "SUCCESS");
   assert.ok(confirmed.verified_at);
+  assert.equal(await actions.findOpen(original.barcode), undefined);
   const verifiedProduct = await db.query(
     "SELECT my_price,last_price_change_at FROM products WHERE barcode=$1",
     [original.barcode],
@@ -119,6 +121,52 @@ test("aksiyon, outcome ve rollback iliskileri gercek semada atomik calisir", asy
     },
   );
   assert.ok(recorded);
+
+  const expired = await actions.create({
+    barcode: "8690609598109",
+    product_name: "Menekşe Konsantre Yumuşatıcı",
+    old_price: 312.28,
+    proposed_price: 313,
+    action: "FIYAT_ARTIR",
+    strategy: "Normal",
+    reason: "Süresi dolmuş test aksiyonu",
+    source: "AUTO",
+    idempotency_key: "repository-test-expired",
+    min_price: 312.28,
+    buybox_before: 313,
+    rank_before: 1,
+    target_rank: 1,
+    expected_profit: 41,
+    expected_margin: 13,
+    safety_checks: { safe: true },
+    expires_at: new Date(Date.now() - 60000),
+  });
+  assert.equal(expired.status, "PENDING");
+  assert.equal(await actions.findOpen(expired.barcode), undefined);
+  assert.deepEqual(await actions.openAutomationActions("TRENDYOL"), []);
+
+  const openAuto = await actions.create({
+    barcode: "8690609598109",
+    product_name: "Menekşe Konsantre Yumuşatıcı",
+    old_price: 312.28,
+    proposed_price: 314,
+    action: "FIYAT_ARTIR",
+    strategy: "Normal",
+    reason: "Açık otomatik aksiyon",
+    source: "AUTO",
+    idempotency_key: "repository-test-open-auto",
+    min_price: 312.28,
+    buybox_before: 313,
+    rank_before: 1,
+    target_rank: 1,
+    expected_profit: 42,
+    expected_margin: 13,
+    safety_checks: { safe: true },
+    expires_at: new Date(Date.now() + 60000),
+  });
+  const openAutomation = await actions.openAutomationActions("TRENDYOL");
+  assert.equal(openAutomation.length, 1);
+  assert.equal(Number(openAutomation[0].id), openAuto.id);
   for (const table of [
     "repricer_outcomes",
     "price_change_outcomes",

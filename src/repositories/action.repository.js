@@ -115,10 +115,29 @@ class ActionRepository {
        AND ($2::text IS NULL OR marketplace=$2)
        AND ($3::bigint IS NULL OR id<>$3)
        AND status IN('PENDING','APPROVED','SENDING','AWAITING_RESULT')
+       AND NOT(status IN('PENDING','APPROVED') AND expires_at IS NOT NULL AND expires_at<NOW())
        ORDER BY created_at DESC LIMIT 1`,
         [barcode, marketplace, excludeId],
       )
     ).rows[0];
+  }
+
+  async openAutomationActions(marketplace = "TRENDYOL", limit = 200) {
+    return (
+      await this.db.query(
+        `SELECT * FROM repricer_actions
+         WHERE marketplace=$1
+           AND source IN('AUTO','JOB')
+           AND status IN('PENDING','APPROVED')
+           AND NOT(expires_at IS NOT NULL AND expires_at<NOW())
+         ORDER BY created_at ASC
+         LIMIT $2`,
+        [
+          String(marketplace || "TRENDYOL").toUpperCase(),
+          Math.min(Number(limit) || 200, 500),
+        ],
+      )
+    ).rows;
   }
 
   async findReversal(actionId, client = this.db) {
@@ -246,7 +265,7 @@ class ActionRepository {
       };
       const action = (
         await client.query(
-          `UPDATE repricer_actions SET applied_price=$2,verified_at=NOW(),
+          `UPDATE repricer_actions SET status='SUCCESS',applied_price=$2,verified_at=NOW(),
            batch_checked_at=NOW(),verification_error=NULL,
            api_response=$3::jsonb,
            updated_at=NOW() WHERE id=$1 RETURNING *`,

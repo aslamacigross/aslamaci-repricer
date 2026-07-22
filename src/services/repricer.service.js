@@ -136,9 +136,25 @@ class RepricerService {
     const previews = await this.preview(barcode, normalizedMarketplace);
     const created = [];
     const errors = [];
+    const skipped = [];
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
       try {
+        const open = await this.actions.findOpen(
+          preview.barcode,
+          this.db,
+          null,
+          normalizedMarketplace,
+        );
+        if (open) {
+          skipped.push({
+            barcode: preview.barcode,
+            reason: "OPEN_ACTION_EXISTS",
+            actionId: open.id,
+            status: open.status,
+          });
+          continue;
+        }
         const validityBucket = Math.floor(
           new Date(preview.expiresAt).getTime() / (15 * 60 * 1000),
         );
@@ -191,6 +207,8 @@ class RepricerService {
       created: created.length,
       items: created,
       failed: errors.length,
+      skipped: skipped.length,
+      skippedItems: skipped,
       errors,
     };
   }

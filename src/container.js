@@ -230,6 +230,11 @@ function createContainer(overrides = {}) {
   );
   jobService.register("run-auto-repricer", async () => {
     const global = await repricer.globalSettings();
+    const verification = await learning.verifyPendingActions();
+    const openAutomationActions =
+      global.dryRun || !global.repricerEnabled
+        ? []
+        : await actions.openAutomationActions("TRENDYOL", 500);
     const generated = await repricer.generate({ source: "AUTO" });
     if (global.dryRun || !global.repricerEnabled)
       return {
@@ -240,11 +245,17 @@ function createContainer(overrides = {}) {
           dryRun: global.dryRun,
           repricerEnabled: global.repricerEnabled,
           created: generated.created,
+          skipped: generated.skipped,
+          verification,
         },
       };
     let successful = 0,
       failed = 0;
-    for (const action of generated.items) {
+    const actionById = new Map();
+    for (const action of openAutomationActions)
+      actionById.set(action.id, action);
+    for (const action of generated.items) actionById.set(action.id, action);
+    for (const action of actionById.values()) {
       try {
         const product = await products.get(action.barcode, action.marketplace);
         if (
@@ -252,7 +263,8 @@ function createContainer(overrides = {}) {
           !product?.settings?.auto_update
         )
           continue;
-        await actionService.approve(action.id, "system");
+        if (action.status === "PENDING")
+          await actionService.approve(action.id, "system");
         await actionService.apply(action.id, "system");
         successful++;
       } catch (error) {
@@ -269,7 +281,17 @@ function createContainer(overrides = {}) {
         }
       }
     }
-    return { processed: generated.created, successful, failed };
+    return {
+      processed: actionById.size,
+      successful,
+      failed,
+      metadata: {
+        created: generated.created,
+        skipped: generated.skipped,
+        openAutomation: openAutomationActions.length,
+        verification,
+      },
+    };
   });
   jobService.register("check-action-outcomes-5m", () =>
     learning.checkOutcomes(5),
