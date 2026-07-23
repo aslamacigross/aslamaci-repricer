@@ -250,7 +250,8 @@ function createContainer(overrides = {}) {
         },
       };
     let successful = 0,
-      failed = 0;
+      failed = 0,
+      stale = 0;
     const itemErrors = [];
     const actionById = new Map();
     for (const action of openAutomationActions)
@@ -269,6 +270,10 @@ function createContainer(overrides = {}) {
         await actionService.apply(action.id, "system");
         successful++;
       } catch (error) {
+        if (["PRICE_MISMATCH", "MARKET_PRICE_MISMATCH"].includes(error.code)) {
+          stale++;
+          continue;
+        }
         failed++;
         itemErrors.push(safeItemError(action, error));
         const latest = await actions.get(action.id);
@@ -291,6 +296,7 @@ function createContainer(overrides = {}) {
         created: generated.created,
         skipped: generated.skipped,
         openAutomation: openAutomationActions.length,
+        stale,
         verification,
         itemErrors,
       },

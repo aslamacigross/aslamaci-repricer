@@ -143,6 +143,18 @@ class RepricerService {
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
       try {
+        const automatic = source === "AUTO" || source === "JOB";
+        const blockingSafetyFailures = (preview.blockedReasons || []).filter(
+          (code) => !["DRY_RUN", "GLOBAL_REPRICER_DISABLED"].includes(code),
+        );
+        if (automatic && blockingSafetyFailures.length) {
+          skipped.push({
+            barcode: preview.barcode,
+            reason: "SAFETY_BLOCKED",
+            blockedReasons: blockingSafetyFailures,
+          });
+          continue;
+        }
         if (preview.action === "FIYAT_ARTIR" && preview.rank === 1) {
           const probe = await this.actions.findPendingIncreaseProbe(
             preview.barcode,

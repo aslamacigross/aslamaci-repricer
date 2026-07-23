@@ -479,16 +479,19 @@ class ActionService {
       });
       return updated;
     } catch (error) {
-      await this.actions.updateStatus(id, "FAILED", {
+      const stale = ["PRICE_MISMATCH", "MARKET_PRICE_MISMATCH"].includes(
+        error.code,
+      );
+      await this.actions.updateStatus(id, stale ? "STALE" : "FAILED", {
         actor,
         error: error.message,
       });
       await this.audit.record({
         actor,
-        action: "PRICE_ACTION_FAILED",
+        action: stale ? "PRICE_ACTION_STALE" : "PRICE_ACTION_FAILED",
         entityType: "repricer_action",
         entityId: String(id),
-        after: { error: error.message },
+        after: { code: error.code || "PRICE_ACTION_FAILED" },
       });
       throw error;
     }
