@@ -143,6 +143,21 @@ class RepricerService {
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
       try {
+        if (preview.action === "FIYAT_ARTIR" && preview.rank === 1) {
+          const probe = await this.actions.findPendingIncreaseProbe(
+            preview.barcode,
+            normalizedMarketplace,
+          );
+          if (probe) {
+            skipped.push({
+              barcode: preview.barcode,
+              reason: "BUYBOX_INCREASE_OUTCOME_PENDING",
+              actionId: probe.id,
+              status: probe.status,
+            });
+            continue;
+          }
+        }
         const open = await this.actions.findOpen(
           preview.barcode,
           this.db,

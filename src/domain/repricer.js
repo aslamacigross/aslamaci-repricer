@@ -87,6 +87,24 @@ function applyStepLimits(current, target, settings) {
   return Math.min(target, upper, current + effectiveIncreaseLimit(settings));
 }
 
+function controlledIncreaseProbe(current, ceiling, settings = {}) {
+  const available = Math.max(roundMoney(ceiling - current), 0);
+  if (available <= 0) return current;
+  // A price increase can lose Buybox because coupon, score and delivery
+  // advantages are not fully visible in the price feed. Probe the available
+  // gap in small, repeatable steps instead of jumping directly to its edge.
+  const learned = parseNumber(settings.learned_max_increase_tl);
+  const defaultStep = clamp(available * 0.2, 5, 20);
+  const configuredPct = parseNumber(settings.max_single_change_pct);
+  const reversibleLimit =
+    configuredPct > 0 ? (current * configuredPct) / 100 : available;
+  const step = Math.min(
+    learned > 0 ? Math.min(defaultStep, learned) : defaultStep,
+    reversibleLimit,
+  );
+  return roundMoney(Math.min(current + step, ceiling));
+}
+
 function proposePrice(product, settings = {}) {
   const current = parseNumber(product.my_price);
   const minimum = Math.max(
@@ -133,11 +151,16 @@ function proposePrice(product, settings = {}) {
         const currentRankMaximum =
           nextRankPrice > 0 ? roundMoney(nextRankPrice - minCut) : 0;
         if (currentRankMaximum > current) {
-          proposed = currentRankMaximum;
+          proposed = controlledIncreaseProbe(
+            current,
+            currentRankMaximum,
+            settings,
+          );
           effectiveCut = minCut;
           reason = upperRankBlocked
-            ? `${rank}. sırada mümkün olan en yüksek kâr`
-            : "Mevcut sıra korunarak mümkün olan en yüksek kâr";
+            ? `${rank}. sırada kontrollü kâr artışı yoklaması`
+            : "Buybox korunarak kontrollü kâr artışı yoklaması";
+          limitedBy = "BUYBOX_KAR_YOKLAMASI";
         } else if (upperRankBlocked) {
           reason = "Üst sıra minimum fiyatın altında; mevcut sıra korunuyor";
         }
@@ -238,6 +261,7 @@ function proposePrice(product, settings = {}) {
 function safetyCheck(context) {
   const { product, settings = {}, global = {}, proposal, today = {} } = context;
   const manual = parseBoolean(context.manual);
+  const automaticRecovery = parseBoolean(context.automaticRecovery);
   const failures = [];
   const current = parseNumber(product.my_price);
   const proposed = parseNumber(proposal.proposedPrice);
@@ -279,6 +303,7 @@ function safetyCheck(context) {
   if (proposed < current && changePct > maxSingleChangePct)
     failures.push("SINGLE_CHANGE_LIMIT");
   if (
+    !automaticRecovery &&
     parseNumber(today.actionCount) >=
     parseNumber(settings.daily_action_limit, 3)
   )
@@ -343,6 +368,7 @@ function safetyCheck(context) {
   const cooldownMs =
     parseNumber(settings.min_change_interval_minutes, 30) * 60000;
   if (
+    !automaticRecovery &&
     product.last_price_change_at &&
     Date.now() - new Date(product.last_price_change_at).getTime() < cooldownMs
   ) {
@@ -364,5 +390,6 @@ module.exports = {
   safetyCheck,
   visibleRankPrice,
   effectiveIncreaseLimit,
+  controlledIncreaseProbe,
   recommendRankPrice,
 };

@@ -363,6 +363,7 @@ class ActionService {
         global,
         proposal,
         manual: ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(locked.source),
+        automaticRecovery: Boolean(locked.reverts_action_id),
         today: {
           actionCount: today.action_count,
           dayStartPrice: today.day_start_price,
