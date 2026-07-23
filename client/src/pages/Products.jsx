@@ -81,6 +81,11 @@ const columns = [
     render: (r) => money(r.packaging_cost),
   },
   {
+    key: "packaging_profile_name",
+    label: "Ambalaj profili",
+    render: (r) => r.packaging_profile_name || "Eski desi kuralı",
+  },
+  {
     key: "service_fee",
     label: "Hizmet",
     render: (r) => money(r.service_fee),
@@ -877,15 +882,18 @@ function CostBreakdown({ data }) {
       </div>
       <div className="breakdown-list">
         {[
-          ["Ürün maliyeti", p.calculated_product_cost],
-          ["Kargo (KDV dahil)", p.calculated_shipping_cost],
-          ["Ambalaj", p.packaging_cost],
-          ["Hizmet bedeli", p.service_fee],
-          ["Hedef kâr", p.target_profit],
+          ["Ürün maliyeti", money(p.calculated_product_cost)],
+          ["Kargo (KDV dahil)", money(p.calculated_shipping_cost)],
+          [
+            "Ambalaj",
+            `${money(p.packaging_cost)} · ${p.packaging_profile_name || "Eski desi kuralı"}`,
+          ],
+          ["Hizmet bedeli", money(p.service_fee)],
+          ["Hedef kâr", money(p.target_profit)],
         ].map(([l, v]) => (
           <div key={l}>
             <span>{l}</span>
-            <b>{money(v)}</b>
+            <b>{v}</b>
           </div>
         ))}
       </div>

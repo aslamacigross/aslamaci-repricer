@@ -57,6 +57,41 @@ function normalizeCostItemRows(rows) {
     return item;
   });
 }
+
+function validatePackagingRule(input) {
+  const scope = String(input.rule_scope || "DESI").toUpperCase();
+  if (!["DESI", "BARCODE", "PRODUCT_NAME", "CATEGORY", "BRAND"].includes(scope))
+    throw new AppError(
+      "Ambalaj eşleşme türü geçersiz",
+      400,
+      "VALIDATION_ERROR",
+    );
+  numeric(requireFields(input, ["packaging_cost"]), ["packaging_cost"]);
+  positive(input, ["packaging_cost"], { allowZero: true });
+  if (!String(input.profile_name || input.note || "").trim())
+    throw new AppError("Profil adı gerekli", 400, "VALIDATION_ERROR");
+  if (scope === "DESI") {
+    numeric(requireFields(input, ["min_desi", "max_desi"]), [
+      "min_desi",
+      "max_desi",
+    ]);
+    positive(input, ["min_desi"], { allowZero: true });
+    positive(input, ["max_desi"]);
+    if (Number(input.max_desi) <= Number(input.min_desi))
+      throw new AppError(
+        "Maksimum desi minimumdan büyük olmalı",
+        400,
+        "VALIDATION_ERROR",
+      );
+  } else if (!String(input.match_value || "").trim()) {
+    throw new AppError("Eşleşme değeri gerekli", 400, "VALIDATION_ERROR");
+  }
+  if (input.priority !== undefined) {
+    numeric(input, ["priority"]);
+    positive(input, ["priority"], { allowZero: true });
+  }
+  return input;
+}
 function costsRoutes({
   costs,
   costEngine,
@@ -643,18 +678,7 @@ function costsRoutes({
   r.post(
     "/packaging-rules",
     asyncRoute(async (req, res) => {
-      numeric(
-        requireFields(req.body, ["min_desi", "max_desi", "packaging_cost"]),
-        ["min_desi", "max_desi", "packaging_cost"],
-      );
-      positive(req.body, ["min_desi", "packaging_cost"], { allowZero: true });
-      positive(req.body, ["max_desi"]);
-      if (Number(req.body.max_desi) <= Number(req.body.min_desi))
-        throw new AppError(
-          "Maksimum desi minimumdan büyük olmalı",
-          400,
-          "VALIDATION_ERROR",
-        );
+      validatePackagingRule(req.body);
       const data = await costs.savePackaging(req.body);
       await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
@@ -671,18 +695,7 @@ function costsRoutes({
   r.patch(
     "/packaging-rules/:id",
     asyncRoute(async (req, res) => {
-      numeric(
-        requireFields(req.body, ["min_desi", "max_desi", "packaging_cost"]),
-        ["min_desi", "max_desi", "packaging_cost"],
-      );
-      positive(req.body, ["min_desi", "packaging_cost"], { allowZero: true });
-      positive(req.body, ["max_desi"]);
-      if (Number(req.body.max_desi) <= Number(req.body.min_desi))
-        throw new AppError(
-          "Maksimum desi minimumdan büyük olmalı",
-          400,
-          "VALIDATION_ERROR",
-        );
+      validatePackagingRule(req.body);
       const data = await costs.savePackaging(req.body, req.params.id);
       if (!data) throw new AppError("Ambalaj kuralı bulunamadı", 404);
       await costEngine.recalculate(undefined, undefined, data.marketplace);

@@ -690,7 +690,9 @@ class CostRepository {
         [marketplace],
       ),
       this.db.query(
-        "SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi",
+        `SELECT * FROM packaging_rules WHERE marketplace=$1
+         ORDER BY CASE rule_scope WHEN 'BARCODE' THEN 1 WHEN 'PRODUCT_NAME' THEN 2
+           WHEN 'CATEGORY' THEN 3 WHEN 'BRAND' THEN 4 ELSE 5 END,priority DESC,min_desi`,
         [marketplace],
       ),
     ]);
@@ -755,7 +757,9 @@ class CostRepository {
         [normalizedMarketplace],
       ),
       this.db.query(
-        "SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi",
+        `SELECT * FROM packaging_rules WHERE marketplace=$1
+         ORDER BY CASE rule_scope WHEN 'BARCODE' THEN 1 WHEN 'PRODUCT_NAME' THEN 2
+           WHEN 'CATEGORY' THEN 3 WHEN 'BRAND' THEN 4 ELSE 5 END,priority DESC,min_desi`,
         [normalizedMarketplace],
       ),
     ]);
@@ -883,42 +887,55 @@ class CostRepository {
   }
   async savePackaging(input, id) {
     const marketplace = String(input.marketplace || "TRENDYOL").toUpperCase();
-    const overlap = await this.db.query(
-      `SELECT id FROM packaging_rules WHERE marketplace=$1
-       AND ($4::bigint IS NULL OR id<>$4)
-       AND NOT($3<=min_desi OR $2>=max_desi) LIMIT 1`,
-      [marketplace, input.min_desi, input.max_desi, id || null],
-    );
-    if (overlap.rowCount)
-      throw new AppError(
-        "Ambalaj desi aralığı mevcut kuralla çakışıyor",
-        409,
-        "OVERLAPPING_PACKAGING_RULE",
+    const scope = String(input.rule_scope || "DESI").toUpperCase();
+    const matchValue =
+      scope === "DESI" ? null : String(input.match_value || "").trim();
+    const minDesi = scope === "DESI" ? Number(input.min_desi) : 0;
+    const maxDesi = scope === "DESI" ? Number(input.max_desi) : 999;
+    if (scope === "DESI") {
+      const overlap = await this.db.query(
+        `SELECT id FROM packaging_rules WHERE marketplace=$1 AND rule_scope='DESI'
+         AND ($4::bigint IS NULL OR id<>$4)
+         AND NOT($3<=min_desi OR $2>=max_desi) LIMIT 1`,
+        [marketplace, minDesi, maxDesi, id || null],
       );
+      if (overlap.rowCount)
+        throw new AppError(
+          "Ambalaj desi aralığı mevcut kuralla çakışıyor",
+          409,
+          "OVERLAPPING_PACKAGING_RULE",
+        );
+    }
+    const params = [
+      marketplace,
+      minDesi,
+      maxDesi,
+      input.packaging_cost,
+      input.note || null,
+      String(input.profile_name || input.note || "Ambalaj profili").trim(),
+      String(input.packaging_type || "STANDARD").toUpperCase(),
+      scope,
+      matchValue,
+      Number(input.priority || 0),
+      input.active !== false,
+    ];
     if (id)
       return (
         await this.db.query(
-          "UPDATE packaging_rules SET marketplace=$1,min_desi=$2,max_desi=$3,packaging_cost=$4,note=$5,updated_at=NOW()WHERE id=$6 RETURNING *",
-          [
-            marketplace,
-            input.min_desi,
-            input.max_desi,
-            input.packaging_cost,
-            input.note,
-            id,
-          ],
+          `UPDATE packaging_rules SET marketplace=$1,min_desi=$2,max_desi=$3,
+           packaging_cost=$4,note=$5,profile_name=$6,packaging_type=$7,
+           rule_scope=$8,match_value=$9,priority=$10,active=$11,updated_at=NOW()
+           WHERE id=$12 RETURNING *`,
+          [...params, id],
         )
       ).rows[0];
     return (
       await this.db.query(
-        "INSERT INTO packaging_rules(marketplace,min_desi,max_desi,packaging_cost,note)VALUES($1,$2,$3,$4,$5)RETURNING *",
-        [
-          marketplace,
-          input.min_desi,
-          input.max_desi,
-          input.packaging_cost,
-          input.note,
-        ],
+        `INSERT INTO packaging_rules(
+          marketplace,min_desi,max_desi,packaging_cost,note,profile_name,
+          packaging_type,rule_scope,match_value,priority,active
+         )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)RETURNING *`,
+        params,
       )
     ).rows[0];
   }

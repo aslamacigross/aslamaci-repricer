@@ -21,6 +21,12 @@ test("maliyet motoru nihai mapping desisini bir sonraki tam sayıya yuvarlar", a
     /COALESCE\(p\.manual_desi_override,CEIL\(COALESCE\(mt\.total_desi,0\)\)\) total_desi/,
   );
   assert.match(calculationSql, /desi=c\.total_desi/);
+  assert.match(calculationSql, /x\.rule_scope='BARCODE'/);
+  assert.match(calculationSql, /x\.rule_scope='PRODUCT_NAME'/);
+  assert.match(
+    calculationSql,
+    /packaging_profile_name=c\.packaging_profile_name/,
+  );
 });
 
 test("maliyet motoru manuel ürün desi override varsa onu kullanır", async () => {
@@ -42,7 +48,7 @@ test("maliyet motoru manuel ürün desi override varsa onu kullanır", async () 
   );
   assert.match(
     calculationSql,
-    /COALESCE\(p\.manual_desi_override,CEIL\(COALESCE\(mt\.total_desi,0\)\)\) BETWEEN x\.min_desi AND x\.max_desi/,
+    /x\.rule_scope='DESI' AND COALESCE\(p\.manual_desi_override,CEIL\(COALESCE\(mt\.total_desi,0\)\)\) BETWEEN x\.min_desi AND x\.max_desi/,
   );
 });
 

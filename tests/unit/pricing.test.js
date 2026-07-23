@@ -112,6 +112,26 @@ test("desi ve ambalaj secimi yukari yuvarlanir", () => {
     15,
   );
 });
+test("desi onizlemesi urun tipi profillerini yanlislikla tum urunlere uygulamaz", () => {
+  assert.equal(
+    selectPackagingCost(2, [
+      {
+        rule_scope: "BARCODE",
+        match_value: "8695636269586",
+        min_desi: 0,
+        max_desi: 999,
+        packaging_cost: 10,
+      },
+      {
+        rule_scope: "DESI",
+        min_desi: 1,
+        max_desi: 3,
+        packaging_cost: 15,
+      },
+    ]),
+    15,
+  );
+});
 test("orphan mapping olan urun tamam sayilmaz", () => {
   const base = {
     calculated_product_cost: 112,

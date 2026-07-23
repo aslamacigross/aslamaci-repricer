@@ -49,6 +49,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "024_product_publishing_and_channel_transfer",
       "025_product_opportunity_engine",
       "026_ai_content_and_listing_health",
+      "027_packaging_profiles",
     ],
   );
   const safety = await db.query(
@@ -298,8 +299,10 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "023_pim_and_listing_identity",
       "024_product_publishing_and_channel_transfer",
       "025_product_opportunity_engine",
+      "026_ai_content_and_listing_health",
     ],
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

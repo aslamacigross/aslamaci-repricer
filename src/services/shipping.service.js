@@ -28,6 +28,7 @@ class ShippingService {
         );
     const selectedPackaging = data.packaging.find(
       (item) =>
+        (!item.rule_scope || item.rule_scope === "DESI") &&
         roundedDesi >= Number(item.min_desi) &&
         roundedDesi <= Number(item.max_desi),
     );

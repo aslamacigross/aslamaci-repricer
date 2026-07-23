@@ -1078,14 +1078,44 @@ function Shipping({
       ],
     ],
     packaging: [
-      "Ambalaj kuralları",
+      "Ambalaj profilleri",
       [
-        { key: "min_desi", label: "Min desi" },
-        { key: "max_desi", label: "Maks desi" },
+        { key: "profile_name", label: "Profil" },
+        {
+          key: "rule_scope",
+          label: "Eşleşme türü",
+          render: (r) =>
+            ({
+              BARCODE: "Barkod",
+              PRODUCT_NAME: "Ürün adı",
+              CATEGORY: "Kategori",
+              BRAND: "Marka",
+              DESI: "Eski desi",
+            })[r.rule_scope || "DESI"],
+        },
+        {
+          key: "match_value",
+          label: "Eşleşme",
+          render: (r) =>
+            (r.rule_scope || "DESI") === "DESI"
+              ? `${r.min_desi}–${r.max_desi} desi`
+              : r.match_value,
+        },
+        { key: "packaging_type", label: "Ambalaj tipi" },
         {
           key: "packaging_cost",
-          label: "Ambalaj",
+          label: "Maliyet",
           render: (r) => money(r.packaging_cost),
+        },
+        { key: "priority", label: "Öncelik" },
+        {
+          key: "active",
+          label: "Durum",
+          render: (r) => (
+            <Badge tone={r.active === false ? "neutral" : "success"}>
+              {r.active === false ? "Pasif" : "Aktif"}
+            </Badge>
+          ),
         },
         { key: "note", label: "Not" },
       ],
@@ -1203,7 +1233,8 @@ function Shipping({
           <div>
             <h2>Kargo maliyeti hesapla</h2>
             <p>
-              Sepet baremi, desi tarifesi ve ambalaj kuralı birlikte uygulanır.
+              Kargo desiye göre; ambalaj barkod, ürün adı, kategori veya marka
+              profiline göre hesaplanır.
             </p>
           </div>
         </div>
@@ -1307,9 +1338,22 @@ function Shipping({
   );
 }
 function ShippingModal({ value, type, onClose, notify, onSaved }) {
-  const [form, setForm] = useState(value || {}),
+  const initial =
+    (value?.type || type) === "packaging" && !value?.id
+      ? {
+          ...value,
+          rule_scope: "PRODUCT_NAME",
+          packaging_type: "STANDARD",
+          profile_name: "",
+          match_value: "",
+          packaging_cost: 0,
+          priority: 100,
+          active: true,
+        }
+      : value || {};
+  const [form, setForm] = useState(initial),
     [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => setForm(value || {}), [value]);
+  useEffect(() => setForm(initial), [value, type]);
   if (!value) return null;
   const actual = value.type || type;
   const set = (k, v) => setForm({ ...form, [k]: v });
@@ -1417,19 +1461,67 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
         )}
         {actual === "packaging" && (
           <>
-            <Field label="Min desi">
+            <Field label="Profil adı">
               <input
-                type="number"
-                value={form.min_desi || 0}
-                onChange={(e) => set("min_desi", Number(e.target.value))}
+                value={form.profile_name || ""}
+                placeholder="Örn. Yumuşatıcı koli + balon"
+                onChange={(e) => set("profile_name", e.target.value)}
               />
             </Field>
-            <Field label="Maks desi">
-              <input
-                type="number"
-                value={form.max_desi || 0}
-                onChange={(e) => set("max_desi", Number(e.target.value))}
-              />
+            <Field label="Eşleşme türü">
+              <select
+                value={form.rule_scope || "DESI"}
+                onChange={(e) => set("rule_scope", e.target.value)}
+              >
+                <option value="BARCODE">Barkod istisnası</option>
+                <option value="PRODUCT_NAME">Ürün adında geçiyorsa</option>
+                <option value="CATEGORY">Kategori adında geçiyorsa</option>
+                <option value="BRAND">Marka eşleşiyorsa</option>
+                <option value="DESI">Eski desi kuralı</option>
+              </select>
+            </Field>
+            {(form.rule_scope || "DESI") === "DESI" ? (
+              <>
+                <Field label="Min desi">
+                  <input
+                    type="number"
+                    value={form.min_desi || 0}
+                    onChange={(e) => set("min_desi", Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="Maks desi">
+                  <input
+                    type="number"
+                    value={form.max_desi || 0}
+                    onChange={(e) => set("max_desi", Number(e.target.value))}
+                  />
+                </Field>
+              </>
+            ) : (
+              <Field label="Eşleşme değeri">
+                <input
+                  value={form.match_value || ""}
+                  placeholder={
+                    form.rule_scope === "BARCODE"
+                      ? "Ürün barkodu"
+                      : "Ürün adında/kategoride aranacak ifade"
+                  }
+                  onChange={(e) => set("match_value", e.target.value)}
+                />
+              </Field>
+            )}
+            <Field label="Ambalaj tipi">
+              <select
+                value={form.packaging_type || "STANDARD"}
+                onChange={(e) => set("packaging_type", e.target.value)}
+              >
+                <option value="MAILER">Kargo poşeti</option>
+                <option value="BOX">Koli</option>
+                <option value="BOX_BUBBLE">Koli + balonlu koruma</option>
+                <option value="BUBBLE">Balonlu koruma</option>
+                <option value="STANDARD">Standart koruma</option>
+                <option value="LEGACY_DESI">Eski desi kuralı</option>
+              </select>
             </Field>
             <Field label="Maliyet">
               <input
@@ -1437,6 +1529,30 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
                 step="0.01"
                 value={form.packaging_cost || 0}
                 onChange={(e) => set("packaging_cost", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Öncelik">
+              <input
+                type="number"
+                min="0"
+                value={form.priority || 0}
+                onChange={(e) => set("priority", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Durum">
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={form.active !== false}
+                  onChange={(e) => set("active", e.target.checked)}
+                />
+                <span>Aktif</span>
+              </label>
+            </Field>
+            <Field label="Not">
+              <input
+                value={form.note || ""}
+                onChange={(e) => set("note", e.target.value)}
               />
             </Field>
           </>
