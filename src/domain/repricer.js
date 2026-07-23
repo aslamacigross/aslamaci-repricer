@@ -110,6 +110,7 @@ function proposePrice(product, settings = {}) {
   let targetRank = rank || null;
   let reason = "Fiyat korunuyor";
   let limitedBy = null;
+  let effectiveCut = cut;
 
   if (minimum > 0 && current < minimum) {
     proposed = minimum;
@@ -126,9 +127,14 @@ function proposePrice(product, settings = {}) {
     ) {
       if (candidateRank === rank) {
         const nextRankPrice = visibleRankPrice(product, rank + 1);
-        const currentRankMaximum = nextRankPrice > 0 ? nextRankPrice - cut : 0;
+        // Price-cut is a downward buybox-acquisition setting. When we already
+        // own the current rank, maximize profit by moving just below the next
+        // visible price instead of applying a potentially stale large cut.
+        const currentRankMaximum =
+          nextRankPrice > 0 ? roundMoney(nextRankPrice - minCut) : 0;
         if (currentRankMaximum > current) {
           proposed = currentRankMaximum;
+          effectiveCut = minCut;
           reason = upperRankBlocked
             ? `${rank}. sırada mümkün olan en yüksek kâr`
             : "Mevcut sıra korunarak mümkün olan en yüksek kâr";
@@ -214,7 +220,7 @@ function proposePrice(product, settings = {}) {
     targetRank,
     baseUndercut: parseNumber(settings.price_cut_tl, 0.1),
     learnedUndercut: parseNumber(settings.learned_price_cut_tl),
-    effectiveUndercut: cut,
+    effectiveUndercut: effectiveCut,
     effectiveMaxIncrease: effectiveIncreaseLimit(settings),
     expectedProfit: calculateNetProfit(moneyInput),
     expectedMargin: calculateNetMargin(moneyInput),

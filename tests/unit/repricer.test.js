@@ -44,7 +44,7 @@ test("fiyat yonu etiketi matematikle daima uyumludur", () => {
     { ...base, my_price: 900, rank: 1, second_price: 950 },
     { ...settings, price_cut_tl: 1 },
   );
-  assert.equal(up.proposedPrice, 949);
+  assert.equal(up.proposedPrice, 949.9);
   assert.equal(up.action, "FIYAT_ARTIR");
   const keep = proposePrice(base, { ...settings, strategy: "Manuel" });
   assert.equal(keep.proposedPrice, 944);
@@ -71,7 +71,7 @@ test("birinci sira minimum altindaysa mevcut sirada maksimum kari arar", () => {
     { ...settings, price_cut_tl: 1 },
   );
   assert.equal(result.targetRank, 2);
-  assert.equal(result.proposedPrice, 999);
+  assert.equal(result.proposedPrice, 999.9);
   assert.equal(result.action, "FIYAT_ARTIR");
 });
 test("ucuncu siradan ekonomik olan en iyi bilinen siraya cikar", () => {
@@ -191,7 +191,7 @@ test("yukari yonlu fiyat artisi limitsiz ayarda yuzde limitine takilmaz", () => 
     max_daily_change_pct: 5,
     unlimited_increase: true,
   });
-  assert.equal(proposal.proposedPrice, 1299);
+  assert.equal(proposal.proposedPrice, 1299.9);
   const result = safetyCheck({
     product,
     settings: { ...settings, unlimited_increase: true },
@@ -227,9 +227,25 @@ test("buybox bizdeyken limitsiz artis eski sifir urun limitine takilmaz", () => 
       unlimited_increase: true,
     },
   );
-  assert.equal(proposal.proposedPrice, 708.44);
+  assert.equal(proposal.proposedPrice, 713.34);
   assert.equal(proposal.action, "FIYAT_ARTIR");
-  assert.equal(proposal.difference, 70);
+  assert.equal(proposal.difference, 74.9);
+});
+test("buybox bizdeyken eski yuksek fiyat kirma degeri kar artisini engellemez", () => {
+  const proposal = proposePrice(
+    {
+      ...base,
+      my_price: 492.89,
+      min_price: 449.68,
+      buybox_price: 492.89,
+      second_price: 499,
+      rank: 1,
+    },
+    { ...settings, price_cut_tl: 75, min_undercut_tl: 0.1 },
+  );
+  assert.equal(proposal.proposedPrice, 498.9);
+  assert.equal(proposal.action, "FIYAT_ARTIR");
+  assert.equal(proposal.effectiveUndercut, 0.1);
 });
 test("auto update kapali urun safety gate gecemez", () => {
   const proposal = proposePrice(base, settings);
