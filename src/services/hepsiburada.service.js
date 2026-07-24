@@ -101,8 +101,12 @@ class HepsiburadaService {
       });
       const body = await response.text();
       if (!response.ok) {
+        const safeHint =
+          response.status === 401 && this.environment === "production"
+            ? " Hepsiburada development/SIT bilgileri kullaniliyorsa Railway'de HEPSIBURADA_ENV=sit ayarlayin."
+            : "";
         const error = new Error(
-          `Hepsiburada HTTP ${response.status}: ${body.slice(0, 500)}`,
+          `Hepsiburada HTTP ${response.status}: ${body.slice(0, 500)}${safeHint}`,
         );
         error.status = response.status;
         throw error;

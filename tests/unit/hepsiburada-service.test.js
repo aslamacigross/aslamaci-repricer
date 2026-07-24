@@ -120,4 +120,41 @@ describe("Hepsiburada API runtime configuration", () => {
       Object.assign(env, previous);
     }
   });
+
+  test("production 401 hatasi SIT ortam ipucunu secret siz verir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async () => ({
+          ok: false,
+          status: 401,
+          text: async () =>
+            "Merchant api authorization failed. userName: merchant-id",
+        }),
+      });
+      await assert.rejects(
+        () => service.listListings({ offset: 0, limit: 1 }),
+        (error) => {
+          assert.equal(error.status, 401);
+          assert.match(error.message, /HEPSIBURADA_ENV=sit/);
+          assert.equal(error.message.includes("secret-key"), false);
+          return true;
+        },
+      );
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
 });
