@@ -37,11 +37,11 @@ class RepricerService {
 
   ensureSupportedMarketplace(marketplace) {
     const normalized = String(marketplace || "TRENDYOL").toUpperCase();
-    if (normalized !== "TRENDYOL")
+    if (!["TRENDYOL", "HEPSIBURADA"].includes(normalized))
       throw new AppError(
-        "Hepsiburada repricer bağlantısı credentials bekliyor",
+        `${normalized} repricer bağlantısı desteklenmiyor`,
         409,
-        "MARKETPLACE_CREDENTIALS_MISSING",
+        "MARKETPLACE_NOT_SUPPORTED",
       );
     return normalized;
   }

@@ -182,7 +182,11 @@ function diagnosticRegenerateMessage(barcode, data = {}) {
   };
 }
 
-export default function MappingSuggestions({ view, notify }) {
+export default function MappingSuggestions({
+  view,
+  notify,
+  marketplace = "TRENDYOL",
+}) {
   if (view === "file")
     return <SupplierPricePool supplierCode="FILE_MARKET" notify={notify} />;
   if (view === "bizim")
@@ -191,13 +195,16 @@ export default function MappingSuggestions({ view, notify }) {
     return <SupplierPricePool supplierCode="BIM" notify={notify} />;
   if (view === "other")
     return <SupplierPricePool supplierCode="OTHER" notify={notify} />;
-  if (view === "learning") return <MappingLearningHistory />;
-  if (view === "diagnostics") return <MappingDiagnostics notify={notify} />;
-  if (view === "manual-costs") return <ManualCostQueue notify={notify} />;
-  return <SuggestionQueue notify={notify} />;
+  if (view === "learning")
+    return <MappingLearningHistory marketplace={marketplace} />;
+  if (view === "diagnostics")
+    return <MappingDiagnostics notify={notify} marketplace={marketplace} />;
+  if (view === "manual-costs")
+    return <ManualCostQueue notify={notify} marketplace={marketplace} />;
+  return <SuggestionQueue notify={notify} marketplace={marketplace} />;
 }
 
-function ManualCostQueue({ notify }) {
+function ManualCostQueue({ notify, marketplace = "TRENDYOL" }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -210,6 +217,7 @@ function ManualCostQueue({ notify }) {
     setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      params.set("marketplace", marketplace);
       if (search) params.set("search", search);
       const response = await get(`/api/manual-cost-queue?${params}`);
       setResult(response.data);
@@ -224,8 +232,8 @@ function ManualCostQueue({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, page]);
-  useEffect(() => setPage(1), [search]);
+  }, [search, page, marketplace]);
+  useEffect(() => setPage(1), [search, marketplace]);
 
   const columns = [
     { key: "barcode", label: "Barkod" },
@@ -298,6 +306,7 @@ function ManualCostQueue({ notify }) {
       />
       <ManualCostDrawer
         item={editing}
+        marketplace={marketplace}
         onClose={() => setEditing(null)}
         onSaved={async () => {
           setEditing(null);
@@ -309,7 +318,13 @@ function ManualCostQueue({ notify }) {
   );
 }
 
-function ManualCostDrawer({ item, onClose, onSaved, notify }) {
+function ManualCostDrawer({
+  item,
+  marketplace = "TRENDYOL",
+  onClose,
+  onSaved,
+  notify,
+}) {
   const [form, setForm] = useState({
     item_name: "",
     unit_cost: "",
@@ -344,6 +359,7 @@ function ManualCostDrawer({ item, onClose, onSaved, notify }) {
         unit_cost: Number(form.unit_cost),
         unit_desi: Number(form.unit_desi),
         quantity: Number(form.quantity),
+        marketplace,
       });
       notify?.("Manuel maliyet ve mapping oluşturuldu");
       await onSaved();
@@ -442,7 +458,7 @@ function diagnosisTone(code) {
   return "neutral";
 }
 
-function MappingDiagnostics({ notify }) {
+function MappingDiagnostics({ notify, marketplace = "TRENDYOL" }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -454,7 +470,7 @@ function MappingDiagnostics({ notify }) {
     setError(null);
     try {
       const response = await get(
-        "/api/mapping-suggestions/diagnostics?limit=1000",
+        `/api/mapping-suggestions/diagnostics?limit=1000&marketplace=${encodeURIComponent(marketplace)}`,
       );
       setData(response.data);
     } catch (nextError) {
@@ -467,7 +483,7 @@ function MappingDiagnostics({ notify }) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [marketplace]);
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -492,7 +508,7 @@ function MappingDiagnostics({ notify }) {
     try {
       const response = await post(
         `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/regenerate`,
-        {},
+        { marketplace },
       );
       const message = diagnosticRegenerateMessage(row.barcode, response.data);
       notify?.(message.text, message.tone);
@@ -510,6 +526,7 @@ function MappingDiagnostics({ notify }) {
       await post(
         `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/manual-cost`,
         {
+          marketplace,
           reason: `Teşhis ekranından manuel maliyet kuyruğuna alındı: ${
             row.diagnosis_label || row.diagnosis
           }`,
@@ -660,7 +677,7 @@ function learningImpact(value) {
   })} puan`;
 }
 
-function MappingLearningHistory() {
+function MappingLearningHistory({ marketplace = "TRENDYOL" }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -671,6 +688,7 @@ function MappingLearningHistory() {
     setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      params.set("marketplace", marketplace);
       if (search) params.set("search", search);
       if (decision) params.set("decision", decision);
       setResult((await get(`/api/mapping-learning/feedback?${params}`)).data);
@@ -682,9 +700,9 @@ function MappingLearningHistory() {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, decision, page]);
+  }, [search, decision, page, marketplace]);
 
-  useEffect(() => setPage(1), [search, decision]);
+  useEffect(() => setPage(1), [search, decision, marketplace]);
 
   const columns = useMemo(
     () => [
@@ -789,7 +807,7 @@ function MappingLearningHistory() {
   );
 }
 
-function SuggestionQueue({ notify }) {
+function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -810,6 +828,7 @@ function SuggestionQueue({ notify }) {
     setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      params.set("marketplace", marketplace);
       if (search) params.set("search", search);
       if (status) params.set("status", status);
       if (confidence) params.set("confidenceBand", confidence);
@@ -827,15 +846,19 @@ function SuggestionQueue({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, status, confidence, supplierCode, page]);
+  }, [search, status, confidence, supplierCode, page, marketplace]);
 
-  useEffect(() => setPage(1), [search, status, confidence, supplierCode]);
+  useEffect(
+    () => setPage(1),
+    [search, status, confidence, supplierCode, marketplace],
+  );
 
   async function generate() {
     setGenerating(true);
     try {
       const response = await post("/api/mapping-suggestions/generate", {
         limit: 1000,
+        marketplace,
       });
       const data = response.data;
       notify(

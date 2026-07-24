@@ -64,6 +64,12 @@ const COMPOSITE_SPLIT_PATTERN = /\s+(?:ve|\+|\/|,)\s+/i;
 const COMPOSITE_MARKER_PATTERN =
   /\b(?:set|karma|karisik|karışık|cesit|çeşit|cesitleri|çeşitleri|mix|ve)\b|(?:\s[+/,]\s)/i;
 
+function normalizeMarketplace(value) {
+  return String(value || "TRENDYOL")
+    .trim()
+    .toUpperCase();
+}
+
 function filePriceMode(target, fileItem) {
   const targetVariants = tokens(target.product_name || target.item_name).filter(
     (token) => !PRODUCT_FAMILY_TOKENS.has(token),
@@ -119,6 +125,7 @@ function parseExplicitCorrectionItems(reason) {
 
 function canonicalSuggestion(suggestion) {
   return {
+    marketplace: suggestion.marketplace || "TRENDYOL",
     barcode: suggestion.barcode,
     supplierCode: suggestion.supplier_code || "FILE_MARKET",
     sourceType: suggestion.source_type,
@@ -1408,6 +1415,7 @@ class MappingAutomationService {
       );
     if (!fileIds.length && !manualHistoryOnly) return null;
     const suggestion = {
+      marketplace: normalizeMarketplace(target.marketplace),
       barcode: target.barcode,
       base_confidence: baseConfidence,
       algorithm_version: ALGORITHM_VERSION,
@@ -1481,7 +1489,13 @@ class MappingAutomationService {
       .map((candidate) => this.applyCompositeSafety(target, candidate));
   }
 
-  async generate({ limit = 500, barcode = null, supplier_code = null } = {}) {
+  async generate({
+    limit = 500,
+    barcode = null,
+    supplier_code = null,
+    marketplace = "TRENDYOL",
+  } = {}) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const supplierCode = supplier_code
       ? String(supplier_code).toUpperCase()
       : null;
@@ -1492,8 +1506,12 @@ class MappingAutomationService {
         "INVALID_SUPPLIER_CODE",
       );
     const [targets, trainingRows, fileItems, costItems] = await Promise.all([
-      this.repository.targetProducts({ limit, barcode }),
-      this.repository.trainingRows(),
+      this.repository.targetProducts({
+        limit,
+        barcode,
+        marketplace: selectedMarketplace,
+      }),
+      this.repository.trainingRows({ marketplace: selectedMarketplace }),
       this.repository.fileItemsForMatching(supplierCode),
       this.repository.costItemsForMatching(),
     ]);
@@ -1503,6 +1521,7 @@ class MappingAutomationService {
       this.repository.rejectedFingerprints
         ? await this.repository.rejectedFingerprints(
             targets.map((target) => target.barcode),
+            selectedMarketplace,
           )
         : [],
     );
@@ -1510,6 +1529,7 @@ class MappingAutomationService {
       this.repository.rejectedRecipeKeys
         ? await this.repository.rejectedRecipeKeys(
             targets.map((target) => target.barcode),
+            selectedMarketplace,
           )
         : [],
     );
@@ -1517,6 +1537,7 @@ class MappingAutomationService {
       this.repository.rejectedSourceBarcodes
         ? await this.repository.rejectedSourceBarcodes(
             targets.map((target) => target.barcode),
+            selectedMarketplace,
           )
         : [],
     );
@@ -1524,6 +1545,7 @@ class MappingAutomationService {
     if (this.repository.rejectedFeedbackHints) {
       const rows = await this.repository.rejectedFeedbackHints(
         targets.map((target) => target.barcode),
+        selectedMarketplace,
       );
       for (const row of rows) {
         const hint = parseRejectionHint(row);
@@ -1625,6 +1647,7 @@ class MappingAutomationService {
     const saved = await this.repository.saveSuggestions(
       suggestions,
       targets.map((target) => target.barcode),
+      selectedMarketplace,
     );
     return {
       processed: targets.length,
@@ -1648,7 +1671,12 @@ class MappingAutomationService {
     return this.repository.listSuggestions(filters);
   }
 
-  async diagnostics({ limit = 1000, supplier_code = null } = {}) {
+  async diagnostics({
+    limit = 1000,
+    supplier_code = null,
+    marketplace = "TRENDYOL",
+  } = {}) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const supplierCode = supplier_code
       ? String(supplier_code).toUpperCase()
       : null;
@@ -1659,8 +1687,11 @@ class MappingAutomationService {
         "INVALID_SUPPLIER_CODE",
       );
     const [targets, trainingRows, fileItems, costItems] = await Promise.all([
-      this.repository.targetProducts(limit),
-      this.repository.trainingRows(),
+      this.repository.targetProducts({
+        limit,
+        marketplace: selectedMarketplace,
+      }),
+      this.repository.trainingRows({ marketplace: selectedMarketplace }),
       this.repository.fileItemsForMatching(supplierCode),
       this.repository.costItemsForMatching(),
     ]);
@@ -1670,6 +1701,7 @@ class MappingAutomationService {
       this.repository.rejectedFingerprints
         ? await this.repository.rejectedFingerprints(
             targets.map((target) => target.barcode),
+            selectedMarketplace,
           )
         : [],
     );
@@ -1677,6 +1709,7 @@ class MappingAutomationService {
       this.repository.rejectedRecipeKeys
         ? await this.repository.rejectedRecipeKeys(
             targets.map((target) => target.barcode),
+            selectedMarketplace,
           )
         : [],
     );
@@ -1822,8 +1855,13 @@ class MappingAutomationService {
     return this.repository.manualCostQueue(filters);
   }
 
-  async regenerateDiagnosticBarcode(barcode) {
-    const result = await this.generate({ barcode, limit: 1 });
+  async regenerateDiagnosticBarcode(barcode, marketplace = "TRENDYOL") {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
+    const result = await this.generate({
+      barcode,
+      limit: 1,
+      marketplace: selectedMarketplace,
+    });
     if (!result.processed)
       throw new AppError(
         "Bu barkod öneri üretimi için uygun aktif mapping hedefi değil",
@@ -1834,9 +1872,11 @@ class MappingAutomationService {
       return { ...result, reason: "CREATED", existingSuggestions: [] };
     if (result.skippedApproved > 0) {
       const existingSuggestions =
-        await this.repository.latestSuggestionsForBarcode?.(barcode, [
-          "APPROVED",
-        ]);
+        await this.repository.latestSuggestionsForBarcode?.(
+          barcode,
+          ["APPROVED"],
+          selectedMarketplace,
+        );
       return {
         ...result,
         reason: "APPROVED_EXISTS",
@@ -1846,10 +1886,11 @@ class MappingAutomationService {
     if (result.skippedRejected > 0)
       return { ...result, reason: "REJECTED_PATTERN", existingSuggestions: [] };
     const existingSuggestions =
-      await this.repository.latestSuggestionsForBarcode?.(barcode, [
-        "PENDING",
-        "APPROVED",
-      ]);
+      await this.repository.latestSuggestionsForBarcode?.(
+        barcode,
+        ["PENDING", "APPROVED"],
+        selectedMarketplace,
+      );
     if (existingSuggestions?.length)
       return {
         ...result,
@@ -1862,7 +1903,12 @@ class MappingAutomationService {
     return { ...result, reason: "NO_CANDIDATE", existingSuggestions: [] };
   }
 
-  async markDiagnosticManualCost(barcode, actor, input = {}) {
+  async markDiagnosticManualCost(
+    barcode,
+    actor,
+    input = {},
+    marketplace = "TRENDYOL",
+  ) {
     const reason = String(
       input.reason || "Teşhis ekranından manuel maliyet kuyruğuna alındı",
     ).trim();
@@ -1870,12 +1916,13 @@ class MappingAutomationService {
       barcode,
       actor,
       reason,
+      marketplace,
     );
     if (!row) throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
     return row;
   }
 
-  normalizeManualCostInput(barcode, input = {}) {
+  normalizeManualCostInput(barcode, input = {}, marketplace = "TRENDYOL") {
     const itemName = String(input.item_name || input.product_name || "").trim();
     const unitCost = Number(input.unit_cost);
     const unitDesi = Number(input.unit_desi);
@@ -1902,7 +1949,7 @@ class MappingAutomationService {
     if (!Number.isFinite(quantity) || quantity <= 0)
       throw new AppError("Adet pozitif olmalı", 400, "INVALID_QUANTITY");
     return {
-      marketplace: "TRENDYOL",
+      marketplace: normalizeMarketplace(input.marketplace || marketplace),
       barcode: String(barcode).trim(),
       item_code: itemCode,
       item_name: itemName,
@@ -1914,13 +1961,13 @@ class MappingAutomationService {
     };
   }
 
-  async applyManualCost(barcode, actor, input = {}) {
-    const row = this.normalizeManualCostInput(barcode, input);
+  async applyManualCost(barcode, actor, input = {}, marketplace = "TRENDYOL") {
+    const row = this.normalizeManualCostInput(barcode, input, marketplace);
     const result = await this.costs.withTransaction(async (client) => {
       const product = (
         await client.query(
-          "SELECT barcode FROM products WHERE marketplace='TRENDYOL' AND barcode=$1 FOR UPDATE",
-          [row.barcode],
+          "SELECT barcode FROM products WHERE marketplace=$1 AND barcode=$2 FOR UPDATE",
+          [row.marketplace, row.barcode],
         )
       ).rows[0];
       if (!product)
@@ -1950,11 +1997,11 @@ class MappingAutomationService {
       const mapping = (
         await client.query(
           `INSERT INTO product_cost_mappings(marketplace,barcode,cost_item_code,quantity,updated_at)
-           VALUES('TRENDYOL',$1,$2,$3,NOW())
+           VALUES($1,$2,$3,$4,NOW())
            ON CONFLICT(marketplace,barcode,cost_item_code)
            DO UPDATE SET quantity=EXCLUDED.quantity,updated_at=NOW()
            RETURNING *`,
-          [row.barcode, row.item_code, row.quantity],
+          [row.marketplace, row.barcode, row.item_code, row.quantity],
         )
       ).rows[0];
       await client.query(
@@ -1973,7 +2020,7 @@ class MappingAutomationService {
       );
       return { costItem, mapping };
     });
-    await this.costEngine.recalculate(row.barcode);
+    await this.costEngine.recalculate(row.barcode, undefined, row.marketplace);
     return { barcode: row.barcode, ...result };
   }
 
@@ -2018,7 +2065,7 @@ class MappingAutomationService {
           ? estimateUnitDesi({})
           : null;
       return {
-        marketplace: "TRENDYOL",
+        marketplace: suggestion.marketplace,
         barcode: suggestion.barcode,
         cost_item_code: String(item.cost_item_code || "").trim(),
         item_name:

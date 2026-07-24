@@ -736,13 +736,13 @@ function Repricer({ notify, marketplace }) {
   return (
     <>
       {marketplace === "HEPSIBURADA" && (
-        <div className="info-banner warning">
+        <div className="info-banner info">
           <ShieldAlert />
           <div>
-            <strong>Hepsiburada repricer bağlantısı bekleniyor</strong>
+            <strong>Hepsiburada güvenli önizleme modu</strong>
             <p>
-              Karar motoru ve güvenlik katmanı ayrıldı. Credentials ile ürün,
-              buybox ve fiyat servisleri bağlanmadan aksiyon üretilemez.
+              Ürün, mapping ve minimum fiyat kontrolü yapılabilir. Gerçek fiyat
+              gönderimi ayrı Hepsiburada fiyat anahtarı açılana kadar kapalıdır.
             </p>
           </div>
         </div>
@@ -767,15 +767,11 @@ function Repricer({ notify, marketplace }) {
           variant="secondary"
           icon={Eye}
           onClick={preview}
-          disabled={loading || marketplace === "HEPSIBURADA"}
+          disabled={loading}
         >
           Önizle
         </Button>
-        <Button
-          icon={Play}
-          onClick={generate}
-          disabled={loading || marketplace === "HEPSIBURADA"}
-        >
+        <Button icon={Play} onClick={generate} disabled={loading}>
           Aksiyon oluştur
         </Button>
       </div>

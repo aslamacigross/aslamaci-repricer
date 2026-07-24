@@ -28,6 +28,10 @@ function mappingAutomationRoutes({
     BIM: bimMarket,
   };
   const supplierCode = (value) => String(value || "").toUpperCase();
+  const marketplaceCode = (req) =>
+    String(
+      req.body?.marketplace || req.query?.marketplace || "TRENDYOL",
+    ).toUpperCase();
 
   router.get(
     "/supplier-price-pools/:supplierCode/items",
@@ -146,7 +150,10 @@ function mappingAutomationRoutes({
   router.post(
     "/mapping-suggestions/generate",
     asyncRoute(async (req, res) => {
-      const data = await mappingAutomation.generate(req.body || {});
+      const data = await mappingAutomation.generate({
+        ...(req.body || {}),
+        marketplace: marketplaceCode(req),
+      });
       await log(req, "MAPPING_SUGGESTIONS_GENERATED", "bulk", data);
       res.json({ status: "ok", data });
     }),
@@ -156,7 +163,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.listSuggestions(req.query),
+        data: await mappingAutomation.listSuggestions({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -165,7 +175,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.diagnostics(req.query),
+        data: await mappingAutomation.diagnostics({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -174,6 +187,7 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) => {
       const data = await mappingAutomation.regenerateDiagnosticBarcode(
         req.params.barcode,
+        marketplaceCode(req),
       );
       await log(
         req,
@@ -191,6 +205,7 @@ function mappingAutomationRoutes({
         req.params.barcode,
         req.user.username,
         req.body,
+        marketplaceCode(req),
       );
       await log(req, "MAPPING_DIAGNOSTIC_MANUAL_COST", req.params.barcode, {
         reason: data.reason,
@@ -203,7 +218,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.listLearningFeedback(req.query),
+        data: await mappingAutomation.listLearningFeedback({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -212,7 +230,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.manualCostQueue(req.query),
+        data: await mappingAutomation.manualCostQueue({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -223,6 +244,7 @@ function mappingAutomationRoutes({
         req.params.barcode,
         req.user.username,
         req.body,
+        marketplaceCode(req),
       );
       await log(req, "MANUAL_COST_APPLIED", req.params.barcode, data);
       res.json({ status: "ok", data });

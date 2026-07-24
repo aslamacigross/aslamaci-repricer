@@ -50,6 +50,10 @@ class HepsiburadaService {
     return env.hepsiburadaMutationsEnabled === true;
   }
 
+  priceUpdatesEnabled() {
+    return env.hepsiburadaPriceUpdatesEnabled === true;
+  }
+
   userAgent() {
     return (
       env.hepsiburadaUserAgent ||
@@ -68,6 +72,7 @@ class HepsiburadaService {
       listingEndpointConfigured: Boolean(this.listingBaseUrl),
       productEndpointConfigured: Boolean(this.productBaseUrl),
       userAgentConfigured: Boolean(env.hepsiburadaUserAgent),
+      priceUpdatesEnabled: this.priceUpdatesEnabled(),
     };
   }
 
@@ -122,6 +127,57 @@ class HepsiburadaService {
     );
   }
 
+  async listListings({ offset = 0, limit = 100 } = {}) {
+    const query = new URLSearchParams({
+      offset: String(Math.max(Number(offset) || 0, 0)),
+      limit: String(Math.min(Math.max(Number(limit) || 100, 1), 100)),
+    });
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}?${query}`,
+    );
+  }
+
+  async getListingBySku(sku) {
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}/sku/${encodeURIComponent(String(sku))}`,
+    );
+  }
+
+  async updatePriceAndInventory({ sku, price, stock }) {
+    if (!this.priceUpdatesEnabled())
+      return {
+        dryRun: true,
+        code: "HEPSIBURADA_PRICE_UPDATES_DISABLED",
+        message: "Hepsiburada fiyat güncelleme anahtarı kapalı",
+      };
+    const body = {};
+    if (price != null) body.price = Number(price);
+    if (stock != null) body.availableStock = Number(stock);
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}/sku/${encodeURIComponent(String(sku))}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    );
+  }
+
+  async fetchAllListings({ pageSize = 100, maxPages = 200 } = {}) {
+    const items = [];
+    let offset = 0;
+    for (let page = 0; page < maxPages; page++) {
+      const payload = await this.listListings({ offset, limit: pageSize });
+      const rows = normalizeRows(payload);
+      items.push(...rows);
+      if (rows.length < pageSize) break;
+      offset += rows.length;
+    }
+    return items;
+  }
+
   async health() {
     if (!this.configured())
       return {
@@ -129,19 +185,34 @@ class HepsiburadaService {
         connected: false,
         message: "Hepsiburada merchant kimlik bilgileri eksik",
       };
-    const result = await this.listOrders({ offset: 0, limit: 1 });
+    const result = await this.listListings({ offset: 0, limit: 1 });
     return {
       configured: true,
       connected: true,
       environment: this.environment,
       mutationsEnabled: this.mutationsEnabled(),
-      sampleCount: Array.isArray(result) ? result.length : null,
+      priceUpdatesEnabled: this.priceUpdatesEnabled(),
+      sampleCount: normalizeRows(result).length,
     };
   }
+}
+
+function normalizeRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  return (
+    payload.items ||
+    payload.listings ||
+    payload.content ||
+    payload.data ||
+    payload.results ||
+    []
+  );
 }
 
 module.exports = {
   HepsiburadaService,
   DEFAULT_ENDPOINTS,
   normalizedEnvironment,
+  normalizeRows,
 };

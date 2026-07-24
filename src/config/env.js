@@ -25,10 +25,19 @@ const env = {
     process.env.HB_ENV ||
     "production"
   ).toLowerCase(),
-  hepsiburadaMerchantId: process.env.HB_MERCHANT_ID || "",
-  hepsiburadaUsername: process.env.HB_USERNAME || "",
-  hepsiburadaPassword: process.env.HB_PASSWORD || "",
-  hepsiburadaIntegratorKey: process.env.HB_INTEGRATOR_KEY || "",
+  hepsiburadaMerchantId:
+    process.env.HEPSIBURADA_MERCHANT_ID || process.env.HB_MERCHANT_ID || "",
+  hepsiburadaUsername:
+    process.env.HEPSIBURADA_USERNAME || process.env.HB_USERNAME || "",
+  hepsiburadaPassword:
+    process.env.HEPSIBURADA_PASSWORD ||
+    process.env.HEPSIBURADA_SECRET_KEY ||
+    process.env.HB_PASSWORD ||
+    "",
+  hepsiburadaIntegratorKey:
+    process.env.HEPSIBURADA_INTEGRATOR_KEY ||
+    process.env.HB_INTEGRATOR_KEY ||
+    "",
   hepsiburadaUserAgent:
     process.env.HEPSIBURADA_USER_AGENT || process.env.HB_USER_AGENT || "",
   hepsiburadaOrderBaseUrl:
@@ -46,6 +55,11 @@ const env = {
   hepsiburadaMutationsEnabled: bool(
     process.env.HEPSIBURADA_MUTATIONS_ENABLED ||
       process.env.HB_MUTATIONS_ENABLED,
+    false,
+  ),
+  hepsiburadaPriceUpdatesEnabled: bool(
+    process.env.HEPSIBURADA_PRICE_UPDATES_ENABLED ||
+      process.env.HB_PRICE_UPDATES_ENABLED,
     false,
   ),
   adminUsername: process.env.ADMIN_USERNAME || "admin",
@@ -106,6 +120,8 @@ function validateEnv() {
     errors.push("HEPSIBURADA_ENV sit veya production olmali");
   if (env.hepsiburadaMutationsEnabled)
     errors.push("HEPSIBURADA_MUTATIONS_ENABLED false kalmali");
+  if (env.hepsiburadaPriceUpdatesEnabled)
+    errors.push("HEPSIBURADA_PRICE_UPDATES_ENABLED false kalmali");
   if (errors.length)
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }

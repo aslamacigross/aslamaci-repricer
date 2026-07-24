@@ -5,6 +5,7 @@ const {
   safetyCheck,
   recommendRankPrice,
 } = require("../../src/domain/repricer");
+const { RepricerService } = require("../../src/services/repricer.service");
 const base = {
   is_active: true,
   on_sale: true,
@@ -403,4 +404,55 @@ test("ilk üç sıra ekonomik değilse açık sonuç verir", () => {
   assert.equal(result.targetRank, null);
   assert.equal(result.proposedPrice, 150);
   assert.equal(result.status, "BUYBOX_TARGET_NOT_ECONOMIC");
+});
+
+test("Hepsiburada repricer onizlemesi DB verisiyle calisir", async () => {
+  const service = new RepricerService({
+    settings: {
+      getAll: async () => ({
+        global_dry_run: true,
+        global_repricer_enabled: false,
+        default_price_cut_tl: 1,
+      }),
+    },
+    actions: {
+      todayStats: async () => ({ action_count: 0 }),
+    },
+    db: {
+      query: async (sql, params) => {
+        assert.equal(params[0], "HEPSIBURADA");
+        return {
+          rows: [
+            {
+              ...base,
+              marketplace: "HEPSIBURADA",
+              barcode: "HB-SKU-1",
+              product_name: "Hepsiburada Ürünü",
+              strategy: "Normal",
+              setting_auto_update: true,
+              mode: "AUTOMATIC",
+              price_cut_tl: 1,
+              min_undercut_tl: 0.1,
+              max_undercut_tl: 75,
+            },
+          ],
+        };
+      },
+    },
+  });
+  const [preview] = await service.preview("HB-SKU-1", "HEPSIBURADA");
+  assert.equal(preview.barcode, "HB-SKU-1");
+  assert.equal(preview.productName, "Hepsiburada Ürünü");
+});
+
+test("desteklenmeyen pazaryeri repricer tarafinda fail-closed reddedilir", async () => {
+  const service = new RepricerService({
+    db: {},
+    settings: {},
+    actions: {},
+  });
+  await assert.rejects(
+    service.preview(undefined, "N11"),
+    (error) => error.code === "MARKETPLACE_NOT_SUPPORTED",
+  );
 });

@@ -3,10 +3,101 @@ const { roundMoney } = require("../utils/numbers");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function firstValue(source, keys, fallback = "") {
+  for (const key of keys) {
+    const value = key
+      .split(".")
+      .reduce((object, part) => object?.[part], source);
+    if (value !== undefined && value !== null && String(value).trim() !== "")
+      return value;
+  }
+  return fallback;
+}
+
+function hepsiburadaListingBarcode(listing) {
+  return String(
+    firstValue(listing, [
+      "merchantSku",
+      "merchantSKU",
+      "sku",
+      "barcode",
+      "merchantBarcode",
+      "hbSku",
+      "productBarcode",
+    ]),
+  ).trim();
+}
+
+function hepsiburadaListingPrice(listing) {
+  const value = firstValue(listing, [
+    "price",
+    "salePrice",
+    "unitPrice",
+    "merchantUnitPrice",
+    "listingPrice",
+    "price.amount",
+    "price.value",
+  ]);
+  return Number(value) || 0;
+}
+
+function hepsiburadaListingStock(listing) {
+  const value = firstValue(listing, [
+    "availableStock",
+    "stock",
+    "quantity",
+    "availableQuantity",
+    "inventory",
+  ]);
+  return Number(value) || 0;
+}
+
+function hepsiburadaListingBuybox(listing) {
+  const buyboxPrice = Number(
+    firstValue(listing, [
+      "buyboxPrice",
+      "buyBoxPrice",
+      "bestPrice",
+      "winningPrice",
+      "buybox.price",
+      "buyBox.price",
+    ]),
+  );
+  const secondPrice = Number(
+    firstValue(listing, ["secondPrice", "secondBuyboxPrice", "rank2Price"]),
+  );
+  const thirdPrice = Number(
+    firstValue(listing, ["thirdPrice", "thirdBuyboxPrice", "rank3Price"]),
+  );
+  const rank = Number(
+    firstValue(listing, [
+      "rank",
+      "buyboxOrder",
+      "buyBoxOrder",
+      "buyboxRank",
+      "buyBoxRank",
+    ]),
+  );
+  const sellerCount = Number(
+    firstValue(listing, ["sellerCount", "merchantCount", "competitorCount"]),
+  );
+  return {
+    buyboxPrice:
+      Number.isFinite(buyboxPrice) && buyboxPrice > 0 ? buyboxPrice : null,
+    secondPrice:
+      Number.isFinite(secondPrice) && secondPrice > 0 ? secondPrice : null,
+    thirdPrice:
+      Number.isFinite(thirdPrice) && thirdPrice > 0 ? thirdPrice : null,
+    rank: Number.isFinite(rank) && rank > 0 ? rank : null,
+    hasMultipleSeller: Number.isFinite(sellerCount) ? sellerCount > 1 : null,
+  };
+}
+
 class SyncService {
-  constructor({ db, trendyol, audit }) {
+  constructor({ db, trendyol, hepsiburada, audit }) {
     this.db = db;
     this.trendyol = trendyol;
+    this.hepsiburada = hepsiburada;
     this.audit = audit;
   }
 
@@ -81,6 +172,114 @@ class SyncService {
         `UPDATE products
          SET is_active=FALSE,on_sale=FALSE,updated_at=NOW()
          WHERE marketplace='TRENDYOL' AND NOT (barcode=ANY($1::text[]))`,
+        [[...seenBarcodes]],
+      );
+    }
+    return { processed, successful: processed, failed: 0 };
+  }
+
+  async hepsiburadaProducts() {
+    if (!this.hepsiburada?.configured?.())
+      return {
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        metadata: { skipped: "HEPSIBURADA_CREDENTIALS_MISSING" },
+      };
+    const listings = await this.hepsiburada.fetchAllListings({
+      pageSize: 100,
+      maxPages: 200,
+    });
+    let processed = 0;
+    const seenBarcodes = new Set();
+    for (const listing of listings) {
+      const barcode = hepsiburadaListingBarcode(listing);
+      if (!barcode) continue;
+      seenBarcodes.add(barcode);
+      const salePrice = hepsiburadaListingPrice(listing);
+      const quantity = hepsiburadaListingStock(listing);
+      const buybox = hepsiburadaListingBuybox(listing);
+      const status = String(
+        firstValue(listing, ["status", "listingStatus", "saleStatus"], ""),
+      ).toUpperCase();
+      const archived = ["DELETED", "ARCHIVED", "CLOSED"].includes(status);
+      const approved = !["REJECTED", "BLOCKED"].includes(status);
+      const onSale = !archived && !["PASSIVE", "INACTIVE"].includes(status);
+      const active = approved && onSale && quantity > 0 && salePrice > 0;
+      await this.db.query(
+        `INSERT INTO products(
+          marketplace,barcode,product_name,brand,category_name,category_id,
+          product_image_url,marketplace_product_id,my_price,list_price,
+          stock_quantity,archived,locked,on_sale,approved,commission_rate,
+          buybox_price,second_price,third_price,rank,has_multiple_seller,
+          buybox_updated_at,is_active,updated_at
+        )VALUES(
+          'HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,FALSE,$12,$13,$14,
+          $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,NOW()
+        )
+        ON CONFLICT(marketplace,barcode)DO UPDATE SET
+          product_name=EXCLUDED.product_name,
+          brand=EXCLUDED.brand,
+          category_name=EXCLUDED.category_name,
+          category_id=EXCLUDED.category_id,
+          product_image_url=EXCLUDED.product_image_url,
+          marketplace_product_id=EXCLUDED.marketplace_product_id,
+          my_price=EXCLUDED.my_price,
+          list_price=EXCLUDED.list_price,
+          stock_quantity=EXCLUDED.stock_quantity,
+          archived=EXCLUDED.archived,
+          locked=EXCLUDED.locked,
+          on_sale=EXCLUDED.on_sale,
+          approved=EXCLUDED.approved,
+          commission_rate=COALESCE(EXCLUDED.commission_rate,products.commission_rate),
+          buybox_price=COALESCE(EXCLUDED.buybox_price,products.buybox_price),
+          second_price=COALESCE(EXCLUDED.second_price,products.second_price),
+          third_price=COALESCE(EXCLUDED.third_price,products.third_price),
+          rank=COALESCE(EXCLUDED.rank,products.rank),
+          has_multiple_seller=COALESCE(EXCLUDED.has_multiple_seller,products.has_multiple_seller),
+          buybox_updated_at=COALESCE(EXCLUDED.buybox_updated_at,products.buybox_updated_at),
+          is_active=EXCLUDED.is_active,
+          updated_at=NOW()`,
+        [
+          barcode,
+          firstValue(listing, ["productName", "name", "title"], ""),
+          firstValue(listing, ["brand", "brandName"], ""),
+          firstValue(listing, ["categoryName", "category.name"], ""),
+          String(firstValue(listing, ["categoryId", "category.id"], "")),
+          firstValue(
+            listing,
+            ["imageUrl", "mainImageUrl", "images.0.url"],
+            null,
+          ),
+          String(firstValue(listing, ["hbSku", "productId", "listingId"], "")),
+          salePrice,
+          Number(
+            firstValue(listing, ["listPrice", "originalPrice"], salePrice),
+          ) || salePrice,
+          quantity,
+          archived,
+          onSale,
+          approved,
+          firstValue(listing, ["commissionRate", "commission"], null) == null
+            ? null
+            : Number(
+                firstValue(listing, ["commissionRate", "commission"], null),
+              ),
+          buybox.buyboxPrice,
+          buybox.secondPrice,
+          buybox.thirdPrice,
+          buybox.rank,
+          buybox.hasMultipleSeller,
+          active,
+        ],
+      );
+      processed++;
+    }
+    if (seenBarcodes.size) {
+      await this.db.query(
+        `UPDATE products
+         SET is_active=FALSE,on_sale=FALSE,updated_at=NOW()
+         WHERE marketplace='HEPSIBURADA' AND NOT (barcode=ANY($1::text[]))`,
         [[...seenBarcodes]],
       );
     }

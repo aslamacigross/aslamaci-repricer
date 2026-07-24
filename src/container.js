@@ -114,7 +114,8 @@ function createContainer(overrides = {}) {
     });
   const shippingService =
     overrides.shippingService || new ShippingService(costs);
-  const sync = overrides.sync || new SyncService({ db, trendyol, audit });
+  const sync =
+    overrides.sync || new SyncService({ db, trendyol, hepsiburada, audit });
   const repricer =
     overrides.repricer || new RepricerService({ db, actions, settings });
   const actionService =
@@ -218,6 +219,9 @@ function createContainer(overrides = {}) {
     mappingAutomation.syncLiveSupplierItems("BIM", bimMarket),
   );
   jobService.register("sync-products", () => sync.products());
+  jobService.register("sync-hepsiburada-products", () =>
+    sync.hepsiburadaProducts(),
+  );
   jobService.register("sync-buybox", () => sync.buybox());
   jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
   jobService.register("calculate-costs", recalculateAllMarketplaces);
@@ -227,6 +231,9 @@ function createContainer(overrides = {}) {
   );
   jobService.register("generate-repricer-actions", () =>
     repricer.generate({ source: "JOB" }),
+  );
+  jobService.register("generate-hepsiburada-repricer-actions", () =>
+    repricer.generate({ source: "JOB", marketplace: "HEPSIBURADA" }),
   );
   jobService.register("run-auto-repricer", async () => {
     const global = await repricer.globalSettings();

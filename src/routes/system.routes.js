@@ -257,13 +257,10 @@ function systemRoutes({
         limit: req.query.limit || 100,
         sort: "rank",
       });
-      const previews =
-        marketplace === "TRENDYOL"
-          ? await repricer.preview(
-              result.items.map((item) => item.barcode),
-              marketplace,
-            )
-          : [];
+      const previews = await repricer.preview(
+        result.items.map((item) => item.barcode),
+        marketplace,
+      );
       const previewByBarcode = new Map(
         previews.map((preview) => [preview.barcode, preview]),
       );
@@ -278,16 +275,8 @@ function systemRoutes({
             preview_proposed_price: preview?.proposedPrice ?? item.my_price,
             preview_difference: preview?.difference ?? 0,
             preview_expected_profit: preview?.expectedProfit ?? null,
-            preview_reason:
-              preview?.reason ||
-              (marketplace === "HEPSIBURADA"
-                ? "Hepsiburada repricer bağlantısı credentials bekliyor"
-                : "Fiyat korunuyor"),
-            preview_blocked_reasons:
-              preview?.blockedReasons ||
-              (marketplace === "HEPSIBURADA"
-                ? ["MARKETPLACE_CREDENTIALS_MISSING"]
-                : []),
+            preview_reason: preview?.reason || "Fiyat korunuyor",
+            preview_blocked_reasons: preview?.blockedReasons || [],
             preview_target_rank: preview?.targetRank ?? item.rank ?? null,
             preview_effective_undercut: preview?.effectiveUndercut ?? null,
           };

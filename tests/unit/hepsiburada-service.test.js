@@ -10,6 +10,7 @@ const {
   DEFAULT_ENDPOINTS,
   HepsiburadaService,
   normalizedEnvironment,
+  normalizeRows,
 } = require("../../src/services/hepsiburada.service");
 
 describe("Hepsiburada order value normalization", () => {
@@ -50,6 +51,7 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaIntegratorKey: env.hepsiburadaIntegratorKey,
       hepsiburadaUserAgent: env.hepsiburadaUserAgent,
       hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
+      hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
     };
     Object.assign(env, {
       hepsiburadaMerchantId: "merchant-id",
@@ -58,6 +60,7 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaIntegratorKey: "",
       hepsiburadaUserAgent: "aslamacigross_dev",
       hepsiburadaMutationsEnabled: false,
+      hepsiburadaPriceUpdatesEnabled: false,
     });
     try {
       const service = new HepsiburadaService({ environment: "sit" });
@@ -67,7 +70,52 @@ describe("Hepsiburada API runtime configuration", () => {
       assert.equal(status.environment, "sit");
       assert.equal(status.configured, true);
       assert.equal(status.mutationsEnabled, false);
+      assert.equal(status.priceUpdatesEnabled, false);
       assert.equal(JSON.stringify(status).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("Railway HEPSIBURADA_* secret aliaslari runtime env'e okunur", () => {
+    assert.equal(normalizeRows({ items: [{ id: 1 }] }).length, 1);
+    assert.equal(normalizeRows({ listings: [{ id: 1 }, { id: 2 }] }).length, 2);
+  });
+
+  test("listing okuma endpointi Basic auth ve User-Agent ile cagrilir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    let request;
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options) => {
+          request = { url, options };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({ listings: [{ merchantSku: "SKU1" }] }),
+          };
+        },
+      });
+      const rows = await service.fetchAllListings({
+        pageSize: 100,
+        maxPages: 1,
+      });
+      assert.equal(rows.length, 1);
+      assert.match(request.url, /listings\/merchantid\/merchant-id/);
+      assert.equal(request.options.headers["User-Agent"], "aslamacigross_dev");
+      assert.match(request.options.headers.Authorization, /^Basic /);
     } finally {
       Object.assign(env, previous);
     }

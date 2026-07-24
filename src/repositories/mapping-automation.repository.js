@@ -22,6 +22,12 @@ function inferredUnitDesi(item) {
   ).value;
 }
 
+function normalizeMarketplace(value) {
+  return String(value || "TRENDYOL")
+    .trim()
+    .toUpperCase();
+}
+
 class MappingAutomationRepository {
   constructor(db, withTransaction) {
     this.db = db;
@@ -390,7 +396,12 @@ class MappingAutomationRepository {
     return this.listSupplierItems({ ...filters, supplierCode: "FILE_MARKET" });
   }
 
-  async trainingRows() {
+  async trainingRows({ marketplace = "TRENDYOL" } = {}) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
+    const marketplaces =
+      selectedMarketplace === "TRENDYOL"
+        ? ["TRENDYOL"]
+        : ["TRENDYOL", selectedMarketplace];
     return (
       await this.db.query(
         `SELECT p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
@@ -399,10 +410,11 @@ class MappingAutomationRepository {
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-         WHERE p.marketplace='TRENDYOL'
+         WHERE p.marketplace=ANY($1::text[])
            AND p.product_name IS NOT NULL
            AND ci.unit_cost>0 AND COALESCE(ci.unit_desi,0)>0
          ORDER BY p.barcode,pcm.id`,
+        [marketplaces],
       )
     ).rows;
   }
@@ -412,9 +424,10 @@ class MappingAutomationRepository {
       typeof options === "object" && options !== null
         ? options
         : { limit: options };
-    const params = [];
+    const selectedMarketplace = normalizeMarketplace(normalized.marketplace);
+    const params = [selectedMarketplace];
     const where = [
-      "p.marketplace='TRENDYOL'",
+      "p.marketplace=$1",
       "p.is_active=TRUE",
       "p.product_name IS NOT NULL",
       `(p.data_status='MAPPING_MISSING' OR COALESCE(mt.mapping_count,0)=0)`,
@@ -482,74 +495,80 @@ class MappingAutomationRepository {
     ).rows;
   }
 
-  async rejectedFingerprints(barcodes = []) {
+  async rejectedFingerprints(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,fingerprint FROM mapping_suggestions
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND status='REJECTED'
            AND barcode=ANY($1::text[])`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows.map((row) => `${row.barcode}:${row.fingerprint}`);
   }
 
-  async rejectedRecipeKeys(barcodes = []) {
+  async rejectedRecipeKeys(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,items FROM mapping_feedback_events
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND decision='REJECTED'
            AND barcode=ANY($1::text[])`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows.map((row) => `${row.barcode}:${buildMappingRecipeKey(row.items)}`);
   }
 
-  async rejectedSourceBarcodes(barcodes = []) {
+  async rejectedSourceBarcodes(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,source_barcode FROM mapping_suggestions
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND status='REJECTED'
            AND source_barcode IS NOT NULL
            AND source_barcode<>''
            AND barcode=ANY($1::text[])`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows.map((row) => `${row.barcode}:${row.source_barcode}`);
   }
 
-  async rejectedFeedbackHints(barcodes = []) {
+  async rejectedFeedbackHints(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,reason,created_at FROM mapping_feedback_events
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND decision='REJECTED'
            AND reason IS NOT NULL
            AND reason<>''
            AND barcode=ANY($1::text[])
          ORDER BY barcode,created_at DESC`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows;
   }
 
-  async manualCostQueue({ search, page = 1, limit = 50 } = {}) {
+  async manualCostQueue({
+    search,
+    page = 1,
+    limit = 50,
+    marketplace = "TRENDYOL",
+  } = {}) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const params = [];
     const where = [
       "mfe.decision='REJECTED'",
       "mfe.reason IS NOT NULL",
       "(LOWER(mfe.reason) LIKE '%manuel%' OR LOWER(mfe.reason) LIKE '%uygulamada bulunmuyor%' OR LOWER(mfe.reason) LIKE '%uygulamada yok%')",
-      "p.marketplace='TRENDYOL'",
+      `p.marketplace=$${params.push(selectedMarketplace)}`,
       "(p.data_status='MAPPING_MISSING' OR p.needs_cost_mapping=TRUE)",
     ];
     if (search) {
@@ -563,7 +582,7 @@ class MappingAutomationRepository {
     const base = `FROM (
         SELECT DISTINCT ON(barcode) *
         FROM mapping_feedback_events
-        WHERE marketplace='TRENDYOL'
+        WHERE marketplace=$1
         ORDER BY barcode,created_at DESC
       ) mfe
       JOIN products p ON p.marketplace=mfe.marketplace AND p.barcode=mfe.barcode
@@ -594,14 +613,15 @@ class MappingAutomationRepository {
     };
   }
 
-  async markManualCostNeeded(barcode, actor, reason) {
+  async markManualCostNeeded(barcode, actor, reason, marketplace = "TRENDYOL") {
     const normalizedBarcode = String(barcode || "").trim();
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const product = (
       await this.db.query(
         `SELECT barcode,product_name,brand,category_id,category_name
          FROM products
-         WHERE marketplace='TRENDYOL' AND barcode=$1`,
-        [normalizedBarcode],
+         WHERE marketplace=$1 AND barcode=$2`,
+        [selectedMarketplace, normalizedBarcode],
       )
     ).rows[0];
     if (!product) return null;
@@ -617,10 +637,11 @@ class MappingAutomationRepository {
           marketplace,barcode,learning_key,decision,actor,
           base_confidence,confidence,confidence_band,learning_adjustment,
           source_type,items,evidence,reason
-        )VALUES('TRENDYOL',$1,$2,'REJECTED',$3,0,0,'LOW',0,
-          'DIAGNOSTIC_MANUAL_COST','[]'::jsonb,$4::jsonb,$5)
+        )VALUES($1,$2,$3,'REJECTED',$4,0,0,'LOW',0,
+          'DIAGNOSTIC_MANUAL_COST','[]'::jsonb,$5::jsonb,$6)
         RETURNING *`,
         [
+          selectedMarketplace,
           normalizedBarcode,
           learningKey,
           actor,
@@ -631,7 +652,12 @@ class MappingAutomationRepository {
     ).rows[0];
   }
 
-  async saveSuggestions(suggestions, evaluatedBarcodes = []) {
+  async saveSuggestions(
+    suggestions,
+    evaluatedBarcodes = [],
+    marketplace = "TRENDYOL",
+  ) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const evaluated = [
       ...new Set([
         ...evaluatedBarcodes,
@@ -647,9 +673,9 @@ class MappingAutomationRepository {
           ? (
               await client.query(
                 `SELECT barcode FROM mapping_suggestions
-             WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
+             WHERE marketplace=$2 AND barcode=ANY($1::text[])
                AND status='APPROVED'`,
-                [barcodes],
+                [barcodes, selectedMarketplace],
               )
             ).rows.map((row) => row.barcode)
           : [],
@@ -659,13 +685,14 @@ class MappingAutomationRepository {
           ? (
               await client.query(
                 `SELECT barcode,fingerprint FROM mapping_suggestions
-                 WHERE marketplace='TRENDYOL'
+                 WHERE marketplace=$3
                    AND status='REJECTED'
                    AND barcode=ANY($1::text[])
                    AND fingerprint=ANY($2::text[])`,
                 [
                   barcodes,
                   suggestions.map((suggestion) => suggestion.fingerprint),
+                  selectedMarketplace,
                 ],
               )
             ).rows.map((row) => `${row.barcode}:${row.fingerprint}`)
@@ -673,9 +700,9 @@ class MappingAutomationRepository {
       );
       await client.query(
         `UPDATE mapping_suggestions SET status='STALE',updated_at=NOW()
-         WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
+         WHERE marketplace=$2 AND barcode=ANY($1::text[])
            AND status='PENDING'`,
-        [evaluated],
+        [evaluated, selectedMarketplace],
       );
       const saved = [];
       for (const suggestion of suggestions) {
@@ -694,9 +721,10 @@ class MappingAutomationRepository {
               algorithm_version,source_type,source_barcode,file_market_item_id,
               supplier_code,
               update_file_price,evidence,product_snapshot,fingerprint
-            )VALUES('TRENDYOL',$1,'PENDING',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            )VALUES($1,$2,'PENDING',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
             RETURNING *`,
             [
+              suggestion.marketplace || selectedMarketplace,
               suggestion.barcode,
               suggestion.confidence,
               suggestion.base_confidence,
@@ -786,11 +814,12 @@ class MappingAutomationRepository {
     status,
     confidenceBand,
     supplierCode,
+    marketplace = "TRENDYOL",
     page = 1,
     limit = 50,
   } = {}) {
-    const params = [];
-    const where = ["1=1"];
+    const params = [normalizeMarketplace(marketplace)];
+    const where = ["ms.marketplace=$1"];
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -850,6 +879,7 @@ class MappingAutomationRepository {
   async latestSuggestionsForBarcode(
     barcode,
     statuses = ["PENDING", "APPROVED"],
+    marketplace = "TRENDYOL",
   ) {
     const normalizedBarcode = String(barcode || "").trim();
     if (!normalizedBarcode) return [];
@@ -867,20 +897,26 @@ class MappingAutomationRepository {
        LEFT JOIN products source ON source.marketplace=ms.marketplace
          AND source.barcode=ms.source_barcode
        LEFT JOIN file_market_items f ON f.id=ms.file_market_item_id
-       WHERE ms.marketplace='TRENDYOL'
+       WHERE ms.marketplace=$3
          AND ms.barcode=$1
          AND ms.status=ANY($2::text[])
        ORDER BY CASE ms.status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,
                 ms.updated_at DESC,ms.created_at DESC
        LIMIT 10`,
-      [normalizedBarcode, statuses],
+      [normalizedBarcode, statuses, normalizeMarketplace(marketplace)],
     );
     return this.attachItems(result.rows);
   }
 
-  async listLearningFeedback({ search, decision, page = 1, limit = 50 } = {}) {
-    const params = [];
-    const where = ["1=1"];
+  async listLearningFeedback({
+    search,
+    decision,
+    marketplace = "TRENDYOL",
+    page = 1,
+    limit = 50,
+  } = {}) {
+    const params = [normalizeMarketplace(marketplace)];
+    const where = ["mfe.marketplace=$1"];
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -1093,16 +1129,16 @@ class MappingAutomationRepository {
     const product = (
       await client.query(
         `SELECT barcode,data_status,is_active FROM products
-         WHERE marketplace='TRENDYOL' AND barcode=$1 FOR UPDATE`,
-        [suggestion.barcode],
+         WHERE marketplace=$1 AND barcode=$2 FOR UPDATE`,
+        [suggestion.marketplace, suggestion.barcode],
       )
     ).rows[0];
     if (!product || !product.is_active)
       return { conflict: "TARGET_NO_LONGER_ACTIVE" };
     const existing = await client.query(
       `SELECT id FROM product_cost_mappings
-       WHERE marketplace='TRENDYOL' AND barcode=$1 LIMIT 1`,
-      [suggestion.barcode],
+       WHERE marketplace=$1 AND barcode=$2 LIMIT 1`,
+      [suggestion.marketplace, suggestion.barcode],
     );
     if (existing.rowCount) return { conflict: "TARGET_MAPPING_ALREADY_EXISTS" };
     if (
@@ -1222,8 +1258,9 @@ class MappingAutomationRepository {
         `INSERT INTO product_cost_mappings(
           marketplace,barcode,cost_item_code,quantity,effective_unit_cost,
           supplier_price_tier,updated_at
-        )VALUES('TRENDYOL',$1,$2,$3,$4,$5::jsonb,NOW())`,
+        )VALUES($1,$2,$3,$4,$5,$6::jsonb,NOW())`,
         [
+          suggestion.marketplace,
           suggestion.barcode,
           item.cost_item_code,
           item.quantity,

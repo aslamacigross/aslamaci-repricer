@@ -6,10 +6,15 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
       code: "HEPSIBURADA",
       status: service?.configured?.() ? "READY" : "WAITING_CREDENTIALS",
       capabilities: {
+        supportsCatalogProductRead: service?.configured?.() === true,
         supportsOrders: true,
         supportsFinancialTransactions: false,
-        supportsPriceUpdate: false,
-        supportsInventoryUpdate: false,
+        supportsPriceUpdate:
+          service?.configured?.() === true &&
+          service?.priceUpdatesEnabled?.() === true,
+        supportsInventoryUpdate:
+          service?.configured?.() === true &&
+          service?.priceUpdatesEnabled?.() === true,
         supportsExistingCatalogOfferCreate: false,
         supportsNewProductCreate: false,
       },
@@ -42,6 +47,14 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
 
   async fetchOrders(input = {}) {
     return this.service.listOrders(input);
+  }
+
+  async fetchProducts(input = {}) {
+    return this.service.listListings(input);
+  }
+
+  async updatePriceAndInventory(input = {}) {
+    return this.service.updatePriceAndInventory(input);
   }
 }
 

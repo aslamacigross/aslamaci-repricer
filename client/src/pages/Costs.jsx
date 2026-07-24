@@ -204,13 +204,14 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         }
       />
       {mode === "mappings" && marketplace === "HEPSIBURADA" && (
-        <div className="info-banner warning">
-          <TriangleAlert />
+        <div className="info-banner">
+          <Sparkles />
           <div>
-            <strong>Hepsiburada ürün kataloğu bağlantısı bekleniyor</strong>
+            <strong>Hepsiburada mapping çalışma alanı</strong>
             <p>
-              Mapping çalışma alanı hazır. Credentials ile ürünler alındığında
-              Hepsiburada reçeteleri burada Trendyol'dan bağımsız yönetilecek.
+              Ürün sync sonrası Hepsiburada barkodları burada Trendyol'dan
+              bağımsız maplenir; maliyet havuzları ortaktır, ürün reçetesi ve
+              minimum fiyat pazaryerine özeldir.
             </p>
           </div>
         </div>
@@ -223,58 +224,54 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
           >
             <GitBranch /> Mevcut mappingler
           </button>
-          {marketplace === "TRENDYOL" && (
-            <>
-              <button
-                className={mappingView === "suggestions" ? "active" : ""}
-                onClick={() => setMappingView("suggestions")}
-              >
-                <Sparkles /> Akıllı öneriler
-              </button>
-              <button
-                className={mappingView === "file" ? "active" : ""}
-                onClick={() => setMappingView("file")}
-              >
-                <Store /> File fiyat havuzu
-              </button>
-              <button
-                className={mappingView === "bizim" ? "active" : ""}
-                onClick={() => setMappingView("bizim")}
-              >
-                <Store /> Bizim Toptan havuzu
-              </button>
-              <button
-                className={mappingView === "bim" ? "active" : ""}
-                onClick={() => setMappingView("bim")}
-              >
-                <Store /> BİM havuzu
-              </button>
-              <button
-                className={mappingView === "other" ? "active" : ""}
-                onClick={() => setMappingView("other")}
-              >
-                <Store /> Diğer maliyet havuzu
-              </button>
-              <button
-                className={mappingView === "diagnostics" ? "active" : ""}
-                onClick={() => setMappingView("diagnostics")}
-              >
-                <SearchCheck /> Teşhis
-              </button>
-              <button
-                className={mappingView === "manual-costs" ? "active" : ""}
-                onClick={() => setMappingView("manual-costs")}
-              >
-                <PencilLine /> Manuel bekleyenler
-              </button>
-              <button
-                className={mappingView === "learning" ? "active" : ""}
-                onClick={() => setMappingView("learning")}
-              >
-                <BrainCircuit /> Karar geçmişi
-              </button>
-            </>
-          )}
+          <button
+            className={mappingView === "suggestions" ? "active" : ""}
+            onClick={() => setMappingView("suggestions")}
+          >
+            <Sparkles /> Akıllı öneriler
+          </button>
+          <button
+            className={mappingView === "file" ? "active" : ""}
+            onClick={() => setMappingView("file")}
+          >
+            <Store /> File fiyat havuzu
+          </button>
+          <button
+            className={mappingView === "bizim" ? "active" : ""}
+            onClick={() => setMappingView("bizim")}
+          >
+            <Store /> Bizim Toptan havuzu
+          </button>
+          <button
+            className={mappingView === "bim" ? "active" : ""}
+            onClick={() => setMappingView("bim")}
+          >
+            <Store /> BİM havuzu
+          </button>
+          <button
+            className={mappingView === "other" ? "active" : ""}
+            onClick={() => setMappingView("other")}
+          >
+            <Store /> Diğer maliyet havuzu
+          </button>
+          <button
+            className={mappingView === "diagnostics" ? "active" : ""}
+            onClick={() => setMappingView("diagnostics")}
+          >
+            <SearchCheck /> Teşhis
+          </button>
+          <button
+            className={mappingView === "manual-costs" ? "active" : ""}
+            onClick={() => setMappingView("manual-costs")}
+          >
+            <PencilLine /> Manuel bekleyenler
+          </button>
+          <button
+            className={mappingView === "learning" ? "active" : ""}
+            onClick={() => setMappingView("learning")}
+          >
+            <BrainCircuit /> Karar geçmişi
+          </button>
         </div>
       )}
       {error ? (

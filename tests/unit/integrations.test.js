@@ -205,6 +205,52 @@ test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => 
   ]);
 });
 
+test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-SKU-1",
+          productName: "Hepsiburada Ürünü",
+          brand: "Marka",
+          categoryName: "Kategori",
+          categoryId: 123,
+          price: 199.9,
+          listPrice: 219.9,
+          availableStock: 4,
+          status: "ACTIVE",
+          commissionRate: 15,
+          buyboxPrice: 205,
+          buyboxOrder: 2,
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 1);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.match(upsert.sql, /'HEPSIBURADA'/);
+  assert.equal(upsert.params[0], "HB-SKU-1");
+  assert.equal(upsert.params[7], 199.9);
+  assert.equal(upsert.params[13], 15);
+  assert.equal(upsert.params[14], 205);
+  assert.equal(upsert.params[17], 2);
+  assert.equal(upsert.params[19], true);
+});
+
 test("Trendyol GET istegi gecici hatada geri cekilmeyle yeniden denenir", async () => {
   let calls = 0;
   const delays = [];

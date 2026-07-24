@@ -98,6 +98,67 @@ test("geçmiş mappingi File fiyatıyla destekleyip hedef adede ölçekler", asy
   assert.deepEqual(evaluated, ["TARGET"]);
 });
 
+test("Hepsiburada mapping önerileri seçili pazaryeriyle izole üretilir", async () => {
+  const calls = [];
+  const { service, saved } = fixture({
+    targetProducts: async (options) => {
+      calls.push(["targetProducts", options.marketplace]);
+      return [
+        {
+          marketplace: "HEPSIBURADA",
+          barcode: "HB_TARGET",
+          product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml X 4 Adet",
+          brand: "Actisoft",
+          category_id: "2354",
+          data_status: "MAPPING_MISSING",
+          is_active: true,
+        },
+      ];
+    },
+    trainingRows: async (options) => {
+      calls.push(["trainingRows", options.marketplace]);
+      return [
+        {
+          marketplace: "TRENDYOL",
+          barcode: "TY_SOURCE",
+          product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml X 2 Adet",
+          brand: "Actisoft",
+          category_id: "2354",
+          cost_item_code: "YUMUSATICI_ACTISOFT_1500ML",
+          item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+          quantity: 2,
+          unit_cost: 110,
+          unit_desi: 1.5,
+        },
+      ];
+    },
+    saveSuggestions: async (rows, barcodes, marketplace) => {
+      calls.push(["saveSuggestions", marketplace]);
+      saved.push(...rows);
+      return {
+        created: rows.length,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        items: rows,
+      };
+    },
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].marketplace, "HEPSIBURADA");
+  assert.equal(saved[0].barcode, "HB_TARGET");
+  assert.deepEqual(calls, [
+    ["targetProducts", "HEPSIBURADA"],
+    ["trainingRows", "HEPSIBURADA"],
+    ["saveSuggestions", "HEPSIBURADA"],
+  ]);
+});
+
 test("File havuzundaki markalar dışındaki ürünlere öneri üretmez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
