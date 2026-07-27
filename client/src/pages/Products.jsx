@@ -37,6 +37,11 @@ const columns = [
     render: (r) => <ProductThumb product={r} />,
   },
   { key: "barcode", label: "Barkod" },
+  {
+    key: "marketplace_product_id",
+    label: "Platform ID",
+    render: (r) => r.marketplace_product_id || "-",
+  },
   { key: "product_name", label: "Ürün", width: 310 },
   { key: "brand", label: "Marka" },
   { key: "category_name", label: "Kategori" },

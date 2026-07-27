@@ -44,7 +44,7 @@ class ProductRepository {
     };
     if (filters.search)
       add(
-        "(p.barcode ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
+        "(p.barcode ILIKE ? OR p.marketplace_product_id ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
         `%${filters.search}%`,
       );
     if (filters.active !== undefined) add("p.is_active = ?", filters.active);
