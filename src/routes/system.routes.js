@@ -638,6 +638,15 @@ function systemRoutes({
     ),
   );
   r.post(
+    "/integrations/hepsiburada/sit-tests/:step/run",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await hepsiburada.sitTestRun(req.params.step, req.body || {}),
+      }),
+    ),
+  );
+  r.post(
     "/integrations/trendyol/test",
     asyncRoute(async (req, res) =>
       res.json({

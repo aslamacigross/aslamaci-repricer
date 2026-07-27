@@ -30,6 +30,34 @@ function normalizedEnvironment(value = env.hepsiburadaEnv) {
     : "production";
 }
 
+function safeResponseSummary(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const text = JSON.stringify(payload);
+  return JSON.parse(
+    text.replace(
+      /("?(authorization|password|secret|secretKey|token|apiKey)"?\s*:\s*)"[^"]*"/gi,
+      '$1"[hidden]"',
+    ),
+  );
+}
+
+function responseId(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  return (
+    payload.id ||
+    payload.batchId ||
+    payload.trackingId ||
+    payload.traceId ||
+    payload.importId ||
+    payload.data?.id ||
+    payload.data?.batchId ||
+    payload.data?.trackingId ||
+    payload.data?.traceId ||
+    payload[0]?.id ||
+    null
+  );
+}
+
 class HepsiburadaService {
   constructor(options = {}) {
     this.fetch = options.fetch || global.fetch;
@@ -344,12 +372,297 @@ class HepsiburadaService {
     );
   }
 
+  async listListingsFiltered({
+    offset = 0,
+    limit = 100,
+    merchantSkuList,
+    hbSkuList,
+    productId,
+  } = {}) {
+    const query = new URLSearchParams({
+      offset: String(Math.max(Number(offset) || 0, 0)),
+      limit: String(Math.min(Math.max(Number(limit) || 100, 1), 100)),
+    });
+    if (merchantSkuList) query.set("merchantSkuList", merchantSkuList);
+    if (hbSkuList) query.set("hbSkuList", hbSkuList);
+    if (productId) query.set("productId", productId);
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}?${query}`,
+    );
+  }
+
   async getListingBySku(sku) {
     return this.request(
       `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
         env.hepsiburadaMerchantId,
       )}/sku/${encodeURIComponent(String(sku))}`,
     );
+  }
+
+  assertSitTestAllowed() {
+    if (this.environment !== "sit") {
+      const error = new Error(
+        "Hepsiburada SIT testi yalnizca SIT ortaminda calisir",
+      );
+      error.status = 409;
+      error.code = "HEPSIBURADA_ENV_SIT_REQUIRED";
+      throw error;
+    }
+    if (!this.configured() || !env.hepsiburadaUserAgent) {
+      const error = new Error("Hepsiburada SIT credential/User-Agent eksik");
+      error.status = 409;
+      error.code = "HEPSIBURADA_SIT_CREDENTIALS_MISSING";
+      throw error;
+    }
+  }
+
+  async postListingUpload(kind, rows) {
+    const path =
+      kind === "price"
+        ? "price-uploads"
+        : kind === "stock"
+          ? "stock-uploads"
+          : "inventory-uploads";
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}/${path}`,
+      { method: "POST", body: JSON.stringify(rows) },
+    );
+  }
+
+  async getListingUploadStatus(kind, id) {
+    const path =
+      kind === "price"
+        ? "price-uploads"
+        : kind === "stock"
+          ? "stock-uploads"
+          : "inventory-uploads";
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}/${path}/id/${encodeURIComponent(String(id))}`,
+    );
+  }
+
+  async activateListing({ merchantSku, hepsiburadaSku }) {
+    const body = [
+      {
+        merchantSku: String(merchantSku || ""),
+        hepsiburadaSku: String(hepsiburadaSku || ""),
+      },
+    ];
+    return this.request(
+      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}/activate`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
+
+  async fastListingProduct({ merchantSku, barcode, hbSku, price, stock }) {
+    const body = [
+      {
+        merchant: env.hepsiburadaMerchantId,
+        merchantSku: String(merchantSku || ""),
+        barcode: String(barcode || ""),
+        hbSku: String(hbSku || ""),
+        stock: String(stock ?? 1),
+        price: String(price ?? 99.9).replace(".", ","),
+        itemOrderID: 1,
+      },
+    ];
+    return this.request(`${this.productBaseUrl}/products/fastlisting`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getProductStatusByTrackingId(trackingId) {
+    return this.request(
+      `${this.productBaseUrl}/products/status/${encodeURIComponent(
+        String(trackingId),
+      )}?version=1&page=0&size=1000`,
+    );
+  }
+
+  async createSitOrder({ listing }) {
+    const merchantSku = String(listing?.merchantSku || listing?.sku || "");
+    const hbSku = String(listing?.hbSku || listing?.hepsiburadaSku || "");
+    const listingId = String(
+      listing?.listingId || listing?.id || listing?.productId || hbSku,
+    );
+    const amount = Number(listing?.price || listing?.salePrice || 99.9) || 99.9;
+    const body = {
+      Customer: { CustomerId: "aslamaci-erp-sit-customer" },
+      DeliveryAddress: { AddressId: "aslamaci-erp-sit-address" },
+      LineItems: [
+        {
+          CargoCompanyId: 1,
+          DeliveryOptionId: 1,
+          ListingId: listingId,
+          MerchantId: env.hepsiburadaMerchantId,
+          MerchantSku: merchantSku,
+          Price: { Amount: amount, Currency: "TRY" },
+          Sku: hbSku || merchantSku,
+          TotalPrice: { Amount: amount, Currency: "TRY" },
+        },
+      ],
+      OrderDate: new Date().toISOString(),
+      OrderNumber: `ASL-SIT-${Date.now()}`,
+      PaymentStatus: "Completed",
+    };
+    return this.request(
+      `https://oms-stub-external-sit.hepsiburada.com/orders/merchantId/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
+
+  async sitTestRun(step, input = {}) {
+    this.assertSitTestAllowed();
+    const normalizedStep = String(step || "").toLowerCase();
+    const merchantSku = String(input.merchantSku || "").trim();
+    const hbSku = String(input.hbSku || input.hepsiburadaSku || "").trim();
+    const price = Number(input.price || 1000);
+    const stock = Number(input.stock || 20000);
+    const result = {
+      step: normalizedStep,
+      environment: this.environment,
+      ok: false,
+      checklist: [],
+      responses: [],
+    };
+    const add = (title, payload) => {
+      result.checklist.push({ title, ok: true });
+      result.responses.push({ title, response: safeResponseSummary(payload) });
+      return payload;
+    };
+    if (normalizedStep === "connection") {
+      add(
+        "Listing bilgilerini sorgulama",
+        await this.listListings({ limit: 1 }),
+      );
+      result.ok = true;
+      return result;
+    }
+    if (normalizedStep === "listing") {
+      if (!merchantSku) {
+        const error = new Error("Listeleme testi icin merchantSku gerekli");
+        error.status = 400;
+        throw error;
+      }
+      add(
+        "Listing bilgilerini merchantSku ile sorgulama",
+        await this.listListingsFiltered({
+          merchantSkuList: merchantSku,
+          limit: 10,
+        }),
+      );
+      const stockResponse = add(
+        "Listing stok guncelleme",
+        await this.postListingUpload("stock", [
+          { merchantSku, hepsiburadaSku: hbSku, availableStock: stock },
+        ]),
+      );
+      const stockId = responseId(stockResponse);
+      if (stockId)
+        add(
+          "Listing stok guncelleme sorgulama",
+          await this.getListingUploadStatus("stock", stockId),
+        );
+      const priceResponse = add(
+        "Listing fiyat guncelleme",
+        await this.postListingUpload("price", [
+          { merchantSku, hepsiburadaSku: hbSku, price },
+        ]),
+      );
+      const priceId = responseId(priceResponse);
+      if (priceId)
+        add(
+          "Listing fiyat guncelleme sorgulama",
+          await this.getListingUploadStatus("price", priceId),
+        );
+      try {
+        add(
+          "Listing activate",
+          await this.activateListing({ merchantSku, hepsiburadaSku: hbSku }),
+        );
+      } catch (error) {
+        result.checklist.push({
+          title: "Listing activate",
+          ok: false,
+          message: String(error.message || "").slice(0, 500),
+        });
+      }
+      result.ok = true;
+      return result;
+    }
+    if (normalizedStep === "catalog") {
+      const sku = merchantSku || `ASL-SIT-${Date.now()}`;
+      const response = add(
+        "Hizli urun yukleme",
+        await this.fastListingProduct({
+          merchantSku: sku,
+          barcode: input.barcode || sku,
+          hbSku,
+          price,
+          stock: Math.max(stock, 1),
+        }),
+      );
+      const trackingId = responseId(response);
+      if (trackingId)
+        add(
+          "Urun durumu sorgulama",
+          await this.getProductStatusByTrackingId(trackingId),
+        );
+      result.ok = true;
+      return result;
+    }
+    if (normalizedStep === "order") {
+      const listingPayload = merchantSku
+        ? await this.listListingsFiltered({
+            merchantSkuList: merchantSku,
+            limit: 1,
+          })
+        : await this.listListings({ limit: 1 });
+      const listing = normalizeRows(listingPayload)[0];
+      add("Siparis icin listing sorgulama", listingPayload);
+      if (!listing) {
+        const error = new Error(
+          "Siparis testi icin kullanilabilir listing bulunamadi",
+        );
+        error.status = 409;
+        throw error;
+      }
+      add("Test siparisi olusturma", await this.createSitOrder({ listing }));
+      add(
+        "Saticiya ait paket bilgilerini listeleme",
+        await this.request(
+          `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
+            env.hepsiburadaMerchantId,
+          )}`,
+        ),
+      );
+      result.ok = true;
+      return result;
+    }
+    if (normalizedStep === "webhook") {
+      result.ok = true;
+      result.checklist.push({
+        title: "Webhook endpoint hazir",
+        ok: true,
+        message:
+          "BaseURL Hepsiburada'ya iletilmeli; resmi dokuman test tanimini Hepsiburada tarafinda yapacaklarini belirtiyor.",
+      });
+      return result;
+    }
+    const error = new Error("Bilinmeyen Hepsiburada SIT test adimi");
+    error.status = 404;
+    throw error;
   }
 
   async updatePriceAndInventory({ sku, price, stock }) {

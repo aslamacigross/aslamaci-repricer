@@ -71,7 +71,14 @@ export default function Integrations({ notify }) {
   const [testing, setTesting] = useState("");
   const [sitTests, setSitTests] = useState(null);
   const [sitPreview, setSitPreview] = useState(null);
+  const [sitRunResult, setSitRunResult] = useState(null);
   const [sitLoading, setSitLoading] = useState(false);
+  const [sitInput, setSitInput] = useState({
+    merchantSku: "8660891646397",
+    hbSku: "HBV000010LWPR",
+    price: "1000",
+    stock: "20000",
+  });
 
   async function testConnection(item) {
     setTesting(item.code);
@@ -112,9 +119,26 @@ export default function Integrations({ notify }) {
     }
   }
 
+  async function runSitStep(step) {
+    setSitLoading(true);
+    try {
+      const response = await post(
+        `/api/integrations/hepsiburada/sit-tests/${step}/run`,
+        sitInput,
+      );
+      setSitRunResult(response.data);
+      notify("Hepsiburada SIT adımı çalıştırıldı");
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setSitLoading(false);
+    }
+  }
+
   useEffect(() => {
     setSitTests(null);
     setSitPreview(null);
+    setSitRunResult(null);
     if (selected?.code === "HEPSIBURADA") loadSitTests();
   }, [selected?.code]);
 
@@ -336,6 +360,56 @@ export default function Integrations({ notify }) {
                         <span>{sitTests.blockedReasons.join(", ")}</span>
                       </div>
                     )}
+                    <div className="detail-grid">
+                      <label>
+                        <dt>Satıcı stok kodu / Merchant SKU</dt>
+                        <input
+                          value={sitInput.merchantSku}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              merchantSku: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <dt>Hepsiburada SKU / Platform ID</dt>
+                        <input
+                          value={sitInput.hbSku}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              hbSku: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <dt>Test fiyatı</dt>
+                        <input
+                          value={sitInput.price}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              price: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <dt>Test stoku</dt>
+                        <input
+                          value={sitInput.stock}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              stock: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
                     <div className="capability-list">
                       {(sitTests.steps || []).map((step) => (
                         <div key={step.code}>
@@ -365,6 +439,12 @@ export default function Integrations({ notify }) {
                           >
                             Önizle
                           </Button>
+                          <Button
+                            disabled={sitLoading || step.status === "BLOCKED"}
+                            onClick={() => runSitStep(step.code)}
+                          >
+                            SIT'te çalıştır
+                          </Button>
                         </div>
                       ))}
                     </div>
@@ -376,6 +456,15 @@ export default function Integrations({ notify }) {
                     <span>
                       {sitPreview.message}
                       <pre>{JSON.stringify(sitPreview.preview, null, 2)}</pre>
+                    </span>
+                  </div>
+                )}
+                {sitRunResult && (
+                  <div className="integration-warning">
+                    <CheckCircle2 size={17} />
+                    <span>
+                      SIT sonucu
+                      <pre>{JSON.stringify(sitRunResult, null, 2)}</pre>
                     </span>
                   </div>
                 )}

@@ -221,4 +221,108 @@ describe("Hepsiburada API runtime configuration", () => {
       Object.assign(env, previous);
     }
   });
+
+  test("SIT listing testi fiyat stok ve sonuc sorgularini SIT endpointlerine gonderir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("stock-uploads/id"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ status: "OK" }),
+            };
+          if (String(url).includes("price-uploads/id"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ status: "OK" }),
+            };
+          if (String(url).includes("stock-uploads"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ id: "stock-1" }),
+            };
+          if (String(url).includes("price-uploads"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ id: "price-1" }),
+            };
+          if (String(url).includes("activate"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ accepted: true }),
+            };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({ listings: [{ merchantSku: "8660891646397" }] }),
+          };
+        },
+      });
+      const result = await service.sitTestRun("listing", {
+        merchantSku: "8660891646397",
+        hbSku: "HBV000010LWPR",
+        price: 1000,
+        stock: 20000,
+      });
+      assert.equal(result.ok, true);
+      assert.ok(
+        requests.every((request) =>
+          String(request.url).includes("listing-external-sit.hepsiburada.com"),
+        ),
+      );
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).includes("stock-uploads"),
+        ),
+      );
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).includes("price-uploads"),
+        ),
+      );
+      assert.equal(JSON.stringify(result).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT test runner production ortaminda fail-closed davranir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async () => {
+          throw new Error("fetch should not be called");
+        },
+      });
+      await assert.rejects(
+        () => service.sitTestRun("listing", { merchantSku: "SKU" }),
+        /SIT ortaminda/,
+      );
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
 });
