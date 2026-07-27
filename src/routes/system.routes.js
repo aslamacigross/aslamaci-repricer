@@ -50,6 +50,10 @@ const OPERATIONAL_TRANSFER_TABLES = [
 ];
 const OPERATIONAL_TRANSFER_TABLE_SET = new Set(OPERATIONAL_TRANSFER_TABLES);
 
+function publicBaseUrl(req) {
+  return `${req.protocol}://${req.get("host")}`;
+}
+
 function quoteIdentifier(value) {
   if (!/^[a-z_][a-z0-9_]*$/.test(String(value || "")))
     throw new AppError("Geçersiz tablo adı", 400, "INVALID_TABLE");
@@ -608,6 +612,28 @@ function systemRoutes({
       res.json({
         status: "ok",
         data: await hepsiburada.health(),
+      }),
+    ),
+  );
+  r.get(
+    "/integrations/hepsiburada/sit-tests",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: hepsiburada.sitTestCenter({
+          publicBaseUrl: publicBaseUrl(req),
+        }),
+      }),
+    ),
+  );
+  r.post(
+    "/integrations/hepsiburada/sit-tests/:step/preview",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: hepsiburada.sitTestPreview(req.params.step, {
+          publicBaseUrl: publicBaseUrl(req),
+        }),
       }),
     ),
   );

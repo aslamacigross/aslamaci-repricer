@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Cable,
   CheckCircle2,
@@ -69,6 +69,9 @@ export default function Integrations({ notify }) {
   const remote = useRemote(() => get("/api/integrations"), []);
   const [selected, setSelected] = useState(null);
   const [testing, setTesting] = useState("");
+  const [sitTests, setSitTests] = useState(null);
+  const [sitPreview, setSitPreview] = useState(null);
+  const [sitLoading, setSitLoading] = useState(false);
 
   async function testConnection(item) {
     setTesting(item.code);
@@ -82,6 +85,38 @@ export default function Integrations({ notify }) {
       remote.reload();
     }
   }
+
+  async function loadSitTests() {
+    setSitLoading(true);
+    try {
+      const response = await get("/api/integrations/hepsiburada/sit-tests");
+      setSitTests(response.data);
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setSitLoading(false);
+    }
+  }
+
+  async function previewSitStep(step) {
+    setSitLoading(true);
+    try {
+      const response = await post(
+        `/api/integrations/hepsiburada/sit-tests/${step}/preview`,
+      );
+      setSitPreview(response.data);
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setSitLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setSitTests(null);
+    setSitPreview(null);
+    if (selected?.code === "HEPSIBURADA") loadSitTests();
+  }, [selected?.code]);
 
   if (remote.loading) return <Loading />;
   if (remote.error)
@@ -259,6 +294,93 @@ export default function Integrations({ notify }) {
                 ))}
               </dl>
             </section>
+            {selected.code === "HEPSIBURADA" && (
+              <section>
+                <h3>Hepsiburada SIT test merkezi</h3>
+                {!sitTests ? (
+                  <Button
+                    variant="secondary"
+                    icon={RefreshCw}
+                    disabled={sitLoading}
+                    onClick={loadSitTests}
+                  >
+                    Test durumunu yükle
+                  </Button>
+                ) : (
+                  <>
+                    <dl className="detail-grid">
+                      <div>
+                        <dt>Ortam</dt>
+                        <dd>{sitTests.safety?.environment}</dd>
+                      </div>
+                      <div>
+                        <dt>SIT kilidi</dt>
+                        <dd>{sitTests.safety?.sitOnly ? "Doğru" : "Eksik"}</dd>
+                      </div>
+                      <div>
+                        <dt>Mutasyon kilidi</dt>
+                        <dd>
+                          {sitTests.safety?.mutationsLocked
+                            ? "Kapalı ve güvenli"
+                            : "Açık görünüyor"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Webhook URL</dt>
+                        <dd>{sitTests.safety?.publicWebhookUrl || "Eksik"}</dd>
+                      </div>
+                    </dl>
+                    {Boolean(sitTests.blockedReasons?.length) && (
+                      <div className="integration-warning">
+                        <CircleOff size={17} />
+                        <span>{sitTests.blockedReasons.join(", ")}</span>
+                      </div>
+                    )}
+                    <div className="capability-list">
+                      {(sitTests.steps || []).map((step) => (
+                        <div key={step.code}>
+                          {step.status === "BLOCKED" ? (
+                            <CircleOff size={17} />
+                          ) : (
+                            <CheckCircle2 size={17} />
+                          )}
+                          <span>
+                            <strong>{step.title}</strong>
+                            <small>{step.description}</small>
+                          </span>
+                          <Badge
+                            tone={
+                              step.status === "READY" ||
+                              step.status === "DRY_RUN_READY"
+                                ? "success"
+                                : "warning"
+                            }
+                          >
+                            {step.status}
+                          </Badge>
+                          <Button
+                            variant="secondary"
+                            disabled={sitLoading || step.status === "BLOCKED"}
+                            onClick={() => previewSitStep(step.code)}
+                          >
+                            Önizle
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {sitPreview && (
+                  <div className="integration-warning">
+                    <ShieldCheck size={17} />
+                    <span>
+                      {sitPreview.message}
+                      <pre>{JSON.stringify(sitPreview.preview, null, 2)}</pre>
+                    </span>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         )}
       </Drawer>

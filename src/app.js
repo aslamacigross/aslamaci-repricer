@@ -103,6 +103,15 @@ function createApp(container = createContainer()) {
       });
     }),
   );
+  app.post("/api/public/hepsiburada/webhook", (req, res) =>
+    res.json({
+      status: "ok",
+      code: "HEPSIBURADA_WEBHOOK_RECEIVED",
+      message:
+        "Hepsiburada SIT webhook bildirimi alindi; bu test endpointi veri degistirmez.",
+      receivedAt: new Date().toISOString(),
+    }),
+  );
   const requireAuth = authRequired(container.auth);
   app.use(
     "/api/auth",

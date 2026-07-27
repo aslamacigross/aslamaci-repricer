@@ -157,4 +157,68 @@ describe("Hepsiburada API runtime configuration", () => {
       Object.assign(env, previous);
     }
   });
+
+  test("SIT test merkezi production ortaminda dis istek hazirlamadan bloklar", () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
+      hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
+    };
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+      hepsiburadaMutationsEnabled: false,
+      hepsiburadaPriceUpdatesEnabled: false,
+    });
+    try {
+      const service = new HepsiburadaService({ environment: "production" });
+      const center = service.sitTestCenter({
+        publicBaseUrl: "https://preview.test",
+      });
+      assert.equal(center.safety.sitOnly, false);
+      assert.ok(center.blockedReasons.includes("HEPSIBURADA_ENV_SIT_REQUIRED"));
+      assert.equal(
+        center.steps.find((step) => step.code === "catalog").status,
+        "BLOCKED",
+      );
+      assert.equal(JSON.stringify(center).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT test onizlemesi secret siz dry-run payload uretir", () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
+      hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
+    };
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+      hepsiburadaMutationsEnabled: false,
+      hepsiburadaPriceUpdatesEnabled: false,
+    });
+    try {
+      const service = new HepsiburadaService({ environment: "sit" });
+      const preview = service.sitTestPreview("catalog", {
+        publicBaseUrl: "https://preview.test",
+      });
+      assert.equal(preview.sendsRequest, false);
+      assert.equal(preview.preview.mode, "dry-run");
+      assert.equal(
+        preview.safety.publicWebhookUrl,
+        "https://preview.test/api/public/hepsiburada/webhook",
+      );
+      assert.equal(JSON.stringify(preview).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
 });

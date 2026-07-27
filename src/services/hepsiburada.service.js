@@ -13,6 +13,17 @@ const DEFAULT_ENDPOINTS = Object.freeze({
   },
 });
 
+const SIT_TEST_GUIDES = Object.freeze({
+  catalog:
+    "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=katalog-urun-entegrasyonu&product=katalog-urun-entegrasyonu&version=v1.0&guide=katalog-urun-entegrasyonu-test-sureci-adimlari&view=guide",
+  listing:
+    "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=listeleme&product=listeleme&version=v1&guide=listeleme-entegrasyonu-test-sureci-adimlari&view=guide",
+  order:
+    "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=siparis-yonetimi&product=siparis-olusturma-entegrasyonu&version=v1.0&guide=siparis-entegrasyonu-test-sureci-adimlari&view=guide",
+  webhook:
+    "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=siparis-yonetimi&product=siparis-olusturma-entegrasyonu&version=v1.0&guide=siparis-webhook-modeli&view=guide",
+});
+
 function normalizedEnvironment(value = env.hepsiburadaEnv) {
   return ["sit", "test"].includes(String(value).toLowerCase())
     ? "sit"
@@ -54,6 +65,14 @@ class HepsiburadaService {
     return env.hepsiburadaPriceUpdatesEnabled === true;
   }
 
+  sitTestReady() {
+    return (
+      this.environment === "sit" &&
+      this.configured() &&
+      Boolean(env.hepsiburadaUserAgent)
+    );
+  }
+
   userAgent() {
     return (
       env.hepsiburadaUserAgent ||
@@ -73,6 +92,188 @@ class HepsiburadaService {
       productEndpointConfigured: Boolean(this.productBaseUrl),
       userAgentConfigured: Boolean(env.hepsiburadaUserAgent),
       priceUpdatesEnabled: this.priceUpdatesEnabled(),
+    };
+  }
+
+  sitTestCenter({ publicBaseUrl = "" } = {}) {
+    const safety = {
+      environment: this.environment,
+      configured: this.configured(),
+      userAgentConfigured: Boolean(env.hepsiburadaUserAgent),
+      sitOnly: this.environment === "sit",
+      mutationsLocked: !this.mutationsEnabled(),
+      priceUpdatesLocked: !this.priceUpdatesEnabled(),
+      publicWebhookUrl: publicBaseUrl
+        ? `${String(publicBaseUrl).replace(/\/+$/, "")}/api/public/hepsiburada/webhook`
+        : null,
+    };
+    const blockedReasons = [
+      !safety.sitOnly && "HEPSIBURADA_ENV_SIT_REQUIRED",
+      !safety.configured && "HEPSIBURADA_CREDENTIALS_MISSING",
+      !safety.userAgentConfigured && "HEPSIBURADA_USER_AGENT_MISSING",
+      !safety.mutationsLocked && "HEPSIBURADA_MUTATIONS_MUST_STAY_LOCKED",
+      !safety.priceUpdatesLocked &&
+        "HEPSIBURADA_PRICE_UPDATES_MUST_STAY_LOCKED",
+    ].filter(Boolean);
+    const baseStatus = blockedReasons.length ? "BLOCKED" : "READY";
+    const steps = [
+      {
+        code: "connection",
+        title: "Bağlantı testi",
+        status: baseStatus,
+        kind: "READ_ONLY",
+        guide: SIT_TEST_GUIDES.listing,
+        description:
+          "Basic Auth ve User-Agent ile SIT bağlantısının doğrulanması.",
+        nextAction:
+          baseStatus === "READY"
+            ? "Panelde mevcut bağlantı testi çalıştırılabilir."
+            : "Önce güvenlik/credential eksikleri tamamlanmalı.",
+      },
+      {
+        code: "catalog",
+        title: "Katalog ürün testi",
+        status: baseStatus === "READY" ? "DRY_RUN_READY" : "BLOCKED",
+        kind: "SIT_MUTATION_PREVIEW",
+        guide: SIT_TEST_GUIDES.catalog,
+        description:
+          "Hepsiburada test kataloğuna gönderilecek örnek ürün paketi hazırlanır; otomatik gönderim kapalıdır.",
+        nextAction:
+          "Önce test payload'u incelenir, ardından açık onayla SIT çağrısı eklenir.",
+      },
+      {
+        code: "listing",
+        title: "Listeleme / fiyat-stok testi",
+        status: baseStatus === "READY" ? "DRY_RUN_READY" : "BLOCKED",
+        kind: "SIT_MUTATION_PREVIEW",
+        guide: SIT_TEST_GUIDES.listing,
+        description:
+          "SIT katalog ürününe teklif/fiyat/stok paketi hazırlanır; gerçek gönderim kapalıdır.",
+        nextAction:
+          "Hepsiburada'nın istediği test SKU/katalog bilgisi doğrulanınca SIT çağrısı bağlanır.",
+      },
+      {
+        code: "order",
+        title: "Sipariş okuma testi",
+        status: baseStatus,
+        kind: "READ_ONLY",
+        guide: SIT_TEST_GUIDES.order,
+        description:
+          "SIT portalda oluşturulan test siparişinin sistem tarafından okunması.",
+        nextAction:
+          "SIT portalda test sipariş oluşturulduktan sonra sipariş senkronu çalıştırılır.",
+      },
+      {
+        code: "webhook",
+        title: "Sipariş webhook testi",
+        status: safety.publicWebhookUrl
+          ? baseStatus === "READY"
+            ? "DRY_RUN_READY"
+            : "BLOCKED"
+          : "WEBHOOK_URL_REQUIRED",
+        kind: "PUBLIC_CALLBACK_PREVIEW",
+        guide: SIT_TEST_GUIDES.webhook,
+        description:
+          "Hepsiburada'nın sipariş durum bildirimini göndereceği callback adresi hazırlanır.",
+        nextAction: safety.publicWebhookUrl
+          ? "Callback URL Hepsiburada SIT webhook ayarına girilebilir."
+          : "Preview public URL bilgisi sisteme verilmeli.",
+      },
+    ];
+    return { safety, blockedReasons, steps };
+  }
+
+  sitTestPreview(step, { publicBaseUrl = "" } = {}) {
+    const normalizedStep = String(step || "").toLowerCase();
+    const center = this.sitTestCenter({ publicBaseUrl });
+    const selected = center.steps.find((item) => item.code === normalizedStep);
+    if (!selected) {
+      const error = new Error("Bilinmeyen Hepsiburada SIT test adımı");
+      error.status = 404;
+      throw error;
+    }
+    if (selected.status === "BLOCKED") {
+      const error = new Error("Hepsiburada SIT test güvenlik koşulları eksik");
+      error.status = 409;
+      error.details = center.blockedReasons;
+      throw error;
+    }
+    const previews = {
+      connection: {
+        mode: "read-only",
+        request: {
+          method: "GET",
+          target: "listing-health-sample",
+          environment: this.environment,
+        },
+      },
+      catalog: {
+        mode: "dry-run",
+        request: {
+          method: "POST",
+          target: "catalog-product-test",
+          environment: this.environment,
+          payload: {
+            merchant: "configured",
+            products: [
+              {
+                merchantSku: "ASL-SIT-KATALOG-TEST-001",
+                barcode: "ASL-SIT-KATALOG-TEST-001",
+                title: "Aşlamacı ERP SIT Katalog Test Ürünü",
+                brand: "Aşlamacı Test",
+                category: "SIT test kategorisi dokümana göre doldurulacak",
+                price: 99.9,
+                stock: 1,
+                images: [],
+              },
+            ],
+          },
+        },
+      },
+      listing: {
+        mode: "dry-run",
+        request: {
+          method: "POST_OR_PUT",
+          target: "listing-price-stock-test",
+          environment: this.environment,
+          payload: {
+            merchantSku: "ASL-SIT-LISTING-TEST-001",
+            price: 99.9,
+            availableStock: 1,
+            cargoCompany: "hepsiJET",
+          },
+        },
+      },
+      order: {
+        mode: "read-only",
+        request: {
+          method: "GET",
+          target: "orders-created-in-sit-portal",
+          environment: this.environment,
+          query: { limit: 100, offset: 0 },
+        },
+      },
+      webhook: {
+        mode: "callback-preview",
+        request: {
+          method: "POST",
+          target: center.safety.publicWebhookUrl,
+          environment: this.environment,
+          expectedPayload: {
+            eventType: "ORDER_STATUS_UPDATED",
+            orderNumber: "SIT_TEST_ORDER_NUMBER",
+            packageNumber: "SIT_TEST_PACKAGE_NUMBER",
+          },
+        },
+      },
+    };
+    return {
+      step: selected,
+      safety: center.safety,
+      preview: previews[normalizedStep],
+      sendsRequest: false,
+      message:
+        "Bu önizleme Hepsiburada'ya istek göndermez; gerçek SIT çağrısı ayrı onay ister.",
     };
   }
 
@@ -217,6 +418,7 @@ function normalizeRows(payload) {
 module.exports = {
   HepsiburadaService,
   DEFAULT_ENDPOINTS,
+  SIT_TEST_GUIDES,
   normalizedEnvironment,
   normalizeRows,
 };
