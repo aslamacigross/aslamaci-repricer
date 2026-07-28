@@ -355,6 +355,108 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
+  test("SIT toplu satis acma testi tum listinglere fiyat stok gonderir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("stock-uploads/id"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ status: "Done" }),
+            };
+          if (String(url).includes("price-uploads/id"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ status: "Ready" }),
+            };
+          if (String(url).includes("stock-uploads"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ id: "stock-bulk" }),
+            };
+          if (String(url).includes("price-uploads"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ id: "price-bulk" }),
+            };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                listings: [
+                  {
+                    merchantSku: "SKU1",
+                    hepsiburadaSku: "HBV1",
+                    price: 10,
+                    availableStock: 0,
+                    isSalable: true,
+                  },
+                  {
+                    merchantSku: "SKU2",
+                    hepsiburadaSku: "HBV2",
+                    price: 20,
+                    availableStock: 0,
+                    isSalable: true,
+                  },
+                ],
+              }),
+          };
+        },
+      });
+      const result = await service.sitTestRun("bulk-listing", {
+        price: 1000,
+        stock: 20000,
+      });
+      const stockUpload = requests.find(
+        (request) =>
+          String(request.url).includes("stock-uploads") &&
+          !String(request.url).includes("/id/"),
+      );
+      const priceUpload = requests.find(
+        (request) =>
+          String(request.url).includes("price-uploads") &&
+          !String(request.url).includes("/id/"),
+      );
+      assert.equal(JSON.parse(stockUpload.options.body).length, 2);
+      assert.equal(JSON.parse(priceUpload.options.body).length, 2);
+      assert.deepEqual(JSON.parse(stockUpload.options.body)[0], {
+        merchantSku: "SKU1",
+        hepsiburadaSku: "HBV1",
+        availableStock: 20000,
+      });
+      assert.deepEqual(JSON.parse(priceUpload.options.body)[0], {
+        merchantSku: "SKU1",
+        hepsiburadaSku: "HBV1",
+        price: 1000,
+      });
+      assert.equal(result.ok, true);
+      assert.ok(
+        result.checklist.some(
+          (item) =>
+            item.title === "Satis acik urun sayisi" &&
+            item.ok === true &&
+            item.message === "2/2 listing isSalable=true",
+        ),
+      );
+      assert.equal(JSON.stringify(result).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
   test("SIT siparis testi numerik OrderNumber uretir", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,
@@ -404,6 +506,7 @@ describe("Hepsiburada API runtime configuration", () => {
       );
       const body = JSON.parse(orderRequest.options.body);
       assert.match(body.OrderNumber, /^\d+$/);
+      assert.equal(body.LineItems[0].Quantity, 1);
       assert.equal(result.ok, true);
     } finally {
       Object.assign(env, previous);

@@ -181,6 +181,17 @@ class HepsiburadaService {
           "Hepsiburada'nın istediği test SKU/katalog bilgisi doğrulanınca SIT çağrısı bağlanır.",
       },
       {
+        code: "bulk-listing",
+        title: "Toplu satışa açma testi",
+        status: baseStatus === "READY" ? "DRY_RUN_READY" : "BLOCKED",
+        kind: "SIT_MUTATION_PREVIEW",
+        guide: SIT_TEST_GUIDES.listing,
+        description:
+          "SIT ortamındaki mevcut listingleri topluca fiyat/stok ile satışa hazır hale getirir.",
+        nextAction:
+          "Hepsiburada kontrolünde ürünlerin satışa açılmış görünmesi için çalıştırılır.",
+      },
+      {
         code: "order",
         title: "Sipariş okuma testi",
         status: baseStatus,
@@ -269,6 +280,19 @@ class HepsiburadaService {
             price: 99.9,
             availableStock: 1,
             cargoCompany: "hepsiJET",
+          },
+        },
+      },
+      "bulk-listing": {
+        mode: "sit-bulk",
+        request: {
+          method: "POST",
+          target: "bulk-listing-price-stock-test",
+          environment: this.environment,
+          payload: {
+            scope: "all-sit-listings",
+            price: 1000,
+            availableStock: 20000,
           },
         },
       },
@@ -447,6 +471,36 @@ class HepsiburadaService {
     );
   }
 
+  async waitListingUploadStatus(
+    kind,
+    id,
+    { attempts = 6, delayMs = 1500 } = {},
+  ) {
+    let last = null;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      last = await this.getListingUploadStatus(kind, id);
+      const status = String(last?.status || "").toUpperCase();
+      if (["DONE", "COMPLETED", "READY", "FAILED", "ERROR"].includes(status))
+        break;
+      if (attempt < attempts - 1)
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return last;
+  }
+
+  listingUploadRows(listings, { price, stock }) {
+    return normalizeRows(listings)
+      .map((listing) => ({
+        merchantSku: String(listing.merchantSku || listing.sku || "").trim(),
+        hepsiburadaSku: String(
+          listing.hepsiburadaSku || listing.hbSku || "",
+        ).trim(),
+        price: Number(price || listing.price || 1000),
+        availableStock: Number(stock || listing.availableStock || 20),
+      }))
+      .filter((row) => row.merchantSku && row.hepsiburadaSku);
+  }
+
   async fastListingProduct({
     merchantSku,
     barcode,
@@ -498,6 +552,7 @@ class HepsiburadaService {
           ListingId: listingId,
           MerchantId: env.hepsiburadaMerchantId,
           MerchantSku: merchantSku,
+          Quantity: 1,
           Price: { Amount: amount, Currency: "TRY" },
           Sku: hbSku || merchantSku,
           TotalPrice: { Amount: amount, Currency: "TRY" },
@@ -592,6 +647,63 @@ class HepsiburadaService {
             : "Listing aktif degil; Hepsiburada Listing Activate referans linki 404 dondugu icin bu adim manuel/API dokuman netlestirmesi gerektirir.",
       });
       result.ok = true;
+      return result;
+    }
+    if (normalizedStep === "bulk-listing") {
+      const allListings = await this.listListings({ limit: 100 });
+      add("Tum SIT listinglerini sorgulama", allListings);
+      const rows = this.listingUploadRows(allListings, { price, stock });
+      if (!rows.length) {
+        const error = new Error(
+          "Toplu satisa acma icin uygun listing bulunamadi",
+        );
+        error.status = 409;
+        throw error;
+      }
+      const stockResponse = add(
+        "Toplu stok guncelleme",
+        await this.postListingUpload(
+          "stock",
+          rows.map(({ merchantSku, hepsiburadaSku, availableStock }) => ({
+            merchantSku,
+            hepsiburadaSku,
+            availableStock,
+          })),
+        ),
+      );
+      const stockId = responseId(stockResponse);
+      if (stockId)
+        add(
+          "Toplu stok guncelleme sonucu",
+          await this.waitListingUploadStatus("stock", stockId),
+        );
+      const priceResponse = add(
+        "Toplu fiyat guncelleme",
+        await this.postListingUpload(
+          "price",
+          rows.map(({ merchantSku, hepsiburadaSku, price }) => ({
+            merchantSku,
+            hepsiburadaSku,
+            price,
+          })),
+        ),
+      );
+      const priceId = responseId(priceResponse);
+      if (priceId)
+        add(
+          "Toplu fiyat guncelleme sonucu",
+          await this.waitListingUploadStatus("price", priceId),
+        );
+      const verified = await this.listListings({ limit: 100 });
+      add("Toplu satisa acma sonrasi listing dogrulama", verified);
+      const verifiedRows = normalizeRows(verified);
+      const salable = verifiedRows.filter((item) => item.isSalable === true);
+      result.checklist.push({
+        title: "Satis acik urun sayisi",
+        ok: salable.length > 0,
+        message: `${salable.length}/${verifiedRows.length} listing isSalable=true`,
+      });
+      result.ok = salable.length > 0;
       return result;
     }
     if (normalizedStep === "catalog") {
