@@ -58,6 +58,21 @@ function responseId(payload) {
   );
 }
 
+function listingDeactivationSummary(listings) {
+  const summary = {};
+  for (const listing of normalizeRows(listings)) {
+    const reasons = listing.deactivationReasons?.length
+      ? listing.deactivationReasons
+      : listing.isSalable === true
+        ? ["SALABLE"]
+        : ["UNKNOWN"];
+    for (const reason of reasons) {
+      summary[reason] = (summary[reason] || 0) + 1;
+    }
+  }
+  return summary;
+}
+
 class HepsiburadaService {
   constructor(options = {}) {
     this.fetch = options.fetch || global.fetch;
@@ -474,14 +489,13 @@ class HepsiburadaService {
   async waitListingUploadStatus(
     kind,
     id,
-    { attempts = 6, delayMs = 1500 } = {},
+    { attempts = 12, delayMs = 3000 } = {},
   ) {
     let last = null;
     for (let attempt = 0; attempt < attempts; attempt++) {
       last = await this.getListingUploadStatus(kind, id);
       const status = String(last?.status || "").toUpperCase();
-      if (["DONE", "COMPLETED", "READY", "FAILED", "ERROR"].includes(status))
-        break;
+      if (["DONE", "COMPLETED", "FAILED", "ERROR"].includes(status)) break;
       if (attempt < attempts - 1)
         await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
@@ -675,7 +689,10 @@ class HepsiburadaService {
       if (stockId)
         add(
           "Toplu stok guncelleme sonucu",
-          await this.waitListingUploadStatus("stock", stockId),
+          await this.waitListingUploadStatus("stock", stockId, {
+            attempts: 20,
+            delayMs: 3000,
+          }),
         );
       const priceResponse = add(
         "Toplu fiyat guncelleme",
@@ -692,18 +709,28 @@ class HepsiburadaService {
       if (priceId)
         add(
           "Toplu fiyat guncelleme sonucu",
-          await this.waitListingUploadStatus("price", priceId),
+          await this.waitListingUploadStatus("price", priceId, {
+            attempts: 20,
+            delayMs: 3000,
+          }),
         );
       const verified = await this.listListings({ limit: 100 });
       add("Toplu satisa acma sonrasi listing dogrulama", verified);
       const verifiedRows = normalizeRows(verified);
       const salable = verifiedRows.filter((item) => item.isSalable === true);
+      const deactivationSummary = listingDeactivationSummary(verifiedRows);
       result.checklist.push({
         title: "Satis acik urun sayisi",
-        ok: salable.length > 0,
+        ok: verifiedRows.length > 0 && salable.length === verifiedRows.length,
         message: `${salable.length}/${verifiedRows.length} listing isSalable=true`,
       });
-      result.ok = salable.length > 0;
+      result.checklist.push({
+        title: "Satis kapali neden ozeti",
+        ok: salable.length === verifiedRows.length,
+        message: JSON.stringify(deactivationSummary),
+      });
+      result.ok =
+        verifiedRows.length > 0 && salable.length === verifiedRows.length;
       return result;
     }
     if (normalizedStep === "catalog") {
@@ -750,7 +777,7 @@ class HepsiburadaService {
         await this.request(
           `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
             env.hepsiburadaMerchantId,
-          )}`,
+          )}?limit=100&offset=0`,
         ),
       );
       result.ok = true;
@@ -840,4 +867,5 @@ module.exports = {
   SIT_TEST_GUIDES,
   normalizedEnvironment,
   normalizeRows,
+  listingDeactivationSummary,
 };

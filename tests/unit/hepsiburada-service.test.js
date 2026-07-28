@@ -9,6 +9,7 @@ const { env } = require("../../src/config/env");
 const {
   DEFAULT_ENDPOINTS,
   HepsiburadaService,
+  listingDeactivationSummary,
   normalizedEnvironment,
   normalizeRows,
 } = require("../../src/services/hepsiburada.service");
@@ -80,6 +81,23 @@ describe("Hepsiburada API runtime configuration", () => {
   test("Railway HEPSIBURADA_* secret aliaslari runtime env'e okunur", () => {
     assert.equal(normalizeRows({ items: [{ id: 1 }] }).length, 1);
     assert.equal(normalizeRows({ listings: [{ id: 1 }, { id: 2 }] }).length, 2);
+    assert.deepEqual(
+      listingDeactivationSummary([
+        { isSalable: true },
+        { deactivationReasons: ["StockIsLessThanOrEqualToZero"] },
+        {
+          deactivationReasons: [
+            "PriceIsLessThanOrEqualToZero",
+            "StockIsLessThanOrEqualToZero",
+          ],
+        },
+      ]),
+      {
+        SALABLE: 1,
+        StockIsLessThanOrEqualToZero: 2,
+        PriceIsLessThanOrEqualToZero: 1,
+      },
+    );
   });
 
   test("listing okuma endpointi Basic auth ve User-Agent ile cagrilir", async () => {
@@ -380,7 +398,7 @@ describe("Hepsiburada API runtime configuration", () => {
           if (String(url).includes("price-uploads/id"))
             return {
               ok: true,
-              text: async () => JSON.stringify({ status: "Ready" }),
+              text: async () => JSON.stringify({ status: "Done" }),
             };
           if (String(url).includes("stock-uploads"))
             return {
@@ -451,6 +469,14 @@ describe("Hepsiburada API runtime configuration", () => {
             item.message === "2/2 listing isSalable=true",
         ),
       );
+      assert.ok(
+        result.checklist.some(
+          (item) =>
+            item.title === "Satis kapali neden ozeti" &&
+            item.ok === true &&
+            item.message === '{"SALABLE":2}',
+        ),
+      );
       assert.equal(JSON.stringify(result).includes("secret-key"), false);
     } finally {
       Object.assign(env, previous);
@@ -507,6 +533,13 @@ describe("Hepsiburada API runtime configuration", () => {
       const body = JSON.parse(orderRequest.options.body);
       assert.match(body.OrderNumber, /^\d+$/);
       assert.equal(body.LineItems[0].Quantity, 1);
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).includes(
+            "/packages/merchantid/merchant-id?limit=100&offset=0",
+          ),
+        ),
+      );
       assert.equal(result.ok, true);
     } finally {
       Object.assign(env, previous);
