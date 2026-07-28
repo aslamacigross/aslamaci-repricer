@@ -76,6 +76,7 @@ export default function Integrations({ notify }) {
   const [sitInput, setSitInput] = useState({
     merchantSku: "8660891646397",
     hbSku: "HBV000010LWPR",
+    productName: "Aşlamacı ERP SIT Test Ürünü",
     price: "1000",
     stock: "20000",
   });
@@ -381,6 +382,18 @@ export default function Integrations({ notify }) {
                             setSitInput((current) => ({
                               ...current,
                               hbSku: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <dt>Test ürün adı</dt>
+                        <input
+                          value={sitInput.productName}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              productName: event.target.value,
                             }))
                           }
                         />

@@ -259,15 +259,12 @@ describe("Hepsiburada API runtime configuration", () => {
               ok: true,
               text: async () => JSON.stringify({ id: "price-1" }),
             };
-          if (String(url).includes("activate"))
-            return {
-              ok: true,
-              text: async () => JSON.stringify({ accepted: true }),
-            };
           return {
             ok: true,
             text: async () =>
-              JSON.stringify({ listings: [{ merchantSku: "8660891646397" }] }),
+              JSON.stringify({
+                listings: [{ merchantSku: "8660891646397", isSalable: true }],
+              }),
           };
         },
       });
@@ -293,7 +290,121 @@ describe("Hepsiburada API runtime configuration", () => {
           String(request.url).includes("price-uploads"),
         ),
       );
+      assert.ok(
+        result.checklist.some(
+          (item) =>
+            item.title === "Listing activate / satilabilirlik dogrulama" &&
+            item.ok === true,
+        ),
+      );
+      assert.equal(
+        requests.some((request) => String(request.url).includes("activate")),
+        false,
+      );
       assert.equal(JSON.stringify(result).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT katalog testi productName gonderir ve tracking sonucu sorgular", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("/status/trace-1"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ status: "Done" }),
+            };
+          return {
+            ok: true,
+            text: async () => JSON.stringify({ trackingId: "trace-1" }),
+          };
+        },
+      });
+      const result = await service.sitTestRun("catalog", {
+        merchantSku: "SKU1",
+        productName: "Aşlamacı ERP SIT Test Ürünü",
+      });
+      const upload = requests.find((request) =>
+        String(request.url).includes("/products/fastlisting"),
+      );
+      const body = JSON.parse(upload.options.body);
+      assert.equal(body[0].productName, "Aşlamacı ERP SIT Test Ürünü");
+      assert.equal(result.ok, true);
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).includes("/status/trace-1"),
+        ),
+      );
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT siparis testi numerik OrderNumber uretir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("oms-stub-external-sit"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ order: "ok" }),
+            };
+          if (String(url).includes("/packages/merchantid"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ packages: [] }),
+            };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                listings: [
+                  {
+                    listingId: "listing-1",
+                    merchantSku: "SKU1",
+                    hepsiburadaSku: "HBV1",
+                    price: 100,
+                  },
+                ],
+              }),
+          };
+        },
+      });
+      const result = await service.sitTestRun("order", { merchantSku: "SKU1" });
+      const orderRequest = requests.find((request) =>
+        String(request.url).includes("oms-stub-external-sit"),
+      );
+      const body = JSON.parse(orderRequest.options.body);
+      assert.match(body.OrderNumber, /^\d+$/);
+      assert.equal(result.ok, true);
     } finally {
       Object.assign(env, previous);
     }

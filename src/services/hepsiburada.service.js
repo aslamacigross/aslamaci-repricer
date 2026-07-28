@@ -447,26 +447,19 @@ class HepsiburadaService {
     );
   }
 
-  async activateListing({ merchantSku, hepsiburadaSku }) {
-    const body = [
-      {
-        merchantSku: String(merchantSku || ""),
-        hepsiburadaSku: String(hepsiburadaSku || ""),
-      },
-    ];
-    return this.request(
-      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
-        env.hepsiburadaMerchantId,
-      )}/activate`,
-      { method: "POST", body: JSON.stringify(body) },
-    );
-  }
-
-  async fastListingProduct({ merchantSku, barcode, hbSku, price, stock }) {
+  async fastListingProduct({
+    merchantSku,
+    barcode,
+    hbSku,
+    productName,
+    price,
+    stock,
+  }) {
     const body = [
       {
         merchant: env.hepsiburadaMerchantId,
         merchantSku: String(merchantSku || ""),
+        productName: String(productName || "Aşlamacı ERP SIT Test Ürünü"),
         barcode: String(barcode || ""),
         hbSku: String(hbSku || ""),
         stock: String(stock ?? 1),
@@ -511,7 +504,7 @@ class HepsiburadaService {
         },
       ],
       OrderDate: new Date().toISOString(),
-      OrderNumber: `ASL-SIT-${Date.now()}`,
+      OrderNumber: String(Date.now()),
       PaymentStatus: "Completed",
     };
     return this.request(
@@ -527,6 +520,9 @@ class HepsiburadaService {
     const normalizedStep = String(step || "").toLowerCase();
     const merchantSku = String(input.merchantSku || "").trim();
     const hbSku = String(input.hbSku || input.hepsiburadaSku || "").trim();
+    const productName = String(
+      input.productName || "Aşlamacı ERP SIT Test Ürünü",
+    ).trim();
     const price = Number(input.price || 1000);
     const stock = Number(input.stock || 20000);
     const result = {
@@ -562,6 +558,7 @@ class HepsiburadaService {
           limit: 10,
         }),
       );
+      const verifiedListing = normalizeRows(result.responses[0]?.response)[0];
       const stockResponse = add(
         "Listing stok guncelleme",
         await this.postListingUpload("stock", [
@@ -586,18 +583,14 @@ class HepsiburadaService {
           "Listing fiyat guncelleme sorgulama",
           await this.getListingUploadStatus("price", priceId),
         );
-      try {
-        add(
-          "Listing activate",
-          await this.activateListing({ merchantSku, hepsiburadaSku: hbSku }),
-        );
-      } catch (error) {
-        result.checklist.push({
-          title: "Listing activate",
-          ok: false,
-          message: String(error.message || "").slice(0, 500),
-        });
-      }
+      result.checklist.push({
+        title: "Listing activate / satilabilirlik dogrulama",
+        ok: verifiedListing?.isSalable === true,
+        message:
+          verifiedListing?.isSalable === true
+            ? "Listing API cevabinda isSalable=true donuyor."
+            : "Listing aktif degil; Hepsiburada Listing Activate referans linki 404 dondugu icin bu adim manuel/API dokuman netlestirmesi gerektirir.",
+      });
       result.ok = true;
       return result;
     }
@@ -609,6 +602,7 @@ class HepsiburadaService {
           merchantSku: sku,
           barcode: input.barcode || sku,
           hbSku,
+          productName,
           price,
           stock: Math.max(stock, 1),
         }),
