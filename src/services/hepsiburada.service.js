@@ -22,6 +22,8 @@ const SIT_TEST_GUIDES = Object.freeze({
     "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=siparis-yonetimi&product=siparis-olusturma-entegrasyonu&version=v1.0&guide=siparis-entegrasyonu-test-sureci-adimlari&view=guide",
   webhook:
     "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=siparis-yonetimi&product=siparis-olusturma-entegrasyonu&version=v1.0&guide=siparis-webhook-modeli&view=guide",
+  packageStatus:
+    "https://developers.hepsiburada.com/tr/companies/hepsiburada?category=siparis-yonetimi&product=siparis-olusturma-entegrasyonu&version=v1.0&op=Post__packages_merchantid_merchantId_packagenumber_packagenumber_intransit&view=endpoint",
 });
 
 function normalizedEnvironment(value = env.hepsiburadaEnv) {
@@ -71,6 +73,19 @@ function listingDeactivationSummary(listings) {
     }
   }
   return summary;
+}
+
+function packageNumberFromPayload(payload) {
+  for (const row of normalizeRows(payload)) {
+    const packageNumber =
+      row.packageNumber ||
+      row.packagenumber ||
+      row.package_number ||
+      row.PackageNumber ||
+      row.package?.packageNumber;
+    if (packageNumber) return String(packageNumber);
+  }
+  return null;
 }
 
 class HepsiburadaService {
@@ -218,6 +233,17 @@ class HepsiburadaService {
           "SIT portalda test sipariş oluşturulduktan sonra sipariş senkronu çalıştırılır.",
       },
       {
+        code: "package-status",
+        title: "Paket statü ilerletme testi",
+        status: baseStatus,
+        kind: "SIT_MUTATION",
+        guide: SIT_TEST_GUIDES.packageStatus,
+        description:
+          "89100 kargo firmasıyla oluşan SIT paketini kargoda, teslim edildi veya teslim edilemedi statülerine taşır.",
+        nextAction:
+          "Önce sipariş testiyle paket oluşur; sonra bu adım paket statülerini ilerletir.",
+      },
+      {
         code: "webhook",
         title: "Sipariş webhook testi",
         status: safety.publicWebhookUrl
@@ -317,7 +343,31 @@ class HepsiburadaService {
           method: "GET",
           target: "orders-created-in-sit-portal",
           environment: this.environment,
-          query: { limit: 100, offset: 0 },
+          query: { limit: 100, offset: 0, cargoCompanyId: 89100 },
+        },
+      },
+      "package-status": {
+        mode: "sit-status-progression",
+        request: {
+          method: "POST",
+          target: "package-status-progression-test",
+          environment: this.environment,
+          required: {
+            cargoCompanyId: 89100,
+            packageNumber: "Panelde bos birakilirsa ilk SIT paketi kullanilir",
+          },
+          supportedActions: [
+            "deliver_flow",
+            "undeliver_flow",
+            "intransit",
+            "deliver",
+            "undeliver",
+          ],
+          endpoints: [
+            `${this.orderBaseUrl}/packages/merchantid/{merchantId}/packagenumber/{packageNumber}/intransit`,
+            `${this.orderBaseUrl}/packages/merchantid/{merchantId}/packagenumber/{packageNumber}/deliver`,
+            `${this.orderBaseUrl}/packages/merchantid/{merchantId}/packagenumber/{packageNumber}/undeliver`,
+          ],
         },
       },
       webhook: {
@@ -396,6 +446,35 @@ class HepsiburadaService {
       `${this.orderBaseUrl}/orders/merchantid/${encodeURIComponent(
         env.hepsiburadaMerchantId,
       )}?${query}`,
+    );
+  }
+
+  async listPackages({ offset = 0, limit = 100 } = {}) {
+    const query = new URLSearchParams({
+      limit: String(Math.min(Math.max(Number(limit) || 100, 1), 100)),
+      offset: String(Math.max(Number(offset) || 0, 0)),
+    });
+    return this.request(
+      `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}?${query}`,
+    );
+  }
+
+  async progressPackageStatus(packageNumber, status) {
+    const normalizedStatus = String(status || "").toLowerCase();
+    if (!["intransit", "deliver", "undeliver"].includes(normalizedStatus)) {
+      const error = new Error("Desteklenmeyen Hepsiburada paket statü adımı");
+      error.status = 400;
+      throw error;
+    }
+    return this.request(
+      `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}/packagenumber/${encodeURIComponent(
+        String(packageNumber),
+      )}/${normalizedStatus}`,
+      { method: "POST" },
     );
   }
 
@@ -549,7 +628,7 @@ class HepsiburadaService {
     );
   }
 
-  async createSitOrder({ listing }) {
+  async createSitOrder({ listing, cargoCompanyId = 89100 } = {}) {
     const merchantSku = String(listing?.merchantSku || listing?.sku || "");
     const hbSku = String(listing?.hbSku || listing?.hepsiburadaSku || "");
     const listingId = String(
@@ -561,7 +640,7 @@ class HepsiburadaService {
       DeliveryAddress: { AddressId: "aslamaci-erp-sit-address" },
       LineItems: [
         {
-          CargoCompanyId: 1,
+          CargoCompanyId: Number(cargoCompanyId) || 89100,
           DeliveryOptionId: 1,
           ListingId: listingId,
           MerchantId: env.hepsiburadaMerchantId,
@@ -771,15 +850,47 @@ class HepsiburadaService {
         error.status = 409;
         throw error;
       }
-      add("Test siparisi olusturma", await this.createSitOrder({ listing }));
+      add(
+        "Test siparisi olusturma",
+        await this.createSitOrder({ listing, cargoCompanyId: 89100 }),
+      );
       add(
         "Saticiya ait paket bilgilerini listeleme",
-        await this.request(
-          `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
-            env.hepsiburadaMerchantId,
-          )}?limit=100&offset=0`,
-        ),
+        await this.listPackages({ limit: 100, offset: 0 }),
       );
+      result.ok = true;
+      return result;
+    }
+    if (normalizedStep === "package-status") {
+      const packagePayload = add(
+        "Saticiya ait paket bilgilerini listeleme",
+        await this.listPackages({ limit: 100, offset: 0 }),
+      );
+      const packageNumber =
+        String(input.packageNumber || "").trim() ||
+        packageNumberFromPayload(packagePayload);
+      if (!packageNumber) {
+        const error = new Error(
+          "Paket statu testi icin paket numarasi bulunamadi",
+        );
+        error.status = 409;
+        throw error;
+      }
+      const packageAction = String(input.packageAction || "deliver_flow")
+        .trim()
+        .toLowerCase();
+      const actions =
+        packageAction === "deliver_flow"
+          ? ["intransit", "deliver"]
+          : packageAction === "undeliver_flow"
+            ? ["intransit", "undeliver"]
+            : [packageAction];
+      for (const action of actions) {
+        add(
+          `Paket statu: ${action}`,
+          await this.progressPackageStatus(packageNumber, action),
+        );
+      }
       result.ok = true;
       return result;
     }
@@ -857,6 +968,7 @@ function normalizeRows(payload) {
     payload.content ||
     payload.data ||
     payload.results ||
+    payload.packages ||
     []
   );
 }
@@ -868,4 +980,5 @@ module.exports = {
   normalizedEnvironment,
   normalizeRows,
   listingDeactivationSummary,
+  packageNumberFromPayload,
 };

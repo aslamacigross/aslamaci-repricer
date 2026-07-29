@@ -79,6 +79,8 @@ export default function Integrations({ notify }) {
     productName: "Aşlamacı ERP SIT Test Ürünü",
     price: "1000",
     stock: "20000",
+    packageNumber: "",
+    packageAction: "deliver_flow",
   });
 
   async function testConnection(item) {
@@ -421,6 +423,43 @@ export default function Integrations({ notify }) {
                             }))
                           }
                         />
+                      </label>
+                      <label>
+                        <dt>Paket no</dt>
+                        <input
+                          placeholder="Boşsa ilk SIT paketi"
+                          value={sitInput.packageNumber}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              packageNumber: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <dt>Paket statü akışı</dt>
+                        <select
+                          value={sitInput.packageAction}
+                          onChange={(event) =>
+                            setSitInput((current) => ({
+                              ...current,
+                              packageAction: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="deliver_flow">
+                            Kargoda → teslim edildi
+                          </option>
+                          <option value="undeliver_flow">
+                            Kargoda → teslim edilemedi
+                          </option>
+                          <option value="intransit">Sadece kargoda</option>
+                          <option value="deliver">Sadece teslim edildi</option>
+                          <option value="undeliver">
+                            Sadece teslim edilemedi
+                          </option>
+                        </select>
                       </label>
                     </div>
                     <div className="capability-list">

@@ -12,6 +12,7 @@ const {
   listingDeactivationSummary,
   normalizedEnvironment,
   normalizeRows,
+  packageNumberFromPayload,
 } = require("../../src/services/hepsiburada.service");
 
 describe("Hepsiburada order value normalization", () => {
@@ -533,6 +534,7 @@ describe("Hepsiburada API runtime configuration", () => {
       const body = JSON.parse(orderRequest.options.body);
       assert.match(body.OrderNumber, /^\d+$/);
       assert.equal(body.LineItems[0].Quantity, 1);
+      assert.equal(body.LineItems[0].CargoCompanyId, 89100);
       assert.ok(
         requests.some((request) =>
           String(request.url).includes(
@@ -541,6 +543,63 @@ describe("Hepsiburada API runtime configuration", () => {
         ),
       );
       assert.equal(result.ok, true);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT paket statu testi paket numarasini bulur ve SIT endpointlerini cagirir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("?limit=100&offset=0"))
+            return {
+              ok: true,
+              text: async () =>
+                JSON.stringify({ packages: [{ packageNumber: "PKG-1" }] }),
+            };
+          return {
+            ok: true,
+            text: async () => JSON.stringify({ status: "OK" }),
+          };
+        },
+      });
+      const result = await service.sitTestRun("package-status", {
+        packageAction: "deliver_flow",
+      });
+      assert.equal(result.ok, true);
+      assert.equal(
+        packageNumberFromPayload({ packages: [{ packageNumber: "PKG-1" }] }),
+        "PKG-1",
+      );
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).endsWith(
+            "/packages/merchantid/merchant-id/packagenumber/PKG-1/intransit",
+          ),
+        ),
+      );
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).endsWith(
+            "/packages/merchantid/merchant-id/packagenumber/PKG-1/deliver",
+          ),
+        ),
+      );
+      assert.equal(JSON.stringify(result).includes("secret-key"), false);
     } finally {
       Object.assign(env, previous);
     }
