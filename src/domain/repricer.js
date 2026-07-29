@@ -80,6 +80,7 @@ function applyStepLimits(current, target, settings) {
     ),
     0,
   );
+  if (singlePct <= 0) return target;
   const lower = current * (1 - singlePct / 100);
   const upper = current * (1 + singlePct / 100);
   if (target < current) return Math.max(target, lower);
@@ -174,12 +175,14 @@ function proposePrice(product, settings = {}) {
       const currentRankPrice = visibleRankPrice(product, rank);
       const listedAtCurrentRank =
         currentRankPrice > 0 && Math.abs(currentRankPrice - current) < 0.01;
-      if (target >= current && listedAtCurrentRank) {
+      if (candidateRank === 1 && target >= current) {
         target = roundMoney(Math.max(minimum || 0, current - cut));
         if (target >= current) continue;
         proposed = target;
         targetRank = candidateRank;
-        reason = `${candidateRank}. sıra için görünmeyen avantaj ihtimaline karşı kontrollü ek fiyat kırma`;
+        reason = listedAtCurrentRank
+          ? `${candidateRank}. sıra için görünmeyen avantaj ihtimaline karşı kontrollü ek fiyat kırma`
+          : `${candidateRank}. sıra için mevcut fiyattan kontrollü ek fiyat kırma`;
         found = true;
         break;
       }
@@ -274,7 +277,7 @@ function safetyCheck(context) {
     settings.max_single_change_pct,
     parseNumber(global.maxChangePct, Infinity),
   );
-  const maxSingleChangePct = productMaxSingle;
+  const maxSingleChangePct = productMaxSingle > 0 ? productMaxSingle : Infinity;
   const changePct =
     current > 0 ? (Math.abs(proposed - current) / current) * 100 : 100;
   const dayStartPrice = parseNumber(today.dayStartPrice, current);
@@ -305,12 +308,10 @@ function safetyCheck(context) {
   if (
     !automaticRecovery &&
     parseNumber(today.actionCount) >=
-    parseNumber(settings.daily_action_limit, 3)
+      parseNumber(settings.daily_action_limit, 3)
   )
     failures.push("DAILY_ACTION_LIMIT");
   if (parseBoolean(settings.blacklisted)) failures.push("BLACKLISTED");
-  if (!manual && parseBoolean(settings.learning_paused))
-    failures.push("LEARNING_PAUSED");
   const autoUpdate =
     settings.auto_update === undefined
       ? product.auto_update

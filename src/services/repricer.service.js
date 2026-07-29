@@ -60,7 +60,7 @@ class RepricerService {
     return (
       await this.db.query(
         `SELECT p.*,
-      CASE WHEN COALESCE(rl.paused,FALSE) THEN 'Kâr Koru' ELSE COALESCE(ps.strategy,'Manuel') END strategy,
+      COALESCE(ps.strategy,'Manuel') strategy,
       ps.price_cut_tl,ps.max_increase_tl,ps.max_single_change_pct,ps.max_daily_change_pct,
       ps.minimum_profit_tl,
       COALESCE(ps.minimum_profit_pct,0)minimum_profit_pct,

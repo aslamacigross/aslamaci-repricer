@@ -109,6 +109,24 @@ test("gorunen buybox altinda kalip sira alamazsa ek kontrollu fiyat kirar", () =
   assert.equal(result.action, "FIYAT_DUSUR");
   assert.match(result.reason, /görünmeyen avantaj/);
 });
+test("buybox fiyati ustte gorunse bile rank alinmadiysa mevcut fiyattan kirar", () => {
+  const result = proposePrice(
+    {
+      ...base,
+      my_price: 831.07,
+      min_price: 733.61,
+      buybox_price: 836.07,
+      second_price: 900,
+      third_price: 1742.5,
+      rank: 2,
+    },
+    { ...settings, price_cut_tl: 5 },
+  );
+  assert.equal(result.targetRank, 1);
+  assert.equal(result.proposedPrice, 826.07);
+  assert.equal(result.action, "FIYAT_DUSUR");
+  assert.match(result.reason, /mevcut fiyattan kontrollü/);
+});
 test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   const increase = proposePrice(
     { ...base, my_price: 900, rank: 1, second_price: 1000 },
@@ -122,6 +140,36 @@ test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   );
   assert.equal(decrease.proposedPrice, 850);
   assert.equal(decrease.limitedBy, "KADEMELI_DUSUS");
+});
+test("tek islem limiti sifirsa minimum fiyat korunarak hedefe tek seferde gider", () => {
+  const product = {
+    ...base,
+    my_price: 1000,
+    min_price: 500,
+    rank: 2,
+    buybox_price: 700,
+  };
+  const proposal = proposePrice(product, {
+    ...settings,
+    price_cut_tl: 1,
+    max_single_change_pct: 0,
+  });
+  assert.equal(proposal.proposedPrice, 699);
+  assert.equal(proposal.limitedBy, null);
+  const safety = safetyCheck({
+    product,
+    settings: { ...settings, max_single_change_pct: 0 },
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 0,
+      minChangeTl: 0.1,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 1000 },
+  });
+  assert.ok(!safety.failures.includes("SINGLE_CHANGE_LIMIT"));
 });
 test("tek islem limiti uygulanir, gunluk toplam degisim limiti bloklamaz", () => {
   const stepped = proposePrice(
@@ -360,7 +408,7 @@ test("otomatik buybox geri donusu cooldown ve gunluk limiti beklemez", () => {
   assert.ok(!safety.failures.includes("COOLDOWN_ACTIVE"));
   assert.ok(!safety.failures.includes("DAILY_ACTION_LIMIT"));
 });
-test("minimum kar ve ogrenme duraklatma guvenlik kapisidir", () => {
+test("minimum kar guvenlik kapisidir ama ogrenme duraklatma fiyat aksiyonunu engellemez", () => {
   const proposal = proposePrice(base, settings);
   const result = safetyCheck({
     product: base,
@@ -380,7 +428,7 @@ test("minimum kar ve ogrenme duraklatma guvenlik kapisidir", () => {
     proposal,
     today: { actionCount: 0, dayStartPrice: base.my_price },
   });
-  assert.ok(result.failures.includes("LEARNING_PAUSED"));
+  assert.ok(!result.failures.includes("LEARNING_PAUSED"));
   assert.ok(result.failures.includes("MIN_PROFIT_TL_VIOLATION"));
   assert.ok(result.failures.includes("MIN_PROFIT_PCT_VIOLATION"));
 });
