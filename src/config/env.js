@@ -40,6 +40,14 @@ const env = {
     "",
   hepsiburadaUserAgent:
     process.env.HEPSIBURADA_USER_AGENT || process.env.HB_USER_AGENT || "",
+  hepsiburadaWebhookUsername:
+    process.env.HEPSIBURADA_WEBHOOK_USERNAME ||
+    process.env.HB_WEBHOOK_USERNAME ||
+    "",
+  hepsiburadaWebhookPassword:
+    process.env.HEPSIBURADA_WEBHOOK_PASSWORD ||
+    process.env.HB_WEBHOOK_PASSWORD ||
+    "",
   hepsiburadaOrderBaseUrl:
     process.env.HB_ORDER_BASE_URL ||
     process.env.HEPSIBURADA_ORDER_BASE_URL ||

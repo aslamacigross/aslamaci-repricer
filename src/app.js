@@ -1,5 +1,6 @@
 const express = require("express");
 const helmet = require("helmet");
+const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const { env } = require("./config/env");
@@ -28,6 +29,48 @@ const { pimRoutes } = require("./routes/pim.routes");
 const { publicationRoutes } = require("./routes/publication.routes");
 const { opportunityRoutes } = require("./routes/opportunity.routes");
 const { contentRoutes } = require("./routes/content.routes");
+
+function constantTimeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function parseBasicAuth(header = "") {
+  const [scheme, encoded] = String(header).split(" ");
+  if (scheme !== "Basic" || !encoded) return null;
+  try {
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    const separator = decoded.indexOf(":");
+    if (separator < 0) return null;
+    return {
+      username: decoded.slice(0, separator),
+      password: decoded.slice(separator + 1),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function hepsiburadaWebhookAuth(req, res, next) {
+  const expectedUsername = env.hepsiburadaWebhookUsername;
+  const expectedPassword = env.hepsiburadaWebhookPassword;
+  if (!expectedUsername || !expectedPassword) return next();
+  const credentials = parseBasicAuth(req.headers.authorization);
+  const valid =
+    credentials &&
+    constantTimeEqual(credentials.username, expectedUsername) &&
+    constantTimeEqual(credentials.password, expectedPassword);
+  if (!valid) {
+    res.set("WWW-Authenticate", 'Basic realm="hepsiburada-webhook"');
+    return res.status(401).json({
+      status: "error",
+      code: "HEPSIBURADA_WEBHOOK_UNAUTHORIZED",
+    });
+  }
+  return next();
+}
 
 function createApp(container = createContainer()) {
   const app = express();
@@ -103,14 +146,17 @@ function createApp(container = createContainer()) {
       });
     }),
   );
-  app.post("/api/public/hepsiburada/webhook", (req, res) =>
-    res.json({
-      status: "ok",
-      code: "HEPSIBURADA_WEBHOOK_RECEIVED",
-      message:
-        "Hepsiburada SIT webhook bildirimi alindi; bu test endpointi veri degistirmez.",
-      receivedAt: new Date().toISOString(),
-    }),
+  app.post(
+    "/api/public/hepsiburada/webhook",
+    hepsiburadaWebhookAuth,
+    (req, res) =>
+      res.json({
+        status: "ok",
+        code: "HEPSIBURADA_WEBHOOK_RECEIVED",
+        message:
+          "Hepsiburada SIT webhook bildirimi alindi; bu test endpointi veri degistirmez.",
+        receivedAt: new Date().toISOString(),
+      }),
   );
   const requireAuth = authRequired(container.auth);
   app.use(
