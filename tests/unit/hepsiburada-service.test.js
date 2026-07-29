@@ -527,7 +527,10 @@ describe("Hepsiburada API runtime configuration", () => {
           };
         },
       });
-      const result = await service.sitTestRun("order", { merchantSku: "SKU1" });
+      const result = await service.sitTestRun("order", {
+        merchantSku: "SKU1",
+        packagePollAttempts: 1,
+      });
       const orderRequest = requests.find((request) =>
         String(request.url).includes("oms-stub-external-sit"),
       );
@@ -543,6 +546,7 @@ describe("Hepsiburada API runtime configuration", () => {
         ),
       );
       assert.equal(result.ok, true);
+      assert.equal(result.responses[1].response.cargoCompanyId, 89100);
     } finally {
       Object.assign(env, previous);
     }
@@ -600,6 +604,68 @@ describe("Hepsiburada API runtime configuration", () => {
         ),
       );
       assert.equal(JSON.stringify(result).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT paket statu testi paket yoksa statuye gitmeden acik hata verir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("/packages/merchantid"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ packages: [] }),
+            };
+          if (String(url).includes("oms-stub-external-sit"))
+            return {
+              ok: true,
+              text: async () => JSON.stringify({}),
+            };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                listings: [
+                  {
+                    listingId: "listing-1",
+                    merchantSku: "SKU1",
+                    hepsiburadaSku: "HBV1",
+                    price: 100,
+                  },
+                ],
+              }),
+          };
+        },
+      });
+      await assert.rejects(
+        () =>
+          service.sitTestRun("package-status", {
+            merchantSku: "SKU1",
+            packagePollAttempts: 1,
+          }),
+        /Paket statu testi icin paket numarasi bulunamadi/,
+      );
+      assert.equal(
+        requests.some((request) =>
+          /\/(intransit|deliver|undeliver)$/.test(String(request.url)),
+        ),
+        false,
+      );
     } finally {
       Object.assign(env, previous);
     }

@@ -88,6 +88,10 @@ function packageNumberFromPayload(payload) {
   return null;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 class HepsiburadaService {
   constructor(options = {}) {
     this.fetch = options.fetch || global.fetch;
@@ -461,6 +465,17 @@ class HepsiburadaService {
     );
   }
 
+  async waitForPackages({ attempts = 3, delayMs = 2000 } = {}) {
+    let payload = null;
+    const safeAttempts = Math.max(Number(attempts) || 1, 1);
+    for (let attempt = 0; attempt < safeAttempts; attempt++) {
+      payload = await this.listPackages({ limit: 100, offset: 0 });
+      if (packageNumberFromPayload(payload)) return payload;
+      if (attempt < safeAttempts - 1) await sleep(delayMs);
+    }
+    return payload;
+  }
+
   async progressPackageStatus(packageNumber, status) {
     const normalizedStatus = String(status || "").toLowerCase();
     if (!["intransit", "deliver", "undeliver"].includes(normalizedStatus)) {
@@ -655,12 +670,19 @@ class HepsiburadaService {
       OrderNumber: String(Date.now()),
       PaymentStatus: "Completed",
     };
-    return this.request(
+    const response = await this.request(
       `https://oms-stub-external-sit.hepsiburada.com/orders/merchantId/${encodeURIComponent(
         env.hepsiburadaMerchantId,
       )}`,
       { method: "POST", body: JSON.stringify(body) },
     );
+    return {
+      orderNumber: body.OrderNumber,
+      cargoCompanyId: Number(cargoCompanyId) || 89100,
+      merchantSku,
+      hbSku,
+      response,
+    };
   }
 
   async sitTestRun(step, input = {}) {
@@ -856,22 +878,52 @@ class HepsiburadaService {
       );
       add(
         "Saticiya ait paket bilgilerini listeleme",
-        await this.listPackages({ limit: 100, offset: 0 }),
+        await this.waitForPackages({
+          attempts: Number(input.packagePollAttempts) || 3,
+          delayMs: Number(input.packagePollDelayMs) || 2000,
+        }),
       );
       result.ok = true;
       return result;
     }
     if (normalizedStep === "package-status") {
-      const packagePayload = add(
+      let packagePayload = add(
         "Saticiya ait paket bilgilerini listeleme",
-        await this.listPackages({ limit: 100, offset: 0 }),
+        await this.waitForPackages({
+          attempts: Number(input.packagePollAttempts) || 2,
+          delayMs: Number(input.packagePollDelayMs) || 2000,
+        }),
       );
-      const packageNumber =
+      let packageNumber =
         String(input.packageNumber || "").trim() ||
         packageNumberFromPayload(packagePayload);
       if (!packageNumber) {
+        const listingPayload = merchantSku
+          ? await this.listListingsFiltered({
+              merchantSkuList: merchantSku,
+              limit: 1,
+            })
+          : await this.listListings({ limit: 1 });
+        const listing = normalizeRows(listingPayload)[0];
+        add("Paket icin listing sorgulama", listingPayload);
+        if (listing) {
+          add(
+            "Paket statu icin test siparisi olusturma",
+            await this.createSitOrder({ listing, cargoCompanyId: 89100 }),
+          );
+          packagePayload = add(
+            "Yeni test siparisi sonrasi paket bilgilerini listeleme",
+            await this.waitForPackages({
+              attempts: Number(input.packagePollAttempts) || 4,
+              delayMs: Number(input.packagePollDelayMs) || 2500,
+            }),
+          );
+          packageNumber = packageNumberFromPayload(packagePayload);
+        }
+      }
+      if (!packageNumber) {
         const error = new Error(
-          "Paket statu testi icin paket numarasi bulunamadi",
+          "Paket statu testi icin paket numarasi bulunamadi. Hepsiburada SIT paketi henuz olusturmadi; 1-2 dakika sonra tekrar deneyin veya SIT paneldeki paket numarasini elle girin.",
         );
         error.status = 409;
         throw error;
