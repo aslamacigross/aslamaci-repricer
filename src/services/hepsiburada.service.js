@@ -707,6 +707,10 @@ class HepsiburadaService {
       result.responses.push({ title, response: safeResponseSummary(payload) });
       return payload;
     };
+    const addWarning = (title, message) => {
+      result.checklist.push({ title, ok: false, message });
+      return { title, ok: false, message };
+    };
     if (normalizedStep === "connection") {
       add(
         "Listing bilgilerini sorgulama",
@@ -876,24 +880,50 @@ class HepsiburadaService {
         "Test siparisi olusturma",
         await this.createSitOrder({ listing, cargoCompanyId: 89100 }),
       );
-      add(
+      const packagePayload = add(
         "Saticiya ait paket bilgilerini listeleme",
         await this.waitForPackages({
           attempts: Number(input.packagePollAttempts) || 3,
           delayMs: Number(input.packagePollDelayMs) || 2000,
         }),
       );
+      if (!packageNumberFromPayload(packagePayload)) {
+        addWarning(
+          "Paket olusumu dogrulama",
+          "Siparis olustu ancak Hepsiburada SIT paket listesi bos dondu. Paket statu ilerletme icin siparisin once Paketlenecek/Gonderime Hazir surecine alinmasi veya paket numarasinin panelden girilmesi gerekiyor.",
+        );
+      }
       result.ok = true;
       return result;
     }
     if (normalizedStep === "package-status") {
-      let packagePayload = add(
-        "Saticiya ait paket bilgilerini listeleme",
-        await this.waitForPackages({
-          attempts: Number(input.packagePollAttempts) || 2,
-          delayMs: Number(input.packagePollDelayMs) || 2000,
-        }),
-      );
+      let packagePayload = null;
+      try {
+        packagePayload = add(
+          "Saticiya ait paket bilgilerini listeleme",
+          await this.waitForPackages({
+            attempts: Number(input.packagePollAttempts) || 2,
+            delayMs: Number(input.packagePollDelayMs) || 2000,
+          }),
+        );
+      } catch (error) {
+        if (!String(input.packageNumber || "").trim()) {
+          addWarning(
+            "Paket bilgisi alinamadi",
+            "Hepsiburada SIT paket listeleme servisi hata verdi. Paket statu ilerletme icin once SIT panelde siparisi paketlenmis/gonderime hazir duruma alin veya paket numarasini elle girin.",
+          );
+          result.ok = false;
+          result.responses.push({
+            title: "Hepsiburada paket listeleme hatasi",
+            response: safeResponseSummary({
+              status: error.status || 500,
+              message: error.message,
+            }),
+          });
+          return result;
+        }
+        throw error;
+      }
       let packageNumber =
         String(input.packageNumber || "").trim() ||
         packageNumberFromPayload(packagePayload);

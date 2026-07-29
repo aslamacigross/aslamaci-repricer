@@ -547,6 +547,11 @@ describe("Hepsiburada API runtime configuration", () => {
       );
       assert.equal(result.ok, true);
       assert.equal(result.responses[1].response.cargoCompanyId, 89100);
+      assert.ok(
+        result.checklist.some(
+          (item) => item.title === "Paket olusumu dogrulama" && !item.ok,
+        ),
+      );
     } finally {
       Object.assign(env, previous);
     }
@@ -659,6 +664,59 @@ describe("Hepsiburada API runtime configuration", () => {
             packagePollAttempts: 1,
           }),
         /Paket statu testi icin paket numarasi bulunamadi/,
+      );
+      assert.equal(
+        requests.some((request) =>
+          /\/(intransit|deliver|undeliver)$/.test(String(request.url)),
+        ),
+        false,
+      );
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("SIT paket statu testi paket listeleme 500 ise paket numarasi yokken ham hata firlatmaz", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("/packages/merchantid"))
+            return {
+              ok: false,
+              status: 500,
+              text: async () =>
+                JSON.stringify({
+                  code: 0,
+                  message: "UndefinedError: runtime error",
+                }),
+            };
+          return {
+            ok: true,
+            text: async () => JSON.stringify({}),
+          };
+        },
+      });
+      const result = await service.sitTestRun("package-status", {
+        packagePollAttempts: 1,
+      });
+      assert.equal(result.ok, false);
+      assert.ok(
+        result.checklist.some(
+          (item) => item.title === "Paket bilgisi alinamadi" && !item.ok,
+        ),
       );
       assert.equal(
         requests.some((request) =>
