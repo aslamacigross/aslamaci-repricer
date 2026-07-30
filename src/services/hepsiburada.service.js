@@ -114,8 +114,7 @@ function orderLineItemRequestsFromPayload(payload, orderNumber) {
       row.lineitemid ||
       row.lineItemID ||
       row.LineItemId ||
-      row.LineItemID ||
-      row.id;
+      row.LineItemID;
     if (!lineItemId) return;
     const key = String(lineItemId);
     if (seen.has(key)) return;
