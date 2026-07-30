@@ -12,28 +12,25 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 28);
-    assert.equal(
-      initial.rows.at(-1).version,
-      "028_hepsiburada_repricer_readiness",
-    );
+    assert.equal(initial.rowCount, 29);
+    assert.equal(initial.rows.at(-1).version, "029_manual_cost_review");
 
     await migrate("down", db);
     const afterDown = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterDown.rowCount, 27);
-    assert.equal(afterDown.rows.at(-1).version, "027_packaging_profiles");
+    assert.equal(afterDown.rowCount, 28);
+    assert.equal(
+      afterDown.rows.at(-1).version,
+      "028_hepsiburada_repricer_readiness",
+    );
 
     await migrate("up", db);
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 28);
-    assert.equal(
-      afterRoundTrip.rows.at(-1).version,
-      "028_hepsiburada_repricer_readiness",
-    );
+    assert.equal(afterRoundTrip.rowCount, 29);
+    assert.equal(afterRoundTrip.rows.at(-1).version, "029_manual_cost_review");
   } finally {
     await db.end();
   }

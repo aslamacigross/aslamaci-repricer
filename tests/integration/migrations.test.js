@@ -51,6 +51,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "026_ai_content_and_listing_health",
       "027_packaging_profiles",
       "028_hepsiburada_repricer_readiness",
+      "029_manual_cost_review",
     ],
   );
   const safety = await db.query(

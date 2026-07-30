@@ -257,7 +257,7 @@ class CostRepository {
                 COALESCE(ci.manual_review_next_due_at, ci.source_checked_at + ($1::int || ' days')::interval) <= NOW()
                   OR ci.source_checked_at IS NULL AS due,
                 FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ci.source_checked_at, ci.updated_at, NOW()))) / 86400)::int AS days_since_check,
-                supplier_candidate.candidate AS supplier_candidate
+                MAX(supplier_candidate.candidate::text)::jsonb AS supplier_candidate
          FROM cost_items ci
          LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
          LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
