@@ -210,6 +210,46 @@ function costsRoutes({
       res.json({ status: "ok", data });
     }),
   );
+  r.post(
+    "/cost-items/manual-review/:id/link-supplier",
+    asyncRoute(async (req, res) => {
+      const supplierItemId = Number(req.body.supplierItemId);
+      if (!Number.isFinite(supplierItemId) || supplierItemId <= 0)
+        throw new AppError(
+          "Canlı tedarikçi ürünü seçilmeli",
+          400,
+          "VALIDATION_ERROR",
+        );
+      const data = await costs.linkManualCostToSupplierItem(
+        req.params.id,
+        supplierItemId,
+        {
+          actor: req.user.username,
+          note: req.body.note,
+          intervalDays: req.body.intervalDays,
+        },
+      );
+      if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await recalculateAllMarketplaces();
+      await logged(
+        req,
+        "COST_ITEM_SUPPLIER_LINKED",
+        "cost_item",
+        data.costItem.id,
+        null,
+        {
+          costItem: data.costItem,
+          supplierItem: {
+            id: data.supplierItem.id,
+            supplier_code: data.supplierItem.supplier_code,
+            product_name: data.supplierItem.product_name,
+            current_price: data.supplierItem.current_price,
+          },
+        },
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
   r.get(
     "/cost-items/desi-review",
     asyncRoute(async (req, res) =>

@@ -381,6 +381,22 @@ function ManualCostReview({ notify }) {
       label: "Kaynak",
       render: (row) => row.price_source || "MANUAL",
     },
+    {
+      key: "supplier_candidate",
+      label: "Canlı aday",
+      render: (row) =>
+        row.supplier_candidate ? (
+          <Badge tone="info">
+            {row.supplier_candidate.supplier_code === "FILE_MARKET"
+              ? "File"
+              : row.supplier_candidate.supplier_code === "BIZIM_MARKET"
+                ? "Bizim"
+                : "BİM"}
+          </Badge>
+        ) : (
+          "-"
+        ),
+    },
     { key: "product_count", label: "Kullanım" },
     {
       key: "source_checked_at",
@@ -498,9 +514,29 @@ function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
       setSaving(false);
     }
   }
+  async function linkSupplierCandidate() {
+    if (!value.supplier_candidate?.id) return;
+    setSaving(true);
+    try {
+      await post(`/api/cost-items/manual-review/${value.id}/link-supplier`, {
+        supplierItemId: value.supplier_candidate.id,
+        note:
+          form.manual_review_note ||
+          `${value.supplier_candidate.product_name} canlı havuzuna bağlandı`,
+        intervalDays: form.manual_review_interval_days || 30,
+      });
+      notify("Maliyet kalemi canlı tedarikçi havuzuna bağlandı");
+      onSaved();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
   const sampleProducts = Array.isArray(value.sample_products)
     ? value.sample_products.filter(Boolean)
     : [];
+  const supplierCandidate = value.supplier_candidate;
   return (
     <Modal open onClose={onClose} title="Manuel maliyet kontrolü">
       <div className="modal-body form-grid">
@@ -545,6 +581,25 @@ function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
           />
         </Field>
       </div>
+      {supplierCandidate && (
+        <div className="modal-body">
+          <div className="info-banner">
+            <Store />
+            <div>
+              <strong>Canlı tedarikçi havuzunda aday bulundu</strong>
+              <p>
+                {supplierCandidate.product_name} ·{" "}
+                {money(supplierCandidate.current_price)} ·{" "}
+                {supplierCandidate.supplier_code === "FILE_MARKET"
+                  ? "File Market"
+                  : supplierCandidate.supplier_code === "BIZIM_MARKET"
+                    ? "Bizim Toptan"
+                    : "BİM"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="modal-body resource-context">
         <section>
           <h3>Kullanıldığı ürünler ({value.product_count || 0})</h3>
@@ -589,6 +644,16 @@ function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
         >
           Aynı kalsın
         </Button>
+        {supplierCandidate && (
+          <Button
+            variant="secondary"
+            icon={Store}
+            onClick={linkSupplierCandidate}
+            disabled={saving}
+          >
+            Canlı havuza bağla
+          </Button>
+        )}
         <Button icon={Save} onClick={updateCost} disabled={saving}>
           Fiyatı güncelle
         </Button>

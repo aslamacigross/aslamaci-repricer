@@ -41,7 +41,7 @@ class CostRepository {
         `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count
          FROM cost_items ci
          LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
-         GROUP BY ci.id
+         GROUP BY ci.id, supplier_candidate.candidate
          ORDER BY ci.item_name`,
       )
     ).rows;
@@ -256,10 +256,38 @@ class CostRepository {
                 ) AS sample_products,
                 COALESCE(ci.manual_review_next_due_at, ci.source_checked_at + ($1::int || ' days')::interval) <= NOW()
                   OR ci.source_checked_at IS NULL AS due,
-                FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ci.source_checked_at, ci.updated_at, NOW()))) / 86400)::int AS days_since_check
+                FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ci.source_checked_at, ci.updated_at, NOW()))) / 86400)::int AS days_since_check,
+                supplier_candidate.candidate AS supplier_candidate
          FROM cost_items ci
          LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
          LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
+         LEFT JOIN LATERAL (
+           SELECT JSONB_BUILD_OBJECT(
+             'id', f.id,
+             'supplier_code', f.supplier_code,
+             'product_name', f.product_name,
+             'current_price', f.current_price,
+             'estimated_unit_desi', f.estimated_unit_desi,
+             'last_seen_at', f.last_seen_at,
+             'availability', f.availability
+           ) AS candidate
+           FROM file_market_items f
+           WHERE f.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')
+             AND f.availability='AVAILABLE'
+             AND (
+               f.normalized_name ILIKE '%' || REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') || '%'
+               OR REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') ILIKE '%' || f.normalized_name || '%'
+               OR LOWER(f.product_name) ILIKE '%' || LOWER(ci.item_name) || '%'
+               OR LOWER(ci.item_name) ILIKE '%' || LOWER(f.product_name) || '%'
+             )
+           ORDER BY
+             CASE
+               WHEN f.normalized_name ILIKE '%' || REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') || '%' THEN 0
+               ELSE 1
+             END,
+             f.last_seen_at DESC
+           LIMIT 1
+         ) supplier_candidate ON TRUE
          WHERE ${whereSql}
          GROUP BY ci.id
          ORDER BY due DESC, ci.manual_review_next_due_at NULLS FIRST, ci.item_name
@@ -324,6 +352,80 @@ class CostRepository {
         ],
       )
     ).rows[0];
+  }
+
+  async linkManualCostToSupplierItem(
+    id,
+    supplierItemId,
+    { actor, note, intervalDays = 30 } = {},
+  ) {
+    const safeInterval = Math.min(Math.max(Number(intervalDays) || 30, 1), 365);
+    return this.withTransaction(async (client) => {
+      const costItem = (
+        await client.query("SELECT * FROM cost_items WHERE id=$1 FOR UPDATE", [
+          id,
+        ])
+      ).rows[0];
+      if (!costItem) return null;
+      const supplierItem = (
+        await client.query(
+          `SELECT * FROM file_market_items
+           WHERE id=$1 AND supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')`,
+          [supplierItemId],
+        )
+      ).rows[0];
+      if (!supplierItem)
+        throw new AppError(
+          "Canlı tedarikçi ürünü bulunamadı",
+          404,
+          "SUPPLIER_ITEM_NOT_FOUND",
+        );
+      await client.query(
+        `INSERT INTO cost_item_file_links(
+           cost_item_code,file_market_item_id,confidence,status,approved_by,approved_at
+         )VALUES($1,$2,0.90000,'APPROVED',$3,NOW())
+         ON CONFLICT(cost_item_code)DO UPDATE SET
+           file_market_item_id=EXCLUDED.file_market_item_id,
+           confidence=EXCLUDED.confidence,
+           status='APPROVED',
+           approved_by=EXCLUDED.approved_by,
+           approved_at=NOW(),
+           updated_at=NOW()`,
+        [costItem.item_code, supplierItem.id, actor || null],
+      );
+      const updated = (
+        await client.query(
+          `UPDATE cost_items
+           SET previous_unit_cost=CASE WHEN unit_cost<>$2 THEN unit_cost ELSE previous_unit_cost END,
+               unit_cost=$2,
+               unit_desi=CASE
+                 WHEN COALESCE(unit_desi,0)<=0 AND $3::numeric IS NOT NULL AND $3::numeric>0
+                 THEN $3::numeric
+                 ELSE unit_desi
+               END,
+               price_source=$4,
+               source_checked_at=COALESCE($5,NOW()),
+               manual_review_last_confirmed_at=NOW(),
+               manual_review_next_due_at=NOW() + ($6::int || ' days')::interval,
+               manual_review_interval_days=$6,
+               manual_review_status='OK',
+               manual_review_note=$7,
+               updated_at=NOW()
+           WHERE id=$1
+           RETURNING *`,
+          [
+            costItem.id,
+            supplierItem.current_price,
+            supplierItem.estimated_unit_desi,
+            supplierItem.supplier_code,
+            supplierItem.last_seen_at,
+            safeInterval,
+            String(note || "").trim(),
+          ],
+        )
+      ).rows[0];
+      return { costItem: updated, supplierItem };
+    });
   }
 
   async deleteCostItem(id) {

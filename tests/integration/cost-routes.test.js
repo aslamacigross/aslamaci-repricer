@@ -57,6 +57,23 @@ function appFixture() {
           manualReviewUpdates.push({ type: "update", id, input });
           return { id, item_code: "MANUEL", unit_cost: input.unit_cost };
         },
+        linkManualCostToSupplierItem: async (id, supplierItemId, input) => {
+          manualReviewUpdates.push({
+            type: "link",
+            id,
+            supplierItemId,
+            input,
+          });
+          return {
+            costItem: { id, item_code: "MANUEL", unit_cost: 49.9 },
+            supplierItem: {
+              id: supplierItemId,
+              supplier_code: "FILE_MARKET",
+              product_name: "Actisoft",
+              current_price: 49.9,
+            },
+          };
+        },
       },
       costEngine: { recalculate: async () => ({ processed: 0 }) },
       shippingService: {},
@@ -182,4 +199,21 @@ test("manuel maliyet guncelleme maliyet dogrulamasi yapar", async () => {
     .expect(200);
   assert.equal(response.body.data.unit_cost, 88);
   assert.equal(fixture.manualReviewUpdates[0].type, "update");
+});
+
+test("manuel maliyet canlı tedarikci havuzuna baglanabilir", async () => {
+  const fixture = appFixture();
+  await request(fixture.app)
+    .post("/api/cost-items/manual-review/1/link-supplier")
+    .send({ supplierItemId: 0 })
+    .expect(400);
+  assert.equal(fixture.manualReviewUpdates.length, 0);
+
+  const response = await request(fixture.app)
+    .post("/api/cost-items/manual-review/1/link-supplier")
+    .send({ supplierItemId: 99, note: "File adayı" })
+    .expect(200);
+  assert.equal(response.body.data.costItem.unit_cost, 49.9);
+  assert.equal(fixture.manualReviewUpdates[0].type, "link");
+  assert.equal(fixture.manualReviewUpdates[0].supplierItemId, 99);
 });

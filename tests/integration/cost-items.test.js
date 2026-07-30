@@ -178,3 +178,50 @@ test("manuel maliyet guncellemesi onceki fiyati ve kontrol tarihini kaydeder", a
   assert.match(queries[0].sql, /source_checked_at=NOW\(\)/);
   assert.deepEqual(queries[0].params, [8, 99.9, 1, 30, "Yeni fiyat"]);
 });
+
+test("manuel maliyet canlı tedarikci urunune linklenir", async () => {
+  const queries = [];
+  const client = {
+    query: async (sql, params) => {
+      queries.push({ sql, params });
+      if (sql.includes("FROM cost_items WHERE id=$1"))
+        return {
+          rows: [{ id: params[0], item_code: "ACTISOFT_CAMASIR_SUYU" }],
+        };
+      if (sql.includes("FROM file_market_items"))
+        return {
+          rows: [
+            {
+              id: params[0],
+              supplier_code: "FILE_MARKET",
+              product_name: "Actisoft Çamaşır Suyu",
+              current_price: 49.9,
+              estimated_unit_desi: 1,
+              last_seen_at: new Date("2026-07-31T00:00:00Z"),
+            },
+          ],
+        };
+      if (sql.includes("UPDATE cost_items"))
+        return {
+          rows: [
+            { id: 12, item_code: "ACTISOFT_CAMASIR_SUYU", unit_cost: 49.9 },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const repository = new CostRepository({}, async (work) => work(client));
+
+  const result = await repository.linkManualCostToSupplierItem(12, 99, {
+    actor: "admin",
+  });
+
+  assert.equal(result.costItem.unit_cost, 49.9);
+  assert.equal(result.supplierItem.supplier_code, "FILE_MARKET");
+  assert.ok(
+    queries.some((query) =>
+      query.sql.includes("INSERT INTO cost_item_file_links"),
+    ),
+  );
+  assert.ok(queries.some((query) => query.sql.includes("price_source=$4")));
+});
