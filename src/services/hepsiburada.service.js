@@ -88,6 +88,76 @@ function packageNumberFromPayload(payload) {
   return null;
 }
 
+function orderLineItemRequestsFromPayload(payload, orderNumber) {
+  const targetOrderNumber = String(orderNumber || "").trim();
+  const requests = [];
+  const seen = new Set();
+
+  function pushLineItem(row) {
+    if (!row || typeof row !== "object") return;
+    const candidateOrderNumber = String(
+      row.orderNumber ||
+        row.OrderNumber ||
+        row.orderNo ||
+        row.orderId ||
+        row.order?.orderNumber ||
+        "",
+    ).trim();
+    if (
+      targetOrderNumber &&
+      candidateOrderNumber &&
+      candidateOrderNumber !== targetOrderNumber
+    )
+      return;
+    const lineItemId =
+      row.lineItemId ||
+      row.lineitemid ||
+      row.lineItemID ||
+      row.LineItemId ||
+      row.LineItemID ||
+      row.id;
+    if (!lineItemId) return;
+    const key = String(lineItemId);
+    if (seen.has(key)) return;
+    seen.add(key);
+    requests.push({
+      lineItemId: key,
+      quantity: Number(row.quantity || row.Quantity || 1) || 1,
+    });
+  }
+
+  function visit(value) {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const rowOrderNumber = String(
+      value.orderNumber ||
+        value.OrderNumber ||
+        value.orderNo ||
+        value.orderId ||
+        "",
+    ).trim();
+    const orderMatches =
+      !targetOrderNumber ||
+      !rowOrderNumber ||
+      rowOrderNumber === targetOrderNumber;
+    if (orderMatches) {
+      pushLineItem(value);
+      visit(value.lineItems);
+      visit(value.LineItems);
+      visit(value.items);
+      visit(value.orderItems);
+      visit(value.lines);
+    }
+  }
+
+  visit(payload);
+  return requests;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -474,6 +544,48 @@ class HepsiburadaService {
       if (attempt < safeAttempts - 1) await sleep(delayMs);
     }
     return payload;
+  }
+
+  async waitForOrderLineItems({
+    orderNumber,
+    attempts = 5,
+    delayMs = 2000,
+  } = {}) {
+    let payload = null;
+    const safeAttempts = Math.max(Number(attempts) || 1, 1);
+    for (let attempt = 0; attempt < safeAttempts; attempt++) {
+      payload = await this.listOrders({ limit: 100, offset: 0 });
+      if (orderLineItemRequestsFromPayload(payload, orderNumber).length)
+        return payload;
+      if (attempt < safeAttempts - 1) await sleep(delayMs);
+    }
+    return payload;
+  }
+
+  async createPackageFromLineItems({
+    lineItemRequests,
+    parcelQuantity = 1,
+    deci = 1,
+  } = {}) {
+    const body = {
+      parcelQuantity: Math.max(Number(parcelQuantity) || 1, 1),
+      deci: Math.max(Number(deci) || 1, 1),
+      lineItemRequests: (lineItemRequests || []).map((item) => ({
+        lineItemId: String(item.lineItemId || item.id || ""),
+        quantity: Math.max(Number(item.quantity) || 1, 1),
+      })),
+    };
+    if (!body.lineItemRequests.some((item) => item.lineItemId)) {
+      const error = new Error("Paketleme icin lineItemId bulunamadi");
+      error.status = 409;
+      throw error;
+    }
+    return this.request(
+      `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
   }
 
   async progressPackageStatus(packageNumber, status) {
@@ -880,6 +992,35 @@ class HepsiburadaService {
         "Test siparisi olusturma",
         await this.createSitOrder({ listing, cargoCompanyId: 89100 }),
       );
+      const orderNumber = result.responses.at(-1)?.response?.orderNumber;
+      const orderPayload = add(
+        "Paketlenecek siparisi /orders uzerinden okuma",
+        await this.waitForOrderLineItems({
+          orderNumber,
+          attempts: Number(input.orderPollAttempts) || 5,
+          delayMs: Number(input.orderPollDelayMs) || 2000,
+        }),
+      );
+      const lineItemRequests = orderLineItemRequestsFromPayload(
+        orderPayload,
+        orderNumber,
+      );
+      if (!lineItemRequests.length) {
+        addWarning(
+          "LineItemId dogrulama",
+          "Siparis olustu ancak /orders cevabinda paketleme icin lineItemId bulunamadi.",
+        );
+        result.ok = true;
+        return result;
+      }
+      add(
+        "LineItemId ile paket olusturma",
+        await this.createPackageFromLineItems({
+          lineItemRequests,
+          parcelQuantity: Number(input.parcelQuantity) || 1,
+          deci: Number(input.deci) || 1,
+        }),
+      );
       const packagePayload = add(
         "Saticiya ait paket bilgilerini listeleme",
         await this.waitForPackages({
@@ -910,9 +1051,8 @@ class HepsiburadaService {
         if (!String(input.packageNumber || "").trim()) {
           addWarning(
             "Paket bilgisi alinamadi",
-            "Hepsiburada SIT paket listeleme servisi hata verdi. Paket statu ilerletme icin once SIT panelde siparisi paketlenmis/gonderime hazir duruma alin veya paket numarasini elle girin.",
+            "Hepsiburada SIT paket listeleme servisi hata verdi; paketlenecek siparis /orders uzerinden bulunup paket olusturma adimina gecilecek.",
           );
-          result.ok = false;
           result.responses.push({
             title: "Hepsiburada paket listeleme hatasi",
             response: safeResponseSummary({
@@ -920,9 +1060,10 @@ class HepsiburadaService {
               message: error.message,
             }),
           });
-          return result;
+          packagePayload = { packages: [] };
+        } else {
+          throw error;
         }
-        throw error;
       }
       let packageNumber =
         String(input.packageNumber || "").trim() ||
@@ -940,6 +1081,34 @@ class HepsiburadaService {
           add(
             "Paket statu icin test siparisi olusturma",
             await this.createSitOrder({ listing, cargoCompanyId: 89100 }),
+          );
+          const orderNumber = result.responses.at(-1)?.response?.orderNumber;
+          const orderPayload = add(
+            "Paketlenecek siparisi /orders uzerinden okuma",
+            await this.waitForOrderLineItems({
+              orderNumber,
+              attempts: Number(input.orderPollAttempts) || 5,
+              delayMs: Number(input.orderPollDelayMs) || 2000,
+            }),
+          );
+          const lineItemRequests = orderLineItemRequestsFromPayload(
+            orderPayload,
+            orderNumber,
+          );
+          if (!lineItemRequests.length) {
+            const error = new Error(
+              "Paket statu testi icin lineItemId bulunamadi. Hepsiburada SIT /orders cevabinda paketlenecek satir olusmadi.",
+            );
+            error.status = 409;
+            throw error;
+          }
+          add(
+            "LineItemId ile paket olusturma",
+            await this.createPackageFromLineItems({
+              lineItemRequests,
+              parcelQuantity: Number(input.parcelQuantity) || 1,
+              deci: Number(input.deci) || 1,
+            }),
           );
           packagePayload = add(
             "Yeni test siparisi sonrasi paket bilgilerini listeleme",
@@ -1063,4 +1232,5 @@ module.exports = {
   normalizeRows,
   listingDeactivationSummary,
   packageNumberFromPayload,
+  orderLineItemRequestsFromPayload,
 };

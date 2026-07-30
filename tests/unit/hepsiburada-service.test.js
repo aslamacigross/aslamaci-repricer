@@ -12,6 +12,7 @@ const {
   listingDeactivationSummary,
   normalizedEnvironment,
   normalizeRows,
+  orderLineItemRequestsFromPayload,
   packageNumberFromPayload,
 } = require("../../src/services/hepsiburada.service");
 
@@ -497,19 +498,47 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaUserAgent: "aslamacigross_dev",
     });
     try {
+      let createdOrderNumber = null;
       const service = new HepsiburadaService({
         environment: "sit",
         fetch: async (url, options = {}) => {
           requests.push({ url, options });
-          if (String(url).includes("oms-stub-external-sit"))
+          if (String(url).includes("oms-stub-external-sit")) {
+            createdOrderNumber = JSON.parse(options.body).OrderNumber;
             return {
               ok: true,
               text: async () => JSON.stringify({ order: "ok" }),
             };
+          }
+          if (
+            String(url).includes("/orders/merchantid/merchant-id") &&
+            !String(url).includes("oms-stub-external-sit")
+          )
+            return {
+              ok: true,
+              text: async () =>
+                JSON.stringify({
+                  items: [
+                    {
+                      orderNumber: createdOrderNumber,
+                      lineItems: [{ lineItemId: "LINE-1", quantity: 1 }],
+                    },
+                  ],
+                }),
+            };
+          if (
+            String(url).endsWith("/packages/merchantid/merchant-id") &&
+            options.method === "POST"
+          )
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ packageNumber: "PKG-1" }),
+            };
           if (String(url).includes("/packages/merchantid"))
             return {
               ok: true,
-              text: async () => JSON.stringify({ packages: [] }),
+              text: async () =>
+                JSON.stringify({ packages: [{ packageNumber: "PKG-1" }] }),
             };
           return {
             ok: true,
@@ -538,6 +567,15 @@ describe("Hepsiburada API runtime configuration", () => {
       assert.match(body.OrderNumber, /^\d+$/);
       assert.equal(body.LineItems[0].Quantity, 1);
       assert.equal(body.LineItems[0].CargoCompanyId, 89100);
+      const packageCreateRequest = requests.find(
+        (request) =>
+          String(request.url).endsWith("/packages/merchantid/merchant-id") &&
+          request.options.method === "POST",
+      );
+      const packageBody = JSON.parse(packageCreateRequest.options.body);
+      assert.deepEqual(packageBody.lineItemRequests, [
+        { lineItemId: "LINE-1", quantity: 1 },
+      ]);
       assert.ok(
         requests.some((request) =>
           String(request.url).includes(
@@ -549,12 +587,34 @@ describe("Hepsiburada API runtime configuration", () => {
       assert.equal(result.responses[1].response.cargoCompanyId, 89100);
       assert.ok(
         result.checklist.some(
-          (item) => item.title === "Paket olusumu dogrulama" && !item.ok,
+          (item) => item.title === "LineItemId ile paket olusturma" && item.ok,
         ),
       );
     } finally {
       Object.assign(env, previous);
     }
+  });
+
+  test("Hepsiburada order payloadindan lineItemId paketleme satirlari cikarilir", () => {
+    const rows = orderLineItemRequestsFromPayload(
+      {
+        items: [
+          {
+            orderNumber: "ORDER-1",
+            lineItems: [
+              { lineItemId: "LINE-1", quantity: 2 },
+              { lineItemId: "LINE-1", quantity: 2 },
+            ],
+          },
+          {
+            orderNumber: "ORDER-2",
+            lineItems: [{ lineItemId: "LINE-2", quantity: 1 }],
+          },
+        ],
+      },
+      "ORDER-1",
+    );
+    assert.deepEqual(rows, [{ lineItemId: "LINE-1", quantity: 2 }]);
   });
 
   test("SIT paket statu testi paket numarasini bulur ve SIT endpointlerini cagirir", async () => {
@@ -614,7 +674,7 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
-  test("SIT paket statu testi paket yoksa statuye gitmeden acik hata verir", async () => {
+  test("SIT paket statu testi paket yoksa order line item ile paket olusturur", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,
       hepsiburadaPassword: env.hepsiburadaPassword,
@@ -627,19 +687,44 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaUserAgent: "aslamacigross_dev",
     });
     try {
+      let createdOrderNumber = null;
       const service = new HepsiburadaService({
         environment: "sit",
         fetch: async (url, options = {}) => {
           requests.push({ url, options });
+          if (
+            String(url).endsWith("/packages/merchantid/merchant-id") &&
+            options.method === "POST"
+          )
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ packageNumber: "PKG-2" }),
+            };
           if (String(url).includes("/packages/merchantid"))
             return {
               ok: true,
-              text: async () => JSON.stringify({ packages: [] }),
+              text: async () =>
+                JSON.stringify({ packages: [{ packageNumber: "PKG-2" }] }),
             };
-          if (String(url).includes("oms-stub-external-sit"))
+          if (String(url).includes("oms-stub-external-sit")) {
+            createdOrderNumber = JSON.parse(options.body).OrderNumber;
             return {
               ok: true,
               text: async () => JSON.stringify({}),
+            };
+          }
+          if (String(url).includes("/orders/merchantid/merchant-id"))
+            return {
+              ok: true,
+              text: async () =>
+                JSON.stringify({
+                  items: [
+                    {
+                      orderNumber: createdOrderNumber,
+                      lineItems: [{ lineItemId: "LINE-2", quantity: 1 }],
+                    },
+                  ],
+                }),
             };
           return {
             ok: true,
@@ -657,26 +742,24 @@ describe("Hepsiburada API runtime configuration", () => {
           };
         },
       });
-      await assert.rejects(
-        () =>
-          service.sitTestRun("package-status", {
-            merchantSku: "SKU1",
-            packagePollAttempts: 1,
-          }),
-        /Paket statu testi icin paket numarasi bulunamadi/,
-      );
-      assert.equal(
+      const result = await service.sitTestRun("package-status", {
+        merchantSku: "SKU1",
+        packagePollAttempts: 1,
+      });
+      assert.equal(result.ok, true);
+      assert.ok(
         requests.some((request) =>
-          /\/(intransit|deliver|undeliver)$/.test(String(request.url)),
+          String(request.url).endsWith(
+            "/packages/merchantid/merchant-id/packagenumber/PKG-2/intransit",
+          ),
         ),
-        false,
       );
     } finally {
       Object.assign(env, previous);
     }
   });
 
-  test("SIT paket statu testi paket listeleme 500 ise paket numarasi yokken ham hata firlatmaz", async () => {
+  test("SIT paket statu testi paket listeleme 500 ise order uzerinden paket olusturmayi dener", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,
       hepsiburadaPassword: env.hepsiburadaPassword,
@@ -689,11 +772,28 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaUserAgent: "aslamacigross_dev",
     });
     try {
+      let packageListFailed = false;
+      let createdOrderNumber = null;
       const service = new HepsiburadaService({
         environment: "sit",
         fetch: async (url, options = {}) => {
           requests.push({ url, options });
-          if (String(url).includes("/packages/merchantid"))
+          if (
+            String(url).endsWith("/packages/merchantid/merchant-id") &&
+            options.method === "POST"
+          )
+            return {
+              ok: true,
+              text: async () => JSON.stringify({ packageNumber: "PKG-3" }),
+            };
+          if (String(url).includes("/packages/merchantid")) {
+            if (packageListFailed)
+              return {
+                ok: true,
+                text: async () =>
+                  JSON.stringify({ packages: [{ packageNumber: "PKG-3" }] }),
+              };
+            packageListFailed = true;
             return {
               ok: false,
               status: 500,
@@ -703,6 +803,42 @@ describe("Hepsiburada API runtime configuration", () => {
                   message: "UndefinedError: runtime error",
                 }),
             };
+          }
+          if (String(url).includes("oms-stub-external-sit")) {
+            createdOrderNumber = JSON.parse(options.body).OrderNumber;
+            return {
+              ok: true,
+              text: async () => JSON.stringify({}),
+            };
+          }
+          if (String(url).includes("/orders/merchantid/merchant-id"))
+            return {
+              ok: true,
+              text: async () =>
+                JSON.stringify({
+                  items: [
+                    {
+                      orderNumber: createdOrderNumber,
+                      lineItems: [{ lineItemId: "LINE-3", quantity: 1 }],
+                    },
+                  ],
+                }),
+            };
+          if (String(url).includes("/listings/merchantid/merchant-id"))
+            return {
+              ok: true,
+              text: async () =>
+                JSON.stringify({
+                  listings: [
+                    {
+                      listingId: "listing-1",
+                      merchantSku: "SKU1",
+                      hepsiburadaSku: "HBV1",
+                      price: 100,
+                    },
+                  ],
+                }),
+            };
           return {
             ok: true,
             text: async () => JSON.stringify({}),
@@ -710,19 +846,21 @@ describe("Hepsiburada API runtime configuration", () => {
         },
       });
       const result = await service.sitTestRun("package-status", {
+        merchantSku: "SKU1",
         packagePollAttempts: 1,
       });
-      assert.equal(result.ok, false);
+      assert.equal(result.ok, true);
       assert.ok(
         result.checklist.some(
           (item) => item.title === "Paket bilgisi alinamadi" && !item.ok,
         ),
       );
-      assert.equal(
+      assert.ok(
         requests.some((request) =>
-          /\/(intransit|deliver|undeliver)$/.test(String(request.url)),
+          String(request.url).endsWith(
+            "/packages/merchantid/merchant-id/packagenumber/PKG-3/deliver",
+          ),
         ),
-        false,
       );
     } finally {
       Object.assign(env, previous);
