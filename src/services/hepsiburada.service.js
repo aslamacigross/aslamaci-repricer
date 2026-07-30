@@ -571,11 +571,11 @@ class HepsiburadaService {
       parcelQuantity: Math.max(Number(parcelQuantity) || 1, 1),
       deci: Math.max(Number(deci) || 1, 1),
       lineItemRequests: (lineItemRequests || []).map((item) => ({
-        lineItemId: String(item.lineItemId || item.id || ""),
-        quantity: Math.max(Number(item.quantity) || 1, 1),
+        id: String(item.lineItemId || item.id || ""),
+        quantity: String(Math.max(Number(item.quantity) || 1, 1)),
       })),
     };
-    if (!body.lineItemRequests.some((item) => item.lineItemId)) {
+    if (!body.lineItemRequests.some((item) => item.id)) {
       const error = new Error("Paketleme icin lineItemId bulunamadi");
       error.status = 409;
       throw error;

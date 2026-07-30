@@ -574,7 +574,7 @@ describe("Hepsiburada API runtime configuration", () => {
       );
       const packageBody = JSON.parse(packageCreateRequest.options.body);
       assert.deepEqual(packageBody.lineItemRequests, [
-        { lineItemId: "LINE-1", quantity: 1 },
+        { id: "LINE-1", quantity: "1" },
       ]);
       assert.ok(
         requests.some((request) =>
