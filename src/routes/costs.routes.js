@@ -161,6 +161,56 @@ function costsRoutes({
     ),
   );
   r.get(
+    "/cost-items/manual-review",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costs.manualCostReviewQueue(req.query),
+      }),
+    ),
+  );
+  r.post(
+    "/cost-items/manual-review/:id/confirm",
+    asyncRoute(async (req, res) => {
+      const data = await costs.confirmManualCostReview(req.params.id, req.body);
+      if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await recalculateAllMarketplaces();
+      await logged(
+        req,
+        "COST_ITEM_MANUAL_REVIEW_CONFIRMED",
+        "cost_item",
+        data.id,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.patch(
+    "/cost-items/manual-review/:id",
+    asyncRoute(async (req, res) => {
+      numeric(requireFields(req.body, ["unit_cost"]), [
+        "unit_cost",
+        "unit_desi",
+      ]);
+      positive(req.body, ["unit_cost"]);
+      if (req.body.unit_desi !== undefined)
+        positive(req.body, ["unit_desi"], { allowZero: true });
+      const data = await costs.updateManualCostReview(req.params.id, req.body);
+      if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await recalculateAllMarketplaces();
+      await logged(
+        req,
+        "COST_ITEM_MANUAL_REVIEW_UPDATED",
+        "cost_item",
+        data.id,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.get(
     "/cost-items/desi-review",
     asyncRoute(async (req, res) =>
       res.json({

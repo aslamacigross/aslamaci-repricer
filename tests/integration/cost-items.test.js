@@ -88,3 +88,93 @@ test("maliyet kalemi tekrar raporu benzer kayıtları aday gösterir", async () 
   assert.equal(result.items[0].right.item_code, "HARRAS_CAY_2");
   assert.ok(result.items[0].reasons.includes("SAME_UNIT_COST"));
 });
+
+test("manuel maliyet kontrol listesi otomatik tedarikci linklerini haric tutar", async () => {
+  const queries = [];
+  const repository = new CostRepository(
+    {
+      query: async (sql, params) => {
+        queries.push({ sql, params: [...params] });
+        if (sql.includes("COUNT(*)::int")) return { rows: [{ count: 1 }] };
+        return {
+          rows: [
+            {
+              id: 10,
+              item_code: "MANUEL_KALEM",
+              item_name: "Manuel Kalem",
+              unit_cost: 42,
+              due: true,
+            },
+          ],
+        };
+      },
+    },
+    async () => {},
+  );
+
+  const result = await repository.manualCostReviewQueue({
+    search: "manuel",
+    page: 2,
+    limit: 25,
+  });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].item_code, "MANUEL_KALEM");
+  assert.match(queries[0].sql, /NOT EXISTS/);
+  assert.match(queries[0].sql, /FILE_MARKET','BIZIM_MARKET','BIM/);
+  assert.deepEqual(queries[0].params, [30, "%manuel%"]);
+  assert.deepEqual(queries[1].params, [30, "%manuel%", 25, 25]);
+});
+
+test("manuel maliyet ayni kalsin onayi sonraki kontrol tarihini ayarlar", async () => {
+  const queries = [];
+  const repository = new CostRepository(
+    {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return {
+          rows: [{ id: params[0], manual_review_status: "OK" }],
+        };
+      },
+    },
+    async () => {},
+  );
+
+  const result = await repository.confirmManualCostReview(7, {
+    note: "Kontrol edildi",
+    intervalDays: 45,
+  });
+
+  assert.equal(result.id, 7);
+  assert.match(
+    queries[0].sql,
+    /manual_review_next_due_at=NOW\(\) \+ \(\$2::int/,
+  );
+  assert.deepEqual(queries[0].params, [7, 45, "Kontrol edildi"]);
+});
+
+test("manuel maliyet guncellemesi onceki fiyati ve kontrol tarihini kaydeder", async () => {
+  const queries = [];
+  const repository = new CostRepository(
+    {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return {
+          rows: [{ id: params[0], unit_cost: params[1] }],
+        };
+      },
+    },
+    async () => {},
+  );
+
+  const result = await repository.updateManualCostReview(8, {
+    unit_cost: 99.9,
+    unit_desi: 1,
+    note: "Yeni fiyat",
+  });
+
+  assert.equal(result.unit_cost, 99.9);
+  assert.match(queries[0].sql, /previous_unit_cost=CASE/);
+  assert.match(queries[0].sql, /source_checked_at=NOW\(\)/);
+  assert.deepEqual(queries[0].params, [8, 99.9, 1, 30, "Yeni fiyat"]);
+});

@@ -16,6 +16,7 @@ import {
   SearchCheck,
   PencilLine,
   Truck,
+  CheckCircle2,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
 import DataTable, { money, percent, date } from "../components/DataTable";
@@ -116,6 +117,7 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
     [search, setSearch] = useState(""),
     [error, setError] = useState(null),
     [editing, setEditing] = useState(null),
+    [costView, setCostView] = useState("items"),
     [mappingView, setMappingView] = useState("manual"),
     [shippingQuery, setShippingQuery] = useState({
       marketplace,
@@ -183,6 +185,7 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         actions={
           <>
             {mode !== "commissions" &&
+              !(mode === "costs" && costView !== "items") &&
               !(mode === "mappings" && mappingView !== "manual") && (
                 <Button
                   icon={Plus}
@@ -274,6 +277,22 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
           </button>
         </div>
       )}
+      {mode === "costs" && (
+        <div className="tabs page-tabs mapping-tabs">
+          <button
+            className={costView === "items" ? "active" : ""}
+            onClick={() => setCostView("items")}
+          >
+            <Store /> Maliyet kalemleri
+          </button>
+          <button
+            className={costView === "review" ? "active" : ""}
+            onClick={() => setCostView("review")}
+          >
+            <CheckCircle2 /> Kontrol zamanı
+          </button>
+        </div>
+      )}
       {error ? (
         <ErrorState error={error} retry={load} />
       ) : mode === "mappings" && mappingView !== "manual" ? (
@@ -292,6 +311,8 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
           query={shippingQuery}
           setQuery={setShippingQuery}
         />
+      ) : mode === "costs" && costView === "review" ? (
+        <ManualCostReview notify={notify} />
       ) : (
         <ResourceTable
           mode={mode}
@@ -306,6 +327,273 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         />
       )}
     </>
+  );
+}
+
+function ManualCostReview({ notify }) {
+  const [data, setData] = useState(null),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState(null),
+    [editing, setEditing] = useState(null);
+  const limit = 50;
+  async function load(nextPage = page, nextSearch = search) {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        limit: String(limit),
+        search: nextSearch,
+      });
+      setData((await get(`/api/cost-items/manual-review?${params}`)).data);
+    } catch (loadError) {
+      setError(loadError);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load(1, search);
+  }, []);
+  function updateSearch(value) {
+    setSearch(value);
+    setPage(1);
+    load(1, value);
+  }
+  function changePage(nextPage) {
+    setPage(nextPage);
+    load(nextPage, search);
+  }
+  const rows = data?.items || [];
+  const columns = [
+    { key: "item_code", label: "Cost Code" },
+    { key: "item_name", label: "Maliyet kalemi" },
+    {
+      key: "unit_cost",
+      label: "Birim maliyet",
+      render: (row) => money(row.unit_cost),
+    },
+    { key: "unit_desi", label: "Birim desi" },
+    {
+      key: "price_source",
+      label: "Kaynak",
+      render: (row) => row.price_source || "MANUAL",
+    },
+    { key: "product_count", label: "Kullanım" },
+    {
+      key: "source_checked_at",
+      label: "Son kontrol",
+      render: (row) => date(row.source_checked_at || row.updated_at),
+    },
+    {
+      key: "manual_review_next_due_at",
+      label: "Sonraki kontrol",
+      render: (row) => date(row.manual_review_next_due_at),
+    },
+    {
+      key: "due",
+      label: "Durum",
+      render: (row) => (
+        <Badge tone={row.due ? "warning" : "success"}>
+          {row.due ? "Kontrol et" : "Güncel"}
+        </Badge>
+      ),
+    },
+  ];
+  if (error) return <ErrorState error={error} retry={() => load()} />;
+  return (
+    <>
+      <div className="info-banner">
+        <CheckCircle2 />
+        <div>
+          <strong>Manuel maliyet hatırlatıcısı</strong>
+          <p>
+            Canlı File, Bizim veya BİM linki olmayan maliyetler ayda bir burada
+            görünür. Fiyat değişmediyse aynı kalsın; değiştiyse yeni fiyatı
+            girin, sistem minimum fiyatları yeniden hesaplar.
+          </p>
+        </div>
+      </div>
+      <div className="filters">
+        <SearchInput
+          value={search}
+          onChange={updateSearch}
+          placeholder="Cost code veya maliyet kalemi ara"
+        />
+        <IconButton icon={RefreshCw} label="Yenile" onClick={() => load()} />
+      </div>
+      {loading && !data ? (
+        <Loading />
+      ) : (
+        <div className="panel table-panel">
+          <DataTable
+            columns={columns}
+            rows={rows}
+            exportRows={rows}
+            columnVisibilityKey="manual-cost-review"
+            exportFileName="manuel-maliyet-kontrol"
+            onRowClick={(row) => setEditing(row)}
+          />
+          <Pagination
+            page={data?.page || page}
+            total={data?.total || 0}
+            limit={data?.limit || limit}
+            onChange={changePage}
+          />
+        </div>
+      )}
+      <ManualCostReviewModal
+        value={editing}
+        onClose={() => setEditing(null)}
+        notify={notify}
+        onSaved={() => {
+          setEditing(null);
+          load();
+        }}
+      />
+    </>
+  );
+}
+
+function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
+  const [form, setForm] = useState(value || {}),
+    [saving, setSaving] = useState(false);
+  useEffect(() => setForm(value || {}), [value]);
+  if (!value) return null;
+  const set = (key, nextValue) => setForm({ ...form, [key]: nextValue });
+  async function confirmSame() {
+    setSaving(true);
+    try {
+      await post(`/api/cost-items/manual-review/${value.id}/confirm`, {
+        note: form.manual_review_note,
+        intervalDays: form.manual_review_interval_days || 30,
+      });
+      notify("Maliyet aynı kaldı olarak işaretlendi");
+      onSaved();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function updateCost() {
+    setSaving(true);
+    try {
+      await patch(`/api/cost-items/manual-review/${value.id}`, {
+        unit_cost: Number(form.unit_cost),
+        unit_desi:
+          form.unit_desi === "" || form.unit_desi === undefined
+            ? undefined
+            : Number(form.unit_desi),
+        note: form.manual_review_note,
+        intervalDays: form.manual_review_interval_days || 30,
+      });
+      notify("Maliyet güncellendi ve minimum fiyatlar yeniden hesaplandı");
+      onSaved();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  const sampleProducts = Array.isArray(value.sample_products)
+    ? value.sample_products.filter(Boolean)
+    : [];
+  return (
+    <Modal open onClose={onClose} title="Manuel maliyet kontrolü">
+      <div className="modal-body form-grid">
+        <Field label="Cost Code">
+          <input value={form.item_code || ""} disabled />
+        </Field>
+        <Field label="Maliyet kalemi">
+          <input value={form.item_name || ""} disabled />
+        </Field>
+        <Field label="Birim maliyet">
+          <input
+            type="number"
+            step="0.01"
+            value={form.unit_cost || ""}
+            onChange={(event) => set("unit_cost", event.target.value)}
+          />
+        </Field>
+        <Field label="Birim desi">
+          <input
+            type="number"
+            step="0.01"
+            value={form.unit_desi ?? ""}
+            onChange={(event) => set("unit_desi", event.target.value)}
+          />
+        </Field>
+        <Field label="Kontrol aralığı (gün)">
+          <input
+            type="number"
+            min="1"
+            max="365"
+            value={form.manual_review_interval_days || 30}
+            onChange={(event) =>
+              set("manual_review_interval_days", Number(event.target.value))
+            }
+          />
+        </Field>
+        <Field label="Not">
+          <input
+            value={form.manual_review_note || ""}
+            onChange={(event) => set("manual_review_note", event.target.value)}
+            placeholder="Örn. tedarikçide kontrol edildi"
+          />
+        </Field>
+      </div>
+      <div className="modal-body resource-context">
+        <section>
+          <h3>Kullanıldığı ürünler ({value.product_count || 0})</h3>
+          {sampleProducts.length ? (
+            <div className="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pazaryeri</th>
+                    <th>Barkod</th>
+                    <th>Ürün</th>
+                    <th>Adet</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleProducts.slice(0, 30).map((item) => (
+                    <tr key={`${item.marketplace}:${item.barcode}`}>
+                      <td>{item.marketplace}</td>
+                      <td>{item.barcode}</td>
+                      <td>{item.product_name || "-"}</td>
+                      <td>{item.quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p>Bu maliyet kalemi henüz aktif bir mapping içinde görünmüyor.</p>
+          )}
+        </section>
+      </div>
+      <footer className="modal-actions">
+        <span />
+        <Button variant="secondary" onClick={onClose}>
+          Vazgeç
+        </Button>
+        <Button
+          variant="secondary"
+          icon={CheckCircle2}
+          onClick={confirmSame}
+          disabled={saving}
+        >
+          Aynı kalsın
+        </Button>
+        <Button icon={Save} onClick={updateCost} disabled={saving}>
+          Fiyatı güncelle
+        </Button>
+      </footer>
+    </Modal>
   );
 }
 function ResourceTable({

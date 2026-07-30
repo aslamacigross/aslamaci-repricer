@@ -112,7 +112,14 @@ class CostRepository {
     if (id)
       return (
         await this.db.query(
-          `UPDATE cost_items SET item_code=$1,item_name=$2,unit_cost=$3,unit_desi=$4,unit=$5,note=$6,updated_at=NOW()
+          `UPDATE cost_items
+           SET item_code=$1,item_name=$2,unit_cost=$3,unit_desi=$4,unit=$5,note=$6,
+               previous_unit_cost=CASE WHEN unit_cost IS DISTINCT FROM $3 THEN unit_cost ELSE previous_unit_cost END,
+               source_checked_at=NOW(),
+               manual_review_last_confirmed_at=NOW(),
+               manual_review_next_due_at=NOW() + (COALESCE(manual_review_interval_days,30) || ' days')::interval,
+               manual_review_status='OK',
+               updated_at=NOW()
        WHERE id=$7 RETURNING *`,
           [
             input.item_code,
@@ -127,8 +134,13 @@ class CostRepository {
       ).rows[0];
     return (
       await this.db.query(
-        `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,unit,note)
-       VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
+        `INSERT INTO cost_items(
+           item_code,item_name,unit_cost,unit_desi,unit,note,
+           price_source,source_checked_at,manual_review_last_confirmed_at,
+           manual_review_next_due_at,manual_review_status
+         )
+       VALUES($1,$2,$3,$4,$5,$6,'MANUAL',NOW(),NOW(),NOW() + INTERVAL '30 days','OK')
+       RETURNING *`,
         [
           input.item_code,
           input.item_name,
@@ -147,11 +159,23 @@ class CostRepository {
       for (const row of rows) {
         const saved = (
           await client.query(
-            `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,unit,note)
-             VALUES($1,$2,$3,$4,$5,$6)
+            `INSERT INTO cost_items(
+               item_code,item_name,unit_cost,unit_desi,unit,note,
+               price_source,source_checked_at,manual_review_last_confirmed_at,
+               manual_review_next_due_at,manual_review_status
+             )
+             VALUES($1,$2,$3,$4,$5,$6,'MANUAL',NOW(),NOW(),NOW() + INTERVAL '30 days','OK')
              ON CONFLICT(item_code)DO UPDATE SET
                item_name=EXCLUDED.item_name,unit_cost=EXCLUDED.unit_cost,
                unit_desi=EXCLUDED.unit_desi,unit=EXCLUDED.unit,note=EXCLUDED.note,
+               previous_unit_cost=CASE
+                 WHEN cost_items.unit_cost IS DISTINCT FROM EXCLUDED.unit_cost THEN cost_items.unit_cost
+                 ELSE cost_items.previous_unit_cost
+               END,
+               source_checked_at=NOW(),
+               manual_review_last_confirmed_at=NOW(),
+               manual_review_next_due_at=NOW() + (COALESCE(cost_items.manual_review_interval_days,30) || ' days')::interval,
+               manual_review_status='OK',
                updated_at=NOW()
              RETURNING *`,
             [
@@ -168,6 +192,138 @@ class CostRepository {
       }
       return { processed: items.length, items };
     });
+  }
+
+  async manualCostReviewQueue({
+    search,
+    page = 1,
+    limit = 100,
+    days = 30,
+    includeOk = false,
+  } = {}) {
+    const safePage = Math.max(Number(page) || 1, 1);
+    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    const safeDays = Math.min(Math.max(Number(days) || 30, 1), 365);
+    const offset = (safePage - 1) * safeLimit;
+    const params = [safeDays];
+    const where = [
+      "$1::int > 0",
+      `NOT EXISTS (
+        SELECT 1
+        FROM cost_item_file_links link
+        JOIN file_market_items supplier_item ON supplier_item.id=link.file_market_item_id
+        WHERE link.cost_item_code=ci.item_code
+          AND link.status='APPROVED'
+          AND supplier_item.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')
+      )`,
+    ];
+    if (!["true", true, "1", 1].includes(includeOk)) {
+      where.push(
+        `(ci.manual_review_next_due_at IS NULL
+          OR ci.manual_review_next_due_at <= NOW()
+          OR ci.source_checked_at IS NULL
+          OR ci.source_checked_at <= NOW() - ($1::int || ' days')::interval)`,
+      );
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(ci.item_code ILIKE $${params.length} OR ci.item_name ILIKE $${params.length})`,
+      );
+    }
+    const whereSql = where.join(" AND ");
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS count FROM cost_items ci WHERE ${whereSql}`,
+        params,
+      )
+    ).rows[0].count;
+    params.push(safeLimit, offset);
+    const rows = (
+      await this.db.query(
+        `SELECT ci.*,
+                COUNT(DISTINCT pcm.marketplace || ':' || pcm.barcode)::int AS product_count,
+                COALESCE(
+                  JSON_AGG(
+                    DISTINCT JSONB_BUILD_OBJECT(
+                      'marketplace', pcm.marketplace,
+                      'barcode', pcm.barcode,
+                      'product_name', p.product_name,
+                      'quantity', pcm.quantity
+                    )
+                  ) FILTER (WHERE pcm.barcode IS NOT NULL),
+                  '[]'
+                ) AS sample_products,
+                COALESCE(ci.manual_review_next_due_at, ci.source_checked_at + ($1::int || ' days')::interval) <= NOW()
+                  OR ci.source_checked_at IS NULL AS due,
+                FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ci.source_checked_at, ci.updated_at, NOW()))) / 86400)::int AS days_since_check
+         FROM cost_items ci
+         LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+         LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
+         WHERE ${whereSql}
+         GROUP BY ci.id
+         ORDER BY due DESC, ci.manual_review_next_due_at NULLS FIRST, ci.item_name
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return {
+      items: rows,
+      page: safePage,
+      limit: safeLimit,
+      total,
+      due_count: rows.filter((row) => row.due).length,
+    };
+  }
+
+  async confirmManualCostReview(id, { note, intervalDays = 30 } = {}) {
+    const safeInterval = Math.min(Math.max(Number(intervalDays) || 30, 1), 365);
+    return (
+      await this.db.query(
+        `UPDATE cost_items
+         SET source_checked_at=NOW(),
+             manual_review_last_confirmed_at=NOW(),
+             manual_review_next_due_at=NOW() + ($2::int || ' days')::interval,
+             manual_review_interval_days=$2,
+             manual_review_status='OK',
+             manual_review_note=$3,
+             updated_at=NOW()
+         WHERE id=$1
+         RETURNING *`,
+        [id, safeInterval, String(note || "").trim()],
+      )
+    ).rows[0];
+  }
+
+  async updateManualCostReview(
+    id,
+    { unit_cost, unit_desi, note, intervalDays = 30 } = {},
+  ) {
+    const safeInterval = Math.min(Math.max(Number(intervalDays) || 30, 1), 365);
+    return (
+      await this.db.query(
+        `UPDATE cost_items
+         SET previous_unit_cost=CASE WHEN unit_cost IS DISTINCT FROM $2 THEN unit_cost ELSE previous_unit_cost END,
+             unit_cost=$2,
+             unit_desi=COALESCE($3, unit_desi),
+             source_checked_at=NOW(),
+             manual_review_last_confirmed_at=NOW(),
+             manual_review_next_due_at=NOW() + ($4::int || ' days')::interval,
+             manual_review_interval_days=$4,
+             manual_review_status='OK',
+             manual_review_note=$5,
+             updated_at=NOW()
+         WHERE id=$1
+         RETURNING *`,
+        [
+          id,
+          unit_cost,
+          unit_desi === undefined || unit_desi === "" ? null : unit_desi,
+          safeInterval,
+          String(note || "").trim(),
+        ],
+      )
+    ).rows[0];
   }
 
   async deleteCostItem(id) {

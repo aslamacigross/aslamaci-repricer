@@ -8,6 +8,7 @@ const { errorHandler } = require("../../src/middleware/error-handler");
 function appFixture() {
   let fullReplaceCalls = 0;
   const bulkCostCalls = [];
+  const manualReviewUpdates = [];
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
@@ -42,6 +43,20 @@ function appFixture() {
             },
           ],
         }),
+        manualCostReviewQueue: async () => ({
+          total: 1,
+          page: 1,
+          limit: 50,
+          items: [{ id: 1, item_code: "MANUEL", due: true }],
+        }),
+        confirmManualCostReview: async (id, input) => {
+          manualReviewUpdates.push({ type: "confirm", id, input });
+          return { id, item_code: "MANUEL", unit_cost: 10 };
+        },
+        updateManualCostReview: async (id, input) => {
+          manualReviewUpdates.push({ type: "update", id, input });
+          return { id, item_code: "MANUEL", unit_cost: input.unit_cost };
+        },
       },
       costEngine: { recalculate: async () => ({ processed: 0 }) },
       shippingService: {},
@@ -56,6 +71,7 @@ function appFixture() {
     app,
     fullReplaceCalls: () => fullReplaceCalls,
     bulkCostCalls,
+    manualReviewUpdates,
   };
 }
 
@@ -132,4 +148,38 @@ test("maliyet kalemi tekrar adaylari ayri endpointten listelenir", async () => {
     .expect(200);
   assert.equal(response.body.data.total, 1);
   assert.equal(response.body.data.items[0].left.item_code, "A");
+});
+
+test("manuel maliyet kontrol listesi ayri endpointten gelir", async () => {
+  const response = await request(appFixture().app)
+    .get("/api/cost-items/manual-review")
+    .expect(200);
+  assert.equal(response.body.data.total, 1);
+  assert.equal(response.body.data.items[0].item_code, "MANUEL");
+});
+
+test("manuel maliyet ayni kalsin onayi kaydedilir", async () => {
+  const fixture = appFixture();
+  const response = await request(fixture.app)
+    .post("/api/cost-items/manual-review/1/confirm")
+    .send({ note: "Kontrol edildi" })
+    .expect(200);
+  assert.equal(response.body.data.id, "1");
+  assert.equal(fixture.manualReviewUpdates[0].type, "confirm");
+});
+
+test("manuel maliyet guncelleme maliyet dogrulamasi yapar", async () => {
+  const fixture = appFixture();
+  await request(fixture.app)
+    .patch("/api/cost-items/manual-review/1")
+    .send({ unit_cost: 0 })
+    .expect(400);
+  assert.equal(fixture.manualReviewUpdates.length, 0);
+
+  const response = await request(fixture.app)
+    .patch("/api/cost-items/manual-review/1")
+    .send({ unit_cost: 88, unit_desi: 1, note: "Yeni fiyat" })
+    .expect(200);
+  assert.equal(response.body.data.unit_cost, 88);
+  assert.equal(fixture.manualReviewUpdates[0].type, "update");
 });
