@@ -608,6 +608,18 @@ describe("Hepsiburada API runtime configuration", () => {
             ],
           },
           {
+            id: "HB-OPEN-ITEM-ID",
+            orderNumber: "ORDER-1",
+            canCreatePackage: true,
+            quantity: 1,
+          },
+          {
+            id: "NOT-PACKAGEABLE-ID",
+            orderNumber: "ORDER-1",
+            canCreatePackage: false,
+            quantity: 1,
+          },
+          {
             orderNumber: "ORDER-2",
             lineItems: [{ lineItemId: "LINE-2", quantity: 1 }],
           },
@@ -615,7 +627,10 @@ describe("Hepsiburada API runtime configuration", () => {
       },
       "ORDER-1",
     );
-    assert.deepEqual(rows, [{ lineItemId: "LINE-1", quantity: 2 }]);
+    assert.deepEqual(rows, [
+      { lineItemId: "LINE-1", quantity: 2 },
+      { lineItemId: "HB-OPEN-ITEM-ID", quantity: 1 },
+    ]);
   });
 
   test("SIT paket statu testi paket numarasini bulur ve SIT endpointlerini cagirir", async () => {
