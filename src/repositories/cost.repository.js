@@ -41,7 +41,7 @@ class CostRepository {
         `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count
          FROM cost_items ci
          LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
-         GROUP BY ci.id, supplier_candidate.candidate
+         GROUP BY ci.id
          ORDER BY ci.item_name`,
       )
     ).rows;
@@ -272,6 +272,28 @@ class CostRepository {
              'availability', f.availability
            ) AS candidate
            FROM file_market_items f
+           CROSS JOIN LATERAL (
+             SELECT COUNT(*)::int AS count
+             FROM REGEXP_SPLIT_TO_TABLE(
+               REGEXP_REPLACE(
+                 TRANSLATE(
+                   LOWER(ci.item_code || ' ' || ci.item_name),
+                   'çğıöşüÇĞİÖŞÜ',
+                   'cgiosucgiosu'
+                 ),
+                 '[^a-z0-9]+',
+                 ' ',
+                 'g'
+               ),
+               '\\s+'
+             ) AS cost_token
+             WHERE LENGTH(cost_token)>2
+               AND cost_token NOT IN (
+                 'adet','birim','file','market','bizim','bim','diger',
+                 'urun','paket','set','icin','ile','suyu','sivi'
+               )
+               AND f.normalized_name ILIKE '%' || cost_token || '%'
+           ) token_match
            WHERE f.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')
              AND f.availability='AVAILABLE'
              AND (
@@ -279,8 +301,10 @@ class CostRepository {
                OR REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') ILIKE '%' || f.normalized_name || '%'
                OR LOWER(f.product_name) ILIKE '%' || LOWER(ci.item_name) || '%'
                OR LOWER(ci.item_name) ILIKE '%' || LOWER(f.product_name) || '%'
+               OR token_match.count >= 2
              )
            ORDER BY
+             token_match.count DESC,
              CASE
                WHEN f.normalized_name ILIKE '%' || REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') || '%' THEN 0
                ELSE 1

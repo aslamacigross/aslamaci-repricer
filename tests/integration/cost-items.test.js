@@ -95,7 +95,13 @@ test("manuel maliyet kontrol listesi otomatik tedarikci linklerini haric tutar",
     {
       query: async (sql, params) => {
         queries.push({ sql, params: [...params] });
-        if (sql.includes("COUNT(*)::int")) return { rows: [{ count: 1 }] };
+        const normalizedSql = String(sql).replace(/\s+/g, " ").trim();
+        if (
+          normalizedSql.startsWith(
+            "SELECT COUNT(*)::int AS count FROM cost_items ci WHERE",
+          )
+        )
+          return { rows: [{ count: 1 }] };
         return {
           rows: [
             {
