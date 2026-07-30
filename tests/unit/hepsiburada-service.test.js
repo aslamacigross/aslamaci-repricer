@@ -677,6 +677,13 @@ describe("Hepsiburada API runtime configuration", () => {
           ),
         ),
       );
+      const inTransitRequest = requests.find((request) =>
+        String(request.url).endsWith(
+          "/packages/merchantid/merchant-id/packagenumber/PKG-1/intransit",
+        ),
+      );
+      const inTransitBody = JSON.parse(inTransitRequest.options.body);
+      assert.ok(inTransitBody.shippedDate);
       assert.ok(
         requests.some((request) =>
           String(request.url).endsWith(

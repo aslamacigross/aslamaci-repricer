@@ -595,14 +595,17 @@ class HepsiburadaService {
       error.status = 400;
       throw error;
     }
+    const now = new Date().toISOString();
     const body =
       normalizedStatus === "deliver"
         ? {
-            receivedDate: new Date().toISOString(),
+            receivedDate: now,
             receivedBy: "Aşlamacı ERP SIT Test",
             digitalCodes: [],
           }
-        : {};
+        : normalizedStatus === "intransit"
+          ? { shippedDate: now }
+          : {};
     return this.request(
       `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
         env.hepsiburadaMerchantId,
