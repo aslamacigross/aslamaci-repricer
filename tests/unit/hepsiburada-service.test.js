@@ -684,6 +684,14 @@ describe("Hepsiburada API runtime configuration", () => {
           ),
         ),
       );
+      const deliverRequest = requests.find((request) =>
+        String(request.url).endsWith(
+          "/packages/merchantid/merchant-id/packagenumber/PKG-1/deliver",
+        ),
+      );
+      const deliverBody = JSON.parse(deliverRequest.options.body);
+      assert.ok(deliverBody.receivedDate);
+      assert.equal(deliverBody.receivedBy, "Aşlamacı ERP SIT Test");
       assert.equal(JSON.stringify(result).includes("secret-key"), false);
     } finally {
       Object.assign(env, previous);

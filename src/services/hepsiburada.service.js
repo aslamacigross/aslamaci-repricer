@@ -595,13 +595,21 @@ class HepsiburadaService {
       error.status = 400;
       throw error;
     }
+    const body =
+      normalizedStatus === "deliver"
+        ? {
+            receivedDate: new Date().toISOString(),
+            receivedBy: "Aşlamacı ERP SIT Test",
+            digitalCodes: [],
+          }
+        : {};
     return this.request(
       `${this.orderBaseUrl}/packages/merchantid/${encodeURIComponent(
         env.hepsiburadaMerchantId,
       )}/packagenumber/${encodeURIComponent(
         String(packageNumber),
       )}/${normalizedStatus}`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(body) },
     );
   }
 
