@@ -260,7 +260,7 @@ class SyncService {
       try {
         metadataRows = await this.hepsiburada.fetchAllMerchantProducts({
           pageSize: 1000,
-          maxPages: 50,
+          maxPages: 200,
         });
       } catch (error) {
         metadataError = error.message;

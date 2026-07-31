@@ -194,6 +194,62 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
+  test("katalog endpointi size degerini sinirlasa bile sayfalari okumaya devam eder", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requestedPages = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamaci_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url) => {
+          const parsed = new URL(url);
+          const page = Number(parsed.searchParams.get("page"));
+          requestedPages.push(page);
+          const rows =
+            page < 2
+              ? Array.from({ length: 10 }, (_, index) => ({
+                  merchantSku: `SKU-${page}-${index}`,
+                  hbSku: `HBV-${page}-${index}`,
+                  productName: `Urun ${page}-${index}`,
+                }))
+              : [
+                  {
+                    merchantSku: "SKU-2-0",
+                    hbSku: "HBV-2-0",
+                    productName: "Son urun",
+                  },
+                ];
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                data: { content: rows, number: page, totalPages: 3 },
+                last: page === 2,
+              }),
+          };
+        },
+      });
+      const rows = await service.fetchAllMerchantProducts({
+        pageSize: 1000,
+        maxPages: 10,
+      });
+      assert.equal(rows.length, 21);
+      assert.deepEqual(requestedPages, [0, 1, 2]);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
   test("canli katalog teshisi listing ve katalog kaynaklarini secret siz ozetler", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,

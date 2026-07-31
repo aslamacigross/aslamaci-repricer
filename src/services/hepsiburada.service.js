@@ -684,14 +684,40 @@ class HepsiburadaService {
 
   async fetchAllMerchantProducts({ pageSize = 1000, maxPages = 50 } = {}) {
     const items = [];
+    const seenPages = new Set();
     for (let page = 0; page < maxPages; page++) {
       const payload = await this.listMerchantProducts({
         page,
         size: pageSize,
       });
       const rows = normalizeRows(payload);
+      const pageSignature = JSON.stringify(
+        rows.map(
+          (row) =>
+            row?.merchantSku ||
+            row?.hbSku ||
+            row?.hepsiburadaSku ||
+            row?.barcode ||
+            "",
+        ),
+      );
+      if (page > 0 && pageSignature && seenPages.has(pageSignature)) break;
+      seenPages.add(pageSignature);
       items.push(...rows);
-      if (rows.length < pageSize || payload?.last === true) break;
+      const totalPages = Number(
+        payload?.totalPages ||
+          payload?.data?.totalPages ||
+          payload?.page?.totalPages ||
+          0,
+      );
+      const currentPage = Number(
+        payload?.number ??
+          payload?.data?.number ??
+          payload?.page?.number ??
+          page,
+      );
+      if (!rows.length || payload?.last === true) break;
+      if (totalPages > 0 && currentPage + 1 >= totalPages) break;
     }
     return items;
   }
