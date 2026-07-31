@@ -251,6 +251,60 @@ test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async ()
   assert.equal(upsert.params[19], true);
 });
 
+test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tamamlar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "8690609598109",
+          hbSku: "HBV-CATALOG-1",
+          price: 312.28,
+          availableStock: 5,
+          status: "ACTIVE",
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return {
+            rows: [
+              {
+                barcode: "8690609598109",
+                product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml",
+                brand: "Actisoft",
+                category_name: "Çamaşır Yumuşatıcısı",
+                category_id: "12345",
+                product_image_url: "https://cdn.test/menekse.jpg",
+              },
+            ],
+            rowCount: 1,
+          };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 1);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[1], "Menekşe Konsantre Yumuşatıcı 1500 ml");
+  assert.equal(upsert.params[2], "Actisoft");
+  assert.equal(upsert.params[3], "Çamaşır Yumuşatıcısı");
+  assert.equal(upsert.params[4], "12345");
+  assert.equal(upsert.params[5], "https://cdn.test/menekse.jpg");
+});
+
 test("Trendyol GET istegi gecici hatada geri cekilmeyle yeniden denenir", async () => {
   let calls = 0;
   const delays = [];

@@ -109,6 +109,33 @@ describe("Entegrasyonlar sayfası", () => {
     expect(await screen.findByText("Katalog ürün testi")).toBeVisible();
   });
 
+  test("canli Hepsiburada ortaminda SIT test merkezini gizler", async () => {
+    const user = userEvent.setup();
+    get.mockResolvedValue({
+      items: [
+        {
+          code: "HEPSIBURADA",
+          display_name: "Hepsiburada",
+          enabled: true,
+          adapter_status: "READY",
+          credentials_configured: true,
+          capabilities: { supportsOrders: true, supportsBuybox: false },
+          runtime: { environment: "production", mutationsEnabled: false },
+          default_carrier: "hepsiJET",
+          default_service_fee_minor: 1050,
+          currency: "TRY",
+          timezone: "Europe/Istanbul",
+        },
+      ],
+    });
+    render(<Integrations notify={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "Detaylar" }));
+    expect(screen.queryByText("Hepsiburada SIT test merkezi")).toBeNull();
+    expect(get).not.toHaveBeenCalledWith(
+      "/api/integrations/hepsiburada/sit-tests",
+    );
+  });
+
   test("bağlantı testini merkezi endpoint üzerinden yapar", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();

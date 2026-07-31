@@ -93,6 +93,16 @@ function hepsiburadaListingBuybox(listing) {
   };
 }
 
+function enrichedListingValue(
+  listing,
+  fallback,
+  keys,
+  fallbackKey,
+  empty = "",
+) {
+  return firstValue(listing, keys, fallback?.[fallbackKey] || empty);
+}
+
 class SyncService {
   constructor({ db, trendyol, hepsiburada, audit }) {
     this.db = db;
@@ -192,9 +202,29 @@ class SyncService {
     });
     let processed = 0;
     const seenBarcodes = new Set();
+    const listingBarcodes = [
+      ...new Set(
+        listings
+          .map((listing) => hepsiburadaListingBarcode(listing))
+          .filter(Boolean),
+      ),
+    ];
+    const fallbackRows = listingBarcodes.length
+      ? (
+          await this.db.query(
+            `SELECT barcode,product_name,brand,category_name,category_id,product_image_url
+             FROM products WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])`,
+            [listingBarcodes],
+          )
+        ).rows
+      : [];
+    const fallbackByBarcode = new Map(
+      fallbackRows.map((row) => [String(row.barcode), row]),
+    );
     for (const listing of listings) {
       const barcode = hepsiburadaListingBarcode(listing);
       if (!barcode) continue;
+      const fallbackProduct = fallbackByBarcode.get(barcode);
       seenBarcodes.add(barcode);
       const salePrice = hepsiburadaListingPrice(listing);
       const quantity = hepsiburadaListingStock(listing);
@@ -242,14 +272,42 @@ class SyncService {
           updated_at=NOW()`,
         [
           barcode,
-          firstValue(listing, ["productName", "name", "title"], ""),
-          firstValue(listing, ["brand", "brandName"], ""),
-          firstValue(listing, ["categoryName", "category.name"], ""),
-          String(firstValue(listing, ["categoryId", "category.id"], "")),
+          enrichedListingValue(
+            listing,
+            fallbackProduct,
+            ["productName", "name", "title", "product.name"],
+            "product_name",
+          ),
+          enrichedListingValue(
+            listing,
+            fallbackProduct,
+            ["brand", "brandName", "product.brand"],
+            "brand",
+          ),
+          enrichedListingValue(
+            listing,
+            fallbackProduct,
+            ["categoryName", "category.name", "product.categoryName"],
+            "category_name",
+          ),
+          String(
+            enrichedListingValue(
+              listing,
+              fallbackProduct,
+              ["categoryId", "category.id", "product.categoryId"],
+              "category_id",
+            ),
+          ),
           firstValue(
             listing,
-            ["imageUrl", "mainImageUrl", "images.0.url"],
-            null,
+            [
+              "imageUrl",
+              "mainImageUrl",
+              "images.0.url",
+              "product.imageUrl",
+              "product.images.0.url",
+            ],
+            fallbackProduct?.product_image_url || null,
           ),
           String(firstValue(listing, ["hbSku", "productId", "listingId"], "")),
           salePrice,
