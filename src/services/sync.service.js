@@ -356,15 +356,22 @@ class SyncService {
     const fallbackByBarcode = new Map(
       fallbackRows.map((row) => [String(row.barcode), row]),
     );
-    const syncRows = metadataRows.length
-      ? metadataRows.map((product) => ({
-          product,
-          listing: listingForMetadata(listingByKey, product) || {},
-        }))
-      : listings.map((listing) => ({
-          product: metadataForListing(metadataByKey, listing) || null,
-          listing,
-        }));
+    const syncRows = [];
+    const syncedListingKeys = new Set();
+    for (const product of metadataRows) {
+      const listing = listingForMetadata(listingByKey, product) || {};
+      const listingKey = normalizedKey(hepsiburadaListingBarcode(listing));
+      if (listingKey) syncedListingKeys.add(listingKey);
+      syncRows.push({ product, listing });
+    }
+    for (const listing of listings) {
+      const listingKey = normalizedKey(hepsiburadaListingBarcode(listing));
+      if (listingKey && syncedListingKeys.has(listingKey)) continue;
+      syncRows.push({
+        product: metadataForListing(metadataByKey, listing) || null,
+        listing,
+      });
+    }
     for (const row of syncRows) {
       const { listing, product } = row;
       const barcode =

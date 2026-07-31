@@ -35,6 +35,7 @@ test("urun filtreleri kategori adi, marka ve repricer modunu birlikte uygular", 
     assert.ok(call.params.includes("%Actisoft%"));
     assert.ok(call.params.includes("MONITOR"));
   }
+  assert.match(calls[1].sql, /ORDER BY NULLIF\(p\.product_name,''\)/);
 });
 
 test("toplu ayar onizlemesi hedef urun risklerini sayar", async () => {

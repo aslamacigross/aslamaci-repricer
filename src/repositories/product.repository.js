@@ -1,5 +1,5 @@
 const SORT_COLUMNS = {
-  name: "p.product_name",
+  name: "NULLIF(p.product_name,'')",
   price: "p.my_price",
   profit: "p.calculated_net_profit",
   margin: "p.calculated_net_margin",
@@ -93,7 +93,7 @@ class ProductRepository {
     const page = Math.max(Number(filters.page) || 1, 1);
     const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 1000);
     const offset = (page - 1) * limit;
-    const sort = SORT_COLUMNS[filters.sort] || "p.product_name";
+    const sort = SORT_COLUMNS[filters.sort] || SORT_COLUMNS.name;
     const direction =
       String(filters.direction).toLowerCase() === "desc" ? "DESC" : "ASC";
     const count = await this.db.query(

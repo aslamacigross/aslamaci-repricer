@@ -354,15 +354,19 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
   });
 
   const result = await sync.hepsiburadaProducts();
-  assert.equal(result.processed, 1);
+  assert.equal(result.processed, 2);
   assert.equal(result.metadata.hepsiburadaCatalogProducts, 1);
   const upserts = queries.filter((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
+  assert.equal(upserts.length, 2);
   assert.equal(upserts[0].params[1], "Hepsiburada Katalog Ürünü");
   assert.equal(upserts[0].params[2], "Harras");
   assert.equal(upserts[0].params[3], "Çay");
   assert.equal(upserts[0].params[4], "987");
+  assert.equal(upserts[1].params[0], "HB-MERCHANT-SKU-2");
+  assert.equal(upserts[1].params[1], "");
+  assert.equal(upserts[1].params[7], 199);
   assert.equal(upserts[0].params[5], "https://cdn.test/hb.jpg");
   assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
   assert.equal(upserts[0].params[19], true);
@@ -435,12 +439,12 @@ test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla z
   });
 
   const result = await sync.hepsiburadaProducts();
-  assert.equal(result.processed, 2);
+  assert.equal(result.processed, 3);
   assert.equal(result.metadata.hepsiburadaCatalogProducts, 2);
   const upserts = queries.filter((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
-  assert.equal(upserts.length, 2);
+  assert.equal(upserts.length, 3);
   assert.equal(upserts[0].params[0], "SELLER-SKU-1");
   assert.equal(upserts[0].params[1], "Katalog Ürünü 1");
   assert.equal(upserts[0].params[2], "Marka 1");
@@ -452,12 +456,19 @@ test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla z
   assert.equal(upserts[1].params[0], "SELLER-SKU-2");
   assert.equal(upserts[1].params[1], "Katalog Ürünü 2");
   assert.equal(upserts[1].params[19], false);
+  assert.equal(upserts[2].params[0], "LISTING-ONLY-OLD");
+  assert.equal(upserts[2].params[1], "");
+  assert.equal(upserts[2].params[7], 999);
   const staleUpdate = queries.find(
     (query) =>
       String(query.sql).includes("marketplace='HEPSIBURADA'") &&
       String(query.sql).includes("NOT (barcode=ANY"),
   );
-  assert.deepEqual(staleUpdate.params[0], ["SELLER-SKU-1", "SELLER-SKU-2"]);
+  assert.deepEqual(staleUpdate.params[0], [
+    "SELLER-SKU-1",
+    "SELLER-SKU-2",
+    "LISTING-ONLY-OLD",
+  ]);
 });
 
 test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {
