@@ -47,6 +47,8 @@ class ProductRepository {
         "(p.barcode ILIKE ? OR p.marketplace_product_id ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
         `%${filters.search}%`,
       );
+    if (filters.includeArchived !== true)
+      where.push("COALESCE(p.archived,FALSE)=FALSE");
     if (filters.active !== undefined) add("p.is_active = ?", filters.active);
     if (filters.stocked !== undefined)
       add(

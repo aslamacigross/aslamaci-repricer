@@ -28,6 +28,7 @@ test("urun filtreleri kategori adi, marka ve repricer modunu birlikte uygular", 
     assert.match(call.sql, /p\.category_name ILIKE/);
     assert.match(call.sql, /p\.brand ILIKE/);
     assert.match(call.sql, /p\.marketplace_product_id ILIKE/);
+    assert.match(call.sql, /COALESCE\(p\.archived,FALSE\)=FALSE/);
     assert.match(call.sql, /product_settings psf/);
     assert.match(call.sql, /p\.needs_cost_mapping=TRUE/);
     assert.ok(call.params.includes("%Yumuşatıcı%"));

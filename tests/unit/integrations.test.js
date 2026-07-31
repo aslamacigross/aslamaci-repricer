@@ -401,7 +401,7 @@ test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla z
       ],
       fetchAllMerchantProducts: async () => [
         {
-          merchantSku: "SELLER-SKU-1",
+          merchantSku: "CATALOG-SKU-1",
           hbSku: "HBV-1",
           productId: "HB-PRODUCT-1",
           productName: "Katalog Ürünü 1",

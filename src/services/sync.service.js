@@ -367,13 +367,13 @@ class SyncService {
         }));
     for (const row of syncRows) {
       const { listing, product } = row;
-      const barcode = product
-        ? hepsiburadaCatalogBarcode(product)
-        : hepsiburadaListingBarcode(listing);
+      const barcode =
+        hepsiburadaListingBarcode(listing) ||
+        (product ? hepsiburadaCatalogBarcode(product) : "");
       if (!barcode) continue;
-      const platformId = product
-        ? hepsiburadaCatalogPlatformId(product)
-        : hepsiburadaListingPlatformId(listing);
+      const platformId =
+        (product ? hepsiburadaCatalogPlatformId(product) : "") ||
+        hepsiburadaListingPlatformId(listing);
       const fallbackProduct =
         product ||
         metadataForListing(metadataByKey, listing) ||
@@ -485,7 +485,7 @@ class SyncService {
     if (seenBarcodes.size) {
       await this.db.query(
         `UPDATE products
-         SET is_active=FALSE,on_sale=FALSE,updated_at=NOW()
+         SET is_active=FALSE,on_sale=FALSE,archived=TRUE,updated_at=NOW()
          WHERE marketplace='HEPSIBURADA' AND NOT (barcode=ANY($1::text[]))`,
         [[...seenBarcodes]],
       );
