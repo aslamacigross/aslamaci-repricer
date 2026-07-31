@@ -801,6 +801,37 @@ class MappingAutomationService {
     });
   }
 
+  async listSupplierDuplicateGroups(supplierCode) {
+    const normalizedCode = String(supplierCode || "").toUpperCase();
+    if (!SUPPLIER_CODES.includes(normalizedCode))
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
+    return {
+      items: await this.repository.listSupplierDuplicateGroups(normalizedCode),
+    };
+  }
+
+  async mergeSupplierDuplicateGroup(supplierCode, normalizedName) {
+    const normalizedCode = String(supplierCode || "").toUpperCase();
+    if (!SUPPLIER_CODES.includes(normalizedCode))
+      throw new AppError(
+        "Tedarikçi havuzu geçersiz",
+        400,
+        "INVALID_SUPPLIER_CODE",
+      );
+    const key = String(normalizedName || "").trim();
+    if (!key)
+      throw new AppError(
+        "Birleştirilecek ürün adı eksik",
+        400,
+        "DUPLICATE_KEY_REQUIRED",
+      );
+    return this.repository.mergeSupplierDuplicateGroup(normalizedCode, key);
+  }
+
   groupTrainingRows(rows) {
     const grouped = new Map();
     for (const row of rows) {

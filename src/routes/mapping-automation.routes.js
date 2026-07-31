@@ -45,6 +45,34 @@ function mappingAutomationRoutes({
       }),
     ),
   );
+  router.get(
+    "/supplier-price-pools/:supplierCode/duplicates",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.listSupplierDuplicateGroups(code),
+      });
+    }),
+  );
+  router.post(
+    "/supplier-price-pools/:supplierCode/duplicates/merge",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      const data = await mappingAutomation.mergeSupplierDuplicateGroup(
+        code,
+        req.body?.normalizedName,
+      );
+      await log(req, "SUPPLIER_DUPLICATE_GROUP_MERGED", code, {
+        supplierCode: code,
+        normalizedName: req.body?.normalizedName,
+        canonicalItemId: data.canonicalItemId,
+        mergedItemIds: data.mergedItemIds,
+        movedLinks: data.movedLinks,
+      });
+      res.json({ status: "ok", data });
+    }),
+  );
   router.post(
     "/supplier-price-pools/:supplierCode/items/bulk",
     asyncRoute(async (req, res) => {

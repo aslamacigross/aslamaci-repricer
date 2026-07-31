@@ -8,6 +8,7 @@ import {
   Play,
   RefreshCw,
   Sparkles,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { get, patch, post } from "../lib/api";
@@ -1606,6 +1607,8 @@ function SupplierPricePool({ supplierCode, notify }) {
   const [saving, setSaving] = useState(false);
   const [syncingLive, setSyncingLive] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [duplicates, setDuplicates] = useState(null);
+  const [mergingDuplicate, setMergingDuplicate] = useState("");
 
   async function load() {
     setLoading(true);
@@ -1617,6 +1620,10 @@ function SupplierPricePool({ supplierCode, notify }) {
         `/api/supplier-price-pools/${supplierCode}/items?${params}`,
       );
       setResult(response.data);
+      const duplicateResponse = await get(
+        `/api/supplier-price-pools/${supplierCode}/duplicates`,
+      );
+      setDuplicates(duplicateResponse.data);
     } catch (nextError) {
       setError(nextError);
     } finally {
@@ -1666,6 +1673,26 @@ function SupplierPricePool({ supplierCode, notify }) {
       notify(nextError.message, "error");
     } finally {
       setSyncingLive(false);
+    }
+  }
+
+  async function mergeDuplicateGroup(group) {
+    const key = group.normalized_name;
+    setMergingDuplicate(key);
+    try {
+      const response = await post(
+        `/api/supplier-price-pools/${supplierCode}/duplicates/merge`,
+        { normalizedName: key },
+      );
+      notify(
+        `${definition.shortLabel} mükerrer kaydı birleştirildi; ${response.data.movedLinks} maliyet bağlantısı güncel satıra taşındı`,
+        "success",
+      );
+      await load();
+    } catch (nextError) {
+      notify(nextError.message, "error");
+    } finally {
+      setMergingDuplicate("");
     }
   }
 
@@ -1814,6 +1841,35 @@ function SupplierPricePool({ supplierCode, notify }) {
           </p>
         </div>
       </div>
+      {duplicates?.items?.length > 0 && (
+        <div className="info-banner warning">
+          <TriangleAlert />
+          <div>
+            <strong>
+              {duplicates.items.length} mükerrer {definition.shortLabel} ürünü
+              bulundu
+            </strong>
+            <p>
+              Eski kayıtların bağlı maliyet kalemleri güncel havuz satırına
+              taşınır; eski satırlar silinmeden gizli “MERGED” durumuna alınır.
+            </p>
+            <div className="inline-actions">
+              {duplicates.items.slice(0, 3).map((group) => (
+                <Button
+                  key={group.normalized_name}
+                  variant="secondary"
+                  disabled={mergingDuplicate === group.normalized_name}
+                  onClick={() => mergeDuplicateGroup(group)}
+                >
+                  {mergingDuplicate === group.normalized_name
+                    ? "Birleştiriliyor"
+                    : `${group.canonical_product_name} (${group.total_link_count} bağlantı)`}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {loading && !result ? (
         <Loading />
       ) : error ? (

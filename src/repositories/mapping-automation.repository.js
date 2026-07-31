@@ -368,6 +368,7 @@ class MappingAutomationRepository {
     const params = [supplierCode];
     const where = ["1=1"];
     where.push("f.supplier_code=$1");
+    if (!availability) where.push("f.availability<>'MERGED'");
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -408,6 +409,116 @@ class MappingAutomationRepository {
       page: safePage,
       limit: safeLimit,
     };
+  }
+
+  async listSupplierDuplicateGroups(supplierCode = "FILE_MARKET") {
+    return (
+      await this.db.query(
+        `WITH duplicate_keys AS (
+           SELECT supplier_code,normalized_name,COUNT(*)::int AS duplicate_count
+           FROM file_market_items
+           WHERE supplier_code=$1
+             AND normalized_name IS NOT NULL AND normalized_name<>''
+             AND availability<>'MERGED'
+           GROUP BY supplier_code,normalized_name
+           HAVING COUNT(*)>1
+         ),
+         ranked AS (
+           SELECT f.*,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY f.supplier_code,f.normalized_name
+                    ORDER BY f.last_seen_at DESC NULLS LAST,
+                             f.updated_at DESC NULLS LAST,
+                             f.id DESC
+                  ) AS rank
+           FROM file_market_items f
+           JOIN duplicate_keys d
+             ON d.supplier_code=f.supplier_code
+            AND d.normalized_name=f.normalized_name
+           WHERE f.availability<>'MERGED'
+         ),
+         link_counts AS (
+           SELECT file_market_item_id,COUNT(*)::int AS link_count
+           FROM cost_item_file_links
+           WHERE status='APPROVED'
+           GROUP BY file_market_item_id
+         )
+         SELECT r.supplier_code,r.normalized_name,
+                MAX(r.id) FILTER (WHERE r.rank=1) AS canonical_item_id,
+                MAX(r.product_name) FILTER (WHERE r.rank=1) AS canonical_product_name,
+                MAX(r.current_price) FILTER (WHERE r.rank=1) AS canonical_price,
+                MAX(r.last_seen_at) FILTER (WHERE r.rank=1) AS canonical_last_seen_at,
+                COUNT(*)::int AS duplicate_count,
+                COALESCE(SUM(l.link_count),0)::int AS total_link_count,
+                COALESCE(
+                  JSONB_AGG(
+                    JSONB_BUILD_OBJECT(
+                      'id',r.id,
+                      'product_name',r.product_name,
+                      'current_price',r.current_price,
+                      'last_seen_at',r.last_seen_at,
+                      'link_count',COALESCE(l.link_count,0),
+                      'canonical',r.rank=1
+                    )
+                    ORDER BY r.rank,r.last_seen_at DESC NULLS LAST,r.id DESC
+                  ),
+                  '[]'::jsonb
+                ) AS items
+         FROM ranked r
+         LEFT JOIN link_counts l ON l.file_market_item_id=r.id
+         GROUP BY r.supplier_code,r.normalized_name
+         ORDER BY total_link_count DESC,duplicate_count DESC,canonical_last_seen_at DESC
+         LIMIT 200`,
+        [supplierCode],
+      )
+    ).rows;
+  }
+
+  async mergeSupplierDuplicateGroup(supplierCode, normalizedName) {
+    return this.withTransaction(async (client) => {
+      const rows = (
+        await client.query(
+          `SELECT id
+           FROM file_market_items
+           WHERE supplier_code=$1 AND normalized_name=$2
+             AND availability<>'MERGED'
+           ORDER BY last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
+           FOR UPDATE`,
+          [supplierCode, normalizedName],
+        )
+      ).rows;
+      if (rows.length < 2)
+        return {
+          canonicalItemId: rows[0]?.id || null,
+          mergedItemIds: [],
+          movedLinks: 0,
+        };
+      const canonicalItemId = Number(rows[0].id);
+      const mergedItemIds = rows.slice(1).map((row) => Number(row.id));
+      const moved = await client.query(
+        `UPDATE cost_item_file_links
+         SET file_market_item_id=$1,updated_at=NOW()
+         WHERE file_market_item_id=ANY($2::int[])
+           AND status='APPROVED'`,
+        [canonicalItemId, mergedItemIds],
+      );
+      await client.query(
+        `UPDATE file_market_items
+         SET availability='MERGED',
+             raw_data=raw_data || JSONB_BUILD_OBJECT(
+               'merged_into_id',$1,
+               'merged_at',NOW()
+             ),
+             updated_at=NOW()
+         WHERE id=ANY($2::int[])`,
+        [canonicalItemId, mergedItemIds],
+      );
+      return {
+        canonicalItemId,
+        mergedItemIds,
+        movedLinks: moved.rowCount,
+      };
+    });
   }
 
   async listFileItems(filters) {

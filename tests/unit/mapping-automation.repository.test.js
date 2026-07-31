@@ -88,3 +88,60 @@ test("mapping aday havuzu aynı tedarikçi ürününden en güncel duplicate kay
   );
   assert.deepEqual(calls[0].params, ["FILE_MARKET"]);
 });
+
+test("tedarikçi havuzu normal listede merge edilmiş eski duplicate kayıtları gizler", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("COUNT(*)::int AS total"))
+        return { rows: [{ total: 0 }] };
+      return { rows: [] };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  await repo.listSupplierItems({ supplierCode: "FILE_MARKET" });
+
+  assert.match(calls[0].sql, /f\.availability<>'MERGED'/);
+  assert.match(calls[1].sql, /f\.availability<>'MERGED'/);
+});
+
+test("duplicate tedarikçi grubu eski linkleri kanonik kayda taşır ve eski kayıtları merge eder", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (
+        String(sql).includes("SELECT id") &&
+        String(sql).includes("FOR UPDATE")
+      )
+        return { rows: [{ id: 9 }, { id: 4 }, { id: 2 }] };
+      if (String(sql).includes("UPDATE cost_item_file_links"))
+        return { rows: [], rowCount: 3 };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.mergeSupplierDuplicateGroup(
+    "FILE_MARKET",
+    "harras tereyagli kurabiye 180 g",
+  );
+
+  assert.equal(result.canonicalItemId, 9);
+  assert.deepEqual(result.mergedItemIds, [4, 2]);
+  assert.equal(result.movedLinks, 3);
+  const linkUpdate = calls.find((call) =>
+    String(call.sql).includes("UPDATE cost_item_file_links"),
+  );
+  assert.deepEqual(linkUpdate.params, [9, [4, 2]]);
+  const itemUpdate = calls.find((call) =>
+    String(call.sql).includes("SET availability='MERGED'"),
+  );
+  assert.deepEqual(itemUpdate.params, [9, [4, 2]]);
+});
