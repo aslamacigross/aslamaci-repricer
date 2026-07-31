@@ -1565,7 +1565,11 @@ class MappingAutomationService {
     let withoutCandidate = 0;
     let withoutFileSupport = 0;
     let rejectedCandidateCount = 0;
-    for (const target of targets) {
+    for (const rawTarget of targets) {
+      const target = {
+        ...rawTarget,
+        marketplace: rawTarget.marketplace || selectedMarketplace,
+      };
       const targetHints = feedbackHints.get(target.barcode);
       const manualCandidates = supplierCode
         ? []
@@ -1713,7 +1717,11 @@ class MappingAutomationService {
           )
         : [],
     );
-    const items = targets.map((target) => {
+    const items = targets.map((rawTarget) => {
+      const target = {
+        ...rawTarget,
+        marketplace: rawTarget.marketplace || selectedMarketplace,
+      };
       const matchingPools = pools.filter((pool) =>
         this.targetBelongsToPool(target, pool),
       );

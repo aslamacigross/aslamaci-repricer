@@ -105,7 +105,6 @@ test("Hepsiburada mapping önerileri seçili pazaryeriyle izole üretilir", asyn
       calls.push(["targetProducts", options.marketplace]);
       return [
         {
-          marketplace: "HEPSIBURADA",
           barcode: "HB_TARGET",
           product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml X 4 Adet",
           brand: "Actisoft",
