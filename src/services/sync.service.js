@@ -255,6 +255,7 @@ class SyncService {
     const seenBarcodes = new Set();
     let metadataRows = [];
     let metadataError = null;
+    let metadataLookupCount = 0;
     if (this.hepsiburada.fetchAllMerchantProducts) {
       try {
         metadataRows = await this.hepsiburada.fetchAllMerchantProducts({
@@ -268,6 +269,29 @@ class SyncService {
     const metadataByKey = new Map();
     for (const product of metadataRows)
       addMetadataIndex(metadataByKey, product);
+    if (
+      metadataByKey.size === 0 &&
+      this.hepsiburada.getMerchantProductMetadata
+    ) {
+      for (const listing of listings.slice(0, 1000)) {
+        const merchantSku = hepsiburadaListingBarcode(listing);
+        const hbSku = hepsiburadaListingPlatformId(listing);
+        if (!merchantSku && !hbSku) continue;
+        try {
+          const product = await this.hepsiburada.getMerchantProductMetadata({
+            merchantSku,
+            hbSku,
+          });
+          metadataLookupCount++;
+          if (product) {
+            metadataRows.push(product);
+            addMetadataIndex(metadataByKey, product);
+          }
+        } catch (error) {
+          metadataError ||= error.message;
+        }
+      }
+    }
     const listingBarcodes = [
       ...new Set(
         listings
@@ -413,6 +437,7 @@ class SyncService {
       metadata: {
         hepsiburadaCatalogProducts: metadataRows.length,
         hepsiburadaCatalogError: metadataError,
+        hepsiburadaCatalogLookupCount: metadataLookupCount,
       },
     };
   }

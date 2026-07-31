@@ -663,6 +663,17 @@ class HepsiburadaService {
     return items;
   }
 
+  async getMerchantProductMetadata({ merchantSku, hbSku, barcode } = {}) {
+    const payload = await this.listMerchantProducts({
+      merchantSku,
+      hbSku,
+      barcode,
+      page: 0,
+      size: 10,
+    });
+    return normalizeRows(payload)[0] || null;
+  }
+
   async listListingsFiltered({
     offset = 0,
     limit = 100,
@@ -1259,6 +1270,8 @@ class HepsiburadaService {
 function normalizeRows(payload) {
   if (Array.isArray(payload)) return payload;
   if (!payload || typeof payload !== "object") return [];
+  if (payload.data && !Array.isArray(payload.data))
+    return normalizeRows(payload.data);
   return (
     payload.items ||
     payload.listings ||

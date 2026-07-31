@@ -369,6 +369,59 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
   assert.equal(upserts[1].params[19], false);
 });
 
+test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-MERCHANT-SKU-1",
+          hbSku: "HBV-CATALOG-1",
+          price: 499,
+          availableStock: 4,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [],
+      getMerchantProductMetadata: async ({ merchantSku, hbSku }) => ({
+        merchantSku,
+        hbSku,
+        productName: "Tekil Katalog Ürünü",
+        brand: "Ülker",
+        categoryName: "Kakao",
+        categoryId: 654,
+        images: ["https://cdn.test/single.jpg"],
+      }),
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.metadata.hepsiburadaCatalogProducts, 1);
+  assert.equal(result.metadata.hepsiburadaCatalogLookupCount, 1);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[1], "Tekil Katalog Ürünü");
+  assert.equal(upsert.params[2], "Ülker");
+  assert.equal(upsert.params[3], "Kakao");
+  assert.equal(upsert.params[4], "654");
+  assert.equal(upsert.params[5], "https://cdn.test/single.jpg");
+});
+
 test("Trendyol GET istegi gecici hatada geri cekilmeyle yeniden denenir", async () => {
   let calls = 0;
   const delays = [];

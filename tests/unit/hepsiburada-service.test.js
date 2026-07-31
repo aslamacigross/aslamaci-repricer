@@ -83,6 +83,7 @@ describe("Hepsiburada API runtime configuration", () => {
   test("Railway HEPSIBURADA_* secret aliaslari runtime env'e okunur", () => {
     assert.equal(normalizeRows({ items: [{ id: 1 }] }).length, 1);
     assert.equal(normalizeRows({ listings: [{ id: 1 }, { id: 2 }] }).length, 2);
+    assert.equal(normalizeRows({ data: { content: [{ id: 3 }] } })[0].id, 3);
     assert.deepEqual(
       listingDeactivationSummary([
         { isSalable: true },
