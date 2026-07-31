@@ -194,6 +194,88 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
+  test("canli katalog teshisi listing ve katalog kaynaklarini secret siz ozetler", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamaci_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          if (String(url).includes("listing-external.hepsiburada.com")) {
+            return {
+              ok: true,
+              text: async () =>
+                JSON.stringify({
+                  listings: [
+                    {
+                      merchantSku: "MERCHANT-SKU-1",
+                      hepsiburadaSku: "HBV1",
+                      price: 100,
+                      availableStock: 10,
+                      isSalable: true,
+                    },
+                  ],
+                }),
+            };
+          }
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                data: {
+                  content: [
+                    {
+                      merchantSku: "MERCHANT-SKU-1",
+                      hbSku: "HBV1",
+                      productName: "Hepsiburada Katalog Detayli Urun",
+                      brand: "Marka",
+                      categoryId: 123,
+                      categoryName: "Kategori",
+                      images: ["https://example.test/image.jpg"],
+                    },
+                  ],
+                },
+              }),
+          };
+        },
+      });
+      const result = await service.catalogDiagnostics({
+        merchantSku: "MERCHANT-SKU-1",
+        hbSku: "HBV1",
+      });
+      assert.equal(result.environment, "production");
+      assert.equal(result.input.merchantSku, "provided");
+      assert.equal(result.listing.count, 1);
+      assert.equal(result.catalogFiltered.count, 1);
+      assert.equal(
+        result.catalogFiltered.first.productName,
+        "Hepsiburada Katalog Detayli Urun",
+      );
+      assert.equal(result.catalogFiltered.first.imagesCount, 1);
+      assert.equal(result.errors.length, 0);
+      assert.equal(JSON.stringify(result).includes("secret-key"), false);
+      assert.ok(
+        requests.some((request) =>
+          String(request.url).includes("merchantSku=MERCHANT-SKU-1"),
+        ),
+      );
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
   test("production 401 hatasi SIT ortam ipucunu secret siz verir", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,

@@ -111,6 +111,14 @@ describe("Entegrasyonlar sayfası", () => {
 
   test("canli Hepsiburada ortaminda SIT test merkezini gizler", async () => {
     const user = userEvent.setup();
+    post.mockResolvedValue({
+      data: {
+        environment: "production",
+        listing: { count: 1 },
+        catalogFiltered: { count: 1 },
+        errors: [],
+      },
+    });
     get.mockResolvedValue({
       items: [
         {
@@ -131,6 +139,12 @@ describe("Entegrasyonlar sayfası", () => {
     render(<Integrations notify={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "Detaylar" }));
     expect(screen.queryByText("Hepsiburada SIT test merkezi")).toBeNull();
+    expect(screen.getByText("Hepsiburada katalog teşhisi")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Katalog teşhisi" }));
+    expect(post).toHaveBeenCalledWith(
+      "/api/integrations/hepsiburada/catalog-diagnostics",
+      { merchantSku: "8660891646397", hbSku: "HBV000010LWPR" },
+    );
     expect(get).not.toHaveBeenCalledWith(
       "/api/integrations/hepsiburada/sit-tests",
     );

@@ -72,6 +72,8 @@ export default function Integrations({ notify }) {
   const [sitTests, setSitTests] = useState(null);
   const [sitPreview, setSitPreview] = useState(null);
   const [sitRunResult, setSitRunResult] = useState(null);
+  const [hbCatalogDiagnostic, setHbCatalogDiagnostic] = useState(null);
+  const [hbCatalogLoading, setHbCatalogLoading] = useState(false);
   const [sitLoading, setSitLoading] = useState(false);
   const [sitInput, setSitInput] = useState({
     merchantSku: "8660891646397",
@@ -138,10 +140,30 @@ export default function Integrations({ notify }) {
     }
   }
 
+  async function runHepsiburadaCatalogDiagnostic() {
+    setHbCatalogLoading(true);
+    try {
+      const response = await post(
+        "/api/integrations/hepsiburada/catalog-diagnostics",
+        {
+          merchantSku: sitInput.merchantSku,
+          hbSku: sitInput.hbSku,
+        },
+      );
+      setHbCatalogDiagnostic(response.data);
+      notify("Hepsiburada katalog teşhisi tamamlandı");
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setHbCatalogLoading(false);
+    }
+  }
+
   useEffect(() => {
     setSitTests(null);
     setSitPreview(null);
     setSitRunResult(null);
+    setHbCatalogDiagnostic(null);
     if (
       selected?.code === "HEPSIBURADA" &&
       selected?.runtime?.environment === "sit"
@@ -325,6 +347,57 @@ export default function Integrations({ notify }) {
                 ))}
               </dl>
             </section>
+            {selected.code === "HEPSIBURADA" && (
+              <section>
+                <h3>Hepsiburada katalog teşhisi</h3>
+                <p className="muted">
+                  Canlı ürün adı, marka, kategori ve görsel datasının hangi
+                  Hepsiburada endpointinden gelip gelmediğini kontrol eder.
+                </p>
+                <div className="detail-grid">
+                  <label>
+                    <dt>Satıcı stok kodu / Merchant SKU</dt>
+                    <input
+                      value={sitInput.merchantSku}
+                      onChange={(event) =>
+                        setSitInput((current) => ({
+                          ...current,
+                          merchantSku: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <dt>Hepsiburada SKU / Platform ID</dt>
+                    <input
+                      value={sitInput.hbSku}
+                      onChange={(event) =>
+                        setSitInput((current) => ({
+                          ...current,
+                          hbSku: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+                <Button
+                  icon={RefreshCw}
+                  disabled={hbCatalogLoading}
+                  onClick={runHepsiburadaCatalogDiagnostic}
+                >
+                  {hbCatalogLoading ? "Kontrol ediliyor" : "Katalog teşhisi"}
+                </Button>
+                {hbCatalogDiagnostic && (
+                  <div className="integration-warning">
+                    <ShieldCheck size={17} />
+                    <span>
+                      Teşhis sonucu
+                      <pre>{JSON.stringify(hbCatalogDiagnostic, null, 2)}</pre>
+                    </span>
+                  </div>
+                )}
+              </section>
+            )}
             {selected.code === "HEPSIBURADA" &&
               selected.runtime?.environment === "sit" && (
                 <section>

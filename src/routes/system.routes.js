@@ -615,6 +615,15 @@ function systemRoutes({
       }),
     ),
   );
+  r.post(
+    "/integrations/hepsiburada/catalog-diagnostics",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await hepsiburada.catalogDiagnostics(req.body || {}),
+      }),
+    ),
+  );
   r.get(
     "/integrations/hepsiburada/sit-tests",
     asyncRoute(async (req, res) =>

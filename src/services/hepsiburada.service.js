@@ -43,6 +43,39 @@ function safeResponseSummary(payload) {
   );
 }
 
+function safeKeys(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  return Object.keys(payload).sort();
+}
+
+function compactProductSummary(payload) {
+  const row = normalizeRows(payload)[0] || null;
+  if (!row)
+    return {
+      count: normalizeRows(payload).length,
+      firstKeys: [],
+      first: null,
+    };
+  return {
+    count: normalizeRows(payload).length,
+    firstKeys: safeKeys(row),
+    first: safeResponseSummary({
+      merchantSku: row.merchantSku,
+      barcode: row.barcode,
+      hbSku: row.hbSku || row.hepsiburadaSku,
+      variantGroupId: row.variantGroupId,
+      productName: row.productName,
+      brand: row.brand,
+      categoryId: row.categoryId,
+      categoryName: row.categoryName,
+      imagesCount: Array.isArray(row.images) ? row.images.length : 0,
+      firstImage: Array.isArray(row.images) ? row.images[0] : undefined,
+      status: row.status || row.productStatus,
+      isSalable: row.isSalable,
+    }),
+  };
+}
+
 function responseId(payload) {
   if (!payload || typeof payload !== "object") return null;
   return (
@@ -672,6 +705,69 @@ class HepsiburadaService {
       size: 10,
     });
     return normalizeRows(payload)[0] || null;
+  }
+
+  async catalogDiagnostics({ merchantSku, hbSku, barcode } = {}) {
+    const result = {
+      environment: this.environment,
+      configured: this.configured(),
+      productBaseUrl: this.productBaseUrl.replace(/^https?:\/\//, ""),
+      listingBaseUrl: this.listingBaseUrl.replace(/^https?:\/\//, ""),
+      input: {
+        merchantSku: merchantSku ? "provided" : "missing",
+        hbSku: hbSku ? "provided" : "missing",
+        barcode: barcode ? "provided" : "missing",
+      },
+      listing: null,
+      catalogFiltered: null,
+      catalogFirstPage: null,
+      errors: [],
+    };
+    try {
+      const listingPayload = merchantSku
+        ? await this.listListingsFiltered({
+            merchantSkuList: merchantSku,
+            limit: 5,
+          })
+        : await this.listListings({ limit: 5 });
+      result.listing = compactProductSummary(listingPayload);
+    } catch (error) {
+      result.errors.push({
+        source: "listing",
+        message: error.message,
+        status: error.status || null,
+      });
+    }
+    try {
+      const filteredPayload = await this.listMerchantProducts({
+        merchantSku,
+        hbSku,
+        barcode,
+        page: 0,
+        size: 10,
+      });
+      result.catalogFiltered = compactProductSummary(filteredPayload);
+    } catch (error) {
+      result.errors.push({
+        source: "catalog-filtered",
+        message: error.message,
+        status: error.status || null,
+      });
+    }
+    try {
+      const firstPagePayload = await this.listMerchantProducts({
+        page: 0,
+        size: 10,
+      });
+      result.catalogFirstPage = compactProductSummary(firstPagePayload);
+    } catch (error) {
+      result.errors.push({
+        source: "catalog-first-page",
+        message: error.message,
+        status: error.status || null,
+      });
+    }
+    return result;
   }
 
   async listListingsFiltered({
