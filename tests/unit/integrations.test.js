@@ -354,7 +354,7 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
   });
 
   const result = await sync.hepsiburadaProducts();
-  assert.equal(result.processed, 2);
+  assert.equal(result.processed, 1);
   assert.equal(result.metadata.hepsiburadaCatalogProducts, 1);
   const upserts = queries.filter((query) =>
     String(query.sql).includes("INSERT INTO products"),
@@ -366,7 +366,98 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
   assert.equal(upserts[0].params[5], "https://cdn.test/hb.jpg");
   assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
   assert.equal(upserts[0].params[19], true);
+});
+
+test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla zenginlestirir", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "SELLER-SKU-1",
+          hepsiburadaSku: "HBV-1",
+          productId: "HB-PRODUCT-1",
+          price: 100,
+          availableStock: 3,
+          isSalable: true,
+        },
+        {
+          merchantSku: "SELLER-SKU-2",
+          hepsiburadaSku: "HBV-2",
+          price: 200,
+          availableStock: 0,
+          isSalable: false,
+        },
+        {
+          merchantSku: "LISTING-ONLY-OLD",
+          hepsiburadaSku: "HBV-OLD",
+          price: 999,
+          availableStock: 9,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "SELLER-SKU-1",
+          hbSku: "HBV-1",
+          productId: "HB-PRODUCT-1",
+          productName: "Katalog Ürünü 1",
+          brand: "Marka 1",
+          categoryName: "Kategori 1",
+          categoryId: 101,
+          images: ["https://cdn.test/one.jpg"],
+        },
+        {
+          merchantSku: "SELLER-SKU-2",
+          hbSku: "HBV-2",
+          productName: "Katalog Ürünü 2",
+          brand: "Marka 2",
+          categoryName: "Kategori 2",
+          categoryId: 102,
+          images: ["https://cdn.test/two.jpg"],
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 2);
+  assert.equal(result.metadata.hepsiburadaCatalogProducts, 2);
+  const upserts = queries.filter((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upserts.length, 2);
+  assert.equal(upserts[0].params[0], "SELLER-SKU-1");
+  assert.equal(upserts[0].params[1], "Katalog Ürünü 1");
+  assert.equal(upserts[0].params[2], "Marka 1");
+  assert.equal(upserts[0].params[5], "https://cdn.test/one.jpg");
+  assert.equal(upserts[0].params[6], "HBV-1");
+  assert.equal(upserts[0].params[7], 100);
+  assert.equal(upserts[0].params[9], 3);
+  assert.equal(upserts[0].params[19], true);
+  assert.equal(upserts[1].params[0], "SELLER-SKU-2");
+  assert.equal(upserts[1].params[1], "Katalog Ürünü 2");
   assert.equal(upserts[1].params[19], false);
+  const staleUpdate = queries.find(
+    (query) =>
+      String(query.sql).includes("marketplace='HEPSIBURADA'") &&
+      String(query.sql).includes("NOT (barcode=ANY"),
+  );
+  assert.deepEqual(staleUpdate.params[0], ["SELLER-SKU-1", "SELLER-SKU-2"]);
 });
 
 test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {

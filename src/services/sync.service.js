@@ -40,6 +40,29 @@ function hepsiburadaListingPlatformId(listing) {
   ).trim();
 }
 
+function hepsiburadaCatalogBarcode(product) {
+  return String(
+    firstValue(product, [
+      "merchantSku",
+      "merchantSKU",
+      "sku",
+      "barcode",
+      "merchantBarcode",
+    ]),
+  ).trim();
+}
+
+function hepsiburadaCatalogPlatformId(product) {
+  return String(
+    firstValue(product, [
+      "hbSku",
+      "hepsiburadaSku",
+      "productId",
+      "variantGroupId",
+    ]),
+  ).trim();
+}
+
 function normalizedKey(value) {
   return String(value || "")
     .trim()
@@ -54,11 +77,31 @@ function addMetadataIndex(index, product) {
     product?.barcode,
     product?.hbSku,
     product?.hepsiburadaSku,
+    product?.productId,
+    product?.listingId,
     product?.variantGroupId,
   ]) {
     const normalized = normalizedKey(key);
     if (normalized && !index.has(normalized)) index.set(normalized, product);
   }
+}
+
+function metadataForListing(index, listing) {
+  return (
+    index.get(normalizedKey(hepsiburadaListingBarcode(listing))) ||
+    index.get(normalizedKey(hepsiburadaListingPlatformId(listing))) ||
+    index.get(normalizedKey(listing?.productId)) ||
+    null
+  );
+}
+
+function listingForMetadata(index, product) {
+  return (
+    index.get(normalizedKey(hepsiburadaCatalogBarcode(product))) ||
+    index.get(normalizedKey(hepsiburadaCatalogPlatformId(product))) ||
+    index.get(normalizedKey(product?.productId)) ||
+    null
+  );
 }
 
 function hepsiburadaListingPrice(listing) {
@@ -269,6 +312,8 @@ class SyncService {
     const metadataByKey = new Map();
     for (const product of metadataRows)
       addMetadataIndex(metadataByKey, product);
+    const listingByKey = new Map();
+    for (const listing of listings) addMetadataIndex(listingByKey, listing);
     if (
       metadataByKey.size === 0 &&
       this.hepsiburada.getMerchantProductMetadata
@@ -311,20 +356,35 @@ class SyncService {
     const fallbackByBarcode = new Map(
       fallbackRows.map((row) => [String(row.barcode), row]),
     );
-    for (const listing of listings) {
-      const barcode = hepsiburadaListingBarcode(listing);
+    const syncRows = metadataRows.length
+      ? metadataRows.map((product) => ({
+          product,
+          listing: listingForMetadata(listingByKey, product) || {},
+        }))
+      : listings.map((listing) => ({
+          product: metadataForListing(metadataByKey, listing) || null,
+          listing,
+        }));
+    for (const row of syncRows) {
+      const { listing, product } = row;
+      const barcode = product
+        ? hepsiburadaCatalogBarcode(product)
+        : hepsiburadaListingBarcode(listing);
       if (!barcode) continue;
-      const platformId = hepsiburadaListingPlatformId(listing);
+      const platformId = product
+        ? hepsiburadaCatalogPlatformId(product)
+        : hepsiburadaListingPlatformId(listing);
       const fallbackProduct =
-        metadataByKey.get(normalizedKey(barcode)) ||
-        metadataByKey.get(normalizedKey(platformId)) ||
+        product ||
+        metadataForListing(metadataByKey, listing) ||
         fallbackByBarcode.get(barcode);
       seenBarcodes.add(barcode);
-      const salePrice = hepsiburadaListingPrice(listing);
-      const quantity = hepsiburadaListingStock(listing);
+      const saleSource = Object.keys(listing || {}).length ? listing : product;
+      const salePrice = hepsiburadaListingPrice(saleSource || {});
+      const quantity = hepsiburadaListingStock(saleSource || {});
       const buybox = hepsiburadaListingBuybox(listing);
       const status = String(
-        firstValue(listing, ["status", "listingStatus", "saleStatus"], ""),
+        firstValue(saleSource, ["status", "listingStatus", "saleStatus"], ""),
       ).toUpperCase();
       const salable =
         typeof listing.isSalable === "boolean" ? listing.isSalable : null;
