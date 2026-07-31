@@ -28,6 +28,22 @@ function normalizeMarketplace(value) {
     .toUpperCase();
 }
 
+async function canonicalSupplierItemIds(client, item) {
+  const normalizedName = String(item?.normalized_name || "").trim();
+  const supplierCode = String(item?.supplier_code || "").trim();
+  if (!normalizedName || !supplierCode) return [item.id];
+  const rows = (
+    await client.query(
+      `SELECT id FROM file_market_items
+       WHERE supplier_code=$1 AND normalized_name=$2
+       ORDER BY last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC`,
+      [supplierCode, normalizedName],
+    )
+  ).rows;
+  const ids = rows.map((row) => Number(row.id)).filter(Boolean);
+  return ids.length ? ids : [item.id];
+}
+
 class MappingAutomationRepository {
   constructor(db, withTransaction) {
     this.db = db;
@@ -125,6 +141,7 @@ class MappingAutomationRepository {
         );
         if (!previous) created++;
         if (priceChanged) changed++;
+        const canonicalIds = await canonicalSupplierItemIds(client, item);
         const links = (
           await client.query(
             `SELECT l.cost_item_code,ci.unit_cost,pcm.marketplace,pcm.barcode,
@@ -133,9 +150,9 @@ class MappingAutomationRepository {
              JOIN cost_items ci ON ci.item_code=l.cost_item_code
              LEFT JOIN product_cost_mappings pcm
                ON pcm.cost_item_code=l.cost_item_code
-             WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+             WHERE l.file_market_item_id=ANY($1::int[]) AND l.status='APPROVED'
              ORDER BY l.cost_item_code,pcm.marketplace,pcm.barcode`,
-            [item.id],
+            [canonicalIds],
           )
         ).rows;
         for (const costCode of [
@@ -282,6 +299,7 @@ class MappingAutomationRepository {
         .filter((tier) => tier.min_quantity > 1 && tier.unit_price > 0)
         .sort((left, right) => right.min_quantity - left.min_quantity);
       const affected = [];
+      const canonicalIds = await canonicalSupplierItemIds(client, item);
       const linkedMappings = (
         await client.query(
           `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
@@ -290,9 +308,9 @@ class MappingAutomationRepository {
            FROM cost_item_file_links l
            JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
            JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-           WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+           WHERE l.file_market_item_id=ANY($1::int[]) AND l.status='APPROVED'
            ORDER BY pcm.barcode,pcm.cost_item_code`,
-          [item.id],
+          [canonicalIds],
         )
       ).rows;
       for (const costCode of [
@@ -463,10 +481,13 @@ class MappingAutomationRepository {
       : "";
     return (
       await this.db.query(
-        `SELECT * FROM file_market_items
+        `SELECT DISTINCT ON (supplier_code,normalized_name) *
+         FROM file_market_items
          WHERE current_price>0
+           AND normalized_name IS NOT NULL AND normalized_name<>''
            ${supplierFilter}
-         ORDER BY last_seen_at DESC LIMIT 5000`,
+         ORDER BY supplier_code,normalized_name,last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
+         LIMIT 5000`,
         params,
       )
     ).rows;
