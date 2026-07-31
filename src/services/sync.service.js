@@ -28,6 +28,39 @@ function hepsiburadaListingBarcode(listing) {
   ).trim();
 }
 
+function hepsiburadaListingPlatformId(listing) {
+  return String(
+    firstValue(listing, [
+      "hbSku",
+      "hepsiburadaSku",
+      "productId",
+      "listingId",
+      "variantGroupId",
+    ]),
+  ).trim();
+}
+
+function normalizedKey(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function addMetadataIndex(index, product) {
+  for (const key of [
+    product?.merchantSku,
+    product?.merchantSKU,
+    product?.sku,
+    product?.barcode,
+    product?.hbSku,
+    product?.hepsiburadaSku,
+    product?.variantGroupId,
+  ]) {
+    const normalized = normalizedKey(key);
+    if (normalized && !index.has(normalized)) index.set(normalized, product);
+  }
+}
+
 function hepsiburadaListingPrice(listing) {
   const value = firstValue(listing, [
     "price",
@@ -100,7 +133,25 @@ function enrichedListingValue(
   fallbackKey,
   empty = "",
 ) {
-  return firstValue(listing, keys, fallback?.[fallbackKey] || empty);
+  const listingValue = firstValue(listing, keys, null);
+  if (listingValue !== null) return listingValue;
+  return firstValue(fallback, [...keys, fallbackKey], empty);
+}
+
+function enrichedImageValue(listing, fallback) {
+  return firstValue(
+    listing,
+    [
+      "imageUrl",
+      "mainImageUrl",
+      "images.0",
+      "images.0.url",
+      "product.imageUrl",
+      "product.images.0",
+      "product.images.0.url",
+    ],
+    fallback?.images?.[0] || fallback?.product_image_url || null,
+  );
 }
 
 class SyncService {
@@ -202,6 +253,21 @@ class SyncService {
     });
     let processed = 0;
     const seenBarcodes = new Set();
+    let metadataRows = [];
+    let metadataError = null;
+    if (this.hepsiburada.fetchAllMerchantProducts) {
+      try {
+        metadataRows = await this.hepsiburada.fetchAllMerchantProducts({
+          pageSize: 1000,
+          maxPages: 50,
+        });
+      } catch (error) {
+        metadataError = error.message;
+      }
+    }
+    const metadataByKey = new Map();
+    for (const product of metadataRows)
+      addMetadataIndex(metadataByKey, product);
     const listingBarcodes = [
       ...new Set(
         listings
@@ -224,7 +290,11 @@ class SyncService {
     for (const listing of listings) {
       const barcode = hepsiburadaListingBarcode(listing);
       if (!barcode) continue;
-      const fallbackProduct = fallbackByBarcode.get(barcode);
+      const platformId = hepsiburadaListingPlatformId(listing);
+      const fallbackProduct =
+        metadataByKey.get(normalizedKey(barcode)) ||
+        metadataByKey.get(normalizedKey(platformId)) ||
+        fallbackByBarcode.get(barcode);
       seenBarcodes.add(barcode);
       const salePrice = hepsiburadaListingPrice(listing);
       const quantity = hepsiburadaListingStock(listing);
@@ -232,9 +302,14 @@ class SyncService {
       const status = String(
         firstValue(listing, ["status", "listingStatus", "saleStatus"], ""),
       ).toUpperCase();
+      const salable =
+        typeof listing.isSalable === "boolean" ? listing.isSalable : null;
       const archived = ["DELETED", "ARCHIVED", "CLOSED"].includes(status);
       const approved = !["REJECTED", "BLOCKED"].includes(status);
-      const onSale = !archived && !["PASSIVE", "INACTIVE"].includes(status);
+      const onSale =
+        salable !== false &&
+        !archived &&
+        !["PASSIVE", "INACTIVE"].includes(status);
       const active = approved && onSale && quantity > 0 && salePrice > 0;
       await this.db.query(
         `INSERT INTO products(
@@ -276,7 +351,7 @@ class SyncService {
             listing,
             fallbackProduct,
             ["productName", "name", "title", "product.name"],
-            "product_name",
+            fallbackProduct?.productName ? "productName" : "product_name",
           ),
           enrichedListingValue(
             listing,
@@ -298,18 +373,8 @@ class SyncService {
               "category_id",
             ),
           ),
-          firstValue(
-            listing,
-            [
-              "imageUrl",
-              "mainImageUrl",
-              "images.0.url",
-              "product.imageUrl",
-              "product.images.0.url",
-            ],
-            fallbackProduct?.product_image_url || null,
-          ),
-          String(firstValue(listing, ["hbSku", "productId", "listingId"], "")),
+          firstValue(listing, [], enrichedImageValue(listing, fallbackProduct)),
+          platformId,
           salePrice,
           Number(
             firstValue(listing, ["listPrice", "originalPrice"], salePrice),
@@ -341,7 +406,15 @@ class SyncService {
         [[...seenBarcodes]],
       );
     }
-    return { processed, successful: processed, failed: 0 };
+    return {
+      processed,
+      successful: processed,
+      failed: 0,
+      metadata: {
+        hepsiburadaCatalogProducts: metadataRows.length,
+        hepsiburadaCatalogError: metadataError,
+      },
+    };
   }
 
   async buybox(barcodes) {

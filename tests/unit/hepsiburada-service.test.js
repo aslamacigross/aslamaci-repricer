@@ -141,6 +141,58 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
+  test("magaza bazli katalog urunlerini resmi product endpointinden okur", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    let request;
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamaci_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url, options) => {
+          request = { url, options };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                data: [
+                  {
+                    merchantSku: "HB-MERCHANT-SKU",
+                    hbSku: "HBV1",
+                    productName: "Hepsiburada Katalog Ürünü",
+                  },
+                ],
+                last: true,
+              }),
+          };
+        },
+      });
+      const rows = await service.fetchAllMerchantProducts({
+        pageSize: 1000,
+        maxPages: 1,
+      });
+      assert.equal(rows.length, 1);
+      assert.match(
+        request.url,
+        /mpop\.hepsiburada\.com\/product\/api\/products\/all-products-of-merchant\/merchant-id/,
+      );
+      assert.match(request.url, /page=0/);
+      assert.match(request.url, /size=1000/);
+      assert.equal(request.options.headers["User-Agent"], "aslamaci_dev");
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
   test("production 401 hatasi SIT ortam ipucunu secret siz verir", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,

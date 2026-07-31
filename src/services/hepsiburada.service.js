@@ -628,6 +628,41 @@ class HepsiburadaService {
     );
   }
 
+  async listMerchantProducts({
+    page = 0,
+    size = 1000,
+    merchantSku,
+    hbSku,
+    barcode,
+  } = {}) {
+    const query = new URLSearchParams({
+      page: String(Math.max(Number(page) || 0, 0)),
+      size: String(Math.min(Math.max(Number(size) || 1000, 1), 1000)),
+    });
+    if (merchantSku) query.set("merchantSku", String(merchantSku));
+    if (hbSku) query.set("hbSku", String(hbSku));
+    if (barcode) query.set("barcode", String(barcode));
+    return this.request(
+      `${this.productBaseUrl}/products/all-products-of-merchant/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}?${query}`,
+    );
+  }
+
+  async fetchAllMerchantProducts({ pageSize = 1000, maxPages = 50 } = {}) {
+    const items = [];
+    for (let page = 0; page < maxPages; page++) {
+      const payload = await this.listMerchantProducts({
+        page,
+        size: pageSize,
+      });
+      const rows = normalizeRows(payload);
+      items.push(...rows);
+      if (rows.length < pageSize || payload?.last === true) break;
+    }
+    return items;
+  }
+
   async listListingsFiltered({
     offset = 0,
     limit = 100,

@@ -305,6 +305,70 @@ test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tam
   assert.equal(upsert.params[5], "https://cdn.test/menekse.jpg");
 });
 
+test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamamlar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-MERCHANT-SKU-1",
+          hbSku: "HBV-CATALOG-1",
+          price: 499,
+          availableStock: 4,
+          isSalable: true,
+        },
+        {
+          merchantSku: "HB-MERCHANT-SKU-2",
+          hbSku: "HBV-CATALOG-2",
+          price: 199,
+          availableStock: 0,
+          isSalable: false,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "HB-MERCHANT-SKU-1",
+          hbSku: "HBV-CATALOG-1",
+          productName: "Hepsiburada Katalog Ürünü",
+          brand: "Harras",
+          categoryName: "Çay",
+          categoryId: 987,
+          images: ["https://cdn.test/hb.jpg"],
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 2);
+  assert.equal(result.metadata.hepsiburadaCatalogProducts, 1);
+  const upserts = queries.filter((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upserts[0].params[1], "Hepsiburada Katalog Ürünü");
+  assert.equal(upserts[0].params[2], "Harras");
+  assert.equal(upserts[0].params[3], "Çay");
+  assert.equal(upserts[0].params[4], "987");
+  assert.equal(upserts[0].params[5], "https://cdn.test/hb.jpg");
+  assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
+  assert.equal(upserts[0].params[19], true);
+  assert.equal(upserts[1].params[19], false);
+});
+
 test("Trendyol GET istegi gecici hatada geri cekilmeyle yeniden denenir", async () => {
   let calls = 0;
   const delays = [];
