@@ -57,7 +57,7 @@ test("tedarikçi fiyat güncellemesi aynı ürünün duplicate kayıtlarına ba�
   const linkLookup = calls.find(
     (call) =>
       String(call.sql).includes("FROM cost_item_file_links l") &&
-      String(call.sql).includes("ANY($1::int[])"),
+      String(call.sql).includes("ANY($1::bigint[])"),
   );
   assert.deepEqual(linkLookup.params[0], [2, 1]);
   assert.equal(result.tier_price_updates[0].barcode, "TY-KURABIYE");

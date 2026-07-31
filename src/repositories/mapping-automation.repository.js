@@ -150,7 +150,7 @@ class MappingAutomationRepository {
              JOIN cost_items ci ON ci.item_code=l.cost_item_code
              LEFT JOIN product_cost_mappings pcm
                ON pcm.cost_item_code=l.cost_item_code
-             WHERE l.file_market_item_id=ANY($1::int[]) AND l.status='APPROVED'
+             WHERE l.file_market_item_id=ANY($1::bigint[]) AND l.status='APPROVED'
              ORDER BY l.cost_item_code,pcm.marketplace,pcm.barcode`,
             [canonicalIds],
           )
@@ -308,7 +308,7 @@ class MappingAutomationRepository {
            FROM cost_item_file_links l
            JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
            JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-           WHERE l.file_market_item_id=ANY($1::int[]) AND l.status='APPROVED'
+           WHERE l.file_market_item_id=ANY($1::bigint[]) AND l.status='APPROVED'
            ORDER BY pcm.barcode,pcm.cost_item_code`,
           [canonicalIds],
         )
@@ -498,7 +498,7 @@ class MappingAutomationRepository {
       const moved = await client.query(
         `UPDATE cost_item_file_links
          SET file_market_item_id=$1,updated_at=NOW()
-         WHERE file_market_item_id=ANY($2::int[])
+         WHERE file_market_item_id=ANY($2::bigint[])
            AND status='APPROVED'`,
         [canonicalItemId, mergedItemIds],
       );
@@ -510,7 +510,7 @@ class MappingAutomationRepository {
                'merged_at',NOW()
              ),
              updated_at=NOW()
-         WHERE id=ANY($2::int[])`,
+         WHERE id=ANY($2::bigint[])`,
         [canonicalItemId, mergedItemIds],
       );
       return {
