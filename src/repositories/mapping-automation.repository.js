@@ -820,16 +820,38 @@ class MappingAutomationRepository {
     marketplace = "TRENDYOL",
   ) {
     const selectedMarketplace = normalizeMarketplace(marketplace);
+    const uniqueSuggestions = [];
+    const seenSuggestions = new Set();
+    for (const suggestion of suggestions) {
+      const suggestionMarketplace = normalizeMarketplace(
+        suggestion.marketplace || selectedMarketplace,
+      );
+      const key = `${suggestionMarketplace}:${suggestion.barcode}`;
+      if (seenSuggestions.has(key)) continue;
+      seenSuggestions.add(key);
+      uniqueSuggestions.push({
+        ...suggestion,
+        marketplace: suggestionMarketplace,
+      });
+    }
     const evaluated = [
       ...new Set([
         ...evaluatedBarcodes,
-        ...suggestions.map((suggestion) => suggestion.barcode),
+        ...uniqueSuggestions.map((suggestion) => suggestion.barcode),
       ]),
     ];
     if (!evaluated.length)
-      return { created: 0, skippedApproved: 0, skippedRejected: 0, items: [] };
+      return {
+        created: 0,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        skippedDuplicates: 0,
+        items: [],
+      };
     return this.withTransaction(async (client) => {
-      const barcodes = suggestions.map((suggestion) => suggestion.barcode);
+      const barcodes = uniqueSuggestions.map(
+        (suggestion) => suggestion.barcode,
+      );
       const approved = new Set(
         barcodes.length
           ? (
@@ -843,7 +865,7 @@ class MappingAutomationRepository {
           : [],
       );
       const rejectedFingerprints = new Set(
-        suggestions.length
+        uniqueSuggestions.length
           ? (
               await client.query(
                 `SELECT barcode,fingerprint FROM mapping_suggestions
@@ -853,7 +875,7 @@ class MappingAutomationRepository {
                    AND fingerprint=ANY($2::text[])`,
                 [
                   barcodes,
-                  suggestions.map((suggestion) => suggestion.fingerprint),
+                  uniqueSuggestions.map((suggestion) => suggestion.fingerprint),
                   selectedMarketplace,
                 ],
               )
@@ -867,7 +889,7 @@ class MappingAutomationRepository {
         [evaluated, selectedMarketplace],
       );
       const saved = [];
-      for (const suggestion of suggestions) {
+      for (const suggestion of uniqueSuggestions) {
         if (approved.has(suggestion.barcode)) continue;
         if (
           rejectedFingerprints.has(
@@ -930,6 +952,7 @@ class MappingAutomationRepository {
         created: saved.length,
         skippedApproved: approved.size,
         skippedRejected: rejectedFingerprints.size,
+        skippedDuplicates: suggestions.length - uniqueSuggestions.length,
         items: saved,
       };
     });

@@ -1,3 +1,20 @@
+const systemNumericSettingSql = (key) =>
+  `(SELECT NULLIF(ss.value #>> '{}','null')::numeric FROM system_settings ss WHERE ss.key='${key}')`;
+
+const effectivePriceCutSql = (alias) =>
+  `COALESCE(
+    (SELECT ps.price_cut_tl
+     FROM product_settings ps
+     WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode),
+    ${systemNumericSettingSql("default_price_cut_tl")},
+    0.1
+  )`;
+
+const buyboxActionableSql = (alias) =>
+  `${alias}.rank IS DISTINCT FROM 1 AND ${alias}.data_complete=TRUE
+    AND ${alias}.buybox_price>0
+    AND ${alias}.min_price<=GREATEST(${alias}.buybox_price-${effectivePriceCutSql(alias)},0)`;
+
 class DashboardRepository {
   constructor(db) {
     this.db = db;
@@ -40,8 +57,7 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND min_price>0 AND my_price<min_price)::int below_minimum,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank=1)::int buybox_owned,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1)::int buybox_outside,
-        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1 AND data_complete=TRUE
-          AND buybox_price>0 AND min_price<=buybox_price)::int buybox_available,
+        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND ${buyboxActionableSql("products")})::int buybox_available,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes'))::int stale_buybox,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND auto_update)::int auto_update_enabled,
         ROUND(AVG(calculated_net_margin)::numeric,2) average_margin,
@@ -184,7 +200,7 @@ class DashboardRepository {
       loss_products: `${sellableProduct} AND p.calculated_net_profit<0`,
       below_minimum: `${sellableProduct} AND p.min_price>0 AND p.my_price<p.min_price`,
       buybox_owned: `${sellableProduct} AND p.rank=1`,
-      buybox_available: `${sellableProduct} AND p.rank IS DISTINCT FROM 1 AND p.data_complete=TRUE AND p.buybox_price>0 AND p.min_price<=p.buybox_price`,
+      buybox_available: `${sellableProduct} AND ${buyboxActionableSql("p")}`,
       buybox_outside: `${sellableProduct} AND p.rank IS DISTINCT FROM 1`,
       stale_buybox: `${sellableProduct} AND (p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes')`,
       auto_update_enabled: `${sellableProduct} AND p.auto_update=TRUE`,
