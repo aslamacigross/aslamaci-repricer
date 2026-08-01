@@ -889,6 +889,7 @@ class MappingAutomationRepository {
         [evaluated, selectedMarketplace],
       );
       const saved = [];
+      let skippedOpen = 0;
       for (const suggestion of uniqueSuggestions) {
         if (approved.has(suggestion.barcode)) continue;
         if (
@@ -897,6 +898,19 @@ class MappingAutomationRepository {
           )
         )
           continue;
+        const openSuggestion = (
+          await client.query(
+            `SELECT id,status FROM mapping_suggestions
+             WHERE marketplace=$1 AND barcode=$2
+               AND status IN('PENDING','APPROVED')
+             LIMIT 1`,
+            [suggestion.marketplace || selectedMarketplace, suggestion.barcode],
+          )
+        ).rows[0];
+        if (openSuggestion) {
+          skippedOpen++;
+          continue;
+        }
         const parent = (
           await client.query(
             `INSERT INTO mapping_suggestions(
@@ -953,6 +967,7 @@ class MappingAutomationRepository {
         skippedApproved: approved.size,
         skippedRejected: rejectedFingerprints.size,
         skippedDuplicates: suggestions.length - uniqueSuggestions.length,
+        skippedOpen,
         items: saved,
       };
     });

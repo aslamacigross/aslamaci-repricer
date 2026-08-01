@@ -400,7 +400,7 @@ describe("Akıllı mapping paneli", () => {
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(
         "/api/mapping-suggestions/diagnostics/528528268/regenerate",
-        {},
+        { marketplace: "TRENDYOL" },
       ),
     );
     await user.click(screen.getByRole("button", { name: "Manuel" }));

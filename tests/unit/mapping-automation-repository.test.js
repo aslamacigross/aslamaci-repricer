@@ -74,3 +74,37 @@ test("mapping önerileri aynı pazaryeri ve barkod için tekilleştirilir", asyn
   assert.equal(result.skippedDuplicates, 1);
   assert.equal(inserts.length, 1);
 });
+
+test("mapping önerisi açık kayıt varsa unique çakışmasına düşmeden atlanır", async () => {
+  const inserts = [];
+  const client = {
+    query: async (sql, params = []) => {
+      if (sql.includes("SELECT barcode FROM mapping_suggestions"))
+        return { rows: [] };
+      if (sql.includes("SELECT barcode,fingerprint FROM mapping_suggestions"))
+        return { rows: [] };
+      if (sql.includes("UPDATE mapping_suggestions SET status='STALE'"))
+        return { rowCount: 0, rows: [] };
+      if (sql.includes("SELECT id,status FROM mapping_suggestions"))
+        return { rows: [{ id: 42, status: "APPROVED", barcode: params[1] }] };
+      if (sql.includes("INSERT INTO mapping_suggestions(")) {
+        inserts.push(params);
+        return { rows: [{ id: inserts.length, barcode: params[1] }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const repository = new MappingAutomationRepository({}, async (callback) =>
+    callback(client),
+  );
+
+  const result = await repository.saveSuggestions(
+    [suggestion()],
+    ["HB-SKU-1"],
+    "HEPSIBURADA",
+  );
+
+  assert.equal(result.created, 0);
+  assert.equal(result.skippedOpen, 1);
+  assert.equal(inserts.length, 0);
+});

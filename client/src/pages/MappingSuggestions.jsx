@@ -862,8 +862,11 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
         marketplace,
       });
       const data = response.data;
+      const openText = data.skippedOpen
+        ? `, ${data.skippedOpen} üründe açık/onaylı öneri atlandı`
+        : "";
       notify(
-        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} ürün tedarikçi kapsamındaydı, ${data.withoutCandidate || 0} üründe uygun aday kalmadı, ${data.withoutFileSupport || 0} üründe fiyat desteği yok`,
+        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} ürün tedarikçi kapsamındaydı, ${data.withoutCandidate || 0} üründe uygun aday kalmadı, ${data.withoutFileSupport || 0} üründe fiyat desteği yok${openText}`,
       );
       setStatus("PENDING");
       await load();
