@@ -829,7 +829,23 @@ class MappingAutomationService {
         400,
         "DUPLICATE_KEY_REQUIRED",
       );
-    return this.repository.mergeSupplierDuplicateGroup(normalizedCode, key);
+    try {
+      return await this.repository.mergeSupplierDuplicateGroup(
+        normalizedCode,
+        key,
+      );
+    } catch (error) {
+      throw new AppError(
+        "Mükerrer havuz kaydı birleştirilemedi",
+        409,
+        "SUPPLIER_DUPLICATE_MERGE_FAILED",
+        {
+          dbCode: error.code,
+          constraint: error.constraint,
+          detail: error.detail,
+        },
+      );
+    }
   }
 
   groupTrainingRows(rows) {

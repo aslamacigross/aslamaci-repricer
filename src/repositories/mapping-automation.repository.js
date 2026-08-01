@@ -497,16 +497,35 @@ class MappingAutomationRepository {
       const mergedItemIds = rows.slice(1).map((row) => Number(row.id));
       const moved = await client.query(
         `UPDATE cost_item_file_links
-         SET file_market_item_id=$1,updated_at=NOW()
+         SET file_market_item_id=$1::bigint,updated_at=NOW()
          WHERE file_market_item_id=ANY($2::bigint[])
-           AND status='APPROVED'`,
+           AND status='APPROVED'
+           AND NOT EXISTS (
+             SELECT 1 FROM cost_item_file_links existing
+             WHERE existing.file_market_item_id=$1::bigint
+               AND existing.cost_item_code=cost_item_file_links.cost_item_code
+               AND existing.status='APPROVED'
+           )`,
+        [canonicalItemId, mergedItemIds],
+      );
+      await client.query(
+        `UPDATE cost_item_file_links
+         SET status='MERGED',updated_at=NOW()
+         WHERE file_market_item_id=ANY($2::bigint[])
+           AND status='APPROVED'
+           AND EXISTS (
+             SELECT 1 FROM cost_item_file_links existing
+             WHERE existing.file_market_item_id=$1::bigint
+               AND existing.cost_item_code=cost_item_file_links.cost_item_code
+               AND existing.status='APPROVED'
+           )`,
         [canonicalItemId, mergedItemIds],
       );
       await client.query(
         `UPDATE file_market_items
          SET availability='MERGED',
              raw_data=raw_data || JSONB_BUILD_OBJECT(
-               'merged_into_id',$1,
+               'merged_into_id',$1::bigint,
                'merged_at',NOW()
              ),
              updated_at=NOW()

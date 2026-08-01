@@ -140,6 +140,11 @@ test("duplicate tedarikçi grubu eski linkleri kanonik kayda taşır ve eski kay
     String(call.sql).includes("UPDATE cost_item_file_links"),
   );
   assert.deepEqual(linkUpdate.params, [9, [4, 2]]);
+  assert.match(linkUpdate.sql, /NOT EXISTS/);
+  const conflictUpdate = calls.filter((call) =>
+    String(call.sql).includes("UPDATE cost_item_file_links"),
+  )[1];
+  assert.match(conflictUpdate.sql, /SET status='MERGED'/);
   const itemUpdate = calls.find((call) =>
     String(call.sql).includes("SET availability='MERGED'"),
   );
