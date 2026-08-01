@@ -890,6 +890,7 @@ class MappingAutomationRepository {
       );
       const saved = [];
       let skippedOpen = 0;
+      let skippedConflicts = 0;
       for (const suggestion of uniqueSuggestions) {
         if (approved.has(suggestion.barcode)) continue;
         if (
@@ -920,6 +921,7 @@ class MappingAutomationRepository {
               supplier_code,
               update_file_price,evidence,product_snapshot,fingerprint
             )VALUES($1,$2,'PENDING',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            ON CONFLICT DO NOTHING
             RETURNING *`,
             [
               suggestion.marketplace || selectedMarketplace,
@@ -941,12 +943,17 @@ class MappingAutomationRepository {
             ],
           )
         ).rows[0];
+        if (!parent) {
+          skippedConflicts++;
+          continue;
+        }
         for (const item of suggestion.items) {
           await client.query(
             `INSERT INTO mapping_suggestion_items(
               suggestion_id,cost_item_code,file_market_item_id,supplier_code,quantity,
               current_unit_cost,suggested_unit_cost,unit_desi,selected_price_tier
-            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            ON CONFLICT(suggestion_id,cost_item_code) DO NOTHING`,
             [
               parent.id,
               item.cost_item_code,
@@ -968,6 +975,7 @@ class MappingAutomationRepository {
         skippedRejected: rejectedFingerprints.size,
         skippedDuplicates: suggestions.length - uniqueSuggestions.length,
         skippedOpen,
+        skippedConflicts,
         items: saved,
       };
     });

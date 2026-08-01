@@ -108,3 +108,39 @@ test("mapping önerisi açık kayıt varsa unique çakışmasına düşmeden atl
   assert.equal(result.skippedOpen, 1);
   assert.equal(inserts.length, 0);
 });
+
+test("mapping önerisi insert sırasında unique çakışırsa üretim patlamadan atlanır", async () => {
+  const inserts = [];
+  const client = {
+    query: async (sql, params = []) => {
+      if (sql.includes("SELECT barcode FROM mapping_suggestions"))
+        return { rows: [] };
+      if (sql.includes("SELECT barcode,fingerprint FROM mapping_suggestions"))
+        return { rows: [] };
+      if (sql.includes("UPDATE mapping_suggestions SET status='STALE'"))
+        return { rowCount: 0, rows: [] };
+      if (sql.includes("SELECT id,status FROM mapping_suggestions"))
+        return { rows: [] };
+      if (sql.includes("INSERT INTO mapping_suggestions(")) {
+        inserts.push(params);
+        return { rows: [] };
+      }
+      if (sql.includes("INSERT INTO mapping_suggestion_items"))
+        throw new Error("items should not be inserted without parent");
+      return { rows: [] };
+    },
+  };
+  const repository = new MappingAutomationRepository({}, async (callback) =>
+    callback(client),
+  );
+
+  const result = await repository.saveSuggestions(
+    [suggestion()],
+    ["HB-SKU-1"],
+    "HEPSIBURADA",
+  );
+
+  assert.equal(result.created, 0);
+  assert.equal(result.skippedConflicts, 1);
+  assert.equal(inserts.length, 1);
+});
