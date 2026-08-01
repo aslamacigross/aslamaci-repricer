@@ -106,6 +106,38 @@ test("BİM canlı katalog kategori sonuçlarını tekilleştirir", async () => {
   assert.equal(result.stats.duplicates, 1);
 });
 
+test("BİM canlı katalog tek kategori hatasında çalışan kategorileri korur", async () => {
+  const service = new BimMarketService({
+    apiUrl: "https://api.test/graphql",
+    categories: [
+      { id: "snack", name: "Atıştırmalık" },
+      { id: "broken", name: "Geçici Bozuk Kategori" },
+    ],
+    retries: 0,
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.variables.categoryId === "broken")
+        return {
+          ok: true,
+          json: async () => ({ data: {} }),
+        };
+      return graphqlResponse(body.variables.categoryId);
+    },
+  });
+
+  const result = await service.livePriceRows();
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.fullSnapshot, false);
+  assert.equal(result.stats.categoriesRequested, 2);
+  assert.equal(result.stats.categoriesScanned, 1);
+  assert.equal(result.stats.categoriesFailed, 1);
+  assert.equal(
+    result.stats.failedCategories[0].category,
+    "Geçici Bozuk Kategori",
+  );
+});
+
 test("BİM canlı katalog eksik ürün cevabında mevcut havuzu değiştirmeden hata verir", async () => {
   const service = new BimMarketService({
     categories: [{ id: "broken", name: "Bozuk" }],

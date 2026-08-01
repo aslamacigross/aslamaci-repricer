@@ -4,6 +4,7 @@ const BIM_API_URL = "https://tr.fd-api.com/api/v5/graphql";
 const BIM_VENDOR_ID = "fu9o";
 const BIM_GLOBAL_ENTITY_ID = "YS_TR";
 const BIM_LOCALE = "tr_TR";
+const BIM_EXCLUDED_CATEGORY_PATTERN = /dondur/i;
 
 const BIM_CATEGORY_DEFINITIONS = Object.freeze([
   {
@@ -187,7 +188,13 @@ class BimMarketService {
     this.vendorId = vendorId;
     this.globalEntityId = globalEntityId;
     this.locale = locale;
-    this.categories = [...categories];
+    const categoryList = [...categories];
+    this.excludedCategories = categoryList.filter((category) =>
+      BIM_EXCLUDED_CATEGORY_PATTERN.test(category.name),
+    );
+    this.categories = categoryList.filter(
+      (category) => !BIM_EXCLUDED_CATEGORY_PATTERN.test(category.name),
+    );
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
     this.retries = retries;
@@ -252,12 +259,32 @@ class BimMarketService {
 
   async livePriceRows() {
     const observedAt = new Date().toISOString();
-    const results = await Promise.all(
+    const attempts = await Promise.allSettled(
       this.categories.map(async (category) => ({
         category,
         groups: await this.fetchCategory(category),
       })),
     );
+    const results = attempts
+      .filter((attempt) => attempt.status === "fulfilled")
+      .map((attempt) => attempt.value);
+    const failures = attempts
+      .map((attempt, index) =>
+        attempt.status === "rejected"
+          ? {
+              category: this.categories[index].name,
+              categoryId: this.categories[index].id,
+              error: attempt.reason?.message || "BİM kategori taranamadı",
+            }
+          : null,
+      )
+      .filter(Boolean);
+    if (!results.length)
+      throw new Error(
+        `BİM canlı katalog tüm kategorilerde başarısız: ${failures
+          .map((failure) => `${failure.category}: ${failure.error}`)
+          .join("; ")}`,
+      );
     const rowsBySource = new Map();
     let productsScanned = 0;
     let duplicates = 0;
@@ -281,13 +308,18 @@ class BimMarketService {
     if (!rows.length) throw new Error("BİM canlı katalog boş döndü");
     return {
       rows,
-      fullSnapshot: true,
+      fullSnapshot: failures.length === 0,
       stats: {
         provider: "yemeksepeti-bim-graphql",
         vendorId: this.vendorId,
-        categoriesScanned: this.categories.length,
-        categoriesSkipped: 1,
-        excludedCategories: ["Dondurulmuş Gıda"],
+        categoriesRequested: this.categories.length,
+        categoriesScanned: results.length,
+        categoriesFailed: failures.length,
+        categoriesSkipped: this.excludedCategories.length,
+        excludedCategories: this.excludedCategories.map(
+          (category) => category.name,
+        ),
+        failedCategories: failures,
         categoryGroupsScanned: results.reduce(
           (sum, result) => sum + result.groups.length,
           0,
