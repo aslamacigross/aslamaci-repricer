@@ -21,7 +21,87 @@ function formatJobRun(run) {
   };
 }
 
-function dashboardRoutes({ dashboard, jobService, audit }) {
+function summarizeRepricerDecision(preview, { openAction, increaseProbe }) {
+  if (!preview)
+    return {
+      repricer_decision: "ONIZLEME_YOK",
+      repricer_action: null,
+      repricer_proposed_price: null,
+      repricer_difference: null,
+      repricer_blocked_reasons: ["REPRICER_PREVIEW_MISSING"],
+      repricer_reason: "Repricer bu ürün için önizleme üretemedi",
+    };
+  const blockedReasons = preview.blockedReasons || [];
+  const blockingSafetyFailures = blockedReasons.filter(
+    (code) => !["DRY_RUN", "GLOBAL_REPRICER_DISABLED"].includes(code),
+  );
+  let decision = "AKSIYON_URETILEBILIR";
+  let reason = preview.reason || preview.humanReadableReason || "";
+  if (preview.action === "KORU") {
+    decision = "KORU";
+    reason ||= "Repricer fiyatı korumayı uygun gördü";
+  } else if (blockingSafetyFailures.length) {
+    decision = "SAFETY_BLOCKED";
+    reason = blockingSafetyFailures.join(", ");
+  } else if (increaseProbe) {
+    decision = "BUYBOX_INCREASE_OUTCOME_PENDING";
+    reason =
+      "Buybox bizdeyken yapılan fiyat artışı yoklamasının sonucu bekleniyor";
+  } else if (openAction) {
+    decision = "OPEN_ACTION_EXISTS";
+    reason = "Ürün için kapanmamış fiyat aksiyonu var";
+  }
+  return {
+    repricer_decision: decision,
+    repricer_action: preview.action,
+    repricer_proposed_price: preview.proposedPrice,
+    repricer_difference: preview.difference,
+    repricer_blocked_reasons: blockingSafetyFailures,
+    repricer_reason: reason,
+    repricer_target_rank: preview.targetRank,
+    repricer_expected_profit: preview.expectedProfit,
+  };
+}
+
+async function enrichMetricWithRepricerDiagnostics(
+  data,
+  { repricer, actions, marketplace },
+) {
+  if (
+    !data ||
+    data.type !== "products" ||
+    !repricer ||
+    !Array.isArray(data.items) ||
+    !data.items.length
+  )
+    return data;
+  const barcodes = data.items.map((row) => row.barcode).filter(Boolean);
+  if (!barcodes.length) return data;
+  const previews = await repricer.preview(barcodes, marketplace);
+  const previewByBarcode = new Map(
+    previews.map((preview) => [preview.barcode, preview]),
+  );
+  const items = [];
+  for (const row of data.items) {
+    const preview = previewByBarcode.get(row.barcode);
+    const [openAction, increaseProbe] = await Promise.all([
+      actions?.findOpen?.(row.barcode, undefined, null, marketplace),
+      preview?.action === "FIYAT_ARTIR" && Number(preview.rank) === 1
+        ? actions?.findPendingIncreaseProbe?.(row.barcode, marketplace)
+        : null,
+    ]);
+    items.push({
+      ...row,
+      ...summarizeRepricerDecision(preview, {
+        openAction,
+        increaseProbe,
+      }),
+    });
+  }
+  return { ...data, items };
+}
+
+function dashboardRoutes({ dashboard, jobService, audit, repricer, actions }) {
   const r = express.Router();
   const marketplace = (value) => {
     const normalized = String(value || "TRENDYOL").toUpperCase();
@@ -73,15 +153,27 @@ function dashboardRoutes({ dashboard, jobService, audit }) {
   r.get(
     "/metrics/:metric",
     asyncRoute(async (req, res) => {
+      const selectedMarketplace = marketplace(req.query.marketplace);
       const data = await dashboard.metricDetails(req.params.metric, {
         limit: req.query.limit,
-        marketplace: marketplace(req.query.marketplace),
+        marketplace: selectedMarketplace,
       });
       if (!data)
         throw new AppError("Dashboard metriği bulunamadı", 404, "NOT_FOUND");
-      res.json({ status: "ok", data });
+      res.json({
+        status: "ok",
+        data: await enrichMetricWithRepricerDiagnostics(data, {
+          repricer,
+          actions,
+          marketplace: selectedMarketplace,
+        }),
+      });
     }),
   );
   return r;
 }
-module.exports = { dashboardRoutes };
+module.exports = {
+  dashboardRoutes,
+  summarizeRepricerDecision,
+  enrichMetricWithRepricerDiagnostics,
+};

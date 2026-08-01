@@ -384,6 +384,28 @@ function MetricDrawer({ detail, onClose }) {
     },
     { key: "min_price", label: "Min", render: (row) => money(row.min_price) },
     { key: "rank", label: "Sıra" },
+    { key: "repricer_decision", label: "Repricer kararı", badge: true },
+    { key: "repricer_action", label: "Anlık aksiyon", badge: true },
+    {
+      key: "repricer_proposed_price",
+      label: "Anlık öneri",
+      render: (row) => money(row.repricer_proposed_price),
+    },
+    {
+      key: "repricer_difference",
+      label: "Fark",
+      render: (row) => money(row.repricer_difference),
+    },
+    {
+      key: "repricer_blocked_reasons",
+      label: "Engel",
+      render: (row) =>
+        Array.isArray(row.repricer_blocked_reasons) &&
+        row.repricer_blocked_reasons.length
+          ? row.repricer_blocked_reasons.join(", ")
+          : "-",
+    },
+    { key: "repricer_reason", label: "Karar nedeni" },
     {
       key: "calculated_net_profit",
       label: "Net kâr",
