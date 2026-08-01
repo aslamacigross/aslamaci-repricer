@@ -82,7 +82,22 @@ test("File import satırını stabil anahtar ve gramajla normalize eder", () => 
   assert.equal(row.current_price, 112);
   assert.equal(row.size_value, 1500);
   assert.equal(row.size_unit, "ml");
-  assert.equal(row.source_key.length, 40);
+  assert.match(row.source_key, /^file-api:manual:[a-f0-9]{40}$/);
+});
+
+test("tedarikçi importu başka havuza ait kaynak anahtarını reddeder", () => {
+  const { service } = fixture();
+  assert.throws(
+    () =>
+      service.normalizeSupplierRows("BIZIM_MARKET", [
+        {
+          source_key: "file-api:424",
+          product_name: "Actisoft Çamaşır Suyu 1000 ml",
+          current_price: "54,90",
+        },
+      ]),
+    /kaynak anahtarı .* havuzuyla uyumlu değil/,
+  );
 });
 
 test("geçmiş mappingi File fiyatıyla destekleyip hedef adede ölçekler", async () => {

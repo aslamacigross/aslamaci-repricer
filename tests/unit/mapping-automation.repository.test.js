@@ -150,3 +150,100 @@ test("duplicate tedarikçi grubu eski linkleri kanonik kayda taşır ve eski kay
   );
   assert.deepEqual(itemUpdate.params, [9, [4, 2]]);
 });
+
+test("Bizim canlı import boş çoklu fiyatla manuel fiyat kademelerini ezmez", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return { rows: [] };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 15,
+              supplier_code: "BIZIM_MARKET",
+              normalized_name: "teno pecete",
+              current_price: 16.9,
+              price_tiers: [],
+            },
+          ],
+        };
+      if (
+        String(sql).includes("SELECT id FROM file_market_items") &&
+        String(sql).includes("normalized_name=$2")
+      )
+        return { rows: [{ id: 15 }] };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  await repo.importSupplierItems(
+    "BIZIM_MARKET",
+    [
+      {
+        source_key: "bizim-web:teno",
+        product_name: "Teno Peçete",
+        normalized_name: "teno pecete",
+        brand: "Teno",
+        current_price: 16.9,
+        currency: "TRY",
+        availability: "AVAILABLE",
+        raw_data: {},
+        observed_at: "2026-08-01T00:00:00.000Z",
+        price_tiers: [],
+      },
+    ],
+    { replaceAvailability: true },
+  );
+
+  const upsert = calls.find((call) =>
+    String(call.sql).includes("ON CONFLICT(source_key)DO UPDATE"),
+  );
+  assert.match(upsert.sql, /JSONB_ARRAY_LENGTH\(EXCLUDED\.price_tiers\)=0/);
+  assert.doesNotMatch(upsert.sql, /supplier_code=EXCLUDED\.supplier_code/);
+});
+
+test("tedarikçi importu aynı kaynak anahtarını başka havuza taşımaz", async () => {
+  const db = {
+    query: async (sql) => {
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return {
+          rows: [
+            {
+              source_key: "file-api:123",
+              supplier_code: "FILE_MARKET",
+              current_price: 54.9,
+            },
+          ],
+        };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  await assert.rejects(
+    () =>
+      repo.importSupplierItems("BIZIM_MARKET", [
+        {
+          source_key: "file-api:123",
+          product_name: "Actisoft Çamaşır Suyu",
+          normalized_name: "actisoft camasir suyu",
+          brand: "Actisoft",
+          current_price: 54.9,
+          currency: "TRY",
+          availability: "AVAILABLE",
+          raw_data: {},
+          observed_at: "2026-08-01T00:00:00.000Z",
+          price_tiers: [],
+        },
+      ]),
+    /Tedarikçi kaynak anahtarı çakışıyor/,
+  );
+});

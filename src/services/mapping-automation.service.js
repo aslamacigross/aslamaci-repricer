@@ -64,10 +64,46 @@ const COMPOSITE_SPLIT_PATTERN = /\s+(?:ve|\+|\/|,)\s+/i;
 const COMPOSITE_MARKER_PATTERN =
   /\b(?:set|karma|karisik|karışık|cesit|çeşit|cesitleri|çeşitleri|mix|ve)\b|(?:\s[+/,]\s)/i;
 
+const SUPPLIER_SOURCE_PREFIXES = Object.freeze({
+  FILE_MARKET: ["file-api:"],
+  BIZIM_MARKET: ["bizim-web:", "bizim_market:"],
+  BIM: ["bim-yemeksepeti:", "bim:"],
+  OTHER: ["other:"],
+});
+
 function normalizeMarketplace(value) {
   return String(value || "TRENDYOL")
     .trim()
     .toUpperCase();
+}
+
+function generatedSupplierSourceKey(supplierCode, normalizedName) {
+  const hash = crypto.createHash("sha1").update(normalizedName).digest("hex");
+  return supplierCode === "FILE_MARKET"
+    ? `file-api:manual:${hash}`
+    : `${supplierCode.toLowerCase()}:${hash}`;
+}
+
+function sourceKeySupplierCode(sourceKey) {
+  const value = String(sourceKey || "")
+    .trim()
+    .toLocaleLowerCase("tr-TR");
+  for (const [supplierCode, prefixes] of Object.entries(
+    SUPPLIER_SOURCE_PREFIXES,
+  ))
+    if (prefixes.some((prefix) => value.startsWith(prefix)))
+      return supplierCode;
+  return null;
+}
+
+function validateSupplierSourceKey(supplierCode, sourceKey, index) {
+  const owner = sourceKeySupplierCode(sourceKey);
+  if (owner && owner !== supplierCode)
+    throw new AppError(
+      `${index + 1}. tedarikçi satırının kaynak anahtarı ${supplier(supplierCode)?.label || supplierCode} havuzuyla uyumlu değil`,
+      400,
+      "SUPPLIER_SOURCE_KEY_MISMATCH",
+    );
 }
 
 function filePriceMode(target, fileItem) {
@@ -613,13 +649,9 @@ class MappingAutomationService {
         );
       const sourceKey = String(
         row.source_key ||
-          (supplierCode === "FILE_MARKET"
-            ? crypto.createHash("sha1").update(normalizedName).digest("hex")
-            : `${supplierCode.toLowerCase()}:${crypto
-                .createHash("sha1")
-                .update(normalizedName)
-                .digest("hex")}`),
+          generatedSupplierSourceKey(supplierCode, normalizedName),
       ).trim();
+      validateSupplierSourceKey(supplierCode, sourceKey, index);
       if (seen.has(sourceKey))
         throw new AppError(
           `${index + 1}. ${supplierDefinition.label} ürünü aynı yüklemede tekrarlanmış`,

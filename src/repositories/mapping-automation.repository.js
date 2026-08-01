@@ -68,6 +68,13 @@ class MappingAutomationRepository {
             [row.source_key],
           )
         ).rows[0];
+        if (previous && previous.supplier_code !== supplierCode) {
+          const error = new Error(
+            `Tedarikçi kaynak anahtarı çakışıyor: ${row.source_key}`,
+          );
+          error.code = "SUPPLIER_SOURCE_KEY_CONFLICT";
+          throw error;
+        }
         const priceChanged =
           previous &&
           Number(previous.current_price) !== Number(row.current_price);
@@ -94,12 +101,16 @@ class MappingAutomationRepository {
               currency=EXCLUDED.currency,
               availability=EXCLUDED.availability,
               raw_data=EXCLUDED.raw_data,
-              supplier_code=EXCLUDED.supplier_code,
               source_url=EXCLUDED.source_url,
               source_category=EXCLUDED.source_category,
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
               desi_confidence=EXCLUDED.desi_confidence,
-              price_tiers=EXCLUDED.price_tiers,
+              price_tiers=CASE
+                WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
+                  AND JSONB_ARRAY_LENGTH(EXCLUDED.price_tiers)=0
+                  AND JSONB_ARRAY_LENGTH(file_market_items.price_tiers)>0
+                THEN file_market_items.price_tiers
+                ELSE EXCLUDED.price_tiers END,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
                 WHEN file_market_items.current_price<>EXCLUDED.current_price
