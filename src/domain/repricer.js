@@ -268,6 +268,7 @@ function safetyCheck(context) {
   const failures = [];
   const current = parseNumber(product.my_price);
   const proposed = parseNumber(proposal.proposedPrice);
+  const rank = parseNumber(product.rank);
   const minimum = Math.max(
     parseNumber(product.min_price),
     parseNumber(settings.minimum_price),
@@ -321,7 +322,17 @@ function safetyCheck(context) {
   if (!manual && !parseBoolean(global.repricerEnabled))
     failures.push("GLOBAL_REPRICER_DISABLED");
   if (parseBoolean(global.dryRun)) failures.push("DRY_RUN");
-  if (Math.abs(proposed - current) < parseNumber(global.minChangeTl, 0.1))
+  const targetRank = parseNumber(proposal.targetRank);
+  const buyboxAcquisitionAttempt =
+    rank > 1 &&
+    targetRank > 0 &&
+    targetRank < rank &&
+    proposed < current &&
+    proposed >= minimum;
+  if (
+    !buyboxAcquisitionAttempt &&
+    Math.abs(proposed - current) < parseNumber(global.minChangeTl, 5)
+  )
     failures.push("CHANGE_TOO_SMALL");
   if (parseNumber(product.calculated_net_profit) < 0 && proposed < current)
     failures.push("LOSS_MAKING_DECREASE");
