@@ -7,7 +7,7 @@ const {
 } = require("../../src/routes/mapping-automation.routes");
 const { errorHandler } = require("../../src/middleware/error-handler");
 
-function appFixture() {
+function appFixture(overrides = {}) {
   const calls = [];
   const mappingAutomation = {
     importFileItems: async (rows) => ({
@@ -79,6 +79,7 @@ function appFixture() {
       calls.push({ ids, token });
       return { applied: ids.length };
     },
+    ...overrides.mappingAutomation,
   };
   const app = express();
   app.use(express.json());
@@ -169,6 +170,29 @@ test("mapping karar geçmişi API üzerinden listelenir", async () => {
     .expect(200);
   assert.equal(response.body.data.total, 1);
   assert.equal(response.body.data.items[0].decision, "APPROVED");
+});
+
+test("mapping önerisi üretim hatası güvenli ve açıklayıcı döner", async () => {
+  const error = new Error(
+    "duplicate key value violates unique constraint mapping_suggestions_actionable_uidx",
+  );
+  error.code = "23505";
+  const response = await request(
+    appFixture({
+      mappingAutomation: {
+        generate: async () => {
+          throw error;
+        },
+      },
+    }).app,
+  )
+    .post("/api/mapping-suggestions/generate")
+    .send({ marketplace: "HEPSIBURADA" })
+    .expect(409);
+
+  assert.equal(response.body.code, "23505");
+  assert.match(response.body.message, /Mapping önerisi üretilemedi/);
+  assert.equal(response.body.details.marketplace, "HEPSIBURADA");
 });
 
 test("teşhis satırından tek barkod önerisi yeniden üretilebilir", async () => {

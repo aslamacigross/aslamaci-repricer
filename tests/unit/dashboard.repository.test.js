@@ -192,9 +192,10 @@ test("dashboard buybox metrikleri sadece satılabilir ürünleri sayar", async (
   assert.match(kpiSql, /is_active=TRUE AND stock_quantity>0 AND rank=1/);
   assert.match(
     kpiSql,
-    /products\.min_price<=GREATEST\(products\.buybox_price-COALESCE/,
+    /products\.min_price<=GREATEST\(products\.buybox_price-LEAST/,
   );
   assert.match(kpiSql, /default_price_cut_tl/);
+  assert.match(kpiSql, /learned_price_cut_tl/);
   assert.match(
     kpiSql,
     /is_active=TRUE AND stock_quantity>0 AND \(buybox_updated_at IS NULL/,
@@ -212,9 +213,10 @@ test("dashboard buybox alınabilir detayı aktif fiyat kırmayı hesaba katar", 
 
   await new DashboardRepository(db).metricDetails("buybox_available");
 
-  assert.match(detailSql, /p\.min_price<=GREATEST\(p\.buybox_price-COALESCE/);
+  assert.match(detailSql, /p\.min_price<=GREATEST\(p\.buybox_price-LEAST/);
   assert.match(detailSql, /product_settings ps/);
   assert.match(detailSql, /default_price_cut_tl/);
+  assert.match(detailSql, /learned_price_cut_tl/);
 });
 
 test("dashboard metrik detayları mapping kırılımı alanlarını döndürür", async () => {

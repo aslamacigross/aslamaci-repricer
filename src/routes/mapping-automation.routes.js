@@ -1,5 +1,5 @@
 const express = require("express");
-const { asyncRoute } = require("../utils/errors");
+const { AppError, asyncRoute } = require("../utils/errors");
 const { SUPPLIER_CODES, supplier } = require("../domain/supplier-products");
 
 function mappingAutomationRoutes({
@@ -178,10 +178,23 @@ function mappingAutomationRoutes({
   router.post(
     "/mapping-suggestions/generate",
     asyncRoute(async (req, res) => {
-      const data = await mappingAutomation.generate({
-        ...(req.body || {}),
-        marketplace: marketplaceCode(req),
-      });
+      let data;
+      try {
+        data = await mappingAutomation.generate({
+          ...(req.body || {}),
+          marketplace: marketplaceCode(req),
+        });
+      } catch (error) {
+        throw new AppError(
+          `Mapping önerisi üretilemedi: ${error.code || error.message || "UNKNOWN_ERROR"}`,
+          error.status && error.status < 500 ? error.status : 409,
+          error.code || "MAPPING_SUGGESTION_GENERATION_FAILED",
+          {
+            marketplace: marketplaceCode(req),
+            safeMessage: error.message,
+          },
+        );
+      }
       await log(req, "MAPPING_SUGGESTIONS_GENERATED", "bulk", data);
       res.json({ status: "ok", data });
     }),

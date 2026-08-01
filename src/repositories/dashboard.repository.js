@@ -1,13 +1,46 @@
 const systemNumericSettingSql = (key) =>
   `(SELECT NULLIF(ss.value #>> '{}','null')::numeric FROM system_settings ss WHERE ss.key='${key}')`;
 
-const effectivePriceCutSql = (alias) =>
+const productSettingNumericSql = (alias, key) =>
+  `(SELECT ps.${key}
+     FROM product_settings ps
+     WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode)`;
+
+const learningNumericSql = (alias, key) =>
+  `(SELECT rl.${key}
+     FROM repricer_learning rl
+     WHERE rl.marketplace=${alias}.marketplace AND rl.barcode=${alias}.barcode)`;
+
+const strategyFactorSql = (alias) =>
+  `(CASE COALESCE(
+    (SELECT ps.strategy
+     FROM product_settings ps
+     WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode),
+    'Normal'
+  )
+    WHEN 'Temkinli' THEN 0.75
+    WHEN 'Agresif' THEN 1.5
+    WHEN 'Buybox Odaklı' THEN 1.25
+    ELSE 1
+  END)`;
+
+const basePriceCutSql = (alias) =>
   `COALESCE(
     (SELECT ps.price_cut_tl
      FROM product_settings ps
      WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode),
     ${systemNumericSettingSql("default_price_cut_tl")},
-    0.1
+    5
+  )`;
+
+const effectivePriceCutSql = (alias) =>
+  `LEAST(
+    GREATEST(
+      GREATEST(${basePriceCutSql(alias)}, COALESCE(${learningNumericSql(alias, "learned_price_cut_tl")},0))
+        * ${strategyFactorSql(alias)},
+      COALESCE(${productSettingNumericSql(alias, "min_undercut_tl")},0.1)
+    ),
+    COALESCE(${productSettingNumericSql(alias, "max_undercut_tl")},75)
   )`;
 
 const buyboxActionableSql = (alias) =>
