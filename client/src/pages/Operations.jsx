@@ -143,6 +143,66 @@ const info = {
   logs: ["Loglar", "Entegrasyon, kullanıcı ve sistem olaylarını izleyin"],
   settings: ["Sistem Ayarları", "Global güvenlik ve operasyon varsayılanları"],
 };
+
+const COMMON_JOBS = new Set([
+  "sync-file-market-prices",
+  "sync-bizim-market-prices",
+  "sync-bim-market-prices",
+  "calculate-costs",
+  "validate-data",
+  "generate-mapping-suggestions",
+  "cleanup-old-logs",
+  "dashboard-cache-refresh",
+  "daily-system-health",
+  "estimate-cost-desi",
+  "bootstrap-pim",
+  "marketplace-category-sync",
+  "marketplace-attribute-sync",
+  "marketplace-brand-sync",
+  "catalog-matching",
+  "publish-batch-verification",
+  "listing-content-verification",
+  "opportunity-generation",
+  "listing-health-scan",
+  "content-quality-scan",
+]);
+
+const HEPSIBURADA_JOBS = new Set([
+  "sync-hepsiburada-products",
+  "generate-hepsiburada-repricer-actions",
+  "import-hepsiburada-shipping",
+  "sync-hepsiburada-orders",
+]);
+
+const TRENDYOL_JOBS = new Set([
+  "sync-products",
+  "sync-buybox",
+  "sync-buybox-adaptive",
+  "generate-repricer-actions",
+  "run-auto-repricer",
+  "check-action-outcomes-5m",
+  "check-action-outcomes-15m",
+  "check-action-outcomes-60m",
+  "sync-orders",
+  "sync-financial-transactions",
+  "sync-trendyol-cargo-invoices",
+  "backfill-trendyol-finance-history",
+]);
+
+function jobMarketplace(name) {
+  if (COMMON_JOBS.has(name)) return "COMMON";
+  if (HEPSIBURADA_JOBS.has(name) || String(name).includes("hepsiburada"))
+    return "HEPSIBURADA";
+  if (TRENDYOL_JOBS.has(name) || String(name).includes("trendyol"))
+    return "TRENDYOL";
+  return "COMMON";
+}
+
+function jobVisibleForMarketplace(row, marketplace) {
+  const scope = jobMarketplace(row.name || row.job_name);
+  return scope === "COMMON" || scope === marketplace;
+}
+
 export default function Operations({
   mode,
   notify,
@@ -155,7 +215,7 @@ export default function Operations({
     <>
       <PageHeader
         title={t}
-        description={`${["jobs", "logs", "settings"].includes(mode) ? "Sistem geneli" : marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} · ${d}`}
+        description={`${mode === "jobs" ? `${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} + ortak tedarikçi işleri` : mode === "logs" ? "Sistem geneli" : mode === "settings" ? (marketplace === "TRENDYOL" ? "Trendyol ayarları + global güvenlik" : "Hepsiburada ayarları + global güvenlik") : marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} · ${d}`}
         actions={
           <IconButton
             icon={RefreshCw}
@@ -176,7 +236,9 @@ export default function Operations({
       {mode === "learning" && (
         <Learning key={refresh} notify={notify} marketplace={marketplace} />
       )}{" "}
-      {mode === "jobs" && <Jobs key={refresh} notify={notify} />}{" "}
+      {mode === "jobs" && (
+        <Jobs key={refresh} notify={notify} marketplace={marketplace} />
+      )}{" "}
       {mode === "logs" && <Logs key={refresh} />}{" "}
       {mode === "settings" && (
         <Settings
@@ -1400,7 +1462,7 @@ function LearningDetail({ data }) {
     </div>
   );
 }
-function Jobs({ notify }) {
+function Jobs({ notify, marketplace }) {
   const [data, setData] = useState(null);
   async function load() {
     const [jobs, runs, health] = await Promise.all([
@@ -1438,6 +1500,14 @@ function Jobs({ notify }) {
     }
   }
   if (!data) return <Loading />;
+  const marketplaceLabel =
+    marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
+  const visibleJobs = data.items.filter((item) =>
+    jobVisibleForMarketplace(item, marketplace),
+  );
+  const visibleRuns = data.runs.filter((item) =>
+    jobVisibleForMarketplace(item, marketplace),
+  );
   const cols = [
     { key: "name", label: "Job" },
     { key: "description", label: "Açıklama" },
@@ -1521,7 +1591,7 @@ function Jobs({ notify }) {
             <h2>Günlük sistem sağlığı</h2>
             <p>
               {data.health
-                ? `${data.health.score}/100 · ${date(data.health.finished_at)}`
+                ? `${data.health.score}/100 · ${date(data.health.finished_at)} · ${marketplaceLabel} görünümü`
                 : "Henüz sağlık taraması çalışmadı"}
             </p>
           </div>
@@ -1558,14 +1628,17 @@ function Jobs({ notify }) {
       <div className="panel table-panel">
         <DataTable
           columns={cols}
-          rows={data.items}
-          columnVisibilityKey="jobs"
+          rows={visibleJobs}
+          columnVisibilityKey={`jobs-${marketplace}`}
         />
       </div>
       <div className="section-heading">
         <div>
           <h2>Çalışma geçmişi</h2>
-          <p>Son 100 job çalışması</p>
+          <p>
+            {marketplaceLabel} ve ortak tedarikçi havuzu için son job
+            çalışmaları
+          </p>
         </div>
       </div>
       <div className="panel table-panel">
@@ -1588,8 +1661,8 @@ function Jobs({ notify }) {
             { key: "failed_count", label: "Hatalı" },
             { key: "error", label: "Hata" },
           ]}
-          rows={data.runs}
-          columnVisibilityKey="job-runs"
+          rows={visibleRuns}
+          columnVisibilityKey={`job-runs-${marketplace}`}
         />
       </div>
     </>

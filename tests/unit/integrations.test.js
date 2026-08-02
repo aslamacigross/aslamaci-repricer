@@ -578,6 +578,51 @@ test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", as
   assert.equal(upsert.params[5], "https://cdn.test/single.jpg");
 });
 
+test("Hepsiburada listing sync bos katalog alanlariyla mevcut urun bilgisini ezmez", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-MERCHANT-SKU-1",
+          hbSku: "HBV-CATALOG-1",
+          price: 499,
+          availableStock: 4,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  await sync.hepsiburadaProducts();
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.match(
+    upsert.sql,
+    /product_name=COALESCE\(NULLIF\(EXCLUDED\.product_name,''\),products\.product_name\)/,
+  );
+  assert.match(
+    upsert.sql,
+    /product_image_url=COALESCE\(NULLIF\(EXCLUDED\.product_image_url,''\),products\.product_image_url\)/,
+  );
+});
+
 test("Trendyol GET istegi gecici hatada geri cekilmeyle yeniden denenir", async () => {
   let calls = 0;
   const delays = [];

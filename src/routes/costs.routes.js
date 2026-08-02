@@ -601,7 +601,26 @@ function costsRoutes({
       const data = await shippingTariff.importHepsiburada({
         force: req.body.force === true,
       });
-      await costEngine.recalculate(undefined, undefined, "HEPSIBURADA");
+      try {
+        const recalculation = await costEngine.recalculate(
+          undefined,
+          undefined,
+          "HEPSIBURADA",
+        );
+        data.metadata = {
+          ...(data.metadata || {}),
+          recalculation: { ok: true, ...recalculation },
+        };
+      } catch (error) {
+        data.metadata = {
+          ...(data.metadata || {}),
+          recalculation: {
+            ok: false,
+            code: error.code || "HEPSIBURADA_RECALCULATION_FAILED",
+            message: error.message,
+          },
+        };
+      }
       await logged(
         req,
         "HEPSIBURADA_SHIPPING_IMPORTED",

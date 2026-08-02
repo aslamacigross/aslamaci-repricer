@@ -433,12 +433,12 @@ class SyncService {
           $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,NOW()
         )
         ON CONFLICT(marketplace,barcode)DO UPDATE SET
-          product_name=EXCLUDED.product_name,
-          brand=EXCLUDED.brand,
-          category_name=EXCLUDED.category_name,
-          category_id=EXCLUDED.category_id,
-          product_image_url=EXCLUDED.product_image_url,
-          marketplace_product_id=EXCLUDED.marketplace_product_id,
+          product_name=COALESCE(NULLIF(EXCLUDED.product_name,''),products.product_name),
+          brand=COALESCE(NULLIF(EXCLUDED.brand,''),products.brand),
+          category_name=COALESCE(NULLIF(EXCLUDED.category_name,''),products.category_name),
+          category_id=COALESCE(NULLIF(EXCLUDED.category_id,''),products.category_id),
+          product_image_url=COALESCE(NULLIF(EXCLUDED.product_image_url,''),products.product_image_url),
+          marketplace_product_id=COALESCE(NULLIF(EXCLUDED.marketplace_product_id,''),products.marketplace_product_id),
           my_price=EXCLUDED.my_price,
           list_price=EXCLUDED.list_price,
           stock_quantity=EXCLUDED.stock_quantity,

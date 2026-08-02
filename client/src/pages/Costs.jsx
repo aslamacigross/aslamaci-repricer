@@ -1373,12 +1373,17 @@ function Shipping({
     setImportingTariff(true);
     try {
       const result = await post("/api/shipping/hepsiburada/import", {
-        force: false,
+        force: true,
       });
+      const recalculation = result.data?.metadata?.recalculation;
+      const message = result.data?.metadata?.skipped
+        ? "Hepsiburada tarifesi zaten yüklü"
+        : `${Number(result.data?.successful || 0).toLocaleString("tr-TR")} Hepsiburada tarifesi yüklendi`;
       notify(
-        result.data?.metadata?.skipped
-          ? "Hepsiburada tarifesi zaten yüklü"
-          : `${Number(result.data?.successful || 0).toLocaleString("tr-TR")} Hepsiburada tarifesi yüklendi`,
+        recalculation?.ok === false
+          ? `${message}; maliyet yeniden hesaplama uyarısı: ${recalculation.code || recalculation.message}`
+          : message,
+        recalculation?.ok === false ? "warning" : "success",
       );
       await reload();
     } catch (error) {
@@ -1557,14 +1562,18 @@ function Shipping({
             </p>
           )}
         </div>
-        {query.marketplace === "HEPSIBURADA" && pagination.total === 0 && (
+        {query.marketplace === "HEPSIBURADA" && (
           <Button
             icon={Upload}
             variant="secondary"
             onClick={importHepsiburadaTariff}
             disabled={importingTariff}
           >
-            {importingTariff ? "Yükleniyor" : "Tarifeyi yükle"}
+            {importingTariff
+              ? "Yükleniyor"
+              : pagination.total > 0
+                ? "Tarifeyi yenile"
+                : "Tarifeyi yükle"}
           </Button>
         )}
       </div>

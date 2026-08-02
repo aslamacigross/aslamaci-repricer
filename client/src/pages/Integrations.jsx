@@ -65,6 +65,12 @@ function adapterLabel(value) {
   );
 }
 
+function runtimeEnvironment(item) {
+  return String(item?.runtime?.environment || "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function Integrations({ notify }) {
   const remote = useRemote(() => get("/api/integrations"), []);
   const [selected, setSelected] = useState(null);
@@ -166,7 +172,7 @@ export default function Integrations({ notify }) {
     setHbCatalogDiagnostic(null);
     if (
       selected?.code === "HEPSIBURADA" &&
-      selected?.runtime?.environment === "sit"
+      runtimeEnvironment(selected) === "sit"
     )
       loadSitTests();
   }, [selected?.code, selected?.runtime?.environment]);
@@ -399,7 +405,7 @@ export default function Integrations({ notify }) {
               </section>
             )}
             {selected.code === "HEPSIBURADA" &&
-              selected.runtime?.environment === "sit" && (
+              runtimeEnvironment(selected) === "sit" && (
                 <section>
                   <h3>Hepsiburada SIT test merkezi</h3>
                   {!sitTests ? (

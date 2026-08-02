@@ -1547,26 +1547,46 @@ class MappingAutomationService {
   targetBelongsToPool(target, pool) {
     const targetBrand = normalizeText(target.brand);
     const targetName = normalizeText(target.product_name);
-    return (
+    const brandScoped =
       pool.brands.has(targetBrand) ||
       [...pool.brands].some(
         (brand) => brand.length >= 3 && targetName.includes(brand),
-      )
-    );
+      );
+    if (brandScoped) return true;
+    if (normalizeMarketplace(target.marketplace) === "TRENDYOL") return false;
+    return this.poolNameSimilarity(target, pool) >= 0.18;
+  }
+
+  poolNameSimilarity(target, pool) {
+    if (!pool?.items?.length) return 0;
+    let best = 0;
+    for (const item of pool.items) {
+      const score = compareProducts(target, item).score;
+      if (score > best) best = score;
+      if (best >= 0.3) break;
+    }
+    return best;
   }
 
   candidatesForPool(target, examples, costItems, pool, targetHints) {
+    const relaxedMarketplace =
+      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
+    const minimumCandidateConfidence = relaxedMarketplace ? 0.24 : 0.3;
     return [
       this.buildFromFeedbackCorrection(target, targetHints, pool.items),
       ...this.buildTrainingCandidates(target, examples, pool.items),
       this.buildFromCompositeFileItems(target, pool.items),
       this.buildFromMultiVariantFileItems(target, pool.items),
       this.buildFromCostItems(target, costItems, pool.items),
-      ...this.buildFromFileItems(target, pool.items, { minScore: 0.3 }),
+      ...this.buildFromFileItems(target, pool.items, {
+        minScore: minimumCandidateConfidence,
+      }),
     ]
       .filter(
         (candidate) =>
-          candidate && candidate.confidence >= 0.3 && candidate.items.length,
+          candidate &&
+          candidate.confidence >= minimumCandidateConfidence &&
+          candidate.items.length,
       )
       .map((candidate) => ({ ...candidate, supplier_code: pool.code }))
       .map((candidate) => applyRejectionHints(candidate, targetHints))

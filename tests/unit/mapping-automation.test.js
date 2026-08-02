@@ -1234,6 +1234,43 @@ test("kardeş File varyantının fiyatını uyarılı ve kontrollü önerir", as
   assert.equal(saved[0].evidence.fileMatches[0].priceMode, "SIBLING_VARIANT");
 });
 
+test("Hepsiburada mapping marka eksik olsa da isim benzerligiyle dusuk guvenli aday uretir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-KAKAO",
+        product_name: "Ülker Toz Kakao 150 Gr",
+        brand: "",
+        category_id: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 901,
+        product_name: "Ülker Toz Kakao 150 g",
+        brand: "Ülker",
+        current_price: 89,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].marketplace, "HEPSIBURADA");
+  assert.equal(saved[0].supplier_code, "BIZIM_MARKET");
+  assert.notEqual(saved[0].confidence_band, "HIGH");
+});
+
 test("30 günden eski File fiyatıyla toplu uygulama önizlemesini engeller", async () => {
   const { service } = fixture({
     getSuggestionsByIds: async () => [
