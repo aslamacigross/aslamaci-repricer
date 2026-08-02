@@ -73,10 +73,16 @@ function addMetadataIndex(index, product) {
   for (const key of [
     product?.merchantSku,
     product?.merchantSKU,
+    product?.merchantSkuCode,
+    product?.merchantStockCode,
     product?.sku,
+    product?.stockCode,
     product?.barcode,
     product?.hbSku,
+    product?.hbsku,
     product?.hepsiburadaSku,
+    product?.productSku,
+    product?.variantSku,
     product?.productId,
     product?.listingId,
     product?.variantGroupId,
@@ -115,6 +121,11 @@ function commissionRateValue(source) {
         "commission",
         "rate",
         "commission.rate",
+        "commission.value",
+        "commission.percentage",
+        "commissionRate.value",
+        "commissionPercentage",
+        "commissionPercent",
       ],
       null,
     ),
@@ -427,6 +438,9 @@ class SyncService {
         listing,
       });
     }
+    let commissionMatched = 0;
+    let commissionMissing = 0;
+    const commissionMissingSamples = [];
     for (const row of syncRows) {
       const { listing, product } = row;
       const barcode =
@@ -448,6 +462,12 @@ class SyncService {
       const commissionRate =
         commissionRateValue(metadataForListing(commissionByKey, listing)) ??
         commissionRateValue(listing);
+      if (commissionRate) commissionMatched++;
+      else {
+        commissionMissing++;
+        if (commissionMissingSamples.length < 25)
+          commissionMissingSamples.push(barcode);
+      }
       const status = String(
         firstValue(saleSource, ["status", "listingStatus", "saleStatus"], ""),
       ).toUpperCase();
@@ -560,6 +580,9 @@ class SyncService {
         hepsiburadaCatalogError: metadataError,
         hepsiburadaCatalogLookupCount: metadataLookupCount,
         hepsiburadaCommissionCount: commissionRows.length,
+        hepsiburadaCommissionMatched: commissionMatched,
+        hepsiburadaCommissionMissing: commissionMissing,
+        hepsiburadaCommissionMissingSamples: commissionMissingSamples,
         hepsiburadaCommissionError: commissionError,
       },
     };

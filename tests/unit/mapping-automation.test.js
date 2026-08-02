@@ -211,7 +211,7 @@ test("egitim receteleri ayni barkodda pazaryerleri arasinda birbirine karismaz",
   );
 });
 
-test("toplu oneride acik onerisi olan urunler tekrar taranmaz", async () => {
+test("toplu oneride bekleyen oneriler yeniden taranir, onaylananlar korunur", async () => {
   let capturedSql = "";
   const repository = new MappingAutomationRepository(
     {
@@ -225,6 +225,8 @@ test("toplu oneride acik onerisi olan urunler tekrar taranmaz", async () => {
   await repository.targetProducts({ marketplace: "HEPSIBURADA", limit: 1000 });
   assert.match(capturedSql, /LEFT JOIN mapping_suggestions open_suggestion/);
   assert.match(capturedSql, /open_suggestion\.id IS NULL/);
+  assert.match(capturedSql, /open_suggestion\.status='APPROVED'/);
+  assert.doesNotMatch(capturedSql, /status IN\('PENDING','APPROVED'\)/);
 });
 
 test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini incelemeye çıkarır", async () => {
@@ -271,6 +273,89 @@ test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini i
       saved[0].evidence.crossMarketplaceLowConfidence,
     true,
   );
+});
+
+test("Hepsiburada mappingi urun turu celisen dusuk skorlu adaylari onermez", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-INCIR",
+        product_name: "Harras Kuru İncir 300 g",
+        brand: "Harras",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 11,
+        product_name: "Harras Az Tuzlu Kuru Sele Zeytin 300 g",
+        brand: "Harras",
+        current_price: 99,
+        supplier_code: "FILE_MARKET",
+      },
+    ],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("Hepsiburada mappingi guclu tedarikci eslesmesini zayif gecmise tercih eder", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-KAKAO-DIRECT",
+        product_name: "Ülker Toz Kakao 150 g",
+        brand: "Ülker",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "TY-KAKAO-WEAK",
+        product_name: "Ülker Kakao Aromalı Bisküvi 150 g",
+        brand: "Ülker",
+        cost_item_code: "YANLIS_BISKUVI",
+        item_name: "Ülker Bisküvi",
+        quantity: 1,
+        unit_cost: 40,
+        unit_desi: 1,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 12,
+        product_name: "Ülker Toz Kakao 150 g",
+        brand: "Ülker",
+        current_price: 89,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].supplier_code, "BIZIM_MARKET");
+  assert.equal(saved[0].items[0].file_product_name, "Ülker Toz Kakao 150 g");
+  assert.notEqual(saved[0].items[0].cost_item_code, "YANLIS_BISKUVI");
 });
 
 test("File havuzundaki markalar dışındaki ürünlere öneri üretmez", async () => {

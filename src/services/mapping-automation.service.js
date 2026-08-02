@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v2";
+const ALGORITHM_VERSION = "multi-supplier-v3";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -70,6 +70,70 @@ const SUPPLIER_SOURCE_PREFIXES = Object.freeze({
   BIM: ["bim-yemeksepeti:", "bim:"],
   OTHER: ["other:"],
 });
+
+const PRODUCT_KIND_RULES = Object.freeze([
+  ["camasir_suyu", [["camasir", "suyu"]]],
+  [
+    "bulasik_deterjani",
+    [
+      ["bulasik", "deterjani"],
+      ["bulasik", "deterjan"],
+    ],
+  ],
+  [
+    "camasir_deterjani",
+    [
+      ["camasir", "deterjani"],
+      ["camasir", "deterjan"],
+    ],
+  ],
+  ["yumusatici", [["yumusatici"]]],
+  ["sac_maskesi", [["sac", "maskesi"]]],
+  ["deodorant", [["deodorant"]]],
+  [
+    "islak_mendil",
+    [
+      ["islak", "mendil"],
+      ["islak", "havlu"],
+    ],
+  ],
+  [
+    "kagit_mendil",
+    [
+      ["kagit", "mendil"],
+      ["kutu", "mendil"],
+    ],
+  ],
+  ["dis_ipi", [["dis", "ip"]]],
+  ["sivi_sabun", [["sivi", "sabun"]]],
+  ["kolonya", [["kolonya"]]],
+  ["ton_baligi", [["ton", "baligi"]]],
+  ["fistik_ezmesi", [["fistik", "ezmesi"]]],
+  [
+    "cikolata_kremasi",
+    [
+      ["cikolata", "kremasi"],
+      ["surulebilir", "cikolata"],
+    ],
+  ],
+  ["kuru_meyve", [["kuru", "meyve"]]],
+  ["kurabiye", [["kurabiye"]]],
+  ["biskuvi", [["biskuvi"]]],
+  ["gofret", [["gofret"]]],
+  ["cikolata", [["cikolata"]]],
+  ["kakao", [["kakao"]]],
+  ["incir", [["incir"]]],
+  ["zeytin", [["zeytin"]]],
+  ["pirinc", [["pirinc"]]],
+  ["bulgur", [["bulgur"]]],
+  ["fasulye", [["fasulye"]]],
+  ["nohut", [["nohut"]]],
+  ["mercimek", [["mercimek"]]],
+  ["makarna", [["makarna"]]],
+  ["recel", [["recel"]]],
+  ["kahve", [["kahve"]]],
+  ["cay", [["cay"]]],
+]);
 
 function normalizeMarketplace(value) {
   return String(value || "TRENDYOL")
@@ -372,6 +436,22 @@ function significantProductTokens(value, brand = "") {
   );
 }
 
+function productKinds(value) {
+  const tokenSet = new Set(tokens(value));
+  return new Set(
+    PRODUCT_KIND_RULES.filter(([, variants]) =>
+      variants.some((variant) => variant.every((token) => tokenSet.has(token))),
+    ).map(([kind]) => kind),
+  );
+}
+
+function productKindCompatible(left, right) {
+  const leftKinds = productKinds(left);
+  const rightKinds = productKinds(right);
+  if (!leftKinds.size || !rightKinds.size) return true;
+  return [...leftKinds].some((kind) => rightKinds.has(kind));
+}
+
 function splitCompositeFragments(value) {
   const normalized = normalizeText(value);
   if (!COMPOSITE_MARKER_PATTERN.test(normalized)) return [];
@@ -468,6 +548,8 @@ function sortCandidatesForTarget(target, left, right) {
     )
       return right.items.length - left.items.length;
   }
+  const confidenceDifference = right.confidence - left.confidence;
+  if (Math.abs(confidenceDifference) >= 0.03) return confidenceDifference;
   if (normalizeMarketplace(target.marketplace) !== "TRENDYOL") {
     const historyPriority = (candidate) => {
       if (candidate.source_type !== "MANUAL_HISTORY") return 0;
@@ -479,7 +561,7 @@ function sortCandidatesForTarget(target, left, right) {
     const rightPriority = historyPriority(right);
     if (leftPriority !== rightPriority) return rightPriority - leftPriority;
   }
-  return right.confidence - left.confidence;
+  return confidenceDifference;
 }
 
 const FEEDBACK_HINT_STOP_WORDS = new Set([
@@ -923,6 +1005,13 @@ class MappingAutomationService {
       product_name: `${item.item_name || ""} ${item.cost_item_code || ""}`,
     };
     for (const fileItem of fileItems) {
+      if (
+        !productKindCompatible(
+          target.product_name || target.item_name,
+          fileItem.product_name || fileItem.item_name,
+        )
+      )
+        continue;
       const itemMatch = compareProducts(itemIdentity, fileItem);
       const targetMatch = compareProducts(target, fileItem);
       const score = itemMatch.score * 0.65 + targetMatch.score * 0.35;
@@ -974,7 +1063,7 @@ class MappingAutomationService {
   buildTrainingCandidate(target, example, comparison, fileItems) {
     const crossMarketplace =
       normalizeMarketplace(target.marketplace) !== "TRENDYOL";
-    const minimumScore = crossMarketplace ? 0.22 : 0.42;
+    const minimumScore = crossMarketplace ? 0.36 : 0.42;
     if (comparison.score < minimumScore) return null;
     if (
       crossMarketplace &&
@@ -1045,6 +1134,9 @@ class MappingAutomationService {
     const targetBrand = normalizeText(target.brand);
     const exampleBrand = normalizeText(example.brand);
     if (targetBrand && exampleBrand && targetBrand !== exampleBrand)
+      return false;
+
+    if (!productKindCompatible(target.product_name, example.product_name))
       return false;
 
     const targetSizes = extractSizes(target.product_name);
@@ -1194,6 +1286,13 @@ class MappingAutomationService {
   buildFromCostItems(target, costItems, fileItems) {
     let best = null;
     for (const item of costItems) {
+      if (
+        !productKindCompatible(
+          target.product_name,
+          `${item.item_name} ${item.item_code}`,
+        )
+      )
+        continue;
       const comparison = compareProducts(target, {
         product_name: `${item.item_name} ${item.item_code}`,
       });
@@ -1259,6 +1358,12 @@ class MappingAutomationService {
 
   buildFromFileItems(target, fileItems, { minScore = 0.54 } = {}) {
     return fileItems
+      .filter((fileItem) =>
+        productKindCompatible(
+          target.product_name,
+          fileItem.product_name || fileItem.item_name,
+        ),
+      )
       .map((fileItem) => ({
         fileItem,
         comparison: compareProducts(target, fileItem),
@@ -1620,7 +1725,7 @@ class MappingAutomationService {
   candidatesForPool(target, examples, costItems, pool, targetHints) {
     const relaxedMarketplace =
       normalizeMarketplace(target.marketplace) !== "TRENDYOL";
-    const minimumCandidateConfidence = relaxedMarketplace ? 0.24 : 0.3;
+    const minimumCandidateConfidence = relaxedMarketplace ? 0.34 : 0.3;
     return [
       this.buildFromFeedbackCorrection(target, targetHints, pool.items),
       ...this.buildTrainingCandidates(target, examples, pool.items),

@@ -1438,9 +1438,31 @@ function normalizeRows(payload) {
 }
 
 function normalizeCommissionRows(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  for (const key of [
+  const rows = [];
+  const seen = new Set();
+  const identifierKeys = [
+    "merchantSku",
+    "merchantSKU",
+    "merchantSkuCode",
+    "merchantStockCode",
+    "hbSku",
+    "hbsku",
+    "hepsiburadaSku",
+    "productSku",
+    "variantSku",
+    "stockCode",
+    "barcode",
+    "sku",
+  ];
+  const rateKeys = [
+    "commissionRate",
+    "commissionrate",
+    "commission_rate",
+    "commissionPercentage",
+    "commissionPercent",
+    "rate",
+  ];
+  const wrappers = new Set([
     "commissions",
     "commissionRates",
     "commissionInfoList",
@@ -1449,22 +1471,59 @@ function normalizeCommissionRows(payload) {
     "content",
     "results",
     "data",
-  ]) {
-    if (payload[key] !== undefined) {
-      const rows = normalizeCommissionRows(payload[key]);
-      if (rows.length) return rows;
+  ]);
+
+  function push(row, impliedSku = null) {
+    const normalized =
+      impliedSku && !identifierKeys.some((key) => row[key])
+        ? { ...row, sku: impliedSku }
+        : row;
+    const identifier = identifierKeys
+      .map((key) => normalized[key])
+      .find((value) => String(value || "").trim());
+    const rate = rateKeys
+      .map((key) => normalized[key])
+      .concat([
+        normalized.commission?.rate,
+        normalized.commission?.value,
+        normalized.commission?.percentage,
+        normalized.commissionRate?.value,
+      ])
+      .find((value) => Number.isFinite(Number(value)));
+    if (!identifier || rate === undefined) return false;
+    const key = `${String(identifier).trim().toUpperCase()}:${Number(rate)}`;
+    if (seen.has(key)) return true;
+    seen.add(key);
+    rows.push(normalized);
+    return true;
+  }
+
+  function visit(value, impliedSku = null) {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, impliedSku);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const rowLike =
+      Boolean(impliedSku) || identifierKeys.some((key) => value[key]);
+    push(value, impliedSku);
+    if (rowLike) return;
+    for (const [key, nested] of Object.entries(value)) {
+      if (wrappers.has(key)) {
+        visit(nested, impliedSku);
+        continue;
+      }
+      if (nested && typeof nested === "object") visit(nested, key);
+      else if (
+        Number.isFinite(Number(nested)) &&
+        !["code", "status", "total", "count", "page", "size"].includes(key)
+      )
+        push({ sku: key, commissionRate: nested });
     }
   }
-  if (
-    payload.merchantSku ||
-    payload.hbSku ||
-    payload.hepsiburadaSku ||
-    payload.sku
-  )
-    return [payload];
-  return Object.entries(payload)
-    .filter(([, value]) => Number.isFinite(Number(value)))
-    .map(([sku, commissionRate]) => ({ sku, commissionRate }));
+
+  visit(payload);
+  return rows;
 }
 
 module.exports = {

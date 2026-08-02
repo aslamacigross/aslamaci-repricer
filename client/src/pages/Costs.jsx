@@ -872,12 +872,12 @@ function ResourceTable({
             <strong>
               {marketplace === "TRENDYOL"
                 ? "Trendyol komisyon verisi API'den gelir"
-                : "Hepsiburada komisyonları manuel yönetilir"}
+                : "Hepsiburada komisyon verisi resmi API'den gelir"}
             </strong>
             <p>
               {marketplace === "TRENDYOL"
                 ? "Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası Trendyol ürün verileriyle güncellenir."
-                : "Hepsiburada API ürün/listing cevaplarında komisyon oranı gelmediği için kategori oranlarını burada tekli veya toplu girebilirsin."}
+                : "Oranlar ürün sync sırasında Hepsiburada Komisyon Bilgisi Sorgulama servisiyle güncellenir. API'nin oran döndürmediği ürünler güvenlik amacıyla eksik kalır ve repricer tarafından değiştirilmez."}
             </p>
           </div>
         </div>

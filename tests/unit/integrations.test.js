@@ -295,6 +295,43 @@ test("Hepsiburada listing sync resmi komisyon servisi sonucunu urune yazar", asy
   assert.equal(result.metadata.hepsiburadaCommissionError, null);
 });
 
+test("Hepsiburada listing sync alternatif komisyon SKU alanlarini eslestirir", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-MERCHANT-ALT",
+          hbSku: "HBV-ALT",
+          price: 250,
+          availableStock: 3,
+          isSalable: true,
+        },
+      ],
+      fetchCommissions: async () => [
+        { merchantStockCode: "HB-MERCHANT-ALT", commissionPercentage: 16.5 },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[13], 16.5);
+  assert.equal(result.metadata.hepsiburadaCommissionMatched, 1);
+  assert.equal(result.metadata.hepsiburadaCommissionMissing, 0);
+});
+
 test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tamamlar", async () => {
   const queries = [];
   const sync = new SyncService({

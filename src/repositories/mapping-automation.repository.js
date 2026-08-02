@@ -612,7 +612,7 @@ class MappingAutomationRepository {
          LEFT JOIN mapping_suggestions open_suggestion
            ON open_suggestion.marketplace=p.marketplace
           AND open_suggestion.barcode=p.barcode
-          AND open_suggestion.status IN('PENDING','APPROVED')
+          AND open_suggestion.status='APPROVED'
          WHERE ${where.join(" AND ")}
          ORDER BY p.product_name
          LIMIT $${params.length}`,

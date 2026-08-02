@@ -203,6 +203,23 @@ describe("Hepsiburada API runtime configuration", () => {
     assert.deepEqual(normalizeCommissionRows({ B: 15 }), [
       { sku: "B", commissionRate: 15 },
     ]);
+    assert.deepEqual(
+      normalizeCommissionRows({
+        data: {
+          "HBV-1": { commissionPercentage: 17.5 },
+          "MERCHANT-2": { commissionRate: 12 },
+          "MERCHANT-3": { commission: { rate: 14 } },
+        },
+      }).map((row) => [
+        row.sku,
+        row.commissionPercentage ?? row.commissionRate ?? row.commission?.rate,
+      ]),
+      [
+        ["HBV-1", 17.5],
+        ["MERCHANT-2", 12],
+        ["MERCHANT-3", 14],
+      ],
+    );
   });
 
   test("magaza bazli katalog urunlerini resmi product endpointinden okur", async () => {
