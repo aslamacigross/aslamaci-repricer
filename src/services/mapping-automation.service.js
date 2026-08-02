@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v8";
+const ALGORITHM_VERSION = "multi-supplier-v9";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -421,6 +421,8 @@ function extractExplicitBundleCount(value) {
     /\b(\d+(?:[.,]\d+)?)\s*(?:adet|paket)\b/,
     /\b(\d+(?:[.,]\d+)?)\s*x\s*\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\b/,
     /\b\d+(?:[.,]\d+)?\s*(?:ml|lt|l|gr|g|kg)\s*x\s*(\d+(?:[.,]\d+)?)\s*(?:adet|paket)?\b/,
+    /\b(\d+(?:[.,]\d+)?)\s*(?:li|lu)\s*(?:paket|set|kutu)\b/,
+    /\b(\d+(?:[.,]\d+)?)\s*(?:kutu|sise|kavanoz|rulo)\b/,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -647,6 +649,207 @@ function compareMappingProducts(target, candidate) {
   };
 }
 
+const PRODUCT_KIND_TOKENS = new Set(
+  PRODUCT_KIND_RULES.flatMap(([, variants]) => variants.flat()),
+);
+
+function fuzzyTokenEquivalent(left, right) {
+  if (left === right) return true;
+  if (Math.min(left.length, right.length) < 5) return false;
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length > right.length ? left : right;
+  return longer.startsWith(shorter) && longer.length - shorter.length <= 4;
+}
+
+function fuzzyTokenCoverage(left, right) {
+  const leftTokens = [...new Set(left)];
+  const rightTokens = [...new Set(right)];
+  const used = new Set();
+  let overlap = 0;
+  for (const leftToken of leftTokens) {
+    const index = rightTokens.findIndex(
+      (rightToken, candidateIndex) =>
+        !used.has(candidateIndex) &&
+        fuzzyTokenEquivalent(leftToken, rightToken),
+    );
+    if (index < 0) continue;
+    used.add(index);
+    overlap++;
+  }
+  return {
+    overlap,
+    left: leftTokens.length ? overlap / leftTokens.length : 0,
+    right: rightTokens.length ? overlap / rightTokens.length : 0,
+  };
+}
+
+function hepsiburadaProductKinds(value) {
+  const valueTokens = tokens(value);
+  return new Set(
+    PRODUCT_KIND_RULES.filter(([, variants]) =>
+      variants.some((variant) =>
+        variant.every((kindToken) =>
+          valueTokens.some((valueToken) =>
+            fuzzyTokenEquivalent(kindToken, valueToken),
+          ),
+        ),
+      ),
+    ).map(([kind]) => kind),
+  );
+}
+
+function hepsiburadaMatchTokens(product) {
+  return productMatchTokens(product).filter(
+    (token) =>
+      ![...PRODUCT_KIND_TOKENS].some((kindToken) =>
+        fuzzyTokenEquivalent(kindToken, token),
+      ) && !PRODUCT_FAMILY_TOKENS.has(token),
+  );
+}
+
+function hepsiburadaBrandSignal(target, candidate) {
+  const targetBrand = concreteBrand(target.brand);
+  const candidateBrand = concreteBrand(candidate.brand);
+  const targetName = normalizeText(target.product_name || target.item_name);
+  const candidateName = normalizeText(
+    candidate.product_name || candidate.item_name,
+  );
+  const matches = Boolean(
+    (targetBrand && candidateBrand && targetBrand === candidateBrand) ||
+    (targetBrand && candidateName.includes(targetBrand)) ||
+    (candidateBrand && targetName.includes(candidateBrand)),
+  );
+  return {
+    matches,
+    mismatch: Boolean(targetBrand && candidateBrand && !matches),
+  };
+}
+
+function hepsiburadaSizeSignal(target, candidate) {
+  const targetSizes = extractSizes(target.product_name || target.item_name);
+  const candidateSizes = extractSizes(
+    candidate.product_name || candidate.item_name,
+  );
+  if (!targetSizes.length || !candidateSizes.length) return "UNKNOWN";
+  if (
+    targetSizes.some((targetSize) =>
+      candidateSizes.some((candidateSize) =>
+        sameSizeValue(targetSize, candidateSize),
+      ),
+    )
+  )
+    return "EXACT";
+
+  const targetPack = extractPackCount(target.product_name || target.item_name);
+  const related = targetSizes.some((targetSize) =>
+    candidateSizes.some((candidateSize) => {
+      if (targetSize.unit !== candidateSize.unit) return false;
+      const ratio = targetSize.value / candidateSize.value;
+      return (
+        targetPack > 1 &&
+        Math.abs(ratio - targetPack) <= Math.max(ratio, targetPack) * 0.03
+      );
+    }),
+  );
+  return related ? "PACK_TOTAL" : "MISMATCH";
+}
+
+function hepsiburadaPackSignal(target, candidate) {
+  const targetName = target.product_name || target.item_name || "";
+  const candidateName = candidate.product_name || candidate.item_name || "";
+  const targetOuter = extractExplicitBundleCount(targetName);
+  const candidateOuter = extractExplicitBundleCount(candidateName);
+  if (targetOuter && candidateOuter)
+    return targetOuter === candidateOuter ? "EXACT" : "MISMATCH";
+  if (targetOuter && !candidateOuter) return "UNIT_CANDIDATE";
+  if (!targetOuter && candidateOuter) return "MISMATCH";
+  const targetInternal = extractInternalPackCount(targetName);
+  const candidateInternal = extractInternalPackCount(candidateName);
+  if (
+    targetInternal &&
+    candidateInternal &&
+    targetInternal === candidateInternal
+  )
+    return "INTERNAL_EXACT";
+  return "UNKNOWN";
+}
+
+function compareHepsiburadaSupplierProduct(target, candidate) {
+  const targetName = target.product_name || target.item_name || "";
+  const candidateName = candidate.product_name || candidate.item_name || "";
+  const targetKinds = hepsiburadaProductKinds(targetName);
+  const candidateKinds = hepsiburadaProductKinds(candidateName);
+  const sharedKinds = [...targetKinds].filter((kind) =>
+    candidateKinds.has(kind),
+  );
+  if (targetKinds.size && candidateKinds.size && !sharedKinds.length)
+    return { compatible: false, score: 0, reasons: [] };
+
+  const targetTokens = productMatchTokens(target);
+  const candidateTokens = productMatchTokens(candidate);
+  const coverage = fuzzyTokenCoverage(candidateTokens, targetTokens);
+  const variantCoverage = fuzzyTokenCoverage(
+    hepsiburadaMatchTokens(candidate),
+    hepsiburadaMatchTokens(target),
+  );
+  const brand = hepsiburadaBrandSignal(target, candidate);
+  const size = hepsiburadaSizeSignal(target, candidate);
+  const pack = hepsiburadaPackSignal(target, candidate);
+  if (size === "MISMATCH" || pack === "MISMATCH")
+    return { compatible: false, score: 0, reasons: [] };
+
+  const sensitiveSharedKind = sharedKinds.some((kind) =>
+    VARIANT_SENSITIVE_PRODUCT_KINDS.has(kind),
+  );
+  if (
+    sensitiveSharedKind &&
+    hepsiburadaMatchTokens(target).length &&
+    hepsiburadaMatchTokens(candidate).length &&
+    variantCoverage.overlap === 0
+  )
+    return { compatible: false, score: 0, reasons: [] };
+
+  const hasEnoughNameEvidence = brand.matches
+    ? coverage.overlap >= 1 && (coverage.left >= 0.2 || sharedKinds.length > 0)
+    : coverage.overlap >= 2 && coverage.left >= 0.34;
+  if (!hasEnoughNameEvidence)
+    return { compatible: false, score: 0, reasons: [] };
+
+  let score = coverage.left * 0.48 + coverage.right * 0.16;
+  if (brand.matches) score += 0.22;
+  else if (brand.mismatch) score -= 0.08;
+  if (sharedKinds.length) score += 0.08;
+  if (size === "EXACT") score += 0.12;
+  if (size === "PACK_TOTAL") score += 0.07;
+  if (pack === "EXACT") score += 0.1;
+  if (pack === "UNIT_CANDIDATE") score += 0.04;
+  if (pack === "INTERNAL_EXACT") score += 0.05;
+  score = Math.max(0, Math.min(0.89, Number(score.toFixed(5))));
+
+  return {
+    compatible: true,
+    score,
+    targetPackCount: extractPackCount(targetName),
+    candidatePackCount: extractPackCount(candidateName),
+    reasons: [
+      { code: "HEPSIBURADA_DIRECT_NAME_MATCH" },
+      {
+        code: "SUPPLIER_NAME_COVERAGE",
+        value: Number(coverage.left.toFixed(4)),
+      },
+      ...(brand.matches ? [{ code: "BRAND_MATCH" }] : []),
+      ...(brand.mismatch ? [{ code: "BRAND_REVIEW_REQUIRED" }] : []),
+      ...(sharedKinds.length
+        ? [{ code: "PRODUCT_KIND_MATCH", value: sharedKinds }]
+        : []),
+      ...(size === "EXACT" || size === "PACK_TOTAL"
+        ? [{ code: `SIZE_${size}` }]
+        : []),
+      ...(pack !== "UNKNOWN" ? [{ code: `PACK_${pack}` }] : []),
+    ],
+  };
+}
+
 function productSizeCompatible(left, right) {
   const leftSizes = extractSizes(left.product_name || left.item_name);
   const rightSizes = extractSizes(right.product_name || right.item_name);
@@ -741,6 +944,14 @@ function sortCandidatesForTarget(target, left, right) {
     Number(left.evidence?.rejectionNoteHints?.preferenceScore || 0);
   if (Math.abs(hintPreferenceDifference) >= 0.05)
     return hintPreferenceDifference;
+  if (normalizeMarketplace(target.marketplace) === "HEPSIBURADA") {
+    const strongDirect = (candidate) =>
+      candidate.source_type === "FILE_DIRECT_COST_ITEM" &&
+      candidate.confidence >= 0.72;
+    const leftDirect = strongDirect(left);
+    const rightDirect = strongDirect(right);
+    if (leftDirect !== rightDirect) return rightDirect - leftDirect;
+  }
   const targetComposite = COMPOSITE_MARKER_PATTERN.test(
     normalizeText(target.product_name),
   );
@@ -1621,11 +1832,17 @@ class MappingAutomationService {
   }
 
   buildFromFileItems(target, fileItems, { minScore = 0.54 } = {}) {
-    const crossMarketplace =
-      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
+    const marketplace = normalizeMarketplace(target.marketplace);
+    const crossMarketplace = marketplace !== "TRENDYOL";
+    const hepsiburada = marketplace === "HEPSIBURADA";
     return fileItems
-      .filter((fileItem) =>
-        crossMarketplace
+      .map((fileItem) => {
+        if (hepsiburada)
+          return {
+            fileItem,
+            comparison: compareHepsiburadaSupplierProduct(target, fileItem),
+          };
+        const compatible = crossMarketplace
           ? mappingSemanticCompatible(target, fileItem, {
               allowBrandMismatch: true,
             })
@@ -1635,13 +1852,18 @@ class MappingAutomationService {
             productKindCompatible(
               target.product_name,
               fileItem.product_name || fileItem.item_name,
-            ),
+            );
+        return {
+          fileItem,
+          comparison: compatible
+            ? { ...compareMappingProducts(target, fileItem), compatible: true }
+            : { compatible: false, score: 0, reasons: [] },
+        };
+      })
+      .filter(
+        ({ comparison }) =>
+          comparison.compatible !== false && comparison.score >= minScore,
       )
-      .map((fileItem) => ({
-        fileItem,
-        comparison: compareMappingProducts(target, fileItem),
-      }))
-      .filter(({ comparison }) => comparison.score >= minScore)
       .sort((left, right) => right.comparison.score - left.comparison.score)
       .map(({ fileItem, comparison }) => {
         const unitDesi = estimateUnitDesi(fileItem);
@@ -1649,7 +1871,10 @@ class MappingAutomationService {
         const brandMismatch =
           crossMarketplace && productBrandMismatch(target, fileItem);
         return {
-          confidence: Math.min(brandMismatch ? 0.69 : 0.88, comparison.score),
+          confidence: Math.min(
+            brandMismatch ? 0.69 : hepsiburada ? 0.84 : 0.88,
+            comparison.score,
+          ),
           source_type: "FILE_DIRECT_COST_ITEM",
           source_barcode: null,
           items: [

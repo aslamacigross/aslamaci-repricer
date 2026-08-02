@@ -1779,6 +1779,220 @@ test("Hepsiburada dogrudan isim eslesmesini kaba tedarikci havuzu kapisinda elem
   assert.equal(saved[0].items[0].quantity, 4);
 });
 
+test("Hepsiburada bagimsiz ad motoru uzun basliktan kisa File urununu bulur", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-ACTISOFT-4",
+        product_name:
+          "Actisoft Okyanus Ferahlığı Konsantre Çamaşır Yumuşatıcı 1,5 L x 4 Adet Avantaj Paketi",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 907,
+        product_name: "Actisoft Okyanus Ferahlığı Konsantre Yumuşatıcı 1500 ml",
+        brand: "Actisoft",
+        current_price: 112,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1.5,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+  assert.equal(saved[0].items[0].file_market_item_id, 907);
+  assert.equal(saved[0].items[0].quantity, 4);
+  assert.ok(
+    saved[0].evidence.reasons.some(
+      (reason) => reason.code === "HEPSIBURADA_DIRECT_NAME_MATCH",
+    ),
+  );
+});
+
+test("Hepsiburada bagimsiz ad motoru eksik marka alaninda guclu urun adini incelemeye cikarir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-HARRAS-COOKIE",
+        product_name:
+          "Harras Tereyağlı Kurabiye 180 gr x 3 Adet Avantajlı Aile Paketi",
+        brand: "Diğer Markalar",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 908,
+        product_name: "Harras Tereyağlı Kurabiye 180 g",
+        brand: "Harras",
+        current_price: 229,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].items[0].file_market_item_id, 908);
+  assert.equal(saved[0].items[0].quantity, 3);
+});
+
+test("Hepsiburada bagimsiz ad motoru farkli gramaj ve hassas varyanti onermez", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-MENEKSE-1500",
+        product_name:
+          "Actisoft Menekşe Konsantre Çamaşır Yumuşatıcısı 1500 ml x 2 Adet",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 909,
+        product_name: "Actisoft Çiçek Rüyası Konsantre Yumuşatıcı 1500 ml",
+        brand: "Actisoft",
+        current_price: 112,
+        supplier_code: "FILE_MARKET",
+      },
+      {
+        id: 910,
+        product_name: "Actisoft Menekşe Konsantre Yumuşatıcı 3000 ml",
+        brand: "Actisoft",
+        current_price: 220,
+        supplier_code: "FILE_MARKET",
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("Hepsiburada bagimsiz ad motoru farkli dis paket adetlerini karistirmaz", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-DAYCARE-LIMON-2",
+        product_name: "Daycare Limon Kolonyası 100 ml x 2 Adet",
+        brand: "Daycare",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 911,
+        product_name: "Daycare Limon Kolonyası 100 ml 3'lü Set",
+        brand: "Daycare",
+        current_price: 150,
+        supplier_code: "FILE_MARKET",
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("Hepsiburada ret notu sonraki oneriyi duzeltir ve pazaryeri disina sizmaz", async () => {
+  let feedbackMarketplace = null;
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-ACTISOFT-DETERJAN-2",
+        product_name: "Actisoft Sivi Deterjan 1500 ml x 2 Adet",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    rejectedFeedbackHints: async (_barcodes, marketplace) => {
+      feedbackMarketplace = marketplace;
+      return [
+        {
+          barcode: "HB-ACTISOFT-DETERJAN-2",
+          reason:
+            "Bu urun Actisoft Sivi Bulasik Deterjani degil. Dogru urun Actisoft Sivi Camasir Deterjani 1500 ml. Adet 2 olmali.",
+        },
+      ];
+    },
+    fileItemsForMatching: async () => [
+      {
+        id: 912,
+        product_name: "Actisoft Sivi Bulasik Deterjani 1500 ml",
+        brand: "Actisoft",
+        current_price: 75,
+        supplier_code: "FILE_MARKET",
+      },
+      {
+        id: 913,
+        product_name: "Actisoft Sivi Camasir Deterjani 1500 ml",
+        brand: "Actisoft",
+        current_price: 95,
+        supplier_code: "FILE_MARKET",
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(feedbackMarketplace, "HEPSIBURADA");
+  assert.equal(
+    saved[0].items[0].file_product_name,
+    "Actisoft Sivi Camasir Deterjani 1500 ml",
+  );
+  assert.equal(saved[0].items[0].quantity, 2);
+  assert.ok(saved[0].evidence.rejectionNoteHints.confidenceBoost > 0);
+});
+
 test("Hepsiburada egitimi Trendyol recetesini savunmali olarak filtreler", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
