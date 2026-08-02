@@ -7,6 +7,7 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
       status: service?.configured?.() ? "READY" : "WAITING_CREDENTIALS",
       capabilities: {
         supportsCatalogProductRead: service?.configured?.() === true,
+        supportsCommissionApi: service?.configured?.() === true,
         supportsOrders: true,
         supportsFinancialTransactions: false,
         supportsPriceUpdate:
@@ -51,6 +52,10 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
 
   async fetchProducts(input = {}) {
     return this.service.listListings(input);
+  }
+
+  async fetchCommissions(input = {}) {
+    return this.service.fetchCommissions(input.skus || []);
   }
 
   async updatePriceAndInventory(input = {}) {

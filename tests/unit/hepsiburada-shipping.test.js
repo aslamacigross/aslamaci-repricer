@@ -44,4 +44,17 @@ test("Hepsiburada kargo importu ayni desi-tasiyici satirini idempotent yazar", a
       String(query.sql).includes("ON CONFLICT(marketplace,desi_kg,carrier)"),
   );
   assert.ok(insert);
+  assert.match(
+    insert.sql,
+    /UNNEST\(\$1::numeric\[\],\$2::text\[\],\$3::numeric\[\]\)/,
+  );
+  assert.equal(
+    queries.filter((query) =>
+      String(query.sql).includes("INSERT INTO shipping_costs"),
+    ).length,
+    1,
+  );
+  assert.equal(insert.params[0].length, result.processed);
+  assert.equal(insert.params[1].length, result.processed);
+  assert.equal(insert.params[2].length, result.processed);
 });

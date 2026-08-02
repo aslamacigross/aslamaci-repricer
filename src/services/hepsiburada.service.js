@@ -661,6 +661,38 @@ class HepsiburadaService {
     );
   }
 
+  async listCommissions(skus = []) {
+    const skuList = [
+      ...new Set(
+        (skus || []).map((sku) => String(sku || "").trim()).filter(Boolean),
+      ),
+    ].slice(0, 50);
+    const query = new URLSearchParams();
+    if (skuList.length) query.set("skuList", skuList.join(","));
+    const suffix = query.size ? `?${query}` : "";
+    return this.request(
+      `${this.listingBaseUrl}/commissions/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}${suffix}`,
+    );
+  }
+
+  async fetchCommissions(skus = []) {
+    const unique = [
+      ...new Set(
+        (skus || []).map((sku) => String(sku || "").trim()).filter(Boolean),
+      ),
+    ];
+    const rows = [];
+    for (let offset = 0; offset < unique.length; offset += 50) {
+      const payload = await this.listCommissions(
+        unique.slice(offset, offset + 50),
+      );
+      rows.push(...normalizeCommissionRows(payload));
+    }
+    return rows;
+  }
+
   async listMerchantProducts({
     page = 0,
     size = 1000,
@@ -1405,12 +1437,43 @@ function normalizeRows(payload) {
   );
 }
 
+function normalizeCommissionRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  for (const key of [
+    "commissions",
+    "commissionRates",
+    "commissionInfoList",
+    "items",
+    "listings",
+    "content",
+    "results",
+    "data",
+  ]) {
+    if (payload[key] !== undefined) {
+      const rows = normalizeCommissionRows(payload[key]);
+      if (rows.length) return rows;
+    }
+  }
+  if (
+    payload.merchantSku ||
+    payload.hbSku ||
+    payload.hepsiburadaSku ||
+    payload.sku
+  )
+    return [payload];
+  return Object.entries(payload)
+    .filter(([, value]) => Number.isFinite(Number(value)))
+    .map(([sku, commissionRate]) => ({ sku, commissionRate }));
+}
+
 module.exports = {
   HepsiburadaService,
   DEFAULT_ENDPOINTS,
   SIT_TEST_GUIDES,
   normalizedEnvironment,
   normalizeRows,
+  normalizeCommissionRows,
   listingDeactivationSummary,
   packageNumberFromPayload,
   orderLineItemRequestsFromPayload,

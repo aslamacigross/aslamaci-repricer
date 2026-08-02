@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v1";
+const ALGORITHM_VERSION = "multi-supplier-v2";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -468,6 +468,17 @@ function sortCandidatesForTarget(target, left, right) {
     )
       return right.items.length - left.items.length;
   }
+  if (normalizeMarketplace(target.marketplace) !== "TRENDYOL") {
+    const historyPriority = (candidate) => {
+      if (candidate.source_type !== "MANUAL_HISTORY") return 0;
+      return candidate.evidence?.sourceMarketplace === target.marketplace
+        ? 3
+        : 2;
+    };
+    const leftPriority = historyPriority(left);
+    const rightPriority = historyPriority(right);
+    if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+  }
   return right.confidence - left.confidence;
 }
 
@@ -883,8 +894,11 @@ class MappingAutomationService {
   groupTrainingRows(rows) {
     const grouped = new Map();
     for (const row of rows) {
-      if (!grouped.has(row.barcode))
-        grouped.set(row.barcode, {
+      const marketplace = normalizeMarketplace(row.marketplace);
+      const key = `${marketplace}:${row.barcode}`;
+      if (!grouped.has(key))
+        grouped.set(key, {
+          marketplace,
           barcode: row.barcode,
           product_name: row.product_name,
           brand: row.brand,
@@ -892,7 +906,7 @@ class MappingAutomationService {
           category_name: row.category_name,
           recipe: [],
         });
-      grouped.get(row.barcode).recipe.push({
+      grouped.get(key).recipe.push({
         cost_item_code: row.cost_item_code,
         item_name: row.item_name,
         quantity: Number(row.quantity),
@@ -960,8 +974,13 @@ class MappingAutomationService {
   buildTrainingCandidate(target, example, comparison, fileItems) {
     const crossMarketplace =
       normalizeMarketplace(target.marketplace) !== "TRENDYOL";
-    const minimumScore = crossMarketplace ? 0.34 : 0.42;
+    const minimumScore = crossMarketplace ? 0.22 : 0.42;
     if (comparison.score < minimumScore) return null;
+    if (
+      crossMarketplace &&
+      !this.crossMarketplaceRecipeCompatible(target, example)
+    )
+      return null;
     const scaled = scaleLearnedRecipe(example, target, example.recipe);
     const items = this.enrichRecipe(target, scaled, fileItems);
     const supported = items.filter((item) => item.file_market_item_id);
@@ -989,6 +1008,7 @@ class MappingAutomationService {
       items,
       evidence: {
         sourceProductName: example.product_name,
+        sourceMarketplace: example.marketplace || "TRENDYOL",
         reasons: comparison.reasons,
         sourcePackCount: comparison.candidatePackCount,
         targetPackCount: comparison.targetPackCount,
@@ -1019,6 +1039,35 @@ class MappingAutomationService {
         this.buildTrainingCandidate(target, example, comparison, fileItems),
       )
       .filter(Boolean);
+  }
+
+  crossMarketplaceRecipeCompatible(target, example) {
+    const targetBrand = normalizeText(target.brand);
+    const exampleBrand = normalizeText(example.brand);
+    if (targetBrand && exampleBrand && targetBrand !== exampleBrand)
+      return false;
+
+    const targetSizes = extractSizes(target.product_name);
+    const exampleSizes = extractSizes(example.product_name);
+    if (
+      targetSizes.length &&
+      exampleSizes.length &&
+      !targetSizes.some((targetSize) =>
+        exampleSizes.some((exampleSize) =>
+          sameSizeValue(targetSize, exampleSize),
+        ),
+      )
+    )
+      return false;
+
+    const targetTokens = new Set(
+      significantProductTokens(target.product_name, target.brand),
+    );
+    const exampleTokens = significantProductTokens(
+      example.product_name,
+      example.brand,
+    );
+    return exampleTokens.some((token) => targetTokens.has(token));
   }
 
   buildFromTraining(target, examples, fileItems) {

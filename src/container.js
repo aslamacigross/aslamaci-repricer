@@ -219,9 +219,27 @@ function createContainer(overrides = {}) {
     mappingAutomation.syncLiveSupplierItems("BIM", bimMarket),
   );
   jobService.register("sync-products", () => sync.products());
-  jobService.register("sync-hepsiburada-products", () =>
-    sync.hepsiburadaProducts(),
-  );
+  jobService.register("sync-hepsiburada-products", async () => {
+    const result = await sync.hepsiburadaProducts();
+    let recalculation;
+    try {
+      recalculation = await costEngine.recalculate(
+        undefined,
+        undefined,
+        "HEPSIBURADA",
+      );
+    } catch (error) {
+      recalculation = {
+        ok: false,
+        code: error.code || "COST_RECALCULATION_FAILED",
+        message: error.message,
+      };
+    }
+    return {
+      ...result,
+      metadata: { ...(result.metadata || {}), recalculation },
+    };
+  });
   jobService.register("sync-buybox", () => sync.buybox());
   jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
   jobService.register("calculate-costs", recalculateAllMarketplaces);

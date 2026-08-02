@@ -251,6 +251,50 @@ test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async ()
   assert.equal(upsert.params[19], true);
 });
 
+test("Hepsiburada listing sync resmi komisyon servisi sonucunu urune yazar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-SKU-COMMISSION",
+          hbSku: "HBV-COMMISSION",
+          productName: "Komisyonlu Ürün",
+          price: 250,
+          availableStock: 3,
+          isSalable: true,
+        },
+      ],
+      fetchCommissions: async (skus) => {
+        assert.ok(skus.includes("HB-SKU-COMMISSION"));
+        return [{ merchantSku: "HB-SKU-COMMISSION", commissionRate: 18.5 }];
+      },
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[13], 18.5);
+  assert.equal(result.metadata.hepsiburadaCommissionCount, 1);
+  assert.equal(result.metadata.hepsiburadaCommissionError, null);
+});
+
 test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tamamlar", async () => {
   const queries = [];
   const sync = new SyncService({

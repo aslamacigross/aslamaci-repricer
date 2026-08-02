@@ -73,29 +73,27 @@ class ShippingTariffService {
           });
         }
       }
-      for (let offset = 0; offset < rates.length; offset += 500) {
-        const batch = rates.slice(offset, offset + 500);
-        const params = [];
-        const values = batch.map((rate, index) => {
-          const base = index * 3;
-          params.push(rate.desi, rate.carrier, rate.cost);
-          return `('HEPSIBURADA',$${base + 1},$${base + 2},$${base + 3},
-            ROUND($${base + 3}*(1+${Number(tariff.vatRate)}/100),2),
-            ${Number(tariff.vatRate)},NOW())`;
-        });
-        await client.query(
-          `INSERT INTO shipping_costs(
-             marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate,
-             updated_at
-           )VALUES ${values.join(",")}
-           ON CONFLICT(marketplace,desi_kg,carrier)DO UPDATE SET
-             cost_ex_vat=EXCLUDED.cost_ex_vat,
-             cost_inc_vat=EXCLUDED.cost_inc_vat,
-             vat_rate=EXCLUDED.vat_rate,
-             updated_at=NOW()`,
-          params,
-        );
-      }
+      await client.query(
+        `INSERT INTO shipping_costs(
+           marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate,
+           updated_at
+         )
+         SELECT 'HEPSIBURADA',rate.desi,rate.carrier,rate.cost,
+                ROUND(rate.cost*(1+$4::numeric/100),2),$4::numeric,NOW()
+         FROM UNNEST($1::numeric[],$2::text[],$3::numeric[])
+           AS rate(desi,carrier,cost)
+         ON CONFLICT(marketplace,desi_kg,carrier)DO UPDATE SET
+           cost_ex_vat=EXCLUDED.cost_ex_vat,
+           cost_inc_vat=EXCLUDED.cost_inc_vat,
+           vat_rate=EXCLUDED.vat_rate,
+           updated_at=NOW()`,
+        [
+          rates.map((rate) => rate.desi),
+          rates.map((rate) => rate.carrier),
+          rates.map((rate) => rate.cost),
+          Number(tariff.vatRate),
+        ],
+      );
       await client.query(
         `INSERT INTO shipping_tariff_imports(
            marketplace,source_version,source_name,rate_count,imported_at

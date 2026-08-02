@@ -12,6 +12,7 @@ const {
   listingDeactivationSummary,
   normalizedEnvironment,
   normalizeRows,
+  normalizeCommissionRows,
   orderLineItemRequestsFromPayload,
   packageNumberFromPayload,
 } = require("../../src/services/hepsiburada.service");
@@ -140,6 +141,68 @@ describe("Hepsiburada API runtime configuration", () => {
     } finally {
       Object.assign(env, previous);
     }
+  });
+
+  test("komisyon servisi SKUlari resmi 50li paketlerle sorgular", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamaci_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url) => {
+          requests.push(url);
+          const skus = new URL(url).searchParams.get("skuList").split(",");
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                commissions: skus.map((sku) => ({
+                  merchantSku: sku,
+                  commissionRate: 17,
+                })),
+              }),
+          };
+        },
+      });
+      const rows = await service.fetchCommissions(
+        Array.from({ length: 51 }, (_, index) => `SKU-${index + 1}`),
+      );
+      assert.equal(requests.length, 2);
+      assert.match(
+        requests[0],
+        /listing-external\.hepsiburada\.com\/commissions\/merchantid\/merchant-id/,
+      );
+      assert.equal(
+        new URL(requests[0]).searchParams.get("skuList").split(",").length,
+        50,
+      );
+      assert.equal(rows.length, 51);
+      assert.equal(rows[0].commissionRate, 17);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("komisyon cevabinin yaygin zarflarini normalize eder", () => {
+    assert.equal(
+      normalizeCommissionRows({ data: { items: [{ sku: "A", rate: 12 }] } })[0]
+        .rate,
+      12,
+    );
+    assert.deepEqual(normalizeCommissionRows({ B: 15 }), [
+      { sku: "B", commissionRate: 15 },
+    ]);
   });
 
   test("magaza bazli katalog urunlerini resmi product endpointinden okur", async () => {

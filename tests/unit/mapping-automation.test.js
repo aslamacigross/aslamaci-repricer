@@ -4,6 +4,9 @@ const {
   MappingAutomationService,
   parsePrice,
 } = require("../../src/services/mapping-automation.service");
+const {
+  MappingAutomationRepository,
+} = require("../../src/repositories/mapping-automation.repository");
 
 function fixture(overrides = {}) {
   const saved = [];
@@ -171,6 +174,57 @@ test("Hepsiburada mapping önerileri seçili pazaryeriyle izole üretilir", asyn
     ["trainingRows", "HEPSIBURADA"],
     ["saveSuggestions", "HEPSIBURADA"],
   ]);
+});
+
+test("egitim receteleri ayni barkodda pazaryerleri arasinda birbirine karismaz", () => {
+  const { service } = fixture();
+  const examples = service.groupTrainingRows([
+    {
+      marketplace: "TRENDYOL",
+      barcode: "SAME",
+      product_name: "Trendyol ürünü",
+      cost_item_code: "TY_COST",
+      quantity: 1,
+      unit_cost: 10,
+      unit_desi: 1,
+    },
+    {
+      marketplace: "HEPSIBURADA",
+      barcode: "SAME",
+      product_name: "Hepsiburada ürünü",
+      cost_item_code: "HB_COST",
+      quantity: 1,
+      unit_cost: 20,
+      unit_desi: 1,
+    },
+  ]);
+  assert.equal(examples.length, 2);
+  assert.deepEqual(
+    examples.map((example) => [
+      example.marketplace,
+      example.recipe[0].cost_item_code,
+    ]),
+    [
+      ["TRENDYOL", "TY_COST"],
+      ["HEPSIBURADA", "HB_COST"],
+    ],
+  );
+});
+
+test("toplu oneride acik onerisi olan urunler tekrar taranmaz", async () => {
+  let capturedSql = "";
+  const repository = new MappingAutomationRepository(
+    {
+      query: async (sql) => {
+        capturedSql = String(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    },
+    async () => {},
+  );
+  await repository.targetProducts({ marketplace: "HEPSIBURADA", limit: 1000 });
+  assert.match(capturedSql, /LEFT JOIN mapping_suggestions open_suggestion/);
+  assert.match(capturedSql, /open_suggestion\.id IS NULL/);
 });
 
 test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini incelemeye çıkarır", async () => {

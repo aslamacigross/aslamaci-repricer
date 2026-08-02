@@ -104,6 +104,24 @@ function listingForMetadata(index, product) {
   );
 }
 
+function commissionRateValue(source) {
+  const value = Number(
+    firstValue(
+      source || {},
+      [
+        "commissionRate",
+        "commissionrate",
+        "commission_rate",
+        "commission",
+        "rate",
+        "commission.rate",
+      ],
+      null,
+    ),
+  );
+  return Number.isFinite(value) && value > 0 && value < 100 ? value : null;
+}
+
 function hepsiburadaListingPrice(listing) {
   const value = firstValue(listing, [
     "price",
@@ -318,6 +336,24 @@ class SyncService {
     let metadataRows = [];
     let metadataError = null;
     let metadataLookupCount = 0;
+    let commissionRows = [];
+    let commissionError = null;
+    if (this.hepsiburada.fetchCommissions) {
+      const commissionSkus = listings.flatMap((listing) => [
+        listing?.merchantSku,
+        listing?.merchantSKU,
+        listing?.hbSku,
+        listing?.hepsiburadaSku,
+      ]);
+      try {
+        commissionRows =
+          await this.hepsiburada.fetchCommissions(commissionSkus);
+      } catch (error) {
+        commissionError = error.message;
+      }
+    }
+    const commissionByKey = new Map();
+    for (const row of commissionRows) addMetadataIndex(commissionByKey, row);
     if (this.hepsiburada.fetchAllMerchantProducts) {
       try {
         metadataRows = await this.hepsiburada.fetchAllMerchantProducts({
@@ -409,6 +445,9 @@ class SyncService {
       const salePrice = hepsiburadaListingPrice(saleSource || {});
       const quantity = hepsiburadaListingStock(saleSource || {});
       const buybox = hepsiburadaListingBuybox(listing);
+      const commissionRate =
+        commissionRateValue(metadataForListing(commissionByKey, listing)) ??
+        commissionRateValue(listing);
       const status = String(
         firstValue(saleSource, ["status", "listingStatus", "saleStatus"], ""),
       ).toUpperCase();
@@ -493,11 +532,7 @@ class SyncService {
           archived,
           onSale,
           approved,
-          firstValue(listing, ["commissionRate", "commission"], null) == null
-            ? null
-            : Number(
-                firstValue(listing, ["commissionRate", "commission"], null),
-              ),
+          commissionRate,
           buybox.buyboxPrice,
           buybox.secondPrice,
           buybox.thirdPrice,
@@ -524,6 +559,8 @@ class SyncService {
         hepsiburadaCatalogProducts: metadataRows.length,
         hepsiburadaCatalogError: metadataError,
         hepsiburadaCatalogLookupCount: metadataLookupCount,
+        hepsiburadaCommissionCount: commissionRows.length,
+        hepsiburadaCommissionError: commissionError,
       },
     };
   }

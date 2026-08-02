@@ -563,7 +563,7 @@ class MappingAutomationRepository {
         : ["TRENDYOL", selectedMarketplace];
     return (
       await this.db.query(
-        `SELECT p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
+        `SELECT p.marketplace,p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
                 pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
          FROM products p
          JOIN product_cost_mappings pcm
@@ -594,6 +594,8 @@ class MappingAutomationRepository {
     if (normalized.barcode) {
       params.push(String(normalized.barcode).trim());
       where.push(`p.barcode=$${params.length}`);
+    } else {
+      where.push("open_suggestion.id IS NULL");
     }
     params.push(Math.min(Math.max(Number(normalized.limit) || 500, 1), 1000));
     return (
@@ -607,6 +609,10 @@ class MappingAutomationRepository {
            FROM product_cost_mappings
            GROUP BY marketplace,barcode
          ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
+         LEFT JOIN mapping_suggestions open_suggestion
+           ON open_suggestion.marketplace=p.marketplace
+          AND open_suggestion.barcode=p.barcode
+          AND open_suggestion.status IN('PENDING','APPROVED')
          WHERE ${where.join(" AND ")}
          ORDER BY p.product_name
          LIMIT $${params.length}`,
