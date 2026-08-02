@@ -563,7 +563,8 @@ class MappingAutomationRepository {
         : ["TRENDYOL", selectedMarketplace];
     return (
       await this.db.query(
-        `SELECT p.marketplace,p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
+        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,
+                p.product_name,p.brand,p.category_id,p.category_name,
                 pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
          FROM products p
          JOIN product_cost_mappings pcm
@@ -600,7 +601,8 @@ class MappingAutomationRepository {
     params.push(Math.min(Math.max(Number(normalized.limit) || 500, 1), 1000));
     return (
       await this.db.query(
-        `SELECT p.marketplace,p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
+        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,
+                p.product_name,p.brand,p.category_id,p.category_name,
                 p.product_image_url,p.data_status,p.is_active,p.stock_quantity,
                 p.needs_cost_mapping,p.calculated_product_cost,p.desi
          FROM products p

@@ -275,6 +275,90 @@ test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini i
   );
 });
 
+test("Hepsiburada katalog barkodu farklı satıcı SKU'sunu Trendyol reçetesine bağlar", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-SELLER-SKU-DIFFERENT",
+        marketplace_catalog_barcode: "8690609598109",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690609598109",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1,5 L x 2",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSHE_1500ML",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 2,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(result.catalogBarcodeScoped, 1);
+  assert.equal(saved[0].barcode, "HB-SELLER-SKU-DIFFERENT");
+  assert.equal(saved[0].source_barcode, "8690609598109");
+  assert.equal(saved[0].source_type, "CATALOG_BARCODE_RECIPE");
+  assert.equal(saved[0].evidence.catalogBarcodeMatch, true);
+  assert.equal(saved[0].items[0].quantity, 2);
+});
+
+test("aynı katalog barkodunda varyant uyuşmazlığı öneriyi engeller", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-CICEK",
+        marketplace_catalog_barcode: "8690000000002",
+        product_name: "Actisoft Çiçek Rüyası Yumuşatıcı 1500 ml",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690000000002",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSHE_1500ML",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 1,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(result.catalogBarcodeScoped, 0);
+  assert.equal(saved.length, 0);
+});
+
 test("Hepsiburada es anlamli temizlik urununu Trendyol recetesinden incelemeye cikarir", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [

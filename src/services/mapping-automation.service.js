@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v5";
+const ALGORITHM_VERSION = "multi-supplier-v6";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -165,6 +165,12 @@ const MATCH_NOISE_TOKENS = new Set([
 
 function normalizeMarketplace(value) {
   return String(value || "TRENDYOL")
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "")
     .trim()
     .toUpperCase();
 }
@@ -1134,6 +1140,7 @@ class MappingAutomationService {
         grouped.set(key, {
           marketplace,
           barcode: row.barcode,
+          marketplace_catalog_barcode: row.marketplace_catalog_barcode,
           product_name: row.product_name,
           brand: row.brand,
           category_id: row.category_id,
@@ -1280,6 +1287,53 @@ class MappingAutomationService {
         this.buildTrainingCandidate(target, example, comparison, fileItems),
       )
       .filter(Boolean);
+  }
+
+  catalogBarcodeRecipeCandidates(target, examples, fileItems) {
+    if (normalizeMarketplace(target.marketplace) === "TRENDYOL") return [];
+    const targetCatalogBarcode = normalizeIdentifier(
+      target.marketplace_catalog_barcode,
+    );
+    if (!targetCatalogBarcode) return [];
+    return examples
+      .filter((example) => {
+        if (normalizeMarketplace(example.marketplace) !== "TRENDYOL")
+          return false;
+        return [example.barcode, example.marketplace_catalog_barcode]
+          .map(normalizeIdentifier)
+          .includes(targetCatalogBarcode);
+      })
+      .filter(
+        (example) =>
+          productBrandCompatible(target, example) &&
+          productSizeCompatible(target, example) &&
+          productVariantCompatible(target, example) &&
+          productKindCompatible(target.product_name, example.product_name),
+      )
+      .map((example) => {
+        const items = this.enrichRecipe(target, example.recipe, fileItems);
+        return {
+          confidence: 0.94,
+          source_type: "CATALOG_BARCODE_RECIPE",
+          source_barcode: example.barcode,
+          items,
+          evidence: {
+            sourceProductName: example.product_name,
+            sourceMarketplace: example.marketplace,
+            catalogBarcodeMatch: true,
+            reasons: [{ code: "EXACT_CATALOG_BARCODE_MATCH", value: 1 }],
+            fileMatches: items
+              .filter((item) => item.file_market_item_id)
+              .map((item) => ({
+                costItemCode: item.cost_item_code,
+                fileMarketItemId: item.file_market_item_id,
+                fileProductName: item.file_product_name,
+                score: item.file_match_score,
+                priceMode: item.file_price_mode,
+              })),
+          },
+        };
+      });
   }
 
   crossMarketplaceRecipeCompatible(target, example) {
@@ -1812,8 +1866,10 @@ class MappingAutomationService {
     const fileIds = [
       ...new Set(items.map((item) => item.file_market_item_id).filter(Boolean)),
     ];
-    const manualHistoryOnly =
-      candidate.source_type === "MANUAL_HISTORY" &&
+    const trustedRecipeOnly =
+      ["MANUAL_HISTORY", "CATALOG_BARCODE_RECIPE"].includes(
+        candidate.source_type,
+      ) &&
       items.every(
         (item) =>
           item.cost_item_code &&
@@ -1828,7 +1884,7 @@ class MappingAutomationService {
           Number(item.current_unit_cost) > 0 &&
           Number(item.unit_desi) > 0,
       );
-    if (!fileIds.length && !manualHistoryOnly && !trustedCostCatalogOnly)
+    if (!fileIds.length && !trustedRecipeOnly && !trustedCostCatalogOnly)
       return null;
     const suggestion = {
       marketplace: normalizeMarketplace(target.marketplace),
@@ -1841,7 +1897,7 @@ class MappingAutomationService {
       supplier_code:
         candidate.supplier_code ||
         items[0]?.supplier_code ||
-        (manualHistoryOnly || trustedCostCatalogOnly ? null : "FILE_MARKET"),
+        (trustedRecipeOnly || trustedCostCatalogOnly ? null : "FILE_MARKET"),
       update_file_price: fileIds.length > 0,
       evidence: remapEvidenceCostCodes(candidate.evidence, items),
       product_snapshot: target,
@@ -2033,6 +2089,7 @@ class MappingAutomationService {
     const drafts = [];
     let scoped = 0;
     let recipeScoped = 0;
+    let catalogBarcodeScoped = 0;
     let supplierScoped = 0;
     let costCatalogScoped = 0;
     let withoutCandidate = 0;
@@ -2047,6 +2104,15 @@ class MappingAutomationService {
       const manualCandidates = supplierCode
         ? []
         : this.manualHistoryCandidatesForTarget(target, examples, targetHints);
+      const catalogBarcodeCandidates = supplierCode
+        ? []
+        : this.catalogBarcodeRecipeCandidates(target, examples, []).map(
+            (candidate) =>
+              this.applyCompositeSafety(
+                target,
+                applyRejectionHints(candidate, targetHints),
+              ),
+          );
       const costCatalogCandidates = supplierCode
         ? []
         : this.costCatalogCandidatesForTarget(target, costItems, targetHints);
@@ -2056,17 +2122,21 @@ class MappingAutomationService {
       if (
         !matchingPools.length &&
         !manualCandidates.length &&
+        !catalogBarcodeCandidates.length &&
         !costCatalogCandidates.length
       )
         continue;
       scoped++;
-      if (manualCandidates.length) recipeScoped++;
+      if (manualCandidates.length || catalogBarcodeCandidates.length)
+        recipeScoped++;
+      if (catalogBarcodeCandidates.length) catalogBarcodeScoped++;
       if (matchingPools.length) supplierScoped++;
       if (costCatalogCandidates.length) costCatalogScoped++;
       const poolCandidates = matchingPools.flatMap((pool) =>
         this.candidatesForPool(target, examples, costItems, pool, targetHints),
       );
       const candidates = [
+        ...catalogBarcodeCandidates,
         ...manualCandidates,
         ...poolCandidates,
         ...costCatalogCandidates,
@@ -2143,6 +2213,7 @@ class MappingAutomationService {
       processed: targets.length,
       scoped,
       recipeScoped,
+      catalogBarcodeScoped,
       supplierScoped,
       costCatalogScoped,
       eligible: suggestions.length,

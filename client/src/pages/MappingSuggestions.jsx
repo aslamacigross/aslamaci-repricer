@@ -870,7 +870,7 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
         : "";
       const scopeText =
         data.recipeScoped !== undefined
-          ? ` (${data.recipeScoped} geçmiş reçete, ${data.supplierScoped || 0} tedarikçi havuzu, ${data.costCatalogScoped || 0} maliyet kataloğu eşleşmesi)`
+          ? ` (${data.recipeScoped} geçmiş reçete, ${data.catalogBarcodeScoped || 0} katalog barkodu, ${data.supplierScoped || 0} tedarikçi havuzu, ${data.costCatalogScoped || 0} maliyet kataloğu eşleşmesi)`
           : "";
       const poolText = Number.isFinite(Number(data.filePoolSize))
         ? `, ${data.filePoolSize} tedarikçi ürünü karşılaştırıldı`
