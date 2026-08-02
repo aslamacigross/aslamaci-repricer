@@ -73,7 +73,36 @@ const reasonLabels = {
   SIZE_MATCH: "Gramaj / hacim eşleşiyor",
   SIZE_MISMATCH: "Gramaj / hacim farklı",
   CATEGORY_MATCH: "Kategori eşleşiyor",
+  HEPSIBURADA_LOW_CONFIDENCE_REVIEW: "Düşük güvenli manuel inceleme adayı",
 };
+
+function productLabel(marketplace) {
+  return marketplace === "HEPSIBURADA" ? "Hepsiburada ürünü" : "Trendyol ürünü";
+}
+
+function identifierLabel(marketplace) {
+  return marketplace === "HEPSIBURADA" ? "Satıcı stok kodu" : "Barkod";
+}
+
+function productSearchPlaceholder(marketplace) {
+  return `${identifierLabel(marketplace)} veya ${productLabel(marketplace)} ara`;
+}
+
+function sourceTypeLabel(row) {
+  if (hasVariantPrice(row)) return "Eski mapping + kardeş varyant";
+
+  return (
+    {
+      MANUAL_HISTORY_AND_FILE: "Geçmiş karar + tedarikçi fiyatı",
+      MANUAL_HISTORY: "Geçmiş karar",
+      FILE_MARKET: "Tedarikçi fiyatı",
+      FILE_DIRECT_COST_ITEM: "Doğrudan tedarikçi eşleşmesi",
+      FILE_COMPOSITE_COST_ITEMS: "Tedarikçi karma reçetesi",
+      FILE_MULTI_VARIANT_COST_ITEMS: "Tedarikçi varyant reçetesi",
+      COST_ITEM_CATALOG: "Maliyet kataloğu",
+    }[row.source_type] || "Maliyet kataloğu"
+  );
+}
 
 function confidenceTone(band) {
   if (band === "HIGH") return "success";
@@ -237,8 +266,8 @@ function ManualCostQueue({ notify, marketplace = "TRENDYOL" }) {
   useEffect(() => setPage(1), [search, marketplace]);
 
   const columns = [
-    { key: "barcode", label: "Barkod" },
-    { key: "product_name", label: "Trendyol ürünü", width: 320 },
+    { key: "barcode", label: identifierLabel(marketplace) },
+    { key: "product_name", label: productLabel(marketplace), width: 320 },
     { key: "brand", label: "Marka" },
     { key: "category_name", label: "Kategori" },
     { key: "data_status", label: "Veri durumu", badge: true },
@@ -543,8 +572,8 @@ function MappingDiagnostics({ notify, marketplace = "TRENDYOL" }) {
   }
 
   const columns = [
-    { key: "barcode", label: "Barkod" },
-    { key: "product_name", label: "Trendyol ürünü", width: 320 },
+    { key: "barcode", label: identifierLabel(marketplace) },
+    { key: "product_name", label: productLabel(marketplace), width: 320 },
     { key: "brand", label: "Marka" },
     {
       key: "diagnosis_label",
@@ -712,8 +741,8 @@ function MappingLearningHistory({ marketplace = "TRENDYOL" }) {
         label: "Tarih",
         render: (row) => date(row.created_at),
       },
-      { key: "barcode", label: "Barkod" },
-      { key: "product_name", label: "Trendyol ürünü", width: 320 },
+      { key: "barcode", label: identifierLabel(marketplace) },
+      { key: "product_name", label: productLabel(marketplace), width: 320 },
       {
         key: "decision",
         label: "Karar",
@@ -749,7 +778,7 @@ function MappingLearningHistory({ marketplace = "TRENDYOL" }) {
       { key: "actor", label: "Kullanıcı" },
       { key: "reason", label: "Ret notu", width: 260 },
     ],
-    [],
+    [marketplace],
   );
 
   return (
@@ -759,7 +788,7 @@ function MappingLearningHistory({ marketplace = "TRENDYOL" }) {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Barkod veya Trendyol ürünü ara"
+            placeholder={productSearchPlaceholder(marketplace)}
           />
           <select
             value={decision}
@@ -937,8 +966,8 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
         exportable: false,
         render: (row) => <ProductImage product={row} />,
       },
-      { key: "barcode", label: "Barkod" },
-      { key: "product_name", label: "Trendyol ürünü", width: 300 },
+      { key: "barcode", label: identifierLabel(marketplace) },
+      { key: "product_name", label: productLabel(marketplace), width: 300 },
       {
         key: "mapping",
         label: "Önerilen eşleşme",
@@ -985,7 +1014,7 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
       },
       {
         key: "supplier_code",
-        label: "Kaynak",
+        label: "Tedarikçi",
         render: (row) => supplierDefinition(row.supplier_code).shortLabel,
       },
       {
@@ -1002,17 +1031,8 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
       },
       {
         key: "source_type",
-        label: "Kaynak",
-        render: (row) =>
-          hasVariantPrice(row)
-            ? "Eski mapping + kardeş varyant"
-            : row.source_type === "MANUAL_HISTORY_AND_FILE"
-              ? "Eski mapping + tedarikçi"
-              : row.source_type === "MANUAL_HISTORY"
-                ? "Eski mapping"
-                : row.source_type === "FILE_MARKET"
-                  ? "Tedarikçi + maliyet kataloğu"
-                  : "Maliyet kataloğu",
+        label: "Eşleşme kaynağı",
+        render: sourceTypeLabel,
       },
       {
         key: "status",
@@ -1056,7 +1076,7 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
         ),
       },
     ],
-    [],
+    [marketplace],
   );
 
   return (
@@ -1066,7 +1086,7 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Barkod veya Trendyol ürünü ara"
+            placeholder={productSearchPlaceholder(marketplace)}
           />
           <select
             value={status}

@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v9";
+const ALGORITHM_VERSION = "multi-supplier-v10";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -809,9 +809,17 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
   )
     return { compatible: false, score: 0, reasons: [] };
 
+  const structuredMatch = Boolean(
+    sharedKinds.length &&
+    ["EXACT", "PACK_TOTAL"].includes(size) &&
+    ["EXACT", "UNIT_CANDIDATE", "INTERNAL_EXACT", "UNKNOWN"].includes(pack),
+  );
+  let reviewOnly = brand.matches
+    ? coverage.overlap >= 1 && coverage.left < 0.2
+    : variantCoverage.overlap === 1 && structuredMatch;
   const hasEnoughNameEvidence = brand.matches
-    ? coverage.overlap >= 1 && (coverage.left >= 0.2 || sharedKinds.length > 0)
-    : coverage.overlap >= 2 && coverage.left >= 0.34;
+    ? coverage.overlap >= 1 || structuredMatch
+    : (coverage.overlap >= 2 && coverage.left >= 0.24) || reviewOnly;
   if (!hasEnoughNameEvidence)
     return { compatible: false, score: 0, reasons: [] };
 
@@ -824,11 +832,14 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
   if (pack === "EXACT") score += 0.1;
   if (pack === "UNIT_CANDIDATE") score += 0.04;
   if (pack === "INTERNAL_EXACT") score += 0.05;
+  if (score < 0.3) reviewOnly = true;
+  if (reviewOnly) score = Math.max(score, 0.31);
   score = Math.max(0, Math.min(0.89, Number(score.toFixed(5))));
 
   return {
     compatible: true,
-    score,
+    score: reviewOnly ? Math.min(score, 0.49) : score,
+    reviewOnly,
     targetPackCount: extractPackCount(targetName),
     candidatePackCount: extractPackCount(candidateName),
     reasons: [
@@ -846,6 +857,7 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
         ? [{ code: `SIZE_${size}` }]
         : []),
       ...(pack !== "UNKNOWN" ? [{ code: `PACK_${pack}` }] : []),
+      ...(reviewOnly ? [{ code: "HEPSIBURADA_LOW_CONFIDENCE_REVIEW" }] : []),
     ],
   };
 }
@@ -945,11 +957,10 @@ function sortCandidatesForTarget(target, left, right) {
   if (Math.abs(hintPreferenceDifference) >= 0.05)
     return hintPreferenceDifference;
   if (normalizeMarketplace(target.marketplace) === "HEPSIBURADA") {
-    const strongDirect = (candidate) =>
-      candidate.source_type === "FILE_DIRECT_COST_ITEM" &&
-      candidate.confidence >= 0.72;
-    const leftDirect = strongDirect(left);
-    const rightDirect = strongDirect(right);
+    const directSupplierMatch = (candidate) =>
+      candidate.source_type === "FILE_DIRECT_COST_ITEM";
+    const leftDirect = directSupplierMatch(left);
+    const rightDirect = directSupplierMatch(right);
     if (leftDirect !== rightDirect) return rightDirect - leftDirect;
   }
   const targetComposite = COMPOSITE_MARKER_PATTERN.test(
@@ -1865,6 +1876,7 @@ class MappingAutomationService {
           comparison.compatible !== false && comparison.score >= minScore,
       )
       .sort((left, right) => right.comparison.score - left.comparison.score)
+      .slice(0, 5)
       .map(({ fileItem, comparison }) => {
         const unitDesi = estimateUnitDesi(fileItem);
         const quantity = fileBackedQuantity(target, fileItem);
@@ -1872,7 +1884,13 @@ class MappingAutomationService {
           crossMarketplace && productBrandMismatch(target, fileItem);
         return {
           confidence: Math.min(
-            brandMismatch ? 0.69 : hepsiburada ? 0.84 : 0.88,
+            comparison.reviewOnly
+              ? 0.49
+              : brandMismatch
+                ? 0.69
+                : hepsiburada
+                  ? 0.84
+                  : 0.88,
             comparison.score,
           ),
           source_type: "FILE_DIRECT_COST_ITEM",
@@ -1916,6 +1934,7 @@ class MappingAutomationService {
             variantPriceInferred: false,
             createsCostItem: true,
             crossMarketplaceBrandMismatch: brandMismatch,
+            hepsiburadaLowConfidenceReview: Boolean(comparison.reviewOnly),
           },
         };
       });
@@ -2291,6 +2310,27 @@ class MappingAutomationService {
       return [];
     const candidate = this.buildFromCostItems(target, costItems, []);
     if (!candidate || candidate.confidence < 0.54) return [];
+    if (normalizeMarketplace(target.marketplace) === "HEPSIBURADA") {
+      const catalogProduct = {
+        product_name: candidate.items[0]?.item_name || "",
+      };
+      const comparison = compareHepsiburadaSupplierProduct(
+        target,
+        catalogProduct,
+      );
+      if (!comparison.compatible || comparison.score < 0.3) return [];
+      candidate.confidence = Math.min(
+        candidate.confidence,
+        comparison.reviewOnly ? 0.49 : comparison.score,
+      );
+      candidate.evidence = {
+        ...candidate.evidence,
+        reasons: [
+          ...(candidate.evidence?.reasons || []),
+          ...comparison.reasons,
+        ],
+      };
+    }
     return [
       this.applyCompositeSafety(
         target,

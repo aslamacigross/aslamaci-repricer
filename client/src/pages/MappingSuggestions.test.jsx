@@ -67,6 +67,28 @@ describe("Akıllı mapping paneli", () => {
     ).toBe(true);
   });
 
+  test("Hepsiburada seciliyken urun ve kimlik basliklarini dogru gosterir", async () => {
+    render(
+      <MappingSuggestions
+        view="suggestions"
+        marketplace="HEPSIBURADA"
+        notify={vi.fn()}
+      />,
+    );
+
+    expect(
+      (await screen.findAllByText("Hepsiburada ürünü")).some(
+        (item) => item.tagName === "BUTTON",
+      ),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByText("Satıcı stok kodu")
+        .some((item) => item.tagName === "BUTTON"),
+    ).toBe(true);
+    expect(screen.queryByText("Trendyol ürünü")).not.toBeInTheDocument();
+  });
+
   test("onay öneriyi uygulatmadan yalnızca onay endpointini çağırır", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();

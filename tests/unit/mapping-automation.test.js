@@ -1859,6 +1859,90 @@ test("Hepsiburada bagimsiz ad motoru eksik marka alaninda guclu urun adini incel
   assert.equal(saved[0].items[0].quantity, 3);
 });
 
+test("Hepsiburada tek guclu varyant sinyalini dusuk guvenle manuel incelemeye cikarir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-MENEKSE-REVIEW",
+        product_name:
+          "Özel Seri Menekşe Konsantre Çamaşır Yumuşatıcısı 1500 ml x 2 Adet",
+        brand: "Diğer Markalar",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 914,
+        product_name: "Actisoft Menekşe Yumuşatıcı 1,5 L",
+        brand: "Actisoft",
+        current_price: 112,
+        supplier_code: "FILE_MARKET",
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].confidence_band, "LOW");
+  assert.equal(saved[0].items[0].file_market_item_id, 914);
+  assert.equal(saved[0].items[0].quantity, 2);
+  assert.ok(
+    saved[0].evidence.reasons.some(
+      (reason) => reason.code === "HEPSIBURADA_LOW_CONFIDENCE_REVIEW",
+    ),
+  );
+});
+
+test("Hepsiburada dogrudan tedarikci adayi maliyet katalog adayindan once gelir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-DAYCARE-TISSUE",
+        product_name: "Daycare Kutu Mendil 2'li Paket",
+        brand: "Daycare",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [
+      {
+        item_code: "DAYCARE_KUTU_MENDIL_ESKI",
+        item_name: "Daycare Kutu Mendil 2'li Paket",
+        unit_cost: 100,
+        unit_desi: 1,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 915,
+        product_name: "Daycare Kutu Mendil 2'li Paket",
+        brand: "Daycare",
+        current_price: 89,
+        supplier_code: "FILE_MARKET",
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+  assert.equal(saved[0].items[0].file_market_item_id, 915);
+});
+
 test("Hepsiburada bagimsiz ad motoru farkli gramaj ve hassas varyanti onermez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
