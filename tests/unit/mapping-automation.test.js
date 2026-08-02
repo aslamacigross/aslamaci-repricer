@@ -319,6 +319,47 @@ test("Hepsiburada katalog barkodu farklı satıcı SKU'sunu Trendyol reçetesine
   assert.equal(saved[0].items[0].quantity, 2);
 });
 
+test("Hepsiburada katalog barkodu marka alani farkliyken eslesmeyi incelemeye cikarir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-CATALOG-PRIVATE-BRAND",
+        marketplace_catalog_barcode: "8690609598109",
+        product_name: "Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Aşlamacı Bakliyat",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690609598109",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1,5 L x 2",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSHE_1500ML",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 2,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.catalogBarcodeScoped, 1);
+  assert.equal(saved[0].source_type, "CATALOG_BARCODE_RECIPE");
+  assert.notEqual(saved[0].confidence_band, "HIGH");
+  assert.equal(saved[0].evidence.crossMarketplaceBrandMismatch, true);
+});
+
 test("aynı katalog barkodunda varyant uyuşmazlığı öneriyi engeller", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
@@ -1648,6 +1689,126 @@ test("uzun Hepsiburada basligi kisa tedarikci adini ve genel marka alanini kacir
   assert.equal(result.created, 1);
   assert.equal(saved[0].items[0].file_market_item_id, 902);
   assert.equal(saved[0].items[0].quantity, 3);
+});
+
+test("Hepsiburada magazasi markasi tedarikci markasindan farkli olsa da guvenli eslesmeyi incelemeye cikarir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-PRIVATE-BRAND",
+        product_name: "Tereyağlı Kurabiye 180 gr x 3 Adet",
+        brand: "Aşlamacı Bakliyat",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 904,
+        product_name: "Harras Tereyağlı Kurabiye 180 g",
+        brand: "Harras",
+        current_price: 229,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.supplierScoped, 1);
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].confidence_band, "LOW");
+  assert.equal(saved[0].evidence.crossMarketplaceBrandMismatch, true);
+  assert.equal(saved[0].items[0].quantity, 3);
+});
+
+test("Hepsiburada magazasi markasi farkli olsa da Trendyol recetesini dusuk guvenle kullanir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-PRIVATE-RECIPE",
+        product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml x 2",
+        brand: "Aşlamacı Bakliyat",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "TY-MENEKSE-2",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1,5 L x 2",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSHE_1500ML",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 2,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.recipeScoped, 1);
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "MANUAL_HISTORY");
+  assert.equal(saved[0].confidence_band, "LOW");
+  assert.equal(saved[0].evidence.crossMarketplaceBrandMismatch, true);
+});
+
+test("Hepsiburada marka farkini gevsetirken urun turu ve kelime ilgisi olmayan adaylari engeller", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-TISSUE",
+        product_name: "Daycare Kutu Mendil 2'li",
+        brand: "Aşlamacı Bakliyat",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [
+      {
+        item_code: "RENAX_BULASIK_MAKINESI_TUZU",
+        item_name: "Renax Bulaşık Makinesi Tuzu",
+        unit_cost: 60,
+        unit_desi: 2,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 905,
+        product_name: "Karışık Renkli Kadın Şal",
+        brand: "Diğer Markalar",
+        current_price: 75,
+        supplier_code: "BIZIM_MARKET",
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
 });
 
 test("tedarikci adinda farkli hassas varyanti yalniz genel kelimelerle onermez", async () => {

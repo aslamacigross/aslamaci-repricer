@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v6";
+const ALGORITHM_VERSION = "multi-supplier-v7";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -73,6 +73,22 @@ const SUPPLIER_SOURCE_PREFIXES = Object.freeze({
 
 const PRODUCT_KIND_RULES = Object.freeze([
   ["camasir_suyu", [["camasir", "suyu"]]],
+  [
+    "bulasik_makinesi_kapsulu",
+    [
+      ["bulasik", "makinesi", "kapsulu"],
+      ["bulasik", "makinesi", "kapsul"],
+      ["bulasik", "makinesi", "tableti"],
+      ["bulasik", "makinesi", "tablet"],
+    ],
+  ],
+  [
+    "bulasik_makinesi_tuzu",
+    [
+      ["bulasik", "makinesi", "tuzu"],
+      ["bulasik", "makinesi", "tuz"],
+    ],
+  ],
   [
     "bulasik_deterjani",
     [
@@ -501,6 +517,14 @@ function productBrandCompatible(left, right) {
   return diceCoefficient(leftTokens, rightTokens) >= 0.5;
 }
 
+function productBrandMismatch(left, right) {
+  const leftBrand = concreteBrand(left.brand);
+  const rightBrand = concreteBrand(right.brand);
+  return Boolean(
+    leftBrand && rightBrand && !productBrandCompatible(left, right),
+  );
+}
+
 function productMatchTokens(product) {
   const brandTokens = new Set(tokens(concreteBrand(product.brand)));
   return tokens(product.product_name || product.item_name).filter(
@@ -519,6 +543,36 @@ function tokenCoverage(left, right) {
     left: overlap / leftSet.size,
     right: overlap / rightSet.size,
   };
+}
+
+function mappingSemanticCompatible(
+  left,
+  right,
+  { allowBrandMismatch = false } = {},
+) {
+  if (!allowBrandMismatch && !productBrandCompatible(left, right)) return false;
+  if (!productSizeCompatible(left, right)) return false;
+  if (!productVariantCompatible(left, right)) return false;
+
+  const leftKinds = productKinds(left.product_name || left.item_name);
+  const rightKinds = productKinds(right.product_name || right.item_name);
+  if (
+    leftKinds.size &&
+    rightKinds.size &&
+    ![...leftKinds].some((kind) => rightKinds.has(kind))
+  )
+    return false;
+
+  const coverage = tokenCoverage(
+    productMatchTokens(left),
+    productMatchTokens(right),
+  );
+  const oneKindMissing = Boolean(leftKinds.size) !== Boolean(rightKinds.size);
+  const requiredOverlap = Math.max(
+    productBrandMismatch(left, right) ? 2 : 1,
+    oneKindMissing ? 2 : 1,
+  );
+  return coverage.overlap >= requiredOverlap;
 }
 
 function productVariantCompatible(left, right) {
@@ -1240,8 +1294,10 @@ class MappingAutomationService {
       1,
       comparison.score * 0.9 + fileSupport * 0.1,
     );
+    const brandMismatch =
+      crossMarketplace && productBrandMismatch(target, example);
     const confidence =
-      crossMarketplace && comparison.score < 0.42
+      crossMarketplace && (comparison.score < 0.42 || brandMismatch)
         ? Math.min(rawConfidence, 0.69)
         : rawConfidence;
     const variantPriceInferred = items.some(
@@ -1271,7 +1327,8 @@ class MappingAutomationService {
           })),
         variantPriceInferred,
         crossMarketplaceLowConfidence:
-          crossMarketplace && comparison.score < 0.42,
+          crossMarketplace && (comparison.score < 0.42 || brandMismatch),
+        crossMarketplaceBrandMismatch: brandMismatch,
       },
     };
   }
@@ -1303,17 +1360,16 @@ class MappingAutomationService {
           .map(normalizeIdentifier)
           .includes(targetCatalogBarcode);
       })
-      .filter(
-        (example) =>
-          productBrandCompatible(target, example) &&
-          productSizeCompatible(target, example) &&
-          productVariantCompatible(target, example) &&
-          productKindCompatible(target.product_name, example.product_name),
+      .filter((example) =>
+        mappingSemanticCompatible(target, example, {
+          allowBrandMismatch: true,
+        }),
       )
       .map((example) => {
         const items = this.enrichRecipe(target, example.recipe, fileItems);
+        const brandMismatch = productBrandMismatch(target, example);
         return {
-          confidence: 0.94,
+          confidence: brandMismatch ? 0.79 : 0.94,
           source_type: "CATALOG_BARCODE_RECIPE",
           source_barcode: example.barcode,
           items,
@@ -1321,6 +1377,7 @@ class MappingAutomationService {
             sourceProductName: example.product_name,
             sourceMarketplace: example.marketplace,
             catalogBarcodeMatch: true,
+            crossMarketplaceBrandMismatch: brandMismatch,
             reasons: [{ code: "EXACT_CATALOG_BARCODE_MATCH", value: 1 }],
             fileMatches: items
               .filter((item) => item.file_market_item_id)
@@ -1337,12 +1394,12 @@ class MappingAutomationService {
   }
 
   crossMarketplaceRecipeCompatible(target, example) {
-    if (!productBrandCompatible(target, example)) return false;
-
-    if (!productKindCompatible(target.product_name, example.product_name))
+    if (
+      !mappingSemanticCompatible(target, example, {
+        allowBrandMismatch: true,
+      })
+    )
       return false;
-
-    if (!productSizeCompatible(target, example)) return false;
 
     const targetTokens = new Set(
       significantProductTokens(target.product_name, target.brand),
@@ -1485,29 +1542,24 @@ class MappingAutomationService {
 
   buildFromCostItems(target, costItems, fileItems) {
     let best = null;
+    const crossMarketplace =
+      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
     for (const item of costItems) {
-      if (
-        !productKindCompatible(
-          target.product_name,
-          `${item.item_name} ${item.item_code}`,
-        )
-      )
-        continue;
-      if (
-        !productSizeCompatible(target, {
-          product_name: `${item.item_name} ${item.item_code}`,
-        })
-      )
-        continue;
-      if (
-        !productVariantCompatible(target, {
-          product_name: `${item.item_name} ${item.item_code}`,
-        })
-      )
-        continue;
-      const comparison = compareMappingProducts(target, {
+      const costProduct = {
         product_name: `${item.item_name} ${item.item_code}`,
-      });
+      };
+      if (
+        crossMarketplace
+          ? !mappingSemanticCompatible(target, costProduct)
+          : !productKindCompatible(
+              target.product_name,
+              costProduct.product_name,
+            ) ||
+            !productSizeCompatible(target, costProduct) ||
+            !productVariantCompatible(target, costProduct)
+      )
+        continue;
+      const comparison = compareMappingProducts(target, costProduct);
       if (!best || comparison.score > best.comparison.score)
         best = { item, comparison };
     }
@@ -1569,16 +1621,21 @@ class MappingAutomationService {
   }
 
   buildFromFileItems(target, fileItems, { minScore = 0.54 } = {}) {
+    const crossMarketplace =
+      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
     return fileItems
-      .filter(
-        (fileItem) =>
-          productBrandCompatible(target, fileItem) &&
-          productSizeCompatible(target, fileItem) &&
-          productVariantCompatible(target, fileItem) &&
-          productKindCompatible(
-            target.product_name,
-            fileItem.product_name || fileItem.item_name,
-          ),
+      .filter((fileItem) =>
+        crossMarketplace
+          ? mappingSemanticCompatible(target, fileItem, {
+              allowBrandMismatch: true,
+            })
+          : productBrandCompatible(target, fileItem) &&
+            productSizeCompatible(target, fileItem) &&
+            productVariantCompatible(target, fileItem) &&
+            productKindCompatible(
+              target.product_name,
+              fileItem.product_name || fileItem.item_name,
+            ),
       )
       .map((fileItem) => ({
         fileItem,
@@ -1589,8 +1646,10 @@ class MappingAutomationService {
       .map(({ fileItem, comparison }) => {
         const unitDesi = estimateUnitDesi(fileItem);
         const quantity = fileBackedQuantity(target, fileItem);
+        const brandMismatch =
+          crossMarketplace && productBrandMismatch(target, fileItem);
         return {
-          confidence: Math.min(0.88, comparison.score),
+          confidence: Math.min(brandMismatch ? 0.69 : 0.88, comparison.score),
           source_type: "FILE_DIRECT_COST_ITEM",
           source_barcode: null,
           items: [
@@ -1631,6 +1690,7 @@ class MappingAutomationService {
             ],
             variantPriceInferred: false,
             createsCostItem: true,
+            crossMarketplaceBrandMismatch: brandMismatch,
           },
         };
       });
@@ -1942,16 +2002,20 @@ class MappingAutomationService {
     if (!pool?.items?.length) return 0;
     let best = 0;
     for (const item of pool.items) {
-      if (
-        !productBrandCompatible(target, item) ||
-        !productSizeCompatible(target, item) ||
-        !productVariantCompatible(target, item) ||
-        !productKindCompatible(
-          target.product_name,
-          item.product_name || item.item_name,
-        )
-      )
-        continue;
+      const crossMarketplace =
+        normalizeMarketplace(target.marketplace) !== "TRENDYOL";
+      const compatible = crossMarketplace
+        ? mappingSemanticCompatible(target, item, {
+            allowBrandMismatch: true,
+          })
+        : productBrandCompatible(target, item) &&
+          productSizeCompatible(target, item) &&
+          productVariantCompatible(target, item) &&
+          productKindCompatible(
+            target.product_name,
+            item.product_name || item.item_name,
+          );
+      if (!compatible) continue;
       const score = compareMappingProducts(target, item).score;
       if (score > best) best = score;
       if (best >= 0.3) break;
@@ -1996,7 +2060,7 @@ class MappingAutomationService {
     if (COMPOSITE_MARKER_PATTERN.test(normalizeText(target.product_name)))
       return [];
     const candidate = this.buildFromCostItems(target, costItems, []);
-    if (!candidate || candidate.confidence < 0.3) return [];
+    if (!candidate || candidate.confidence < 0.54) return [];
     return [
       this.applyCompositeSafety(
         target,
