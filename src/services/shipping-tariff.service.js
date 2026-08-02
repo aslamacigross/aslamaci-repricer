@@ -87,7 +87,12 @@ class ShippingTariffService {
           `INSERT INTO shipping_costs(
              marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate,
              updated_at
-           )VALUES ${values.join(",")}`,
+           )VALUES ${values.join(",")}
+           ON CONFLICT(marketplace,desi_kg,carrier)DO UPDATE SET
+             cost_ex_vat=EXCLUDED.cost_ex_vat,
+             cost_inc_vat=EXCLUDED.cost_inc_vat,
+             vat_rate=EXCLUDED.vat_rate,
+             updated_at=NOW()`,
           params,
         );
       }

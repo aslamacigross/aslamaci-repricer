@@ -372,6 +372,60 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
   assert.equal(upserts[0].params[19], true);
 });
 
+test("Hepsiburada listing sync katalog gorsel objelerini URL olarak normalize eder", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HB-MERCHANT-SKU-IMAGE",
+          hbSku: "HBV-IMAGE",
+          price: 99,
+          availableStock: 2,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "HB-MERCHANT-SKU-IMAGE",
+          hbSku: "HBV-IMAGE",
+          productName: "Görselli Ürün",
+          brand: "Marka",
+          categoryName: "Kategori",
+          categoryId: 111,
+          images: [
+            { url: "https://productimages.hepsiburada.net/s/1/{size}/x.jpg" },
+          ],
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        if (
+          String(sql).includes("FROM products") &&
+          String(sql).includes("marketplace='TRENDYOL'")
+        )
+          return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  await sync.hepsiburadaProducts();
+
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(
+    upsert.params[5],
+    "https://productimages.hepsiburada.net/s/1/500/x.jpg",
+  );
+});
+
 test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla zenginlestirir", async () => {
   const queries = [];
   const sync = new SyncService({

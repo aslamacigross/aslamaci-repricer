@@ -852,10 +852,11 @@ class CostRepository {
   }
 
   async saveCommission(input) {
+    const marketplace = String(input.marketplace || "TRENDYOL").toUpperCase();
     const row = (
       await this.db.query(
         `INSERT INTO commission_rules(marketplace,category_id,category_name,commission_rate,note,updated_at)
-       VALUES('TRENDYOL',$1,$2,$3,$4,NOW()) ON CONFLICT(marketplace,category_id)
+       VALUES($5,$1,$2,$3,$4,NOW()) ON CONFLICT(marketplace,category_id)
        DO UPDATE SET category_name=EXCLUDED.category_name,commission_rate=EXCLUDED.commission_rate,note=EXCLUDED.note,updated_at=NOW()
        RETURNING *`,
         [
@@ -863,6 +864,7 @@ class CostRepository {
           input.category_name,
           input.commission_rate,
           input.note,
+          marketplace,
         ],
       )
     ).rows[0];
@@ -871,6 +873,7 @@ class CostRepository {
          commission_rate=$1,
          base_commission_rate=$1,
          special_commission_active=CASE
+           WHEN marketplace<>'TRENDYOL' THEN FALSE
            WHEN trendyol_commission_rate IS NOT NULL
              AND trendyol_commission_rate > 0
              AND $1::numeric > 0
@@ -879,6 +882,7 @@ class CostRepository {
            ELSE FALSE
          END,
          special_commission_note=CASE
+           WHEN marketplace<>'TRENDYOL' THEN NULL
            WHEN trendyol_commission_rate IS NOT NULL
              AND trendyol_commission_rate > 0
              AND $1::numeric > 0
@@ -887,13 +891,14 @@ class CostRepository {
            ELSE NULL
          END,
          updated_at=NOW()
-       WHERE marketplace='TRENDYOL' AND category_id=$2`,
-      [input.commission_rate, input.category_id],
+       WHERE marketplace=$3 AND category_id=$2`,
+      [input.commission_rate, input.category_id, marketplace],
     );
     return row;
   }
 
-  async saveCommissions(rows) {
+  async saveCommissions(rows, marketplace = "TRENDYOL") {
+    const selectedMarketplace = String(marketplace || "TRENDYOL").toUpperCase();
     if (!Array.isArray(rows) || !rows.length)
       throw new AppError("Komisyon listesi boş", 400, "EMPTY_COMMISSION_LIST");
     const seen = new Set();
@@ -920,7 +925,7 @@ class CostRepository {
         await client.query(
           `INSERT INTO commission_rules(
             marketplace,category_id,category_name,commission_rate,note,updated_at
-          )VALUES('TRENDYOL',$1,$2,$3,$4,NOW())
+          )VALUES($5,$1,$2,$3,$4,NOW())
           ON CONFLICT(marketplace,category_id)DO UPDATE SET
             category_name=EXCLUDED.category_name,
             commission_rate=EXCLUDED.commission_rate,
@@ -930,6 +935,7 @@ class CostRepository {
             row.category_name || "",
             Number(row.commission_rate),
             row.note || null,
+            selectedMarketplace,
           ],
         );
         await client.query(
@@ -937,6 +943,7 @@ class CostRepository {
              commission_rate=$1,
              base_commission_rate=$1,
              special_commission_active=CASE
+               WHEN marketplace<>'TRENDYOL' THEN FALSE
                WHEN trendyol_commission_rate IS NOT NULL
                  AND trendyol_commission_rate > 0
                  AND $1::numeric > 0
@@ -945,6 +952,7 @@ class CostRepository {
                ELSE FALSE
              END,
              special_commission_note=CASE
+               WHEN marketplace<>'TRENDYOL' THEN NULL
                WHEN trendyol_commission_rate IS NOT NULL
                  AND trendyol_commission_rate > 0
                  AND $1::numeric > 0
@@ -953,8 +961,8 @@ class CostRepository {
                ELSE NULL
              END,
              updated_at=NOW()
-           WHERE marketplace='TRENDYOL' AND category_id=$2`,
-          [Number(row.commission_rate), categoryId],
+           WHERE marketplace=$3 AND category_id=$2`,
+          [Number(row.commission_rate), categoryId, selectedMarketplace],
         );
       }
       return { updated: rows.length };

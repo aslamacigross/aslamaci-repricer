@@ -958,7 +958,10 @@ class MappingAutomationService {
   }
 
   buildTrainingCandidate(target, example, comparison, fileItems) {
-    if (comparison.score < 0.42) return null;
+    const crossMarketplace =
+      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
+    const minimumScore = crossMarketplace ? 0.34 : 0.42;
+    if (comparison.score < minimumScore) return null;
     const scaled = scaleLearnedRecipe(example, target, example.recipe);
     const items = this.enrichRecipe(target, scaled, fileItems);
     const supported = items.filter((item) => item.file_market_item_id);
@@ -966,7 +969,14 @@ class MappingAutomationService {
       ? supported.reduce((sum, item) => sum + item.file_match_score, 0) /
         items.length
       : 0;
-    const confidence = Math.min(1, comparison.score * 0.9 + fileSupport * 0.1);
+    const rawConfidence = Math.min(
+      1,
+      comparison.score * 0.9 + fileSupport * 0.1,
+    );
+    const confidence =
+      crossMarketplace && comparison.score < 0.42
+        ? Math.min(rawConfidence, 0.69)
+        : rawConfidence;
     const variantPriceInferred = items.some(
       (item) => item.file_price_mode === "SIBLING_VARIANT",
     );
@@ -992,6 +1002,8 @@ class MappingAutomationService {
             priceMode: item.file_price_mode,
           })),
         variantPriceInferred,
+        crossMarketplaceLowConfidence:
+          crossMarketplace && comparison.score < 0.42,
       },
     };
   }

@@ -43,7 +43,7 @@ const titles = {
   ],
   commissions: [
     "Komisyonlar",
-    "Pazaryeri API kaynaklı kategori komisyon raporu",
+    "Kategori komisyonlarını pazaryeri bazında yönetin",
   ],
   shipping: [
     "Kargo & Ambalaj",
@@ -870,13 +870,14 @@ function ResourceTable({
           <TriangleAlert />
           <div>
             <strong>
-              Komisyon verisi{" "}
-              {marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} API'den
-              gelir
+              {marketplace === "TRENDYOL"
+                ? "Trendyol komisyon verisi API'den gelir"
+                : "Hepsiburada komisyonları manuel yönetilir"}
             </strong>
             <p>
-              Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası
-              seçili pazaryerinden gelen ürün verileriyle güncellenir.
+              {marketplace === "TRENDYOL"
+                ? "Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası Trendyol ürün verileriyle güncellenir."
+                : "Hepsiburada API ürün/listing cevaplarında komisyon oranı gelmediği için kategori oranlarını burada tekli veya toplu girebilirsin."}
             </p>
           </div>
         </div>
@@ -981,11 +982,13 @@ function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
       if (value.bulk) {
         const rows = parseBulkRows(form.text, mode).map((row) => ({
           ...row,
-          ...(mode === "mappings" ? { marketplace } : {}),
+          ...(["mappings", "commissions"].includes(mode)
+            ? { marketplace }
+            : {}),
         }));
         if (mode === "costs") await post("/api/cost-items/bulk", { rows });
         else if (mode === "commissions")
-          await post("/api/commissions/bulk", { rows });
+          await post("/api/commissions/bulk", { rows, marketplace });
         else {
           if (!preview || previewText !== (form.text || ""))
             throw new Error("Güncel satırları önce önizleyin");
@@ -1015,7 +1018,9 @@ function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
         const path = value.category_id
           ? `/api/commissions/${value.category_id}`
           : "/api/commissions";
-        await (value.category_id ? patch(path, form) : post(path, form));
+        await (value.category_id
+          ? patch(path, { ...form, marketplace })
+          : post(path, { ...form, marketplace }));
       }
       notify("Kayıt başarıyla kaydedildi");
       onSaved();

@@ -173,6 +173,52 @@ test("Hepsiburada mapping önerileri seçili pazaryeriyle izole üretilir", asyn
   ]);
 });
 
+test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini incelemeye çıkarır", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB_TEA_TARGET",
+        product_name: "Earl Grey Demlik Çay 48'li 3 Paket",
+        brand: "Obaçay",
+        category_id: "987",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "TY_TEA_SOURCE",
+        product_name: "Obaçay Earl Grey Bergamot Demlik Poşet Çay 48'li x 3",
+        brand: "Obaçay",
+        category_id: "987",
+        cost_item_code: "OBACAY_EARL_GREY_48LI",
+        item_name: "Obaçay Earl Grey Demlik Poşet Çay 48'li",
+        quantity: 3,
+        unit_cost: 120,
+        unit_desi: 1,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "MANUAL_HISTORY");
+  assert.equal(saved[0].confidence <= 0.69, true);
+  assert.equal(
+    saved[0].evidence.learning.confidence <= 0.69 ||
+      saved[0].evidence.crossMarketplaceLowConfidence,
+    true,
+  );
+});
+
 test("File havuzundaki markalar dışındaki ürünlere öneri üretmez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [

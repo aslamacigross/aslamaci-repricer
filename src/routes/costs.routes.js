@@ -461,11 +461,28 @@ function costsRoutes({
   r.post(
     "/commissions/bulk",
     asyncRoute(async (req, res) => {
-      throw new AppError(
-        "Komisyon verisi Trendyol API'den gelir; manuel toplu giriş kapalı.",
-        410,
-        "COMMISSION_MANUAL_WRITE_DISABLED",
+      const marketplace = String(
+        req.body.marketplace || req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace === "TRENDYOL")
+        throw new AppError(
+          "Trendyol komisyon verisi API'den gelir; manuel toplu giriş kapalı.",
+          410,
+          "COMMISSION_MANUAL_WRITE_DISABLED",
+        );
+      const data = await costs.saveCommissions(req.body.rows, marketplace);
+      await costEngine.recalculate(undefined, undefined, marketplace);
+      await logged(
+        req,
+        "COMMISSIONS_BULK_UPSERTED",
+        "commission",
+        marketplace,
+        null,
+        {
+          processed: data.updated,
+        },
       );
+      res.json({ status: "ok", data });
     }),
   );
   r.delete(
@@ -510,21 +527,55 @@ function costsRoutes({
   r.post(
     "/commissions",
     asyncRoute(async (req, res) => {
-      throw new AppError(
-        "Komisyon verisi Trendyol API'den gelir; manuel giriş kapalı.",
-        410,
-        "COMMISSION_MANUAL_WRITE_DISABLED",
+      const marketplace = String(
+        req.body.marketplace || req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace === "TRENDYOL")
+        throw new AppError(
+          "Trendyol komisyon verisi API'den gelir; manuel giriş kapalı.",
+          410,
+          "COMMISSION_MANUAL_WRITE_DISABLED",
+        );
+      const data = await costs.saveCommission({ ...req.body, marketplace });
+      await costEngine.recalculate(undefined, undefined, marketplace);
+      await logged(
+        req,
+        "COMMISSION_CREATED",
+        "commission",
+        data.category_id,
+        null,
+        data,
       );
+      res.status(201).json({ status: "ok", data });
     }),
   );
   r.patch(
     "/commissions/:categoryId",
     asyncRoute(async (req, res) => {
-      throw new AppError(
-        "Komisyon verisi Trendyol API'den gelir; manuel güncelleme kapalı.",
-        410,
-        "COMMISSION_MANUAL_WRITE_DISABLED",
+      const marketplace = String(
+        req.body.marketplace || req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace === "TRENDYOL")
+        throw new AppError(
+          "Trendyol komisyon verisi API'den gelir; manuel güncelleme kapalı.",
+          410,
+          "COMMISSION_MANUAL_WRITE_DISABLED",
+        );
+      const data = await costs.saveCommission({
+        ...req.body,
+        marketplace,
+        category_id: req.params.categoryId,
+      });
+      await costEngine.recalculate(undefined, undefined, marketplace);
+      await logged(
+        req,
+        "COMMISSION_UPDATED",
+        "commission",
+        data.category_id,
+        null,
+        data,
       );
+      res.json({ status: "ok", data });
     }),
   );
   r.get(

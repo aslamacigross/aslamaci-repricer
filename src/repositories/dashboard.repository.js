@@ -101,9 +101,12 @@ class DashboardRepository {
         [normalizedMarketplace],
       ),
       this.db.query(
-        `SELECT COALESCE(category_name,'Kategori Yok') name,COUNT(*)::int count,
-        ROUND(AVG(calculated_net_margin)::numeric,2) margin FROM products WHERE marketplace=$1
-        GROUP BY category_name ORDER BY count DESC LIMIT 12`,
+        `SELECT COALESCE(NULLIF(TRIM(category_name),''),'Kategori Yok') name,COUNT(*)::int count,
+        ROUND(AVG(calculated_net_margin)::numeric,2) margin
+        FROM products
+        WHERE marketplace=$1 AND is_active=TRUE AND stock_quantity>0
+        GROUP BY COALESCE(NULLIF(TRIM(category_name),''),'Kategori Yok')
+        ORDER BY count DESC LIMIT 12`,
         [normalizedMarketplace],
       ),
       this.db.query(

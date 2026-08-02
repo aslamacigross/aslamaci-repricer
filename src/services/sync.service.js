@@ -181,20 +181,39 @@ function enrichedListingValue(
   return firstValue(fallback, [...keys, fallbackKey], empty);
 }
 
+function normalizeImageUrl(value) {
+  if (!value) return null;
+  const raw =
+    typeof value === "string"
+      ? value
+      : value.url ||
+        value.imageUrl ||
+        value.link ||
+        value.href ||
+        value.path ||
+        "";
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  return text.replace("{size}", "500");
+}
+
 function enrichedImageValue(listing, fallback) {
-  return firstValue(
-    listing,
-    [
-      "imageUrl",
-      "mainImageUrl",
-      "images.0",
-      "images.0.url",
-      "product.imageUrl",
-      "product.images.0",
-      "product.images.0.url",
-    ],
-    fallback?.images?.[0] || fallback?.product_image_url || null,
-  );
+  const listingImage = firstValue(listing, [
+    "imageUrl",
+    "mainImageUrl",
+    "images.0",
+    "images.0.url",
+    "product.imageUrl",
+    "product.images.0",
+    "product.images.0.url",
+  ]);
+  const fallbackImage =
+    fallback?.images?.[0] ||
+    fallback?.imageUrl ||
+    fallback?.mainImageUrl ||
+    fallback?.product_image_url ||
+    null;
+  return normalizeImageUrl(listingImage) || normalizeImageUrl(fallbackImage);
 }
 
 class SyncService {
