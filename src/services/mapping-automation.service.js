@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v3";
+const ALGORITHM_VERSION = "multi-supplier-v4";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -133,6 +133,14 @@ const PRODUCT_KIND_RULES = Object.freeze([
   ["recel", [["recel"]]],
   ["kahve", [["kahve"]]],
   ["cay", [["cay"]]],
+]);
+
+const VARIANT_SENSITIVE_PRODUCT_KINDS = new Set([
+  "yumusatici",
+  "kolonya",
+  "recel",
+  "kahve",
+  "cay",
 ]);
 
 function normalizeMarketplace(value) {
@@ -450,6 +458,25 @@ function productKindCompatible(left, right) {
   const rightKinds = productKinds(right);
   if (!leftKinds.size || !rightKinds.size) return true;
   return [...leftKinds].some((kind) => rightKinds.has(kind));
+}
+
+function productBrandCompatible(left, right) {
+  const leftBrand = normalizeText(left.brand);
+  const rightBrand = normalizeText(right.brand);
+  if (!leftBrand || !rightBrand) return true;
+  if (leftBrand === rightBrand) return true;
+  const leftTokens = tokens(leftBrand);
+  const rightTokens = tokens(rightBrand);
+  return diceCoefficient(leftTokens, rightTokens) >= 0.5;
+}
+
+function productSizeCompatible(left, right) {
+  const leftSizes = extractSizes(left.product_name || left.item_name);
+  const rightSizes = extractSizes(right.product_name || right.item_name);
+  if (!leftSizes.length || !rightSizes.length) return true;
+  return leftSizes.some((leftSize) =>
+    rightSizes.some((rightSize) => sameSizeValue(leftSize, rightSize)),
+  );
 }
 
 function splitCompositeFragments(value) {
@@ -1063,7 +1090,7 @@ class MappingAutomationService {
   buildTrainingCandidate(target, example, comparison, fileItems) {
     const crossMarketplace =
       normalizeMarketplace(target.marketplace) !== "TRENDYOL";
-    const minimumScore = crossMarketplace ? 0.36 : 0.42;
+    const minimumScore = crossMarketplace ? 0.3 : 0.42;
     if (comparison.score < minimumScore) return null;
     if (
       crossMarketplace &&
@@ -1131,26 +1158,12 @@ class MappingAutomationService {
   }
 
   crossMarketplaceRecipeCompatible(target, example) {
-    const targetBrand = normalizeText(target.brand);
-    const exampleBrand = normalizeText(example.brand);
-    if (targetBrand && exampleBrand && targetBrand !== exampleBrand)
-      return false;
+    if (!productBrandCompatible(target, example)) return false;
 
     if (!productKindCompatible(target.product_name, example.product_name))
       return false;
 
-    const targetSizes = extractSizes(target.product_name);
-    const exampleSizes = extractSizes(example.product_name);
-    if (
-      targetSizes.length &&
-      exampleSizes.length &&
-      !targetSizes.some((targetSize) =>
-        exampleSizes.some((exampleSize) =>
-          sameSizeValue(targetSize, exampleSize),
-        ),
-      )
-    )
-      return false;
+    if (!productSizeCompatible(target, example)) return false;
 
     const targetTokens = new Set(
       significantProductTokens(target.product_name, target.brand),
@@ -1159,7 +1172,15 @@ class MappingAutomationService {
       example.product_name,
       example.brand,
     );
-    return exampleTokens.some((token) => targetTokens.has(token));
+    if (exampleTokens.some((token) => targetTokens.has(token))) return true;
+
+    const sharedKinds = [...productKinds(target.product_name)].filter((kind) =>
+      productKinds(example.product_name).has(kind),
+    );
+    if (!sharedKinds.length) return false;
+    if (sharedKinds.some((kind) => VARIANT_SENSITIVE_PRODUCT_KINDS.has(kind)))
+      return false;
+    return compareProducts(target, example).score >= 0.3;
   }
 
   buildFromTraining(target, examples, fileItems) {
@@ -1293,6 +1314,12 @@ class MappingAutomationService {
         )
       )
         continue;
+      if (
+        !productSizeCompatible(target, {
+          product_name: `${item.item_name} ${item.item_code}`,
+        })
+      )
+        continue;
       const comparison = compareProducts(target, {
         product_name: `${item.item_name} ${item.item_code}`,
       });
@@ -1358,11 +1385,14 @@ class MappingAutomationService {
 
   buildFromFileItems(target, fileItems, { minScore = 0.54 } = {}) {
     return fileItems
-      .filter((fileItem) =>
-        productKindCompatible(
-          target.product_name,
-          fileItem.product_name || fileItem.item_name,
-        ),
+      .filter(
+        (fileItem) =>
+          productBrandCompatible(target, fileItem) &&
+          productSizeCompatible(target, fileItem) &&
+          productKindCompatible(
+            target.product_name,
+            fileItem.product_name || fileItem.item_name,
+          ),
       )
       .map((fileItem) => ({
         fileItem,
@@ -1658,7 +1688,16 @@ class MappingAutomationService {
           Number(item.current_unit_cost) > 0 &&
           Number(item.unit_desi) > 0,
       );
-    if (!fileIds.length && !manualHistoryOnly) return null;
+    const trustedCostCatalogOnly =
+      candidate.source_type === "COST_ITEM_CATALOG" &&
+      items.every(
+        (item) =>
+          item.cost_item_code &&
+          Number(item.current_unit_cost) > 0 &&
+          Number(item.unit_desi) > 0,
+      );
+    if (!fileIds.length && !manualHistoryOnly && !trustedCostCatalogOnly)
+      return null;
     const suggestion = {
       marketplace: normalizeMarketplace(target.marketplace),
       barcode: target.barcode,
@@ -1670,7 +1709,7 @@ class MappingAutomationService {
       supplier_code:
         candidate.supplier_code ||
         items[0]?.supplier_code ||
-        (manualHistoryOnly ? null : "FILE_MARKET"),
+        (manualHistoryOnly || trustedCostCatalogOnly ? null : "FILE_MARKET"),
       update_file_price: fileIds.length > 0,
       evidence: remapEvidenceCostCodes(candidate.evidence, items),
       product_snapshot: target,
@@ -1708,7 +1747,7 @@ class MappingAutomationService {
       );
     if (brandScoped) return true;
     if (normalizeMarketplace(target.marketplace) === "TRENDYOL") return false;
-    return this.poolNameSimilarity(target, pool) >= 0.18;
+    return this.poolNameSimilarity(target, pool) >= 0.12;
   }
 
   poolNameSimilarity(target, pool) {
@@ -1725,7 +1764,7 @@ class MappingAutomationService {
   candidatesForPool(target, examples, costItems, pool, targetHints) {
     const relaxedMarketplace =
       normalizeMarketplace(target.marketplace) !== "TRENDYOL";
-    const minimumCandidateConfidence = relaxedMarketplace ? 0.34 : 0.3;
+    const minimumCandidateConfidence = relaxedMarketplace ? 0.3 : 0.3;
     return [
       this.buildFromFeedbackCorrection(target, targetHints, pool.items),
       ...this.buildTrainingCandidates(target, examples, pool.items),
@@ -1752,6 +1791,30 @@ class MappingAutomationService {
       .filter((candidate) => candidate.source_type === "MANUAL_HISTORY")
       .map((candidate) => applyRejectionHints(candidate, targetHints))
       .map((candidate) => this.applyCompositeSafety(target, candidate));
+  }
+
+  costCatalogCandidatesForTarget(target, costItems, targetHints) {
+    if (normalizeMarketplace(target.marketplace) === "TRENDYOL") return [];
+    if (COMPOSITE_MARKER_PATTERN.test(normalizeText(target.product_name)))
+      return [];
+    const candidate = this.buildFromCostItems(target, costItems, []);
+    if (!candidate || candidate.confidence < 0.3) return [];
+    return [
+      this.applyCompositeSafety(
+        target,
+        applyRejectionHints(
+          {
+            ...candidate,
+            confidence: Math.min(candidate.confidence, 0.69),
+            evidence: {
+              ...candidate.evidence,
+              crossMarketplaceCostCatalogReview: true,
+            },
+          },
+          targetHints,
+        ),
+      ),
+    ];
   }
 
   async generate({
@@ -1827,6 +1890,9 @@ class MappingAutomationService {
     }
     const drafts = [];
     let scoped = 0;
+    let recipeScoped = 0;
+    let supplierScoped = 0;
+    let costCatalogScoped = 0;
     let withoutCandidate = 0;
     let withoutFileSupport = 0;
     let rejectedCandidateCount = 0;
@@ -1839,17 +1905,30 @@ class MappingAutomationService {
       const manualCandidates = supplierCode
         ? []
         : this.manualHistoryCandidatesForTarget(target, examples, targetHints);
+      const costCatalogCandidates = supplierCode
+        ? []
+        : this.costCatalogCandidatesForTarget(target, costItems, targetHints);
       const matchingPools = pools.filter((pool) =>
         this.targetBelongsToPool(target, pool),
       );
-      if (!matchingPools.length && !manualCandidates.length) continue;
+      if (
+        !matchingPools.length &&
+        !manualCandidates.length &&
+        !costCatalogCandidates.length
+      )
+        continue;
       scoped++;
+      if (manualCandidates.length) recipeScoped++;
+      if (matchingPools.length) supplierScoped++;
+      if (costCatalogCandidates.length) costCatalogScoped++;
       const poolCandidates = matchingPools.flatMap((pool) =>
         this.candidatesForPool(target, examples, costItems, pool, targetHints),
       );
-      const candidates = [...manualCandidates, ...poolCandidates].sort(
-        (left, right) => sortCandidatesForTarget(target, left, right),
-      );
+      const candidates = [
+        ...manualCandidates,
+        ...poolCandidates,
+        ...costCatalogCandidates,
+      ].sort((left, right) => sortCandidatesForTarget(target, left, right));
       if (!candidates.length) {
         withoutCandidate++;
         continue;
@@ -1921,6 +2000,9 @@ class MappingAutomationService {
     return {
       processed: targets.length,
       scoped,
+      recipeScoped,
+      supplierScoped,
+      costCatalogScoped,
       eligible: suggestions.length,
       withoutCandidate,
       withoutFileSupport,

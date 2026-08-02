@@ -275,6 +275,123 @@ test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini i
   );
 });
 
+test("Hepsiburada es anlamli temizlik urununu Trendyol recetesinden incelemeye cikarir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-BLEACH",
+        product_name: "Actisoft Çam Ultra Çamaşır Suyu 1000 ml",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "TY-BLEACH",
+        product_name: "Actisoft Ekstra Yoğun Çamaşır Suyu 1 L",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_CAMASIR_SUYU_1L",
+        item_name: "Actisoft Çamaşır Suyu 1 L",
+        quantity: 1,
+        unit_cost: 54.9,
+        unit_desi: 1,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(result.recipeScoped, 1);
+  assert.equal(saved[0].source_type, "MANUAL_HISTORY");
+  assert.equal(saved[0].confidence_band, "LOW");
+  assert.equal(saved[0].items[0].cost_item_code, "ACTISOFT_CAMASIR_SUYU_1L");
+});
+
+test("Hepsiburada varyanti farkli yumusaticiyi ayni recete saymaz", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-MENEKSHE",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "TY-CICEK-RUYASI",
+        product_name: "Actisoft Çiçek Rüyası Yumuşatıcı 1,5 L",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_CICEK_RUYASI_1500ML",
+        item_name: "Actisoft Çiçek Rüyası Yumuşatıcı 1500 ml",
+        quantity: 1,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(result.recipeScoped, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("Hepsiburada mevcut maliyet kalemini dusuk guvenli yedek aday olarak kullanir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-CHAIR",
+        product_name: "Best Choice Kamp Sandalyesi",
+        brand: "Best Choice",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [
+      {
+        item_code: "BEST_CHOICE_KAMP_SANDALYESI",
+        item_name: "Best Choice Kamp Sandalyesi",
+        unit_cost: 149.9,
+        unit_desi: 3,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(result.costCatalogScoped, 1);
+  assert.equal(saved[0].source_type, "COST_ITEM_CATALOG");
+  assert.equal(saved[0].confidence_band, "LOW");
+  assert.equal(saved[0].update_file_price, false);
+  assert.equal(saved[0].items[0].cost_item_code, "BEST_CHOICE_KAMP_SANDALYESI");
+});
+
 test("Hepsiburada mappingi urun turu celisen dusuk skorlu adaylari onermez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [

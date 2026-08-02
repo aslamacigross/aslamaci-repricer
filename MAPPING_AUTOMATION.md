@@ -25,7 +25,7 @@ Güven bandı otomatik uygulama izni değildir. Yüksek güven dahil bütün ön
 
 ## Öğrenme Kaynakları
 
-Motor önce mevcut `product_cost_mappings` kayıtlarından doğrulanmış reçeteleri çıkarır. Hedef ürünle eski ürün arasında ad, marka, kategori, gramaj/hacim ve paket adedi karşılaştırılır. İki adetlik eski ürün dört adetlik hedefle eşleşirse cost code korunur ve adet iki katına çıkarılır. Uygun eski örnek yoksa maliyet kalemi kataloğu daha düşük güvenli yedek kaynak olarak kullanılır.
+Motor önce mevcut `product_cost_mappings` kayıtlarından doğrulanmış reçeteleri çıkarır. Hepsiburada gibi yeni bir pazaryerinde Trendyol'da onaylanmış reçeteler de kontrollü bir eşleştirme kaynağıdır. Hedef ürünle eski ürün arasında ad, marka, kategori, gramaj/hacim, ürün türü ve paket adedi karşılaştırılır. İki adetlik eski ürün dört adetlik hedefle eşleşirse cost code korunur ve adet iki katına çıkarılır. Uygun eski örnek yoksa tedarikçi havuzları, ardından mevcut maliyet kalemi kataloğu düşük güvenli ve zorunlu kullanıcı incelemeli yedek kaynak olarak kullanılır.
 
 Tedarikçi ürünü eşleşmesi güncel birim maliyet önerir. Fiyat uygulanırsa `cost_items.previous_unit_cost` eski değeri, `price_source` kaynak kodunu ve gözlem zamanı saklar.
 
@@ -41,8 +41,8 @@ Her `Öneriyi onayla` ve `Reddet` kararı `mapping_feedback_events` olay günlü
 
 ## Güvenlik Kuralları
 
-- Yalnız aktif ve `MAPPING_MISSING` durumundaki Trendyol ürünleri hedeflenir.
-- Yalnız tedarikçi fiyat havuzunda bulunan marka kapsamı ve gerçek bir fiyat desteği olan adaylar kaydedilir.
+- Yalnız seçili pazaryerindeki aktif ve `MAPPING_MISSING` durumundaki ürünler hedeflenir.
+- Tedarikçi fiyat havuzundan gelen adayda gerçek fiyat desteği aranır. Başka pazaryerinde doğrulanmış reçete veya mevcut maliyet kalemi kataloğu kullanılıyorsa pozitif maliyet ve desi zorunludur; bu adaylar düşük güvenli kullanıcı incelemesine çıkarılır ve tedarikçi fiyatını değiştirmez.
 - Kardeş varyanttan türetilen fiyat kullanıcı kontrolü gerektirir; doğrudan eşleşme gibi gösterilmez.
 - Öğrenme güven bandını değiştirebilir ancak öneriyi onaylama, toplu önizleme ve uygulama adımlarını atlayamaz.
 - Bekleyen öneriyi onaylamak hiçbir veriyi değiştirmez.
