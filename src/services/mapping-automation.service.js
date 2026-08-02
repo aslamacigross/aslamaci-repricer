@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v4";
+const ALGORITHM_VERSION = "multi-supplier-v5";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -141,6 +141,26 @@ const VARIANT_SENSITIVE_PRODUCT_KINDS = new Set([
   "recel",
   "kahve",
   "cay",
+]);
+
+const GENERIC_BRANDS = new Set([
+  "diger",
+  "diger markalar",
+  "markasiz",
+  "marka yok",
+  "no brand",
+  "other",
+]);
+
+const MATCH_NOISE_TOKENS = new Set([
+  "aile",
+  "boyu",
+  "ekonomik",
+  "firsat",
+  "hediyeli",
+  "kampanya",
+  "ozel",
+  "super",
 ]);
 
 function normalizeMarketplace(value) {
@@ -460,14 +480,111 @@ function productKindCompatible(left, right) {
   return [...leftKinds].some((kind) => rightKinds.has(kind));
 }
 
+function concreteBrand(value) {
+  const normalized = normalizeText(value);
+  return normalized && !GENERIC_BRANDS.has(normalized) ? normalized : "";
+}
+
 function productBrandCompatible(left, right) {
-  const leftBrand = normalizeText(left.brand);
-  const rightBrand = normalizeText(right.brand);
+  const leftBrand = concreteBrand(left.brand);
+  const rightBrand = concreteBrand(right.brand);
   if (!leftBrand || !rightBrand) return true;
   if (leftBrand === rightBrand) return true;
   const leftTokens = tokens(leftBrand);
   const rightTokens = tokens(rightBrand);
   return diceCoefficient(leftTokens, rightTokens) >= 0.5;
+}
+
+function productMatchTokens(product) {
+  const brandTokens = new Set(tokens(concreteBrand(product.brand)));
+  return tokens(product.product_name || product.item_name).filter(
+    (token) => !brandTokens.has(token) && !MATCH_NOISE_TOKENS.has(token),
+  );
+}
+
+function tokenCoverage(left, right) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (!leftSet.size || !rightSet.size) return { overlap: 0, left: 0, right: 0 };
+  let overlap = 0;
+  for (const token of leftSet) if (rightSet.has(token)) overlap++;
+  return {
+    overlap,
+    left: overlap / leftSet.size,
+    right: overlap / rightSet.size,
+  };
+}
+
+function productVariantCompatible(left, right) {
+  const leftKinds = productKinds(left.product_name || left.item_name);
+  const rightKinds = productKinds(right.product_name || right.item_name);
+  const hasSensitiveSharedKind = [...leftKinds].some(
+    (kind) => rightKinds.has(kind) && VARIANT_SENSITIVE_PRODUCT_KINDS.has(kind),
+  );
+  if (!hasSensitiveSharedKind) return true;
+  const leftTokens = new Set(
+    significantProductTokens(
+      left.product_name || left.item_name,
+      concreteBrand(left.brand),
+    ),
+  );
+  const rightTokens = significantProductTokens(
+    right.product_name || right.item_name,
+    concreteBrand(right.brand),
+  );
+  if (!leftTokens.size || !rightTokens.length) return true;
+  return rightTokens.some((token) => leftTokens.has(token));
+}
+
+function compareMappingProducts(target, candidate) {
+  const base = compareProducts(target, candidate);
+  const targetTokens = productMatchTokens(target);
+  const candidateTokens = productMatchTokens(candidate);
+  const coverage = tokenCoverage(candidateTokens, targetTokens);
+  let directionalScore = coverage.left * 0.58 + coverage.right * 0.18;
+
+  const targetBrand = concreteBrand(target.brand);
+  const candidateBrand = concreteBrand(candidate.brand);
+  const candidateName = normalizeText(
+    candidate.product_name || candidate.item_name,
+  );
+  const brandMatch =
+    (targetBrand && candidateBrand && targetBrand === candidateBrand) ||
+    (targetBrand && candidateName.includes(targetBrand));
+  if (brandMatch) directionalScore += 0.12;
+
+  const targetSizes = extractSizes(target.product_name || target.item_name);
+  const candidateSizes = extractSizes(
+    candidate.product_name || candidate.item_name,
+  );
+  if (
+    targetSizes.length &&
+    candidateSizes.length &&
+    productSizeCompatible(target, candidate)
+  )
+    directionalScore += 0.08;
+
+  const targetKinds = productKinds(target.product_name || target.item_name);
+  const candidateKinds = productKinds(
+    candidate.product_name || candidate.item_name,
+  );
+  if ([...targetKinds].some((kind) => candidateKinds.has(kind)))
+    directionalScore += 0.04;
+
+  return {
+    ...base,
+    score: Math.max(
+      base.score,
+      Math.min(0.98, Number(directionalScore.toFixed(5))),
+    ),
+    reasons: [
+      ...base.reasons,
+      {
+        code: "SUPPLIER_NAME_COVERAGE",
+        value: Number(coverage.left.toFixed(4)),
+      },
+    ],
+  };
 }
 
 function productSizeCompatible(left, right) {
@@ -559,6 +676,11 @@ function sortCandidatesForTarget(target, left, right) {
   const leftExplicit = Boolean(left.evidence?.explicitFeedbackRecipe);
   const rightExplicit = Boolean(right.evidence?.explicitFeedbackRecipe);
   if (leftExplicit !== rightExplicit) return rightExplicit - leftExplicit;
+  const hintPreferenceDifference =
+    Number(right.evidence?.rejectionNoteHints?.preferenceScore || 0) -
+    Number(left.evidence?.rejectionNoteHints?.preferenceScore || 0);
+  if (Math.abs(hintPreferenceDifference) >= 0.05)
+    return hintPreferenceDifference;
   const targetComposite = COMPOSITE_MARKER_PATTERN.test(
     normalizeText(target.product_name),
   );
@@ -678,6 +800,7 @@ function applyRejectionHints(candidate, hints = []) {
   let quantityOne = false;
   let boost = 0;
   let penalty = 0;
+  let preference = 0;
   const matched = [];
   for (const hint of hints) {
     if (hint.forceQuantityOne) quantityOne = true;
@@ -689,6 +812,7 @@ function applyRejectionHints(candidate, hints = []) {
       hint.rejectedTokens,
       candidate,
     );
+    preference += preferredScore - rejectedScore;
     if (preferredScore >= 0.28) {
       boost += Math.min(preferredScore * 0.22, 0.18);
       matched.push("PREFERRED_PRODUCT_NOTE");
@@ -714,6 +838,7 @@ function applyRejectionHints(candidate, hints = []) {
         quantityForcedToOne: quantityOne,
         confidenceBoost: Number(boost.toFixed(5)),
         confidencePenalty: Number(penalty.toFixed(5)),
+        preferenceScore: Number(preference.toFixed(5)),
         matched: [...new Set(matched)],
       },
     },
@@ -1039,8 +1164,8 @@ class MappingAutomationService {
         )
       )
         continue;
-      const itemMatch = compareProducts(itemIdentity, fileItem);
-      const targetMatch = compareProducts(target, fileItem);
+      const itemMatch = compareMappingProducts(itemIdentity, fileItem);
+      const targetMatch = compareMappingProducts(target, fileItem);
       const score = itemMatch.score * 0.65 + targetMatch.score * 0.35;
       if (!best || score > best.score)
         best = {
@@ -1148,7 +1273,7 @@ class MappingAutomationService {
     return examples
       .map((example) => ({
         example,
-        comparison: compareProducts(target, example),
+        comparison: compareMappingProducts(target, example),
       }))
       .sort((left, right) => right.comparison.score - left.comparison.score)
       .map(({ example, comparison }) =>
@@ -1180,7 +1305,7 @@ class MappingAutomationService {
     if (!sharedKinds.length) return false;
     if (sharedKinds.some((kind) => VARIANT_SENSITIVE_PRODUCT_KINDS.has(kind)))
       return false;
-    return compareProducts(target, example).score >= 0.3;
+    return compareMappingProducts(target, example).score >= 0.3;
   }
 
   buildFromTraining(target, examples, fileItems) {
@@ -1320,7 +1445,13 @@ class MappingAutomationService {
         })
       )
         continue;
-      const comparison = compareProducts(target, {
+      if (
+        !productVariantCompatible(target, {
+          product_name: `${item.item_name} ${item.item_code}`,
+        })
+      )
+        continue;
+      const comparison = compareMappingProducts(target, {
         product_name: `${item.item_name} ${item.item_code}`,
       });
       if (!best || comparison.score > best.comparison.score)
@@ -1389,6 +1520,7 @@ class MappingAutomationService {
         (fileItem) =>
           productBrandCompatible(target, fileItem) &&
           productSizeCompatible(target, fileItem) &&
+          productVariantCompatible(target, fileItem) &&
           productKindCompatible(
             target.product_name,
             fileItem.product_name || fileItem.item_name,
@@ -1396,7 +1528,7 @@ class MappingAutomationService {
       )
       .map((fileItem) => ({
         fileItem,
-        comparison: compareProducts(target, fileItem),
+        comparison: compareMappingProducts(target, fileItem),
       }))
       .filter(({ comparison }) => comparison.score >= minScore)
       .sort((left, right) => right.comparison.score - left.comparison.score)
@@ -1463,7 +1595,7 @@ class MappingAutomationService {
       const best = fileItems
         .map((fileItem) => ({
           fileItem,
-          comparison: compareProducts(fragmentTarget, fileItem),
+          comparison: compareMappingProducts(fragmentTarget, fileItem),
         }))
         .filter(
           ({ fileItem, comparison }) =>
@@ -1555,7 +1687,7 @@ class MappingAutomationService {
         const coverage = itemTokens.length
           ? overlap.length / itemTokens.length
           : 0;
-        const comparison = compareProducts(target, fileItem);
+        const comparison = compareMappingProducts(target, fileItem);
         const brandMatches =
           !targetBrand ||
           normalizeText(fileItem.brand) === targetBrand ||
@@ -1732,13 +1864,13 @@ class MappingAutomationService {
       code,
       items: poolItems,
       brands: new Set(
-        poolItems.map((item) => normalizeText(item.brand)).filter(Boolean),
+        poolItems.map((item) => concreteBrand(item.brand)).filter(Boolean),
       ),
     }));
   }
 
   targetBelongsToPool(target, pool) {
-    const targetBrand = normalizeText(target.brand);
+    const targetBrand = concreteBrand(target.brand);
     const targetName = normalizeText(target.product_name);
     const brandScoped =
       pool.brands.has(targetBrand) ||
@@ -1747,14 +1879,24 @@ class MappingAutomationService {
       );
     if (brandScoped) return true;
     if (normalizeMarketplace(target.marketplace) === "TRENDYOL") return false;
-    return this.poolNameSimilarity(target, pool) >= 0.12;
+    return this.poolNameSimilarity(target, pool) >= 0.24;
   }
 
   poolNameSimilarity(target, pool) {
     if (!pool?.items?.length) return 0;
     let best = 0;
     for (const item of pool.items) {
-      const score = compareProducts(target, item).score;
+      if (
+        !productBrandCompatible(target, item) ||
+        !productSizeCompatible(target, item) ||
+        !productVariantCompatible(target, item) ||
+        !productKindCompatible(
+          target.product_name,
+          item.product_name || item.item_name,
+        )
+      )
+        continue;
+      const score = compareMappingProducts(target, item).score;
       if (score > best) best = score;
       if (best >= 0.3) break;
     }
@@ -2082,7 +2224,7 @@ class MappingAutomationService {
       const fileMatches = scopedItems
         .map((fileItem) => ({
           fileItem,
-          comparison: compareProducts(target, fileItem),
+          comparison: compareMappingProducts(target, fileItem),
         }))
         .sort((left, right) => right.comparison.score - left.comparison.score);
       const bestFile = fileMatches[0] || null;

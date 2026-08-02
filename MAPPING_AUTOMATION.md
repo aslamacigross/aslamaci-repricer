@@ -2,7 +2,7 @@
 
 ## Amaç
 
-Bu modül Trendyol'daki mapping eksiği ürünlere, daha önce elle doğrulanmış ürün reçetelerinden ve File Market, Bizim Toptan veya BİM fiyat gözlemlerinden yararlanarak maliyet mappingi önerir. Fiyat havuzları ayrıdır ve farklı tedarikçiler tek öneri reçetesinde karışmaz. Öneri motoru yardımcıdır; hiçbir öneri kullanıcı incelemesi olmadan mappinge veya maliyete dönüşmez.
+Bu modül seçili pazaryerindeki mapping eksiği ürünlere, daha önce elle doğrulanmış ürün reçetelerinden ve File Market, Bizim Toptan veya BİM fiyat gözlemlerinden yararlanarak maliyet mappingi önerir. Fiyat havuzları ayrıdır ve farklı tedarikçiler tek öneri reçetesinde karışmaz. Öneri motoru yardımcıdır; hiçbir öneri kullanıcı incelemesi olmadan mappinge veya maliyete dönüşmez.
 
 ## Günlük Kullanım
 
@@ -26,6 +26,8 @@ Güven bandı otomatik uygulama izni değildir. Yüksek güven dahil bütün ön
 ## Öğrenme Kaynakları
 
 Motor önce mevcut `product_cost_mappings` kayıtlarından doğrulanmış reçeteleri çıkarır. Hepsiburada gibi yeni bir pazaryerinde Trendyol'da onaylanmış reçeteler de kontrollü bir eşleştirme kaynağıdır. Hedef ürünle eski ürün arasında ad, marka, kategori, gramaj/hacim, ürün türü ve paket adedi karşılaştırılır. İki adetlik eski ürün dört adetlik hedefle eşleşirse cost code korunur ve adet iki katına çıkarılır. Uygun eski örnek yoksa tedarikçi havuzları, ardından mevcut maliyet kalemi kataloğu düşük güvenli ve zorunlu kullanıcı incelemeli yedek kaynak olarak kullanılır.
+
+Uzun pazaryeri başlıkları ile kısa tedarikçi adları karşılaştırılırken tedarikçi adının hedef başlıkta ne kadar kapsandığı ayrıca ölçülür. `DİĞER MARKALAR` ve `Markasız` gibi genel değerler gerçek marka uyuşmazlığı sayılmaz. Buna karşılık farklı gramaj/hacim, ürün türü ve hassas varyantlar (örneğin Menekşe ile Çiçek Rüyası) güvenlik filtresinde ayrı ürün kabul edilir.
 
 Tedarikçi ürünü eşleşmesi güncel birim maliyet önerir. Fiyat uygulanırsa `cost_items.previous_unit_cost` eski değeri, `price_source` kaynak kodunu ve gözlem zamanı saklar.
 

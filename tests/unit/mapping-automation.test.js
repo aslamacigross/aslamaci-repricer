@@ -1527,6 +1527,80 @@ test("Hepsiburada mapping marka eksik olsa da isim benzerligiyle dusuk guvenli a
   assert.notEqual(saved[0].confidence_band, "HIGH");
 });
 
+test("uzun Hepsiburada basligi kisa tedarikci adini ve genel marka alanini kacirmaz", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-KURABIYE-3",
+        product_name:
+          "Harras Tereyağlı Kurabiye 180 gr x 3 Adet Avantajlı Aile Paketi",
+        brand: "Harras",
+        category_id: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 902,
+        product_name: "Harras Tereyağlı Kurabiye 180 g",
+        brand: "DİĞER MARKALAR",
+        current_price: 229,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.supplierScoped, 1);
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].items[0].file_market_item_id, 902);
+  assert.equal(saved[0].items[0].quantity, 3);
+});
+
+test("tedarikci adinda farkli hassas varyanti yalniz genel kelimelerle onermez", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-MENEKSE",
+        product_name: "Actisoft Menekşe Konsantre Yumuşatıcı 1500 ml 2 Adet",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 903,
+        product_name: "Actisoft Çiçek Rüyası Konsantre Yumuşatıcı 1500 ml",
+        brand: "DİĞER MARKALAR",
+        current_price: 112,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1.5,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
 test("30 günden eski File fiyatıyla toplu uygulama önizlemesini engeller", async () => {
   const { service } = fixture({
     getSuggestionsByIds: async () => [
