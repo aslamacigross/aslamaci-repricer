@@ -557,10 +557,6 @@ class MappingAutomationRepository {
 
   async trainingRows({ marketplace = "TRENDYOL" } = {}) {
     const selectedMarketplace = normalizeMarketplace(marketplace);
-    const marketplaces =
-      selectedMarketplace === "TRENDYOL"
-        ? ["TRENDYOL"]
-        : ["TRENDYOL", selectedMarketplace];
     return (
       await this.db.query(
         `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,
@@ -570,11 +566,11 @@ class MappingAutomationRepository {
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-         WHERE p.marketplace=ANY($1::text[])
+         WHERE p.marketplace=$1
            AND p.product_name IS NOT NULL
            AND ci.unit_cost>0 AND COALESCE(ci.unit_desi,0)>0
          ORDER BY p.barcode,pcm.id`,
-        [marketplaces],
+        [selectedMarketplace],
       )
     ).rows;
   }

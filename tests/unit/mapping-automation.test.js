@@ -136,8 +136,8 @@ test("Hepsiburada mapping önerileri seçili pazaryeriyle izole üretilir", asyn
       calls.push(["trainingRows", options.marketplace]);
       return [
         {
-          marketplace: "TRENDYOL",
-          barcode: "TY_SOURCE",
+          marketplace: "HEPSIBURADA",
+          barcode: "HB_SOURCE",
           product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml X 2 Adet",
           brand: "Actisoft",
           category_id: "2354",
@@ -229,7 +229,28 @@ test("toplu oneride bekleyen oneriler yeniden taranir, onaylananlar korunur", as
   assert.doesNotMatch(capturedSql, /status IN\('PENDING','APPROVED'\)/);
 });
 
-test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini incelemeye çıkarır", async () => {
+test("mapping egitim sorgusu yalniz secili pazaryerini kullanir", async () => {
+  let capturedSql = "";
+  let capturedParams = [];
+  const repository = new MappingAutomationRepository(
+    {
+      query: async (sql, params) => {
+        capturedSql = String(sql);
+        capturedParams = params;
+        return { rows: [], rowCount: 0 };
+      },
+    },
+    async () => {},
+  );
+
+  await repository.trainingRows({ marketplace: "HEPSIBURADA" });
+
+  assert.match(capturedSql, /p\.marketplace=\$1/);
+  assert.doesNotMatch(capturedSql, /ANY\(/);
+  assert.deepEqual(capturedParams, ["HEPSIBURADA"]);
+});
+
+test("Hepsiburada mapping önerileri kendi geçmiş reçetesini kullanır", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -244,8 +265,8 @@ test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini i
     ],
     trainingRows: async () => [
       {
-        marketplace: "TRENDYOL",
-        barcode: "TY_TEA_SOURCE",
+        marketplace: "HEPSIBURADA",
+        barcode: "HB_TEA_SOURCE",
         product_name: "Obaçay Earl Grey Bergamot Demlik Poşet Çay 48'li x 3",
         brand: "Obaçay",
         category_id: "987",
@@ -267,15 +288,10 @@ test("Hepsiburada mapping önerileri düşük benzerlikte Trendyol reçetesini i
 
   assert.equal(result.created, 1);
   assert.equal(saved[0].source_type, "MANUAL_HISTORY");
-  assert.equal(saved[0].confidence <= 0.69, true);
-  assert.equal(
-    saved[0].evidence.learning.confidence <= 0.69 ||
-      saved[0].evidence.crossMarketplaceLowConfidence,
-    true,
-  );
+  assert.equal(saved[0].evidence.sourceMarketplace, "HEPSIBURADA");
 });
 
-test("Hepsiburada katalog barkodu farklı satıcı SKU'sunu Trendyol reçetesine bağlar", async () => {
+test("Hepsiburada katalog barkodu Trendyol reçetesini kullanmaz", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -310,16 +326,12 @@ test("Hepsiburada katalog barkodu farklı satıcı SKU'sunu Trendyol reçetesine
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.created, 1);
-  assert.equal(result.catalogBarcodeScoped, 1);
-  assert.equal(saved[0].barcode, "HB-SELLER-SKU-DIFFERENT");
-  assert.equal(saved[0].source_barcode, "8690609598109");
-  assert.equal(saved[0].source_type, "CATALOG_BARCODE_RECIPE");
-  assert.equal(saved[0].evidence.catalogBarcodeMatch, true);
-  assert.equal(saved[0].items[0].quantity, 2);
+  assert.equal(result.created, 0);
+  assert.equal(result.catalogBarcodeScoped, 0);
+  assert.equal(saved.length, 0);
 });
 
-test("Hepsiburada katalog barkodu marka alani farkliyken eslesmeyi incelemeye cikarir", async () => {
+test("Hepsiburada marka alani farkliyken de Trendyol katalog recetesini kullanmaz", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -354,10 +366,9 @@ test("Hepsiburada katalog barkodu marka alani farkliyken eslesmeyi incelemeye ci
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.catalogBarcodeScoped, 1);
-  assert.equal(saved[0].source_type, "CATALOG_BARCODE_RECIPE");
-  assert.notEqual(saved[0].confidence_band, "HIGH");
-  assert.equal(saved[0].evidence.crossMarketplaceBrandMismatch, true);
+  assert.equal(result.created, 0);
+  assert.equal(result.catalogBarcodeScoped, 0);
+  assert.equal(saved.length, 0);
 });
 
 test("aynı katalog barkodunda varyant uyuşmazlığı öneriyi engeller", async () => {
@@ -400,7 +411,7 @@ test("aynı katalog barkodunda varyant uyuşmazlığı öneriyi engeller", async
   assert.equal(saved.length, 0);
 });
 
-test("Hepsiburada es anlamli temizlik urununu Trendyol recetesinden incelemeye cikarir", async () => {
+test("Hepsiburada es anlamli temizlik urununu kendi recetesinden onerir", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -414,8 +425,8 @@ test("Hepsiburada es anlamli temizlik urununu Trendyol recetesinden incelemeye c
     ],
     trainingRows: async () => [
       {
-        marketplace: "TRENDYOL",
-        barcode: "TY-BLEACH",
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-BLEACH-SOURCE",
         product_name: "Actisoft Ekstra Yoğun Çamaşır Suyu 1 L",
         brand: "Actisoft",
         cost_item_code: "ACTISOFT_CAMASIR_SUYU_1L",
@@ -437,7 +448,6 @@ test("Hepsiburada es anlamli temizlik urununu Trendyol recetesinden incelemeye c
   assert.equal(result.created, 1);
   assert.equal(result.recipeScoped, 1);
   assert.equal(saved[0].source_type, "MANUAL_HISTORY");
-  assert.equal(saved[0].confidence_band, "LOW");
   assert.equal(saved[0].items[0].cost_item_code, "ACTISOFT_CAMASIR_SUYU_1L");
 });
 
@@ -1729,7 +1739,47 @@ test("Hepsiburada magazasi markasi tedarikci markasindan farkli olsa da guvenli 
   assert.equal(saved[0].items[0].quantity, 3);
 });
 
-test("Hepsiburada magazasi markasi farkli olsa da Trendyol recetesini dusuk guvenle kullanir", async () => {
+test("Hepsiburada dogrudan isim eslesmesini kaba tedarikci havuzu kapisinda elemez", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HB-MENEKSE-DIRECT",
+        product_name:
+          "Actisoft Menekşe Konsantre Çamaşır Yumuşatıcısı 1,5 L x 4 Adet",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 906,
+        product_name: "Actisoft Menekşe Konsantre Yumuşatıcı 1500 ml",
+        brand: "Actisoft",
+        current_price: 112,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1.5,
+      },
+    ],
+  });
+  service.targetBelongsToPool = () => false;
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.supplierScoped, 1);
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+  assert.equal(saved[0].items[0].file_market_item_id, 906);
+  assert.equal(saved[0].items[0].quantity, 4);
+});
+
+test("Hepsiburada egitimi Trendyol recetesini savunmali olarak filtreler", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -1763,11 +1813,9 @@ test("Hepsiburada magazasi markasi farkli olsa da Trendyol recetesini dusuk guve
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.recipeScoped, 1);
-  assert.equal(result.created, 1);
-  assert.equal(saved[0].source_type, "MANUAL_HISTORY");
-  assert.equal(saved[0].confidence_band, "LOW");
-  assert.equal(saved[0].evidence.crossMarketplaceBrandMismatch, true);
+  assert.equal(result.recipeScoped, 0);
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
 });
 
 test("Hepsiburada marka farkini gevsetirken urun turu ve kelime ilgisi olmayan adaylari engeller", async () => {

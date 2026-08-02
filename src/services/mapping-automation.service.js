@@ -27,7 +27,7 @@ const {
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
 
-const ALGORITHM_VERSION = "multi-supplier-v7";
+const ALGORITHM_VERSION = "multi-supplier-v8";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -1998,6 +1998,11 @@ class MappingAutomationService {
     return this.poolNameSimilarity(target, pool) >= 0.24;
   }
 
+  candidatePoolsForTarget(target, pools) {
+    if (normalizeMarketplace(target.marketplace) !== "TRENDYOL") return pools;
+    return pools.filter((pool) => this.targetBelongsToPool(target, pool));
+  }
+
   poolNameSimilarity(target, pool) {
     if (!pool?.items?.length) return 0;
     let best = 0;
@@ -2105,7 +2110,13 @@ class MappingAutomationService {
       this.repository.fileItemsForMatching(supplierCode),
       this.repository.costItemsForMatching(),
     ]);
-    const examples = this.groupTrainingRows(trainingRows);
+    const examples = this.groupTrainingRows(
+      trainingRows.filter(
+        (row) =>
+          normalizeMarketplace(row.marketplace || selectedMarketplace) ===
+          selectedMarketplace,
+      ),
+    );
     const pools = this.supplierPools(fileItems);
     const rejectedFingerprints = new Set(
       this.repository.rejectedFingerprints
@@ -2180,11 +2191,12 @@ class MappingAutomationService {
       const costCatalogCandidates = supplierCode
         ? []
         : this.costCatalogCandidatesForTarget(target, costItems, targetHints);
-      const matchingPools = pools.filter((pool) =>
-        this.targetBelongsToPool(target, pool),
+      const candidatePools = this.candidatePoolsForTarget(target, pools);
+      const poolCandidates = candidatePools.flatMap((pool) =>
+        this.candidatesForPool(target, examples, costItems, pool, targetHints),
       );
       if (
-        !matchingPools.length &&
+        !poolCandidates.length &&
         !manualCandidates.length &&
         !catalogBarcodeCandidates.length &&
         !costCatalogCandidates.length
@@ -2194,11 +2206,8 @@ class MappingAutomationService {
       if (manualCandidates.length || catalogBarcodeCandidates.length)
         recipeScoped++;
       if (catalogBarcodeCandidates.length) catalogBarcodeScoped++;
-      if (matchingPools.length) supplierScoped++;
+      if (poolCandidates.length) supplierScoped++;
       if (costCatalogCandidates.length) costCatalogScoped++;
-      const poolCandidates = matchingPools.flatMap((pool) =>
-        this.candidatesForPool(target, examples, costItems, pool, targetHints),
-      );
       const candidates = [
         ...catalogBarcodeCandidates,
         ...manualCandidates,
@@ -2323,7 +2332,13 @@ class MappingAutomationService {
       this.repository.fileItemsForMatching(supplierCode),
       this.repository.costItemsForMatching(),
     ]);
-    const examples = this.groupTrainingRows(trainingRows);
+    const examples = this.groupTrainingRows(
+      trainingRows.filter(
+        (row) =>
+          normalizeMarketplace(row.marketplace || selectedMarketplace) ===
+          selectedMarketplace,
+      ),
+    );
     const pools = this.supplierPools(fileItems);
     const rejectedFingerprints = new Set(
       this.repository.rejectedFingerprints
@@ -2346,16 +2361,14 @@ class MappingAutomationService {
         ...rawTarget,
         marketplace: rawTarget.marketplace || selectedMarketplace,
       };
-      const matchingPools = pools.filter((pool) =>
-        this.targetBelongsToPool(target, pool),
-      );
-      if (!matchingPools.length)
+      const candidatePools = this.candidatePoolsForTarget(target, pools);
+      if (!candidatePools.length)
         return {
           ...target,
           diagnosis: "NOT_SUPPLIER_BRAND",
           diagnosis_label: "Tedarikçi havuzlarında marka bulunamadı",
         };
-      const scopedItems = matchingPools.flatMap((pool) => pool.items);
+      const scopedItems = candidatePools.flatMap((pool) => pool.items);
       const fileMatches = scopedItems
         .map((fileItem) => ({
           fileItem,
@@ -2363,7 +2376,7 @@ class MappingAutomationService {
         }))
         .sort((left, right) => right.comparison.score - left.comparison.score);
       const bestFile = fileMatches[0] || null;
-      const candidates = matchingPools.flatMap((pool) =>
+      const candidates = candidatePools.flatMap((pool) =>
         this.candidatesForPool(target, examples, costItems, pool),
       );
       if (!scopedItems.length)
