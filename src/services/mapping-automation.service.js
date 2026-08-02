@@ -26,8 +26,12 @@ const {
   buildMappingRecipeKey,
   mappingLearningAdjustment,
 } = require("../domain/mapping-learning");
+const {
+  canonicalGtin,
+  verifiedCatalogGtin,
+} = require("../domain/catalog-gtin");
 
-const ALGORITHM_VERSION = "multi-supplier-v10";
+const ALGORITHM_VERSION = "multi-supplier-v11";
 
 const PRODUCT_FAMILY_TOKENS = new Set([
   "actisoft",
@@ -701,9 +705,22 @@ function hepsiburadaProductKinds(value) {
 function hepsiburadaMatchTokens(product) {
   return productMatchTokens(product).filter(
     (token) =>
+      !/^\d/.test(token) &&
+      ![
+        "adet",
+        "paket",
+        "set",
+        "kutu",
+        "sise",
+        "ml",
+        "lt",
+        "gr",
+        "kg",
+      ].includes(token) &&
       ![...PRODUCT_KIND_TOKENS].some((kindToken) =>
         fuzzyTokenEquivalent(kindToken, token),
-      ) && !PRODUCT_FAMILY_TOKENS.has(token),
+      ) &&
+      !PRODUCT_FAMILY_TOKENS.has(token),
   );
 }
 
@@ -795,6 +812,8 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
   const brand = hepsiburadaBrandSignal(target, candidate);
   const size = hepsiburadaSizeSignal(target, candidate);
   const pack = hepsiburadaPackSignal(target, candidate);
+  if (!brand.matches || brand.mismatch)
+    return { compatible: false, score: 0, reasons: [] };
   if (size === "MISMATCH" || pack === "MISMATCH")
     return { compatible: false, score: 0, reasons: [] };
 
@@ -809,47 +828,38 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
   )
     return { compatible: false, score: 0, reasons: [] };
 
-  const structuredMatch = Boolean(
-    sharedKinds.length &&
-    ["EXACT", "PACK_TOTAL"].includes(size) &&
-    ["EXACT", "UNIT_CANDIDATE", "INTERNAL_EXACT", "UNKNOWN"].includes(pack),
-  );
-  let reviewOnly = brand.matches
-    ? coverage.overlap >= 1 && coverage.left < 0.2
-    : variantCoverage.overlap === 1 && structuredMatch;
-  const hasEnoughNameEvidence = brand.matches
-    ? coverage.overlap >= 1 || structuredMatch
-    : (coverage.overlap >= 2 && coverage.left >= 0.24) || reviewOnly;
-  if (!hasEnoughNameEvidence)
+  const meaningfulOverlap = variantCoverage.overlap + 1;
+  if (meaningfulOverlap < 2)
     return { compatible: false, score: 0, reasons: [] };
 
   let score = coverage.left * 0.48 + coverage.right * 0.16;
-  if (brand.matches) score += 0.22;
-  else if (brand.mismatch) score -= 0.08;
+  score += 0.22;
+  const exactNormalizedName =
+    normalizeText(targetName) === normalizeText(candidateName);
+  if (exactNormalizedName) score += 0.08;
   if (sharedKinds.length) score += 0.08;
   if (size === "EXACT") score += 0.12;
   if (size === "PACK_TOTAL") score += 0.07;
+  if (size === "UNKNOWN") score -= 0.03;
   if (pack === "EXACT") score += 0.1;
   if (pack === "UNIT_CANDIDATE") score += 0.04;
   if (pack === "INTERNAL_EXACT") score += 0.05;
-  if (score < 0.3) reviewOnly = true;
-  if (reviewOnly) score = Math.max(score, 0.31);
   score = Math.max(0, Math.min(0.89, Number(score.toFixed(5))));
 
   return {
     compatible: true,
-    score: reviewOnly ? Math.min(score, 0.49) : score,
-    reviewOnly,
+    score,
+    diagnosticOnly: score >= 0.48 && score < 0.62,
     targetPackCount: extractPackCount(targetName),
     candidatePackCount: extractPackCount(candidateName),
     reasons: [
       { code: "HEPSIBURADA_DIRECT_NAME_MATCH" },
+      ...(exactNormalizedName ? [{ code: "EXACT_NORMALIZED_NAME" }] : []),
       {
         code: "SUPPLIER_NAME_COVERAGE",
         value: Number(coverage.left.toFixed(4)),
       },
       ...(brand.matches ? [{ code: "BRAND_MATCH" }] : []),
-      ...(brand.mismatch ? [{ code: "BRAND_REVIEW_REQUIRED" }] : []),
       ...(sharedKinds.length
         ? [{ code: "PRODUCT_KIND_MATCH", value: sharedKinds }]
         : []),
@@ -857,7 +867,6 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
         ? [{ code: `SIZE_${size}` }]
         : []),
       ...(pack !== "UNKNOWN" ? [{ code: `PACK_${pack}` }] : []),
-      ...(reviewOnly ? [{ code: "HEPSIBURADA_LOW_CONFIDENCE_REVIEW" }] : []),
     ],
   };
 }
@@ -948,6 +957,11 @@ function compositeSingleItemRisk(target, items) {
 }
 
 function sortCandidatesForTarget(target, left, right) {
+  const exactGtinPriority = (candidate) =>
+    candidate.source_type === "VERIFIED_GTIN_RECIPE";
+  const leftExactGtin = exactGtinPriority(left);
+  const rightExactGtin = exactGtinPriority(right);
+  if (leftExactGtin !== rightExactGtin) return rightExactGtin - leftExactGtin;
   const leftExplicit = Boolean(left.evidence?.explicitFeedbackRecipe);
   const rightExplicit = Boolean(right.evidence?.explicitFeedbackRecipe);
   if (leftExplicit !== rightExplicit) return rightExplicit - leftExplicit;
@@ -1417,6 +1431,8 @@ class MappingAutomationService {
           marketplace,
           barcode: row.barcode,
           marketplace_catalog_barcode: row.marketplace_catalog_barcode,
+          catalog_gtin: row.catalog_gtin,
+          catalog_gtin_source: row.catalog_gtin_source,
           product_name: row.product_name,
           brand: row.brand,
           category_id: row.category_id,
@@ -1569,38 +1585,34 @@ class MappingAutomationService {
   }
 
   catalogBarcodeRecipeCandidates(target, examples, fileItems) {
-    if (normalizeMarketplace(target.marketplace) === "TRENDYOL") return [];
-    const targetCatalogBarcode = normalizeIdentifier(
-      target.marketplace_catalog_barcode,
-    );
-    if (!targetCatalogBarcode) return [];
+    if (normalizeMarketplace(target.marketplace) !== "HEPSIBURADA") return [];
+    const verified = verifiedCatalogGtin(target);
+    if (!verified) return [];
     return examples
       .filter((example) => {
         if (normalizeMarketplace(example.marketplace) !== "TRENDYOL")
           return false;
-        return [example.barcode, example.marketplace_catalog_barcode]
-          .map(normalizeIdentifier)
-          .includes(targetCatalogBarcode);
+        return canonicalGtin(example.barcode) === verified.gtin;
       })
-      .filter((example) =>
-        mappingSemanticCompatible(target, example, {
-          allowBrandMismatch: true,
-        }),
-      )
+      .filter((example) => mappingSemanticCompatible(target, example))
+      .filter((example) => {
+        const targetPack = extractPackCount(target.product_name);
+        const examplePack = extractPackCount(example.product_name);
+        return targetPack === examplePack;
+      })
       .map((example) => {
         const items = this.enrichRecipe(target, example.recipe, fileItems);
-        const brandMismatch = productBrandMismatch(target, example);
         return {
-          confidence: brandMismatch ? 0.79 : 0.94,
-          source_type: "CATALOG_BARCODE_RECIPE",
+          confidence: 0.98,
+          source_type: "VERIFIED_GTIN_RECIPE",
           source_barcode: example.barcode,
           items,
           evidence: {
             sourceProductName: example.product_name,
             sourceMarketplace: example.marketplace,
-            catalogBarcodeMatch: true,
-            crossMarketplaceBrandMismatch: brandMismatch,
-            reasons: [{ code: "EXACT_CATALOG_BARCODE_MATCH", value: 1 }],
+            verifiedCatalogGtin: verified.gtin,
+            catalogGtinSource: verified.source,
+            reasons: [{ code: "VERIFIED_EXACT_GTIN_RECIPE", value: 1 }],
             fileMatches: items
               .filter((item) => item.file_market_item_id)
               .map((item) => ({
@@ -1683,7 +1695,103 @@ class MappingAutomationService {
     const corrections = (latestExplicitHint?.explicitItems || []).filter(
       Boolean,
     );
-    if (!corrections.length) return null;
+    if (!corrections.length) {
+      const preferredHint = [...(hints || [])]
+        .filter((hint) => hint.preferredTokens?.length)
+        .sort(
+          (left, right) =>
+            new Date(right.created_at || 0).getTime() -
+            new Date(left.created_at || 0).getTime(),
+        )[0];
+      if (!preferredHint) return null;
+      let best = null;
+      for (const fileItem of fileItems) {
+        const candidate = {
+          items: [
+            {
+              file_product_name: fileItem.product_name,
+              item_name: fileItem.product_name,
+              cost_item_code: generatedCostCode(fileItem),
+            },
+          ],
+        };
+        const preferredScore = scoreTokensAgainstItems(
+          preferredHint.preferredTokens,
+          candidate,
+        );
+        const rejectedScore = scoreTokensAgainstItems(
+          preferredHint.rejectedTokens,
+          candidate,
+        );
+        const brand = hepsiburadaBrandSignal(target, fileItem);
+        const size = hepsiburadaSizeSignal(target, fileItem);
+        const pack = hepsiburadaPackSignal(target, fileItem);
+        if (
+          preferredScore < 0.55 ||
+          rejectedScore >= preferredScore ||
+          !brand.matches ||
+          brand.mismatch ||
+          size === "MISMATCH" ||
+          pack === "MISMATCH"
+        )
+          continue;
+        if (!best || preferredScore > best.preferredScore)
+          best = { fileItem, preferredScore, rejectedScore };
+      }
+      if (!best) return null;
+      const unitDesi = estimateUnitDesi(best.fileItem);
+      const quantity = fileBackedQuantity(target, best.fileItem);
+      const item = withSupplierPrice(
+        {
+          cost_item_code: generatedCostCode(best.fileItem),
+          item_name: best.fileItem.product_name,
+          quantity,
+          unit_desi: unitDesi,
+          file_market_item_id: best.fileItem.id,
+          supplier_code: best.fileItem.supplier_code || "FILE_MARKET",
+          file_match_score: best.preferredScore,
+          file_product_name: best.fileItem.product_name,
+          supplier_product_name: best.fileItem.product_name,
+          supplier_estimated_unit_desi:
+            best.fileItem.estimated_unit_desi || unitDesi,
+          desi_confidence: best.fileItem.desi_confidence || "LOW",
+          file_price_mode: "DIRECT",
+          creates_cost_item: true,
+        },
+        best.fileItem,
+        quantity,
+      );
+      return {
+        confidence: Math.min(0.9, 0.72 + best.preferredScore * 0.18),
+        source_type: "FEEDBACK_PREFERRED_FILE_RECIPE",
+        source_barcode: null,
+        items: [item],
+        evidence: {
+          reasons: [{ code: "PREFERRED_REJECTION_NOTE_RECIPE" }],
+          explicitFeedbackRecipe: true,
+          targetPackCount: extractPackCount(target.product_name),
+          preferredFeedbackMatch: {
+            fileMarketItemId: best.fileItem.id,
+            fileProductName: best.fileItem.product_name,
+            preferredScore: best.preferredScore,
+            rejectedScore: best.rejectedScore,
+          },
+          fileMatches: [
+            {
+              costItemCode: item.cost_item_code,
+              fileMarketItemId: best.fileItem.id,
+              fileProductName: best.fileItem.product_name,
+              score: best.preferredScore,
+              priceMode: "DIRECT",
+              createsCostItem: true,
+              estimatedUnitDesi: unitDesi,
+            },
+          ],
+          variantPriceInferred: false,
+          createsCostItem: true,
+        },
+      };
+    }
     const usedIds = new Set();
     const usedProductIdentities = new Set();
     const matched = [];
@@ -1764,12 +1872,25 @@ class MappingAutomationService {
 
   buildFromCostItems(target, costItems, fileItems) {
     let best = null;
-    const crossMarketplace =
-      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
+    const marketplace = normalizeMarketplace(target.marketplace);
+    const crossMarketplace = marketplace !== "TRENDYOL";
     for (const item of costItems) {
       const costProduct = {
-        product_name: `${item.item_name} ${item.item_code}`,
+        product_name:
+          marketplace === "HEPSIBURADA"
+            ? item.item_name
+            : `${item.item_name} ${item.item_code}`,
       };
+      if (marketplace === "HEPSIBURADA") {
+        const comparison = compareHepsiburadaSupplierProduct(
+          target,
+          costProduct,
+        );
+        if (!comparison.compatible || comparison.score < 0.62) continue;
+        if (!best || comparison.score > best.comparison.score)
+          best = { item, comparison };
+        continue;
+      }
       if (
         crossMarketplace
           ? !mappingSemanticCompatible(target, costProduct)
@@ -2171,7 +2292,7 @@ class MappingAutomationService {
       ...new Set(items.map((item) => item.file_market_item_id).filter(Boolean)),
     ];
     const trustedRecipeOnly =
-      ["MANUAL_HISTORY", "CATALOG_BARCODE_RECIPE"].includes(
+      ["MANUAL_HISTORY", "VERIFIED_GTIN_RECIPE"].includes(
         candidate.source_type,
       ) &&
       items.every(
@@ -2243,7 +2364,6 @@ class MappingAutomationService {
   }
 
   candidatePoolsForTarget(target, pools) {
-    if (normalizeMarketplace(target.marketplace) !== "TRENDYOL") return pools;
     return pools.filter((pool) => this.targetBelongsToPool(target, pool));
   }
 
@@ -2273,9 +2393,10 @@ class MappingAutomationService {
   }
 
   candidatesForPool(target, examples, costItems, pool, targetHints) {
-    const relaxedMarketplace =
-      normalizeMarketplace(target.marketplace) !== "TRENDYOL";
-    const minimumCandidateConfidence = relaxedMarketplace ? 0.3 : 0.3;
+    const minimumCandidateConfidence =
+      normalizeMarketplace(target.marketplace) === "HEPSIBURADA" ? 0.62 : 0.3;
+    const rawCandidateConfidence =
+      normalizeMarketplace(target.marketplace) === "HEPSIBURADA" ? 0.48 : 0.3;
     return [
       this.buildFromFeedbackCorrection(target, targetHints, pool.items),
       ...this.buildTrainingCandidates(target, examples, pool.items),
@@ -2283,17 +2404,13 @@ class MappingAutomationService {
       this.buildFromMultiVariantFileItems(target, pool.items),
       this.buildFromCostItems(target, costItems, pool.items),
       ...this.buildFromFileItems(target, pool.items, {
-        minScore: minimumCandidateConfidence,
+        minScore: rawCandidateConfidence,
       }),
     ]
-      .filter(
-        (candidate) =>
-          candidate &&
-          candidate.confidence >= minimumCandidateConfidence &&
-          candidate.items.length,
-      )
-      .map((candidate) => ({ ...candidate, supplier_code: pool.code }))
+      .filter((candidate) => candidate && candidate.items.length)
       .map((candidate) => applyRejectionHints(candidate, targetHints))
+      .filter((candidate) => candidate.confidence >= minimumCandidateConfidence)
+      .map((candidate) => ({ ...candidate, supplier_code: pool.code }))
       .map((candidate) => this.applyCompositeSafety(target, candidate));
   }
 
@@ -2318,11 +2435,8 @@ class MappingAutomationService {
         target,
         catalogProduct,
       );
-      if (!comparison.compatible || comparison.score < 0.3) return [];
-      candidate.confidence = Math.min(
-        candidate.confidence,
-        comparison.reviewOnly ? 0.49 : comparison.score,
-      );
+      if (!comparison.compatible || comparison.score < 0.62) return [];
+      candidate.confidence = Math.min(candidate.confidence, comparison.score);
       candidate.evidence = {
         ...candidate.evidence,
         reasons: [
@@ -2354,6 +2468,7 @@ class MappingAutomationService {
     barcode = null,
     supplier_code = null,
     marketplace = "TRENDYOL",
+    forceRegeneration = false,
   } = {}) {
     const selectedMarketplace = normalizeMarketplace(marketplace);
     const supplierCode = supplier_code
@@ -2370,6 +2485,7 @@ class MappingAutomationService {
         limit,
         barcode,
         marketplace: selectedMarketplace,
+        forceRegeneration: Boolean(barcode && forceRegeneration),
       }),
       this.repository.trainingRows({ marketplace: selectedMarketplace }),
       this.repository.fileItemsForMatching(supplierCode),
@@ -2382,6 +2498,15 @@ class MappingAutomationService {
           selectedMarketplace,
       ),
     );
+    const verifiedTargetGtins = targets
+      .map((target) => verifiedCatalogGtin(target)?.gtin)
+      .filter(Boolean);
+    const verifiedGtinRows =
+      selectedMarketplace === "HEPSIBURADA" &&
+      this.repository.verifiedGtinTrainingRows
+        ? await this.repository.verifiedGtinTrainingRows(verifiedTargetGtins)
+        : [];
+    const verifiedGtinExamples = this.groupTrainingRows(verifiedGtinRows);
     const pools = this.supplierPools(fileItems);
     const rejectedFingerprints = new Set(
       this.repository.rejectedFingerprints
@@ -2429,12 +2554,18 @@ class MappingAutomationService {
     const drafts = [];
     let scoped = 0;
     let recipeScoped = 0;
+    let manualHistoryScoped = 0;
     let catalogBarcodeScoped = 0;
     let supplierScoped = 0;
     let costCatalogScoped = 0;
     let withoutCandidate = 0;
     let withoutFileSupport = 0;
     let rejectedCandidateCount = 0;
+    let gtinConflicts = 0;
+    const productsWithoutVerifiedGtin = targets.filter(
+      (target) =>
+        selectedMarketplace === "HEPSIBURADA" && !verifiedCatalogGtin(target),
+    ).length;
     for (const rawTarget of targets) {
       const target = {
         ...rawTarget,
@@ -2444,15 +2575,27 @@ class MappingAutomationService {
       const manualCandidates = supplierCode
         ? []
         : this.manualHistoryCandidatesForTarget(target, examples, targetHints);
+      const exactGtinMatches = verifiedCatalogGtin(target)
+        ? verifiedGtinExamples.filter(
+            (example) =>
+              canonicalGtin(example.barcode) ===
+              verifiedCatalogGtin(target).gtin,
+          )
+        : [];
       const catalogBarcodeCandidates = supplierCode
         ? []
-        : this.catalogBarcodeRecipeCandidates(target, examples, []).map(
-            (candidate) =>
-              this.applyCompositeSafety(
-                target,
-                applyRejectionHints(candidate, targetHints),
-              ),
+        : this.catalogBarcodeRecipeCandidates(
+            target,
+            verifiedGtinExamples,
+            [],
+          ).map((candidate) =>
+            this.applyCompositeSafety(
+              target,
+              applyRejectionHints(candidate, targetHints),
+            ),
           );
+      if (exactGtinMatches.length && !catalogBarcodeCandidates.length)
+        gtinConflicts++;
       const costCatalogCandidates = supplierCode
         ? []
         : this.costCatalogCandidatesForTarget(target, costItems, targetHints);
@@ -2470,6 +2613,7 @@ class MappingAutomationService {
       scoped++;
       if (manualCandidates.length || catalogBarcodeCandidates.length)
         recipeScoped++;
+      if (manualCandidates.length) manualHistoryScoped++;
       if (catalogBarcodeCandidates.length) catalogBarcodeScoped++;
       if (poolCandidates.length) supplierScoped++;
       if (costCatalogCandidates.length) costCatalogScoped++;
@@ -2546,6 +2690,7 @@ class MappingAutomationService {
       suggestions,
       targets.map((target) => target.barcode),
       selectedMarketplace,
+      { forceRegeneration: Boolean(barcode && forceRegeneration) },
     );
     return {
       processed: targets.length,
@@ -2558,6 +2703,12 @@ class MappingAutomationService {
       withoutCandidate,
       withoutFileSupport,
       rejectedCandidateCount,
+      exactVerifiedGtinRecipes: catalogBarcodeScoped,
+      sameMarketplaceHistory: manualHistoryScoped,
+      supplierCandidates: supplierScoped,
+      costCatalogCandidates: costCatalogScoped,
+      gtinConflicts,
+      productsWithoutVerifiedGtin,
       filePoolSize: fileItems.length,
       supplierPools: pools.map((pool) => ({
         code: pool.code,
@@ -2571,6 +2722,35 @@ class MappingAutomationService {
 
   async listSuggestions(filters) {
     return this.repository.listSuggestions(filters);
+  }
+
+  async identifierDiagnostics({ sampleLimit = 5 } = {}) {
+    const data =
+      await this.repository.hepsiburadaIdentifierDiagnostics(sampleLimit);
+    const conflicts = data.verifiedPairs.filter((pair) => {
+      const target = {
+        product_name: pair.hb_product_name,
+        brand: pair.hb_brand,
+      };
+      const source = {
+        product_name: pair.trendyol_product_name,
+        brand: pair.trendyol_brand,
+      };
+      return (
+        !mappingSemanticCompatible(target, source) ||
+        extractPackCount(target.product_name) !==
+          extractPackCount(source.product_name)
+      );
+    });
+    return {
+      ...data,
+      verifiedPairs: data.verifiedPairs.slice(0, Number(sampleLimit) || 5),
+      summary: {
+        ...data.summary,
+        exact_gtin_semantic_conflicts: conflicts.length,
+      },
+      conflictSamples: conflicts.slice(0, Number(sampleLimit) || 5),
+    };
   }
 
   async diagnostics({
@@ -2771,6 +2951,7 @@ class MappingAutomationService {
       barcode,
       limit: 1,
       marketplace: selectedMarketplace,
+      forceRegeneration: true,
     });
     if (!result.processed)
       throw new AppError(

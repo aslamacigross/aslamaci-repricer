@@ -223,6 +223,21 @@ function mappingAutomationRoutes({
       }),
     ),
   );
+  router.get(
+    "/mapping-suggestions/identifier-diagnostics",
+    asyncRoute(async (req, res) => {
+      if (marketplaceCode(req) !== "HEPSIBURADA")
+        throw new AppError(
+          "Kimlik teşhisi yalnız Hepsiburada için kullanılabilir",
+          400,
+          "HEPSIBURADA_ONLY_DIAGNOSTIC",
+        );
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.identifierDiagnostics(req.query),
+      });
+    }),
+  );
   router.post(
     "/mapping-suggestions/diagnostics/:barcode/regenerate",
     asyncRoute(async (req, res) => {

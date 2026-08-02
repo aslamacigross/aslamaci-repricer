@@ -55,6 +55,8 @@ function fixture(overrides = {}) {
         created: rows.length,
         skippedApproved: 0,
         skippedRejected: 0,
+        skippedDuplicates: 0,
+        skippedSamePending: 0,
         items: rows,
       };
     },
@@ -211,7 +213,7 @@ test("egitim receteleri ayni barkodda pazaryerleri arasinda birbirine karismaz",
   );
 });
 
-test("toplu oneride bekleyen oneriler yeniden taranir, onaylananlar korunur", async () => {
+test("toplu oneride bekleyen ve onaylanan oneriler yeniden taranmaz", async () => {
   let capturedSql = "";
   const repository = new MappingAutomationRepository(
     {
@@ -225,8 +227,7 @@ test("toplu oneride bekleyen oneriler yeniden taranir, onaylananlar korunur", as
   await repository.targetProducts({ marketplace: "HEPSIBURADA", limit: 1000 });
   assert.match(capturedSql, /LEFT JOIN mapping_suggestions open_suggestion/);
   assert.match(capturedSql, /open_suggestion\.id IS NULL/);
-  assert.match(capturedSql, /open_suggestion\.status='APPROVED'/);
-  assert.doesNotMatch(capturedSql, /status IN\('PENDING','APPROVED'\)/);
+  assert.match(capturedSql, /status IN\('PENDING','APPROVED'\)/);
 });
 
 test("mapping egitim sorgusu yalniz secili pazaryerini kullanir", async () => {
@@ -289,6 +290,211 @@ test("Hepsiburada mapping önerileri kendi geçmiş reçetesini kullanır", asyn
   assert.equal(result.created, 1);
   assert.equal(saved[0].source_type, "MANUAL_HISTORY");
   assert.equal(saved[0].evidence.sourceMarketplace, "HEPSIBURADA");
+});
+
+test("ayni merchant SKU farkli dogrulanmis GTIN ile Trendyol recetesine baglanmaz", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "8690000000012",
+        catalog_gtin: "4006381333931",
+        catalog_gtin_source: "HEPSIBURADA_CATALOG_API:ean",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    verifiedGtinTrainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690000000012",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSE",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 2,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ marketplace: "HEPSIBURADA" });
+
+  assert.equal(result.created, 0);
+  assert.equal(result.exactVerifiedGtinRecipes, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("belirsiz barcode kaynagi olmadan Trendyol recetesi olusturmaz", async () => {
+  let requestedGtins = null;
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-MERCHANT-1",
+        catalog_gtin: null,
+        marketplace_catalog_barcode: "8690000000012",
+        catalog_gtin_source: null,
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    verifiedGtinTrainingRows: async (gtins) => {
+      requestedGtins = gtins;
+      return [];
+    },
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ marketplace: "HEPSIBURADA" });
+
+  assert.deepEqual(requestedGtins, []);
+  assert.equal(result.productsWithoutVerifiedGtin, 1);
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("dogrulanmis ayni GTIN semantik uyumla tek kesin recete onerir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-MERCHANT-2",
+        catalog_gtin: "8690000000012",
+        catalog_gtin_source: "HEPSIBURADA_CATALOG_API:gtin",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1,5 L x 2",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    verifiedGtinTrainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690000000012",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSE",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 2,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ marketplace: "HEPSIBURADA" });
+
+  assert.equal(result.created, 1);
+  assert.equal(result.exactVerifiedGtinRecipes, 1);
+  assert.equal(result.sameMarketplaceHistory, 0);
+  assert.equal(result.supplierCandidates, 0);
+  assert.equal(result.costCatalogCandidates, 0);
+  assert.equal(result.rejectedCandidateCount, 0);
+  assert.equal(result.skippedSamePending, 0);
+  assert.equal(result.productsWithoutVerifiedGtin, 0);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].source_type, "VERIFIED_GTIN_RECIPE");
+  assert.equal(saved[0].source_barcode, "8690000000012");
+});
+
+test("dogrulanmis ayni GTIN olcu veya paket celisirse onermez ve teshiş sayar", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-MERCHANT-3",
+        catalog_gtin: "8690000000012",
+        catalog_gtin_source: "HEPSIBURADA_CATALOG_API:gtin",
+        product_name: "Actisoft Menekşe Yumuşatıcı 3 L x 1",
+        brand: "Actisoft",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    verifiedGtinTrainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690000000012",
+        product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+        brand: "Actisoft",
+        cost_item_code: "ACTISOFT_MENEKSE",
+        item_name: "Actisoft Menekşe Yumuşatıcı 1500 ml",
+        quantity: 2,
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+    ],
+    fileItemsForMatching: async () => [],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ marketplace: "HEPSIBURADA" });
+
+  assert.equal(result.created, 0);
+  assert.equal(result.gtinConflicts, 1);
+  assert.equal(saved.length, 0);
+});
+
+test("dogrulanmis GTIN recetesi tedarikci fuzzy adayindan once gelir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HB-MERCHANT-4",
+        catalog_gtin: "8690000000012",
+        catalog_gtin_source: "HEPSIBURADA_CATALOG_API:gtin",
+        product_name: "Harras Tereyağlı Kurabiye 180 g x 2",
+        brand: "Harras",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    verifiedGtinTrainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "8690000000012",
+        product_name: "Harras Tereyağlı Kurabiye 180 g x 2",
+        brand: "Harras",
+        cost_item_code: "HARRAS_KURABIYE",
+        item_name: "Harras Tereyağlı Kurabiye 180 g",
+        quantity: 2,
+        unit_cost: 229,
+        unit_desi: 1,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 2001,
+        product_name: "Harras Tereyağlı Kurabiye 180 g",
+        brand: "Harras",
+        current_price: 229,
+        supplier_code: "FILE_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ marketplace: "HEPSIBURADA" });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].source_type, "VERIFIED_GTIN_RECIPE");
 });
 
 test("Hepsiburada katalog barkodu Trendyol reçetesini kullanmaz", async () => {
@@ -521,6 +727,7 @@ test("Hepsiburada mevcut maliyet kalemini dusuk guvenli yedek aday olarak kullan
 
   assert.equal(result.created, 1);
   assert.equal(result.costCatalogScoped, 1);
+  assert.equal(result.costCatalogCandidates, 1);
   assert.equal(saved[0].source_type, "COST_ITEM_CATALOG");
   assert.equal(saved[0].confidence_band, "LOW");
   assert.equal(saved[0].update_file_price, false);
@@ -605,6 +812,10 @@ test("Hepsiburada mappingi guclu tedarikci eslesmesini zayif gecmise tercih eder
   });
 
   assert.equal(result.created, 1);
+  assert.equal(result.exactVerifiedGtinRecipes, 0);
+  assert.equal(result.sameMarketplaceHistory, 0);
+  assert.equal(result.supplierCandidates, 1);
+  assert.equal(result.costCatalogCandidates, 0);
   assert.equal(saved[0].supplier_code, "BIZIM_MARKET");
   assert.equal(saved[0].items[0].file_product_name, "Ülker Toz Kakao 150 g");
   assert.notEqual(saved[0].items[0].cost_item_code, "YANLIS_BISKUVI");
@@ -1701,7 +1912,7 @@ test("uzun Hepsiburada basligi kisa tedarikci adini ve genel marka alanini kacir
   assert.equal(saved[0].items[0].quantity, 3);
 });
 
-test("Hepsiburada magazasi markasi tedarikci markasindan farkli olsa da guvenli eslesmeyi incelemeye cikarir", async () => {
+test("Hepsiburada farkli somut markayi tedarikci onerisine donusturmez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -1732,14 +1943,12 @@ test("Hepsiburada magazasi markasi tedarikci markasindan farkli olsa da guvenli 
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.supplierScoped, 1);
-  assert.equal(result.created, 1);
-  assert.equal(saved[0].confidence_band, "LOW");
-  assert.equal(saved[0].evidence.crossMarketplaceBrandMismatch, true);
-  assert.equal(saved[0].items[0].quantity, 3);
+  assert.equal(result.supplierScoped, 0);
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
 });
 
-test("Hepsiburada dogrudan isim eslesmesini kaba tedarikci havuzu kapisinda elemez", async () => {
+test("Hepsiburada tedarikci havuzu on filtresini gecmeyen urunu karsilastirmaz", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -1772,11 +1981,9 @@ test("Hepsiburada dogrudan isim eslesmesini kaba tedarikci havuzu kapisinda elem
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.supplierScoped, 1);
-  assert.equal(result.created, 1);
-  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
-  assert.equal(saved[0].items[0].file_market_item_id, 906);
-  assert.equal(saved[0].items[0].quantity, 4);
+  assert.equal(result.supplierScoped, 0);
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
 });
 
 test("Hepsiburada bagimsiz ad motoru uzun basliktan kisa File urununu bulur", async () => {
@@ -1859,7 +2066,7 @@ test("Hepsiburada bagimsiz ad motoru eksik marka alaninda guclu urun adini incel
   assert.equal(saved[0].items[0].quantity, 3);
 });
 
-test("Hepsiburada tek guclu varyant sinyalini dusuk guvenle manuel incelemeye cikarir", async () => {
+test("Hepsiburada marka kaniti olmayan tek varyant sinyalini onermez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -1890,18 +2097,11 @@ test("Hepsiburada tek guclu varyant sinyalini dusuk guvenle manuel incelemeye ci
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.created, 1);
-  assert.equal(saved[0].confidence_band, "LOW");
-  assert.equal(saved[0].items[0].file_market_item_id, 914);
-  assert.equal(saved[0].items[0].quantity, 2);
-  assert.ok(
-    saved[0].evidence.reasons.some(
-      (reason) => reason.code === "HEPSIBURADA_LOW_CONFIDENCE_REVIEW",
-    ),
-  );
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
 });
 
-test("Hepsiburada dogrudan tedarikci adayi maliyet katalog adayindan once gelir", async () => {
+test("Hepsiburada yalniz genel marka ve urun turu ile maliyet katalog onerisi uretmez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
       {
@@ -1938,9 +2138,8 @@ test("Hepsiburada dogrudan tedarikci adayi maliyet katalog adayindan once gelir"
     marketplace: "HEPSIBURADA",
   });
 
-  assert.equal(result.created, 1);
-  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
-  assert.equal(saved[0].items[0].file_market_item_id, 915);
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
 });
 
 test("Hepsiburada bagimsiz ad motoru farkli gramaj ve hassas varyanti onermez", async () => {
@@ -2075,6 +2274,86 @@ test("Hepsiburada ret notu sonraki oneriyi duzeltir ve pazaryeri disina sizmaz",
   );
   assert.equal(saved[0].items[0].quantity, 2);
   assert.ok(saved[0].evidence.rejectionNoteHints.confidenceBoost > 0);
+});
+
+test("Hepsiburada reddedilmis recete yeni algoritma fingerprintiyle geri gelmez", async () => {
+  const target = {
+    barcode: "HB-REJECTED-RECIPE",
+    product_name: "Harras Tereyağlı Kurabiye 180 g x 2",
+    brand: "Harras",
+    data_status: "MAPPING_MISSING",
+    is_active: true,
+    marketplace: "HEPSIBURADA",
+  };
+  const supplierItem = {
+    id: 920,
+    product_name: "Harras Tereyağlı Kurabiye 180 g",
+    brand: "Harras",
+    current_price: 229,
+    supplier_code: "FILE_MARKET",
+    estimated_unit_desi: 1,
+  };
+  const first = fixture({
+    targetProducts: async () => [target],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [supplierItem],
+  });
+  await first.service.generate({ marketplace: "HEPSIBURADA" });
+  assert.equal(first.saved.length, 1);
+  const rejectedRecipeKey = first.saved[0].recipe_key;
+
+  const second = fixture({
+    targetProducts: async () => [target],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [supplierItem],
+    rejectedRecipeKeys: async () => [`HB-REJECTED-RECIPE:${rejectedRecipeKey}`],
+  });
+  const result = await second.service.generate({
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(result.rejectedCandidateCount, 1);
+  assert.equal(second.saved.length, 0);
+});
+
+test("Hepsiburada kimlik teshisi dogrulanmis GTIN semantik celiskisini ayirir", async () => {
+  const { service } = fixture({
+    hepsiburadaIdentifierDiagnostics: async () => ({
+      summary: {
+        active_targets: 2,
+        verified_gtins: 1,
+        identity_only: 1,
+        catalog_equals_merchant_sku: 1,
+        ambiguous_catalog_values: 1,
+        verified_trendyol_matches: 1,
+      },
+      verifiedPairs: [
+        {
+          merchant_sku: "HB-1",
+          hb_sku: "HBV-1",
+          catalog_gtin: "8690000000012",
+          catalog_gtin_source: "HEPSIBURADA_CATALOG_API:ean",
+          hb_product_name: "Actisoft Menekşe Yumuşatıcı 3 L x 1",
+          hb_brand: "Actisoft",
+          trendyol_barcode: "8690000000012",
+          trendyol_product_name: "Actisoft Menekşe Yumuşatıcı 1500 ml x 2",
+          trendyol_brand: "Actisoft",
+        },
+      ],
+      ambiguousSamples: [{ merchant_sku: "HB-2" }],
+      merchantSkuSamples: [{ merchant_sku: "HB-2" }],
+      identityOnlySamples: [{ merchant_sku: "HB-2" }],
+    }),
+  });
+
+  const result = await service.identifierDiagnostics({ sampleLimit: 5 });
+
+  assert.equal(result.summary.active_targets, 2);
+  assert.equal(result.summary.exact_gtin_semantic_conflicts, 1);
+  assert.equal(result.conflictSamples.length, 1);
 });
 
 test("Hepsiburada egitimi Trendyol recetesini savunmali olarak filtreler", async () => {

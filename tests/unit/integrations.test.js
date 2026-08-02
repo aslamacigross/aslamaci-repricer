@@ -386,7 +386,7 @@ test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tam
   assert.equal(upsert.params[5], "https://cdn.test/menekse.jpg");
 });
 
-test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamamlar", async () => {
+test("Hepsiburada listing sync yalniz kaynakli EAN alanini katalog GTIN olarak kaydeder", async () => {
   const queries = [];
   const sync = new SyncService({
     audit: {},
@@ -413,7 +413,8 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
         {
           merchantSku: "HB-MERCHANT-SKU-1",
           hbSku: "HBV-CATALOG-1",
-          barcode: "8690000000001",
+          barcode: "HB-MERCHANT-SKU-1",
+          ean: "4006381333931",
           productName: "Hepsiburada Katalog Ürünü",
           brand: "Harras",
           categoryName: "Çay",
@@ -451,7 +452,8 @@ test("Hepsiburada listing sync katalog alanlarini merchantSku ve hbSku ile tamam
   assert.equal(upserts[1].params[7], 199);
   assert.equal(upserts[0].params[5], "https://cdn.test/hb.jpg");
   assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
-  assert.equal(upserts[0].params[20], "8690000000001");
+  assert.equal(upserts[0].params[20], "4006381333931");
+  assert.equal(upserts[0].params[21], "HEPSIBURADA_CATALOG_API:ean");
   assert.equal(upserts[0].params[19], true);
 });
 

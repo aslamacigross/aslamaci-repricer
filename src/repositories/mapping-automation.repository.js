@@ -559,7 +559,7 @@ class MappingAutomationRepository {
     const selectedMarketplace = normalizeMarketplace(marketplace);
     return (
       await this.db.query(
-        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,
+        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,p.catalog_gtin,p.catalog_gtin_source,
                 p.product_name,p.brand,p.category_id,p.category_name,
                 pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
          FROM products p
@@ -575,6 +575,121 @@ class MappingAutomationRepository {
     ).rows;
   }
 
+  async verifiedGtinTrainingRows(gtins = []) {
+    const unique = [...new Set(gtins.filter(Boolean))];
+    if (!unique.length) return [];
+    return (
+      await this.db.query(
+        `SELECT p.marketplace,p.barcode,p.product_name,p.brand,
+                p.category_id,p.category_name,
+                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
+         FROM products p
+         JOIN product_cost_mappings pcm
+           ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
+         JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         WHERE p.marketplace='TRENDYOL'
+           AND p.barcode=ANY($1::text[])
+           AND p.product_name IS NOT NULL
+           AND ci.unit_cost>0 AND COALESCE(ci.unit_desi,0)>0
+         ORDER BY p.barcode,pcm.id`,
+        [unique],
+      )
+    ).rows;
+  }
+
+  async hepsiburadaIdentifierDiagnostics(sampleLimit = 5) {
+    const limit = Math.min(Math.max(Number(sampleLimit) || 5, 1), 25);
+    const summary = (
+      await this.db.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE is_active=TRUE)::int AS active_targets,
+           COUNT(*) FILTER (
+             WHERE is_active=TRUE
+               AND catalog_gtin IS NOT NULL
+               AND catalog_gtin_source IS NOT NULL
+           )::int AS verified_gtins,
+           COUNT(*) FILTER (
+             WHERE is_active=TRUE
+               AND (catalog_gtin IS NULL OR catalog_gtin_source IS NULL)
+           )::int AS identity_only,
+           COUNT(*) FILTER (
+             WHERE marketplace_catalog_barcode IS NOT NULL
+               AND marketplace_catalog_barcode=barcode
+           )::int AS catalog_equals_merchant_sku,
+           COUNT(*) FILTER (
+             WHERE marketplace_catalog_barcode IS NOT NULL
+               AND catalog_gtin IS NULL
+           )::int AS ambiguous_catalog_values,
+           COUNT(*) FILTER (
+             WHERE catalog_gtin_source IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM products ty
+                 WHERE ty.marketplace='TRENDYOL'
+                   AND ty.barcode=products.catalog_gtin
+               )
+           )::int AS verified_trendyol_matches
+         FROM products WHERE marketplace='HEPSIBURADA'`,
+      )
+    ).rows[0];
+    const verifiedPairs = (
+      await this.db.query(
+        `SELECT hb.barcode AS merchant_sku,hb.marketplace_product_id AS hb_sku,
+                hb.catalog_gtin,
+                hb.catalog_gtin_source,hb.product_name AS hb_product_name,
+                hb.brand AS hb_brand,ty.barcode AS trendyol_barcode,
+                ty.product_name AS trendyol_product_name,ty.brand AS trendyol_brand
+         FROM products hb
+         JOIN products ty
+           ON ty.marketplace='TRENDYOL'
+          AND ty.barcode=hb.catalog_gtin
+         WHERE hb.marketplace='HEPSIBURADA'
+           AND hb.catalog_gtin_source IS NOT NULL
+         ORDER BY hb.barcode`,
+      )
+    ).rows;
+    const ambiguousSamples = (
+      await this.db.query(
+        `SELECT barcode AS merchant_sku,marketplace_product_id AS hb_sku,
+                marketplace_catalog_barcode,catalog_gtin_source,product_name,brand
+         FROM products
+         WHERE marketplace='HEPSIBURADA'
+           AND marketplace_catalog_barcode IS NOT NULL
+           AND catalog_gtin IS NULL
+         ORDER BY barcode LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    const merchantSkuSamples = (
+      await this.db.query(
+        `SELECT barcode AS merchant_sku,marketplace_product_id AS hb_sku,
+                marketplace_catalog_barcode,catalog_gtin,catalog_gtin_source,product_name,brand
+         FROM products
+         WHERE marketplace='HEPSIBURADA'
+           AND marketplace_catalog_barcode=barcode
+         ORDER BY barcode LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    const identityOnlySamples = (
+      await this.db.query(
+        `SELECT barcode AS merchant_sku,marketplace_product_id AS hb_sku,
+                marketplace_catalog_barcode,catalog_gtin,catalog_gtin_source,product_name,brand
+         FROM products
+         WHERE marketplace='HEPSIBURADA' AND is_active=TRUE
+           AND (catalog_gtin IS NULL OR catalog_gtin_source IS NULL)
+         ORDER BY barcode LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    return {
+      summary,
+      verifiedPairs,
+      ambiguousSamples,
+      merchantSkuSamples,
+      identityOnlySamples,
+    };
+  }
+
   async targetProducts(options = 500) {
     const normalized =
       typeof options === "object" && options !== null
@@ -588,16 +703,22 @@ class MappingAutomationRepository {
       "p.product_name IS NOT NULL",
       `(p.data_status='MAPPING_MISSING' OR COALESCE(mt.mapping_count,0)=0)`,
     ];
+    const forcePendingRegeneration = Boolean(
+      normalized.barcode && normalized.forceRegeneration,
+    );
     if (normalized.barcode) {
       params.push(String(normalized.barcode).trim());
       where.push(`p.barcode=$${params.length}`);
-    } else {
-      where.push("open_suggestion.id IS NULL");
     }
+    where.push(
+      forcePendingRegeneration
+        ? "(open_suggestion.id IS NULL OR open_suggestion.status='PENDING')"
+        : "open_suggestion.id IS NULL",
+    );
     params.push(Math.min(Math.max(Number(normalized.limit) || 500, 1), 1000));
     return (
       await this.db.query(
-        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,
+        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,p.catalog_gtin,p.catalog_gtin_source,
                 p.product_name,p.brand,p.category_id,p.category_name,
                 p.product_image_url,p.data_status,p.is_active,p.stock_quantity,
                 p.needs_cost_mapping,p.calculated_product_cost,p.desi
@@ -610,7 +731,7 @@ class MappingAutomationRepository {
          LEFT JOIN mapping_suggestions open_suggestion
            ON open_suggestion.marketplace=p.marketplace
           AND open_suggestion.barcode=p.barcode
-          AND open_suggestion.status='APPROVED'
+          AND open_suggestion.status IN('PENDING','APPROVED')
          WHERE ${where.join(" AND ")}
          ORDER BY p.product_name
          LIMIT $${params.length}`,
@@ -822,6 +943,7 @@ class MappingAutomationRepository {
     suggestions,
     evaluatedBarcodes = [],
     marketplace = "TRENDYOL",
+    { forceRegeneration = false } = {},
   ) {
     const selectedMarketplace = normalizeMarketplace(marketplace);
     const uniqueSuggestions = [];
@@ -850,6 +972,7 @@ class MappingAutomationRepository {
         skippedApproved: 0,
         skippedRejected: 0,
         skippedDuplicates: 0,
+        skippedSamePending: 0,
         items: [],
       };
     return this.withTransaction(async (client) => {
@@ -886,15 +1009,10 @@ class MappingAutomationRepository {
             ).rows.map((row) => `${row.barcode}:${row.fingerprint}`)
           : [],
       );
-      await client.query(
-        `UPDATE mapping_suggestions SET status='STALE',updated_at=NOW()
-         WHERE marketplace=$2 AND barcode=ANY($1::text[])
-           AND status='PENDING'`,
-        [evaluated, selectedMarketplace],
-      );
       const saved = [];
       let skippedOpen = 0;
       let skippedConflicts = 0;
+      let skippedSamePending = 0;
       for (const suggestion of uniqueSuggestions) {
         if (approved.has(suggestion.barcode)) continue;
         if (
@@ -905,7 +1023,7 @@ class MappingAutomationRepository {
           continue;
         const openSuggestion = (
           await client.query(
-            `SELECT id,status FROM mapping_suggestions
+            `SELECT id,status,fingerprint FROM mapping_suggestions
              WHERE marketplace=$1 AND barcode=$2
                AND status IN('PENDING','APPROVED')
              LIMIT 1`,
@@ -913,8 +1031,24 @@ class MappingAutomationRepository {
           )
         ).rows[0];
         if (openSuggestion) {
-          skippedOpen++;
-          continue;
+          if (
+            openSuggestion.status === "PENDING" &&
+            openSuggestion.fingerprint === suggestion.fingerprint
+          ) {
+            skippedSamePending++;
+            continue;
+          }
+          if (openSuggestion.status === "PENDING" && forceRegeneration) {
+            await client.query(
+              `UPDATE mapping_suggestions
+               SET status='STALE',updated_at=NOW()
+               WHERE id=$1::bigint AND status='PENDING'`,
+              [String(openSuggestion.id)],
+            );
+          } else {
+            skippedOpen++;
+            continue;
+          }
         }
         const parent = (
           await client.query(
@@ -978,6 +1112,7 @@ class MappingAutomationRepository {
         skippedApproved: approved.size,
         skippedRejected: rejectedFingerprints.size,
         skippedDuplicates: suggestions.length - uniqueSuggestions.length,
+        skippedSamePending,
         skippedOpen,
         skippedConflicts,
         items: saved,

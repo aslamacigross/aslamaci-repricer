@@ -1,5 +1,6 @@
 const { env } = require("../config/env");
 const { roundMoney } = require("../utils/numbers");
+const { canonicalGtin } = require("../domain/catalog-gtin");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -52,17 +53,17 @@ function hepsiburadaCatalogBarcode(product) {
   ).trim();
 }
 
-function hepsiburadaCatalogProductBarcode(product) {
-  return String(
-    firstValue(product, [
-      "marketplace_catalog_barcode",
-      "barcode",
-      "merchantBarcode",
-      "productBarcode",
-      "gtin",
-      "ean",
-    ]),
-  ).trim();
+function hepsiburadaVerifiedCatalogGtin(product) {
+  for (const [field, source] of [
+    ["gtin", "HEPSIBURADA_CATALOG_API:gtin"],
+    ["ean", "HEPSIBURADA_CATALOG_API:ean"],
+    ["gtin13", "HEPSIBURADA_CATALOG_API:gtin13"],
+    ["ean13", "HEPSIBURADA_CATALOG_API:ean13"],
+  ]) {
+    const gtin = canonicalGtin(product?.[field]);
+    if (gtin) return { gtin, source };
+  }
+  return { gtin: "", source: "" };
 }
 
 function hepsiburadaCatalogPlatformId(product) {
@@ -467,9 +468,7 @@ class SyncService {
         product ||
         metadataForListing(metadataByKey, listing) ||
         fallbackByBarcode.get(barcode);
-      const catalogBarcode = hepsiburadaCatalogProductBarcode(
-        product || fallbackProduct || {},
-      );
+      const catalogIdentity = hepsiburadaVerifiedCatalogGtin(product || {});
       seenBarcodes.add(barcode);
       const saleSource = Object.keys(listing || {}).length ? listing : product;
       const salePrice = hepsiburadaListingPrice(saleSource || {});
@@ -502,10 +501,10 @@ class SyncService {
           product_image_url,marketplace_product_id,my_price,list_price,
           stock_quantity,archived,locked,on_sale,approved,commission_rate,
           buybox_price,second_price,third_price,rank,has_multiple_seller,
-          buybox_updated_at,is_active,marketplace_catalog_barcode,updated_at
+          buybox_updated_at,is_active,catalog_gtin,catalog_gtin_source,updated_at
         )VALUES(
           'HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,FALSE,$12,$13,$14,
-          $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,$21,NOW()
+          $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,$21,$22,NOW()
         )
         ON CONFLICT(marketplace,barcode)DO UPDATE SET
           product_name=COALESCE(NULLIF(EXCLUDED.product_name,''),products.product_name),
@@ -529,9 +528,13 @@ class SyncService {
           has_multiple_seller=COALESCE(EXCLUDED.has_multiple_seller,products.has_multiple_seller),
           buybox_updated_at=COALESCE(EXCLUDED.buybox_updated_at,products.buybox_updated_at),
           is_active=EXCLUDED.is_active,
-          marketplace_catalog_barcode=COALESCE(
-            NULLIF(EXCLUDED.marketplace_catalog_barcode,''),
-            products.marketplace_catalog_barcode
+          catalog_gtin=COALESCE(
+            NULLIF(EXCLUDED.catalog_gtin,''),
+            products.catalog_gtin
+          ),
+          catalog_gtin_source=COALESCE(
+            NULLIF(EXCLUDED.catalog_gtin_source,''),
+            products.catalog_gtin_source
           ),
           updated_at=NOW()`,
         [
@@ -579,7 +582,8 @@ class SyncService {
           buybox.rank,
           buybox.hasMultipleSeller,
           active,
-          catalogBarcode,
+          catalogIdentity.gtin || null,
+          catalogIdentity.source || null,
         ],
       );
       processed++;
@@ -877,4 +881,4 @@ class SyncService {
   }
 }
 
-module.exports = { SyncService };
+module.exports = { SyncService, hepsiburadaVerifiedCatalogGtin };
