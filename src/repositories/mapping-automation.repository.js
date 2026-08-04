@@ -106,10 +106,7 @@ class MappingAutomationRepository {
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
               desi_confidence=EXCLUDED.desi_confidence,
               price_tiers=CASE
-                WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
-                  AND JSONB_ARRAY_LENGTH(EXCLUDED.price_tiers)=0
-                  AND JSONB_ARRAY_LENGTH(file_market_items.price_tiers)>0
-                THEN file_market_items.price_tiers
+                WHEN $19::boolean THEN file_market_items.price_tiers
                 ELSE EXCLUDED.price_tiers END,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
@@ -141,6 +138,8 @@ class MappingAutomationRepository {
               row.estimated_unit_desi || null,
               row.desi_confidence || "LOW",
               JSON.stringify(row.price_tiers || []),
+              supplierCode === "BIZIM_MARKET" &&
+                (row.price_tiers || []).length === 0,
             ],
           )
         ).rows[0];
@@ -153,6 +152,9 @@ class MappingAutomationRepository {
         if (!previous) created++;
         if (priceChanged) changed++;
         const canonicalIds = await canonicalSupplierItemIds(client, item);
+        const canonicalPlaceholders = canonicalIds
+          .map((_, index) => `$${index + 1}`)
+          .join(",");
         const links = (
           await client.query(
             `SELECT l.cost_item_code,ci.unit_cost,pcm.marketplace,pcm.barcode,
@@ -161,9 +163,10 @@ class MappingAutomationRepository {
              JOIN cost_items ci ON ci.item_code=l.cost_item_code
              LEFT JOIN product_cost_mappings pcm
                ON pcm.cost_item_code=l.cost_item_code
-             WHERE l.file_market_item_id=ANY($1::bigint[]) AND l.status='APPROVED'
+             WHERE l.file_market_item_id IN (${canonicalPlaceholders})
+               AND l.status='APPROVED'
              ORDER BY l.cost_item_code,pcm.marketplace,pcm.barcode`,
-            [canonicalIds],
+            canonicalIds,
           )
         ).rows;
         for (const costCode of [
@@ -311,6 +314,9 @@ class MappingAutomationRepository {
         .sort((left, right) => right.min_quantity - left.min_quantity);
       const affected = [];
       const canonicalIds = await canonicalSupplierItemIds(client, item);
+      const canonicalPlaceholders = canonicalIds
+        .map((_, index) => `$${index + 1}`)
+        .join(",");
       const linkedMappings = (
         await client.query(
           `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
@@ -319,9 +325,10 @@ class MappingAutomationRepository {
            FROM cost_item_file_links l
            JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
            JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-           WHERE l.file_market_item_id=ANY($1::bigint[]) AND l.status='APPROVED'
+           WHERE l.file_market_item_id IN (${canonicalPlaceholders})
+             AND l.status='APPROVED'
            ORDER BY pcm.barcode,pcm.cost_item_code`,
-          [canonicalIds],
+          canonicalIds,
         )
       ).rows;
       for (const costCode of [
@@ -745,18 +752,46 @@ class MappingAutomationRepository {
     const supplierFilter = supplierCode
       ? `AND supplier_code=$${params.push(supplierCode)}`
       : "";
-    return (
+    const rows = (
       await this.db.query(
-        `SELECT DISTINCT ON (supplier_code,normalized_name) *
+        `SELECT *
          FROM file_market_items
-         WHERE current_price>0
-           AND normalized_name IS NOT NULL AND normalized_name<>''
+         WHERE normalized_name IS NOT NULL
            ${supplierFilter}
-         ORDER BY supplier_code,normalized_name,last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
          LIMIT 5000`,
         params,
       )
-    ).rows;
+    ).rows
+      .filter(
+        (row) =>
+          Number(row.current_price) > 0 &&
+          String(row.normalized_name || "").trim().length > 0,
+      )
+      .sort((left, right) => {
+        const supplierOrder = String(left.supplier_code || "").localeCompare(
+          String(right.supplier_code || ""),
+        );
+        if (supplierOrder) return supplierOrder;
+        const nameOrder = String(left.normalized_name || "").localeCompare(
+          String(right.normalized_name || ""),
+        );
+        if (nameOrder) return nameOrder;
+        const leftSeen = new Date(
+          left.last_seen_at || left.updated_at || left.created_at || 0,
+        ).getTime();
+        const rightSeen = new Date(
+          right.last_seen_at || right.updated_at || right.created_at || 0,
+        ).getTime();
+        if (leftSeen !== rightSeen) return rightSeen - leftSeen;
+        return Number(right.id || 0) - Number(left.id || 0);
+      });
+    const seen = new Set();
+    return rows.filter((row) => {
+      const key = `${row.supplier_code}:${row.normalized_name}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   async costItemsForMatching() {
@@ -1150,10 +1185,34 @@ class MappingAutomationRepository {
         grouped.set(String(row.suggestion_id), []);
       grouped.get(String(row.suggestion_id)).push(row);
     }
-    return suggestions.map((suggestion) => ({
-      ...suggestion,
-      items: grouped.get(String(suggestion.id)) || [],
-    }));
+    return suggestions.map((suggestion) => {
+      const items = grouped.get(String(suggestion.id)) || [];
+      if (
+        items.length === 1 &&
+        !items[0].file_market_item_id &&
+        suggestion.file_market_item_id
+      )
+        items[0] = {
+          ...items[0],
+          file_market_item_id: suggestion.file_market_item_id,
+          file_product_name:
+            items[0].file_product_name || suggestion.file_product_name,
+          file_current_price:
+            items[0].file_current_price || suggestion.file_current_price,
+          file_last_seen_at:
+            items[0].file_last_seen_at || suggestion.file_last_seen_at,
+          supplier_product_name:
+            items[0].supplier_product_name || suggestion.supplier_product_name,
+          supplier_current_price:
+            items[0].supplier_current_price ||
+            suggestion.supplier_current_price,
+          supplier_last_seen_at:
+            items[0].supplier_last_seen_at || suggestion.supplier_last_seen_at,
+          supplier_code:
+            items[0].supplier_code || suggestion.supplier_code || null,
+        };
+      return { ...suggestion, items };
+    });
   }
 
   async listSuggestions({

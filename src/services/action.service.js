@@ -286,12 +286,12 @@ class ActionService {
 
   async apply(id, actor) {
     const actionForRefresh =
-      typeof this.actions?.get === "function" ? await this.actions.get(id) : null;
+      typeof this.actions?.get === "function"
+        ? await this.actions.get(id)
+        : null;
     const manualSource =
       !actionForRefresh?.source ||
-      ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(
-        actionForRefresh.source,
-      );
+      ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(actionForRefresh.source);
     if (
       actionForRefresh?.marketplace === "TRENDYOL" &&
       actionForRefresh.status === "APPROVED" &&
@@ -677,7 +677,8 @@ class ActionService {
     if (
       (Number(locked.proposed_price) > marketPrice &&
         current.priceIncreaseDisabled) ||
-      (Number(locked.proposed_price) < marketPrice && current.priceDecreaseDisabled)
+      (Number(locked.proposed_price) < marketPrice &&
+        current.priceDecreaseDisabled)
     )
       throw new AppError(
         "Hepsiburada listing fiyat yönü platform tarafından kilitli",
@@ -711,7 +712,9 @@ class ActionService {
     const updated = await this.actions.updateStatus(id, "AWAITING_RESULT", {
       actor,
       batchId,
-      apiResponse: { submission: submission.response || { trackingId: batchId } },
+      apiResponse: {
+        submission: submission.response || { trackingId: batchId },
+      },
     });
     await this.audit.record({
       actor,

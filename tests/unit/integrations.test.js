@@ -837,9 +837,7 @@ test("Hepsiburada fiyat aksiyonu item sonucu ve listing fiyati birlikte dogrulan
     },
     hepsiburada: {
       getPriceUpdateStatus: async () => ({
-        priceValidations: [
-          { merchantSku: "HB-MERCHANT-1", status: "SUCCESS" },
-        ],
+        priceValidations: [{ merchantSku: "HB-MERCHANT-1", status: "SUCCESS" }],
       }),
       getCurrentOffer: async () => ({ price: 299.9 }),
     },

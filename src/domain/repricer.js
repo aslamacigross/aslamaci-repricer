@@ -120,7 +120,12 @@ function aggregatePlatformDiscount(source = {}) {
   );
 }
 
-function campaignEconomics(product = {}, settings = {}, listPrice, baseMinimum) {
+function campaignEconomics(
+  product = {},
+  settings = {},
+  listPrice,
+  baseMinimum,
+) {
   const merged = { ...product, ...settings };
   const activeSellerDiscount = aggregateSellerDiscount(merged);
   const trendyolFundedDiscount = aggregatePlatformDiscount(merged);
@@ -173,12 +178,7 @@ function buildResult({
   strategy,
   factor,
 }) {
-  const economics = campaignEconomics(
-    product,
-    settings,
-    proposed,
-    baseMinimum,
-  );
+  const economics = campaignEconomics(product, settings, proposed, baseMinimum);
   const moneyInput = {
     salePrice: economics.sellerSettlementPrice,
     commissionRate: product.commission_rate,

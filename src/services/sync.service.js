@@ -444,8 +444,7 @@ class SyncService {
         (product ? hepsiburadaCatalogPlatformId(product) : "") ||
         hepsiburadaListingPlatformId(listing);
       const fallbackProduct =
-        product ||
-        metadataForListing(metadataByKey, listing);
+        product || metadataForListing(metadataByKey, listing);
       const catalogIdentity = hepsiburadaVerifiedCatalogGtin(product || {});
       seenBarcodes.add(barcode);
       const saleSource = Object.keys(listing || {}).length ? listing : product;
@@ -879,7 +878,9 @@ class SyncService {
       return {
         status: errors.length ? "FAILED" : "PENDING",
         error: errors.length
-          ? errors.map((row) => row.message || row.error || JSON.stringify(row)).join("; ")
+          ? errors
+              .map((row) => row.message || row.error || JSON.stringify(row))
+              .join("; ")
           : "Hepsiburada fiyat yükleme sonucunda SKU bazlı sonuç henüz yok",
         batchResponse,
       };
@@ -890,7 +891,11 @@ class SyncService {
     if (["FAILED", "ERROR", "REJECTED", "INVALID"].includes(itemStatus))
       return {
         status: "FAILED",
-        error: String(item.message || item.error || "Hepsiburada fiyat güncellemesi reddedildi"),
+        error: String(
+          item.message ||
+            item.error ||
+            "Hepsiburada fiyat güncellemesi reddedildi",
+        ),
         batchResponse,
       };
     if (!["SUCCESS", "DONE", "COMPLETED", "OK"].includes(itemStatus))

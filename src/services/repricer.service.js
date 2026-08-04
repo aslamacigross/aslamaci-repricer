@@ -103,8 +103,7 @@ class RepricerService {
       max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
       max_single_change_pct:
         product.max_single_change_pct ?? global.maxChangePct,
-      max_daily_change_pct:
-        product.max_daily_change_pct ?? global.maxChangePct,
+      max_daily_change_pct: product.max_daily_change_pct ?? global.maxChangePct,
       minimum_profit_tl:
         product.minimum_profit_tl ??
         product.target_profit ??
@@ -131,9 +130,7 @@ class RepricerService {
 
   async refreshBuybox(barcodes, marketplace = "TRENDYOL") {
     const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
-    const unique = [
-      ...new Set((barcodes || []).map(String).filter(Boolean)),
-    ];
+    const unique = [...new Set((barcodes || []).map(String).filter(Boolean))];
     if (!unique.length)
       return {
         processed: 0,
@@ -343,7 +340,10 @@ class RepricerService {
       product,
       product,
       price,
-      Math.max(Number(product.min_price || 0), Number(product.minimum_price || 0)),
+      Math.max(
+        Number(product.min_price || 0),
+        Number(product.minimum_price || 0),
+      ),
     );
     const moneyInput = {
       salePrice: economics.sellerSettlementPrice,

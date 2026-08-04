@@ -901,15 +901,16 @@ class HepsiburadaService {
         hbSkuList: String(hbSku),
         limit: 100,
       });
-    else if (listingId)
-      payload = { listings: await this.fetchAllListings() };
+    else if (listingId) payload = { listings: await this.fetchAllListings() };
     else return null;
     return (
       normalizeRows(payload).find((row) => {
         if (merchantSku)
           return String(row.merchantSku || "") === String(merchantSku);
         if (hbSku)
-          return String(row.hepsiburadaSku || row.hbSku || "") === String(hbSku);
+          return (
+            String(row.hepsiburadaSku || row.hbSku || "") === String(hbSku)
+          );
         return String(row.listingId || "") === String(listingId);
       }) || null
     );
@@ -1514,9 +1515,7 @@ class HepsiburadaService {
       return this.postListingUpload("stock", [
         {
           merchantSku: String(listing.merchantSku),
-          hepsiburadaSku: String(
-            listing.hepsiburadaSku || listing.hbSku || "",
-          ),
+          hepsiburadaSku: String(listing.hepsiburadaSku || listing.hbSku || ""),
           availableStock: Number(stock),
         },
       ]);
@@ -1537,10 +1536,9 @@ class HepsiburadaService {
             page,
             offset,
             code: error.code || `HTTP_${error.status || "ERROR"}`,
-            message: String(error.message || "Hepsiburada listing sayfasi okunamadi").slice(
-              0,
-              400,
-            ),
+            message: String(
+              error.message || "Hepsiburada listing sayfasi okunamadi",
+            ).slice(0, 400),
           },
           enumerable: false,
         });

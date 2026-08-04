@@ -50,22 +50,42 @@ function product(input) {
 for (const scenario of [
   {
     name: "Mr.Green Lateks Eldiven",
-    input: { my_price: 524.9, buybox_price: 524.69, min_price: 517.58, rank: 2 },
+    input: {
+      my_price: 524.9,
+      buybox_price: 524.69,
+      min_price: 517.58,
+      rank: 2,
+    },
     expected: 524.59,
   },
   {
     name: "Pudra Oda Kokusu 4'lü",
-    input: { my_price: 665.22, buybox_price: 664.83, min_price: 647.14, rank: 3 },
+    input: {
+      my_price: 665.22,
+      buybox_price: 664.83,
+      min_price: 647.14,
+      rank: 3,
+    },
     expected: 664.73,
   },
   {
     name: "Çiçek Rüyası Yumuşatıcı 2'li",
-    input: { my_price: 502.1, buybox_price: 501.27, min_price: 499.46, rank: 2 },
+    input: {
+      my_price: 502.1,
+      buybox_price: 501.27,
+      min_price: 499.46,
+      rank: 2,
+    },
     expected: 501.17,
   },
   {
     name: "Ceviz İçi 4 x 400 gr",
-    input: { my_price: 2310.02, buybox_price: 2286.92, min_price: 1562.02, rank: 2 },
+    input: {
+      my_price: 2310.02,
+      buybox_price: 2286.92,
+      min_price: 1562.02,
+      rank: 2,
+    },
     expected: 2286.82,
   },
 ]) {
@@ -202,9 +222,7 @@ test("rank 2 ve üzerindeki hiçbir otomatik karar fiyat artıramaz", () => {
     proposal: unsafeIncrease,
     today: { actionCount: 0, dayStartPrice: 500 },
   });
-  assert.ok(
-    safety.failures.includes("RANK_OUTSIDE_BUYBOX_INCREASE_FORBIDDEN"),
-  );
+  assert.ok(safety.failures.includes("RANK_OUTSIDE_BUYBOX_INCREASE_FORBIDDEN"));
 });
 
 test("maliyet eksikse otomatik buybox düşüşü üretilmez", () => {

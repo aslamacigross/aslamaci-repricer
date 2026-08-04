@@ -83,12 +83,12 @@ class LearningService {
   async checkOutcomes(elapsedMinutes, actionId = null) {
     const verification = await this.verifyPendingActions(actionId);
     let pending = await this.actions.pendingOutcomes(elapsedMinutes, actionId);
+    const marketplaceOf = (action) =>
+      String(action.marketplace || "TRENDYOL").toUpperCase();
     const buyboxUnsupported = pending.filter(
-      (action) => String(action.marketplace).toUpperCase() === "HEPSIBURADA",
+      (action) => marketplaceOf(action) === "HEPSIBURADA",
     ).length;
-    pending = pending.filter(
-      (action) => String(action.marketplace).toUpperCase() === "TRENDYOL",
-    );
+    pending = pending.filter((action) => marketplaceOf(action) === "TRENDYOL");
     let refreshFailures = 0;
     if (pending.length && this.sync) {
       try {
@@ -99,7 +99,10 @@ class LearningService {
         refreshFailures = Number(refresh.failed || 0);
         pending = (
           await this.actions.pendingOutcomes(elapsedMinutes, actionId)
-        ).filter((action) => updated.has(action.barcode));
+        ).filter(
+          (action) =>
+            marketplaceOf(action) === "TRENDYOL" && updated.has(action.barcode),
+        );
       } catch (error) {
         refreshFailures = pending.length;
         pending = [];
