@@ -58,7 +58,13 @@ const SAFETY_REASON_LABELS = {
   BELOW_MIN_PRICE: "Önerilen fiyat minimum fiyatın altında.",
   CURRENT_PRICE_INVALID: "Mevcut fiyat geçersiz.",
   BUYBOX_MISSING: "Buybox verisi eksik.",
-  BUYBOX_STALE: "Buybox verisi izin verilen süreden eski.",
+  BUYBOX_STALE: "Buybox verisi izin verilen süreden eski veya yenilenemedi.",
+  BUYBOX_INCONSISTENT:
+    "Fiyat buybox seviyesinin altında olduğu halde sıra kazanılamadı; fiyat dışı kriterler incelenmeli.",
+  BUYBOX_NOT_ECONOMIC:
+    "Buybox hedefi aktif satıcı indirimleri sonrası minimum kârlı fiyatın altında.",
+  RANK_OUTSIDE_BUYBOX_INCREASE_FORBIDDEN:
+    "Buybox bizde değilken otomatik fiyat artışı yasaktır.",
   SINGLE_CHANGE_LIMIT: "Tek işlem fiyat değişim limiti aşılırdı.",
   DAILY_CHANGE_LIMIT:
     "Eski günlük fiyat değişim limiti. Yeni canlı modda bu limit bloklayıcı değildir.",
@@ -69,7 +75,7 @@ const SAFETY_REASON_LABELS = {
   AUTO_UPDATE_DISABLED: "Ürün auto update kapalı.",
   GLOBAL_REPRICER_DISABLED: "Global repricer kapalı.",
   DRY_RUN: "Dry-run açık; gerçek fiyat gönderimi yapılmaz.",
-  CHANGE_TOO_SMALL: "Fiyat değişimi anlamlı minimum tutarın altında.",
+  CHANGE_TOO_SMALL: "Fiyat değişimi platformun 0,01 TL hassasiyetinin altında.",
   LOSS_MAKING_DECREASE: "Zarardaki üründe otomatik düşüş yasak.",
   EXPECTED_LOSS: "Öneri sonrası beklenen kâr negatif.",
   MAX_INCREASE_LIMIT: "Maksimum artış TL limiti aşılırdı.",
@@ -364,6 +370,11 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       render: (r) => money(r.buybox_price),
     },
     {
+      key: "buybox_gap",
+      label: "Buybox farkı",
+      render: (r) => formatSignedMoney(r.buybox_gap),
+    },
+    {
       key: "learned_max_increase_tl",
       label: "Öğrenilen maks. artış",
       render: (r) =>
@@ -415,6 +426,41 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       key: "preview_difference",
       label: "Fark",
       render: (r) => formatSignedMoney(r.preview_difference),
+    },
+    {
+      key: "action_delta",
+      label: "Aksiyon farkı",
+      render: (r) => formatSignedMoney(r.action_delta),
+    },
+    {
+      key: "campaign_adjusted_min_price",
+      label: "Kampanya ayarlı min.",
+      render: (r) => money(r.campaign_adjusted_min_price),
+    },
+    {
+      key: "effective_candidate_price",
+      label: "Satıcı efektif fiyatı",
+      render: (r) => money(r.effective_candidate_price),
+    },
+    {
+      key: "effective_customer_price",
+      label: "Müşteri efektif fiyatı",
+      render: (r) => money(r.effective_customer_price),
+    },
+    {
+      key: "estimated_profit_after_action",
+      label: "Aksiyon sonrası kâr",
+      render: (r) => money(r.estimated_profit_after_action),
+    },
+    {
+      key: "active_seller_discount",
+      label: "Satıcı indirimi",
+      render: (r) => money(r.active_seller_discount),
+    },
+    {
+      key: "trendyol_funded_discount",
+      label: "Trendyol indirimi",
+      render: (r) => money(r.trendyol_funded_discount),
     },
     {
       key: "preview_blocked_reasons",
@@ -575,6 +621,14 @@ function buyboxPreviewDetail(row) {
     oldPrice: row.my_price,
     proposedPrice: row.preview_proposed_price,
     difference: row.preview_difference,
+    buyboxGap: row.buybox_gap,
+    actionDelta: row.action_delta,
+    campaignAdjustedMinPrice: row.campaign_adjusted_min_price,
+    effectiveCandidatePrice: row.effective_candidate_price,
+    effectiveCustomerPrice: row.effective_customer_price,
+    activeSellerDiscount: row.active_seller_discount,
+    trendyolFundedDiscount: row.trendyol_funded_discount,
+    obstacle: row.preview_obstacle,
     expectedProfit: row.preview_expected_profit,
     action: row.preview_action,
     strategy: row.strategy,
@@ -909,12 +963,27 @@ function RepricerPreviewDetail({ item, onClose }) {
         <section>
           <h3>Karar nedeni</h3>
           <p className="reason-full">{item.reason || "-"}</p>
+          {item.obstacle ? (
+            <p className="muted-note">Engel kodu: {item.obstacle}</p>
+          ) : null}
         </section>
         <section>
           <h3>Fiyat bağlamı</h3>
           <div className="compact-kv">
             <span>Minimum fiyat</span>
             <b>{money(item.minPrice)}</b>
+            <span>Kampanya ayarlı minimum</span>
+            <b>{money(item.campaignAdjustedMinPrice)}</b>
+            <span>Satıcı efektif fiyatı</span>
+            <b>{money(item.effectiveCandidatePrice)}</b>
+            <span>Müşteri efektif fiyatı</span>
+            <b>{money(item.effectiveCustomerPrice)}</b>
+            <span>Satıcı indirimi</span>
+            <b>{money(item.activeSellerDiscount)}</b>
+            <span>Trendyol indirimi</span>
+            <b>{money(item.trendyolFundedDiscount)}</b>
+            <span>Buybox farkı</span>
+            <b>{formatSignedMoney(item.buyboxGap)}</b>
             <span>Maksimum fiyat</span>
             <b>{item.maxPrice ? money(item.maxPrice) : "-"}</b>
             <span>Buybox fiyatı</span>

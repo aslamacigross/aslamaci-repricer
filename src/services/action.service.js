@@ -1,5 +1,9 @@
 const { AppError } = require("../utils/errors");
-const { proposePrice, safetyCheck } = require("../domain/repricer");
+const {
+  proposePrice,
+  safetyCheck,
+  campaignEconomics,
+} = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
 const { roundMoney, parseBoolean } = require("../utils/numbers");
 const { env } = require("../config/env");
@@ -281,6 +285,40 @@ class ActionService {
   }
 
   async apply(id, actor) {
+    const actionForRefresh =
+      typeof this.actions?.get === "function" ? await this.actions.get(id) : null;
+    const manualSource =
+      !actionForRefresh?.source ||
+      ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(
+        actionForRefresh.source,
+      );
+    if (
+      actionForRefresh?.marketplace === "TRENDYOL" &&
+      actionForRefresh.status === "APPROVED" &&
+      !manualSource &&
+      typeof this.repricer?.refreshBuybox === "function"
+    ) {
+      const refresh = await this.repricer.refreshBuybox(
+        [actionForRefresh.barcode],
+        actionForRefresh.marketplace,
+      );
+      if ((refresh.failedBarcodes || []).includes(actionForRefresh.barcode)) {
+        const updated = await this.actions.updateStatus(id, "STALE", {
+          actor,
+          error: "Buybox verisi gönderim öncesi yenilenemedi",
+          apiResponse: { buyboxRefresh: refresh },
+        });
+        await this.audit.record({
+          actor,
+          action: "PRICE_ACTION_STALE",
+          entityType: "repricer_action",
+          entityId: String(id),
+          after: { code: "BUYBOX_STALE", refresh },
+        });
+        return updated;
+      }
+    }
+
     const preparation = await this.withTransaction(async (client) => {
       const locked = (
         await client.query(
@@ -340,10 +378,73 @@ class ActionService {
           parseBoolean(global.unlimitedIncrease) ||
           parseBoolean(settings.unlimited_increase),
       };
-      const proposal = proposePrice(product, effectiveSettings);
-      proposal.proposedPrice = Number(locked.proposed_price);
+      const freshProposal = proposePrice(product, effectiveSettings);
+      const isManualSource =
+        !locked.source ||
+        ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(locked.source);
+      const decisionChanged =
+        !isManualSource &&
+        (freshProposal.action === "KORU" ||
+          freshProposal.action !== locked.action ||
+          Math.abs(
+            Number(freshProposal.proposedPrice) - Number(locked.proposed_price),
+          ) >= 0.01);
+      if (decisionChanged) {
+        const updated = await this.actions.updateStatus(
+          id,
+          "STALE",
+          {
+            actor,
+            error: "Buybox yenilemesi sonrası repricer kararı değişti",
+            apiResponse: {
+              previousDecision: {
+                action: locked.action,
+                proposedPrice: Number(locked.proposed_price),
+                buyboxPrice: Number(locked.buybox_before || 0),
+                rank: Number(locked.rank_before || 0),
+              },
+              refreshedDecision: freshProposal,
+            },
+          },
+          client,
+        );
+        return { stale: true, updated };
+      }
+      const lockedPrice = Number(locked.proposed_price);
+      const proposal = isManualSource
+        ? {
+            action:
+              locked.action ||
+              (lockedPrice < Number(locked.old_price)
+                ? "FIYAT_DUSUR"
+                : lockedPrice > Number(locked.old_price)
+                  ? "FIYAT_ARTIR"
+                  : "KORU"),
+            proposedPrice: lockedPrice,
+            targetRank: locked.target_rank ?? product.rank ?? null,
+            obstacle: null,
+            limitedBy: null,
+          }
+        : {
+            ...freshProposal,
+            proposedPrice: lockedPrice,
+          };
+      const economics = campaignEconomics(
+        product,
+        effectiveSettings,
+        proposal.proposedPrice,
+        Math.max(
+          Number(product.min_price || 0),
+          Number(effectiveSettings.minimum_price || 0),
+        ),
+      );
+      proposal.campaignAdjustedMinPrice = economics.campaignAdjustedMinPrice;
+      proposal.effectiveCandidatePrice = economics.effectiveCandidatePrice;
+      proposal.effectiveCustomerPrice = economics.effectiveCustomerPrice;
+      proposal.activeSellerDiscount = economics.activeSellerDiscount;
+      proposal.trendyolFundedDiscount = economics.trendyolFundedDiscount;
       const moneyInput = {
-        salePrice: proposal.proposedPrice,
+        salePrice: economics.sellerSettlementPrice,
         commissionRate: product.commission_rate,
         productCost: product.calculated_product_cost,
         shippingCost: product.calculated_shipping_cost,
@@ -392,6 +493,16 @@ class ActionService {
       await this.actions.updateStatus(id, "SENDING", { actor }, client);
       return { dryRun: false, locked, product };
     });
+    if (preparation.stale) {
+      await this.audit.record({
+        actor,
+        action: "PRICE_ACTION_STALE",
+        entityType: "repricer_action",
+        entityId: String(id),
+        after: { code: "REPRICER_DECISION_CHANGED" },
+      });
+      return preparation.updated;
+    }
     if (preparation.dryRun) {
       await this.audit.record({
         actor,

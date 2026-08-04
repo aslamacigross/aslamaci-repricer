@@ -131,7 +131,13 @@ function createContainer(overrides = {}) {
     overrides.sync || new SyncService({ db, trendyol, hepsiburada, audit });
   const repricer =
     overrides.repricer ||
-    new RepricerService({ db, actions, settings, marketplaceRegistry });
+    new RepricerService({
+      db,
+      actions,
+      settings,
+      marketplaceRegistry,
+      sync,
+    });
   const actionService =
     overrides.actionService ||
     new ActionService({

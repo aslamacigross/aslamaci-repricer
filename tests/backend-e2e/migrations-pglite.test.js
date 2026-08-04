@@ -12,10 +12,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 33);
+    assert.equal(initial.rowCount, 34);
     assert.equal(
       initial.rows.at(-1).version,
-      "033_hepsiburada_listing_identifiers",
+      "034_repricer_campaign_adjustments",
     );
 
     const columnsAfterUp = await db.query(`
@@ -44,20 +44,33 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterDown = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterDown.rowCount, 32);
+    assert.equal(afterDown.rowCount, 33);
     assert.equal(
       afterDown.rows.at(-1).version,
-      "032_hepsiburada_verified_gtin",
+      "033_hepsiburada_listing_identifiers",
     );
 
-    const columnsAfterDown = await db.query(`
+    const campaignColumnsAfterDown = await db.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'products'
+        AND column_name IN (
+          'active_seller_discount', 'trendyol_funded_discount',
+          'campaign_adjustment_source', 'campaign_adjustment_details',
+          'campaign_adjustment_updated_at'
+        )
+    `);
+    assert.equal(campaignColumnsAfterDown.rowCount, 0);
+
+    const listingIdentityColumnsAfterDown = await db.query(`
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'products'
         AND column_name IN ('merchant_sku', 'hb_sku', 'listing_id')
     `);
-    assert.equal(columnsAfterDown.rowCount, 0);
+    assert.equal(listingIdentityColumnsAfterDown.rowCount, 3);
 
     const verifiedGtinColumnsAfterDown = await db.query(`
       SELECT column_name
@@ -72,10 +85,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 33);
+    assert.equal(afterRoundTrip.rowCount, 34);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "033_hepsiburada_listing_identifiers",
+      "034_repricer_campaign_adjustments",
     );
   } finally {
     await db.end();

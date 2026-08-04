@@ -64,14 +64,13 @@ function recommendRankPrice({
   };
 }
 
-function effectiveIncreaseLimit(settings) {
+function effectiveIncreaseLimit(settings = {}) {
   if (parseBoolean(settings.unlimited_increase)) return Infinity;
-  const configured = Math.max(parseNumber(settings.max_increase_tl, 10), 0);
-  const learned = parseNumber(settings.learned_max_increase_tl);
-  return learned > 0 ? Math.min(configured, learned) : configured;
+  // Öğrenilen değer geçmiş gözlemdir; gelecekteki artışlar için sert tavan değildir.
+  return Math.max(parseNumber(settings.max_increase_tl, 10), 0);
 }
 
-function applyStepLimits(current, target, settings) {
+function applyStepLimits(current, target, settings = {}, options = {}) {
   if (current <= 0 || target === current) return target;
   const singlePct = Math.max(
     parseNumber(
@@ -80,6 +79,7 @@ function applyStepLimits(current, target, settings) {
     ),
     0,
   );
+  if (target > current && options.directRankOneIncrease) return target;
   if (singlePct <= 0) return target;
   const lower = current * (1 - singlePct / 100);
   const upper = current * (1 + singlePct / 100);
@@ -91,174 +91,264 @@ function applyStepLimits(current, target, settings) {
 function controlledIncreaseProbe(current, ceiling, settings = {}) {
   const available = Math.max(roundMoney(ceiling - current), 0);
   if (available <= 0) return current;
-  // A price increase can lose Buybox because coupon, score and delivery
-  // advantages are not fully visible in the price feed. Probe the available
-  // gap in small, repeatable steps instead of jumping directly to its edge.
-  const learned = parseNumber(settings.learned_max_increase_tl);
   const defaultStep = clamp(available * 0.2, 5, 20);
   const configuredPct = parseNumber(settings.max_single_change_pct);
   const reversibleLimit =
     configuredPct > 0 ? (current * configuredPct) / 100 : available;
-  const step = Math.min(
-    learned > 0 ? Math.min(defaultStep, learned) : defaultStep,
-    reversibleLimit,
+  return roundMoney(
+    Math.min(current + Math.min(defaultStep, reversibleLimit), ceiling),
   );
-  return roundMoney(Math.min(current + step, ceiling));
 }
 
-function proposePrice(product, settings = {}) {
-  const current = parseNumber(product.my_price);
-  const minimum = Math.max(
-    parseNumber(product.min_price),
-    parseNumber(settings.minimum_price),
+function aggregateSellerDiscount(source = {}) {
+  const explicit = parseNumber(source.active_seller_discount);
+  if (explicit > 0) return roundMoney(explicit);
+  return roundMoney(
+    parseNumber(source.product_coupon_discount) +
+      parseNumber(source.basket_coupon_discount) +
+      parseNumber(source.bundle_discount) +
+      parseNumber(source.seller_campaign_discount),
   );
-  const maximum =
-    parseNumber(settings.maximum_price, Number.MAX_SAFE_INTEGER) ||
-    Number.MAX_SAFE_INTEGER;
-  const baseCut = Math.max(
-    parseNumber(settings.price_cut_tl, 0.1),
-    parseNumber(settings.learned_price_cut_tl),
+}
+
+function aggregatePlatformDiscount(source = {}) {
+  const explicit = parseNumber(source.trendyol_funded_discount);
+  if (explicit > 0) return roundMoney(explicit);
+  return roundMoney(
+    parseNumber(source.platform_coupon_discount) +
+      parseNumber(source.platform_campaign_discount),
   );
-  const rank = parseNumber(product.rank, 0);
-  const strategy = settings.strategy || "Normal";
-  const factor = STRATEGY_FACTOR[strategy] || 1;
-  const minCut = Math.max(parseNumber(settings.min_undercut_tl, 0.1), 0.01);
-  const maxCut = Math.max(parseNumber(settings.max_undercut_tl, 75), minCut);
-  const cut = clamp(baseCut * factor, minCut, maxCut);
-  let proposed = current;
-  let targetRank = rank || null;
-  let reason = "Fiyat korunuyor";
-  let limitedBy = null;
-  let effectiveCut = cut;
+}
 
-  if (minimum > 0 && current < minimum) {
-    proposed = minimum;
-    reason = "Minimum fiyata güvenli toparlama";
-  } else if (strategy !== "Manuel" && strategy !== "Sadece İzle" && rank > 0) {
-    const firstRankToTry = strategy === "Kâr Koru" ? rank : 1;
-    const bestKnownRank = Math.min(rank, 3);
-    let upperRankBlocked = false;
-    let found = false;
-    for (
-      let candidateRank = firstRankToTry;
-      candidateRank <= bestKnownRank;
-      candidateRank++
-    ) {
-      if (candidateRank === rank) {
-        const nextRankPrice = visibleRankPrice(product, rank + 1);
-        // Price-cut is a downward buybox-acquisition setting. When we already
-        // own the current rank, maximize profit by moving just below the next
-        // visible price instead of applying a potentially stale large cut.
-        const currentRankMaximum =
-          nextRankPrice > 0 ? roundMoney(nextRankPrice - minCut) : 0;
-        if (currentRankMaximum > current) {
-          proposed = controlledIncreaseProbe(
-            current,
-            currentRankMaximum,
-            settings,
-          );
-          effectiveCut = minCut;
-          reason = upperRankBlocked
-            ? `${rank}. sırada kontrollü kâr artışı yoklaması`
-            : "Buybox korunarak kontrollü kâr artışı yoklaması";
-          limitedBy = "BUYBOX_KAR_YOKLAMASI";
-        } else if (upperRankBlocked) {
-          reason = "Üst sıra minimum fiyatın altında; mevcut sıra korunuyor";
-        }
-        targetRank = rank;
-        found = true;
-        break;
-      }
-      const visiblePrice = visibleRankPrice(product, candidateRank);
-      if (visiblePrice <= 0) continue;
-      let target = roundMoney(visiblePrice - cut);
-      const currentRankPrice = visibleRankPrice(product, rank);
-      const listedAtCurrentRank =
-        currentRankPrice > 0 && Math.abs(currentRankPrice - current) < 0.01;
-      if (candidateRank === 1 && target >= current) {
-        target = roundMoney(Math.max(minimum || 0, current - cut));
-        if (target >= current) continue;
-        proposed = target;
-        targetRank = candidateRank;
-        reason = listedAtCurrentRank
-          ? `${candidateRank}. sıra için görünmeyen avantaj ihtimaline karşı kontrollü ek fiyat kırma`
-          : `${candidateRank}. sıra için mevcut fiyattan kontrollü ek fiyat kırma`;
-        found = true;
-        break;
-      }
-      if (minimum > 0 && target < minimum) {
-        upperRankBlocked = true;
-        continue;
-      }
-      proposed = target;
-      targetRank = candidateRank;
-      reason = `${candidateRank}. sıraya kontrollü geçiş`;
-      found = true;
-      break;
-    }
-    if (!found && upperRankBlocked)
-      reason = "Bilinen üst sıralar minimum fiyatın altında";
-  }
+function campaignEconomics(product = {}, settings = {}, listPrice, baseMinimum) {
+  const merged = { ...product, ...settings };
+  const activeSellerDiscount = aggregateSellerDiscount(merged);
+  const trendyolFundedDiscount = aggregatePlatformDiscount(merged);
+  const sellerSettlementPrice = roundMoney(
+    Math.max(parseNumber(listPrice) - activeSellerDiscount, 0),
+  );
+  const effectiveCustomerPrice = roundMoney(
+    Math.max(sellerSettlementPrice - trendyolFundedDiscount, 0),
+  );
+  return {
+    activeSellerDiscount,
+    trendyolFundedDiscount,
+    campaignAdjustedMinPrice: roundMoney(
+      Math.max(parseNumber(baseMinimum), 0) + activeSellerDiscount,
+    ),
+    sellerSettlementPrice,
+    effectiveCandidatePrice: sellerSettlementPrice,
+    effectiveCustomerPrice,
+  };
+}
 
-  if (strategy === "Manuel" || strategy === "Sadece İzle") {
-    proposed = current;
-    targetRank = rank || null;
-  }
-  proposed = Math.min(Math.max(proposed, 0), maximum);
-  const beforeStepLimit = proposed;
-  proposed = applyStepLimits(current, proposed, settings);
-  if (roundMoney(beforeStepLimit) !== roundMoney(proposed)) {
-    limitedBy = proposed > current ? "KADEMELI_ARTIS" : "KADEMELI_DUSUS";
-    reason = `${reason}; tek işlem değişim adımı uygulandı`;
-  }
-  if (!(current < minimum && proposed > current))
-    proposed = Math.max(proposed, minimum || 0);
-  proposed = roundMoney(Math.min(proposed, maximum));
+function isBuyboxFresh(product = {}, settings = {}) {
+  if (!product.buybox_updated_at) return false;
+  const observedAt = new Date(product.buybox_updated_at).getTime();
+  if (!Number.isFinite(observedAt)) return false;
+  const maxAgeMinutes = Math.max(
+    parseNumber(
+      settings.buybox_max_age_minutes,
+      parseNumber(settings.buyboxMaxAgeMinutes, 20),
+    ),
+    1,
+  );
+  const ageMs = Date.now() - observedAt;
+  return ageMs >= 0 && ageMs <= maxAgeMinutes * 60000;
+}
 
-  const action =
-    proposed < current
-      ? "FIYAT_DUSUR"
-      : proposed > current
-        ? current < minimum
-          ? "MIN_FIYATA_TOPARLA"
-          : "FIYAT_ARTIR"
-        : "KORU";
+function buildResult({
+  product,
+  settings,
+  current,
+  proposed,
+  baseMinimum,
+  maximum,
+  rank,
+  targetRank,
+  reason,
+  obstacle,
+  effectiveCut,
+  limitedBy,
+  strategy,
+  factor,
+}) {
+  const economics = campaignEconomics(
+    product,
+    settings,
+    proposed,
+    baseMinimum,
+  );
   const moneyInput = {
-    salePrice: proposed,
+    salePrice: economics.sellerSettlementPrice,
     commissionRate: product.commission_rate,
     productCost: product.calculated_product_cost,
     shippingCost: product.calculated_shipping_cost,
     packagingCost: product.packaging_cost,
     serviceFee: product.service_fee,
   };
+  const expectedProfit = calculateNetProfit(moneyInput);
+  const expectedMargin = calculateNetMargin(moneyInput);
+  const action =
+    proposed < current
+      ? "FIYAT_DUSUR"
+      : proposed > current
+        ? current < economics.campaignAdjustedMinPrice
+          ? "MIN_FIYATA_TOPARLA"
+          : "FIYAT_ARTIR"
+        : "KORU";
 
   return {
     action,
     currentPrice: current,
     oldPrice: current,
     proposedPrice: proposed,
-    minPrice: minimum,
+    minPrice: baseMinimum,
+    campaignAdjustedMinPrice: economics.campaignAdjustedMinPrice,
+    sellerSettlementPrice: economics.sellerSettlementPrice,
+    effectiveCandidatePrice: economics.effectiveCandidatePrice,
+    effectiveCustomerPrice: economics.effectiveCustomerPrice,
+    activeSellerDiscount: economics.activeSellerDiscount,
+    trendyolFundedDiscount: economics.trendyolFundedDiscount,
     maxPrice: maximum === Number.MAX_SAFE_INTEGER ? null : maximum,
     buyboxPrice: parseNumber(product.buybox_price),
     secondPrice: parseNumber(product.second_price),
     thirdPrice: parseNumber(product.third_price),
+    buyboxGap: roundMoney(current - parseNumber(product.buybox_price)),
     rank,
     targetRank,
     baseUndercut: parseNumber(settings.price_cut_tl, 0.1),
     learnedUndercut: parseNumber(settings.learned_price_cut_tl),
     effectiveUndercut: effectiveCut,
     effectiveMaxIncrease: effectiveIncreaseLimit(settings),
-    expectedProfit: calculateNetProfit(moneyInput),
-    expectedMargin: calculateNetMargin(moneyInput),
+    expectedProfit,
+    estimatedProfitAfterAction: expectedProfit,
+    expectedMargin,
     difference: roundMoney(proposed - current),
+    actionDelta: roundMoney(proposed - current),
     reason,
     humanReadableReason: reason,
+    obstacle,
     strategy,
     strategyFactor: factor,
     limitedBy,
     confidence: parseNumber(settings.confidence_score, 0),
     expiresAt: new Date(Date.now() + 15 * 60000).toISOString(),
   };
+}
+
+function proposePrice(product, settings = {}) {
+  const current = parseNumber(product.my_price);
+  const baseMinimum = Math.max(
+    parseNumber(product.min_price),
+    parseNumber(settings.minimum_price),
+  );
+  const maximum =
+    parseNumber(settings.maximum_price, Number.MAX_SAFE_INTEGER) ||
+    Number.MAX_SAFE_INTEGER;
+  const rank = parseNumber(product.rank, 0);
+  const strategy = settings.strategy || "Normal";
+  const factor = STRATEGY_FACTOR[strategy] || 1;
+  const minCut = Math.max(parseNumber(settings.min_undercut_tl, 0.1), 0.01);
+  const maxCut = Math.max(parseNumber(settings.max_undercut_tl, 75), minCut);
+  const acquisitionCut = clamp(
+    parseNumber(settings.price_cut_tl, 0.1) * factor,
+    minCut,
+    maxCut,
+  );
+  const currentEconomics = campaignEconomics(
+    product,
+    settings,
+    current,
+    baseMinimum,
+  );
+  const adjustedMinimum = currentEconomics.campaignAdjustedMinPrice;
+  let proposed = current;
+  let targetRank = rank || null;
+  let reason = "Fiyat korunuyor";
+  let obstacle = null;
+  let limitedBy = null;
+  let effectiveCut = acquisitionCut;
+  let directRankOneIncrease = false;
+
+  if (!parseBoolean(product.data_complete)) {
+    obstacle = "COST_INCOMPLETE";
+    reason = "Maliyet verisi eksik; buybox aksiyonu engellendi";
+  } else if (strategy === "Manuel" || strategy === "Sadece İzle") {
+    reason = "Ürün izleme veya manuel modda; fiyat korunuyor";
+  } else if (parseNumber(product.buybox_price) <= 0 || rank <= 0) {
+    obstacle = "BUYBOX_MISSING";
+    reason = "Buybox verisi eksik; fiyat değişikliği yapılmadı";
+  } else if (!isBuyboxFresh(product, settings)) {
+    obstacle = "BUYBOX_STALE";
+    reason = "Buybox verisi yenilenemedi; fiyat değişikliği yapılmadı";
+  } else if (current < adjustedMinimum) {
+    proposed = adjustedMinimum;
+    reason =
+      "Aktif satıcı indirimleri sonrası minimum fiyata güvenli toparlama";
+  } else if (rank > 1) {
+    const buyboxPrice = parseNumber(product.buybox_price);
+    if (current <= buyboxPrice + 0.009) {
+      obstacle = "BUYBOX_INCONSISTENT";
+      reason =
+        "Mevcut fiyat buybox fiyatından düşük olmasına rağmen sıra kazanılmadı; fiyat dışı buybox kriterleri kontrol edilmeli";
+    } else {
+      const candidate = roundMoney(buyboxPrice - acquisitionCut);
+      if (candidate < adjustedMinimum) {
+        obstacle = "BUYBOX_NOT_ECONOMIC";
+        reason =
+          "Buybox fiyatı aktif kampanyalar sonrası minimum kârlı fiyatın altında";
+      } else {
+        proposed = candidate;
+        targetRank = 1;
+        reason = "Minimum kâr korunarak 1. sıraya geçiş";
+      }
+    }
+  } else if (rank === 1) {
+    const secondPrice = parseNumber(product.second_price);
+    const holdBuffer = Math.max(
+      parseNumber(settings.buybox_hold_buffer_tl, 1),
+      0.01,
+    );
+    const ceiling =
+      secondPrice > 0 ? roundMoney(secondPrice - holdBuffer) : current;
+    if (ceiling > current) {
+      proposed = ceiling;
+      targetRank = 1;
+      effectiveCut = holdBuffer;
+      directRankOneIncrease = true;
+      limitedBy = "BUYBOX_PIYASA_DUZELTMESI";
+      reason = "Buybox korunarak 2. fiyatın hemen altına kâr artışı";
+    }
+  }
+
+  proposed = roundMoney(Math.min(Math.max(proposed, 0), maximum));
+  const beforeStepLimit = proposed;
+  proposed = applyStepLimits(current, proposed, settings, {
+    directRankOneIncrease,
+  });
+  if (roundMoney(beforeStepLimit) !== roundMoney(proposed)) {
+    limitedBy = proposed > current ? "KADEMELI_ARTIS" : "KADEMELI_DUSUS";
+    reason = `${reason}; tek işlem değişim adımı uygulandı`;
+  }
+  proposed = roundMoney(Math.min(Math.max(proposed, 0), maximum));
+
+  return buildResult({
+    product,
+    settings,
+    current,
+    proposed,
+    baseMinimum,
+    maximum,
+    rank,
+    targetRank,
+    reason,
+    obstacle,
+    effectiveCut,
+    limitedBy,
+    strategy,
+    factor,
+  });
 }
 
 function safetyCheck(context) {
@@ -269,9 +359,18 @@ function safetyCheck(context) {
   const current = parseNumber(product.my_price);
   const proposed = parseNumber(proposal.proposedPrice);
   const rank = parseNumber(product.rank);
+  const economics = campaignEconomics(
+    product,
+    settings,
+    proposed,
+    Math.max(
+      parseNumber(product.min_price),
+      parseNumber(settings.minimum_price),
+    ),
+  );
   const minimum = Math.max(
-    parseNumber(product.min_price),
-    parseNumber(settings.minimum_price),
+    parseNumber(proposal.campaignAdjustedMinPrice),
+    economics.campaignAdjustedMinPrice,
   );
   const recovery = current < minimum && proposed > current;
   const productMaxSingle = parseNumber(
@@ -286,10 +385,8 @@ function safetyCheck(context) {
     dayStartPrice > 0
       ? (Math.abs(proposed - dayStartPrice) / dayStartPrice) * 100
       : changePct;
-  const buyboxAgeMs = product.buybox_updated_at
-    ? Date.now() - new Date(product.buybox_updated_at).getTime()
-    : Infinity;
 
+  if (proposal.obstacle) failures.push(proposal.obstacle);
   if (!parseBoolean(product.is_active)) failures.push("PRODUCT_INACTIVE");
   if (!parseBoolean(product.on_sale)) failures.push("PRODUCT_NOT_ON_SALE");
   if (parseBoolean(product.locked)) failures.push("PRODUCT_LOCKED");
@@ -298,11 +395,17 @@ function safetyCheck(context) {
   if (parseNumber(product.commission_rate) <= 0)
     failures.push("COMMISSION_MISSING");
   if (minimum <= 0) failures.push("MIN_PRICE_MISSING");
-  if (proposed < minimum && !recovery) failures.push("BELOW_MIN_PRICE");
+  if (proposed < minimum && proposed !== current && !recovery)
+    failures.push("BELOW_MIN_PRICE");
   if (current <= 0) failures.push("CURRENT_PRICE_INVALID");
-  if (parseNumber(product.buybox_price) <= 0 || !parseNumber(product.rank))
+  if (parseNumber(product.buybox_price) <= 0 || !rank)
     failures.push("BUYBOX_MISSING");
-  if (buyboxAgeMs > parseNumber(global.buyboxMaxAgeMinutes, 20) * 60000)
+  if (
+    !isBuyboxFresh(product, {
+      ...settings,
+      buyboxMaxAgeMinutes: global.buyboxMaxAgeMinutes,
+    })
+  )
     failures.push("BUYBOX_STALE");
   if (proposed < current && changePct > maxSingleChangePct)
     failures.push("SINGLE_CHANGE_LIMIT");
@@ -322,23 +425,22 @@ function safetyCheck(context) {
   if (!manual && !parseBoolean(global.repricerEnabled))
     failures.push("GLOBAL_REPRICER_DISABLED");
   if (parseBoolean(global.dryRun)) failures.push("DRY_RUN");
-  const targetRank = parseNumber(proposal.targetRank);
-  const buyboxAcquisitionAttempt =
-    rank > 1 &&
-    targetRank > 0 &&
-    targetRank < rank &&
-    proposed < current &&
-    proposed >= minimum;
-  if (
-    !buyboxAcquisitionAttempt &&
-    Math.abs(proposed - current) < parseNumber(global.minChangeTl, 5)
-  )
+
+  const delta = Math.abs(proposed - current);
+  const platformMinimum = Math.max(
+    parseNumber(global.platformMinPriceChangeTl, 0.01),
+    0.01,
+  );
+  if (delta > 0 && delta + 0.0001 < platformMinimum)
     failures.push("CHANGE_TOO_SMALL");
+  if (rank > 1 && proposed > current)
+    failures.push("RANK_OUTSIDE_BUYBOX_INCREASE_FORBIDDEN");
   if (parseNumber(product.calculated_net_profit) < 0 && proposed < current)
     failures.push("LOSS_MAKING_DECREASE");
   if (parseNumber(proposal.expectedProfit) < 0 && !recovery)
     failures.push("EXPECTED_LOSS");
   if (
+    proposal.limitedBy !== "BUYBOX_PIYASA_DUZELTMESI" &&
     !parseBoolean(settings.unlimited_increase) &&
     proposed > current &&
     proposed - current > effectiveIncreaseLimit(settings) + 0.009
@@ -383,12 +485,13 @@ function safetyCheck(context) {
     !automaticRecovery &&
     product.last_price_change_at &&
     Date.now() - new Date(product.last_price_change_at).getTime() < cooldownMs
-  ) {
+  )
     failures.push("COOLDOWN_ACTIVE");
-  }
+
+  const uniqueFailures = [...new Set(failures)];
   return {
-    safe: failures.length === 0,
-    failures,
+    safe: uniqueFailures.length === 0,
+    failures: uniqueFailures,
     changePct: roundMoney(changePct),
     dailyNetChangePct: roundMoney(dailyNetChangePct),
     expectedProfitPct: roundMoney(expectedProfitPct),
@@ -404,4 +507,6 @@ module.exports = {
   effectiveIncreaseLimit,
   controlledIncreaseProbe,
   recommendRankPrice,
+  campaignEconomics,
+  isBuyboxFresh,
 };

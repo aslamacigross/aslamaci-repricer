@@ -630,3 +630,103 @@ test("Hepsiburada AWAITING_RESULT aksiyonu ikinci fiyat istegi gondermez", async
   );
   assert.equal(registryCalls, 0);
 });
+
+test("Trendyol buybox yenilemesi karari degistirirse aksiyon STALE olur", async () => {
+  const action = {
+    id: 991,
+    marketplace: "TRENDYOL",
+    barcode: "STALE-BUYBOX-1",
+    status: "APPROVED",
+    source: "AUTO",
+    action: "FIYAT_DUSUR",
+    old_price: 500,
+    proposed_price: 479.9,
+    buybox_before: 480,
+    rank_before: 2,
+    expires_at: new Date(Date.now() + 60000),
+  };
+  const refreshedProduct = {
+    marketplace: "TRENDYOL",
+    barcode: action.barcode,
+    my_price: 500,
+    min_price: 300,
+    is_active: true,
+    on_sale: true,
+    locked: false,
+    stock_quantity: 10,
+    data_complete: true,
+    commission_rate: 17,
+    buybox_price: 500,
+    second_price: 560,
+    third_price: 570,
+    rank: 1,
+    buybox_updated_at: new Date(),
+    calculated_net_profit: 100,
+    calculated_product_cost: 100,
+    calculated_shipping_cost: 20,
+    packaging_cost: 10,
+    service_fee: 5,
+    auto_update: true,
+    settings: {
+      auto_update: true,
+      strategy: "Normal",
+      price_cut_tl: 0.1,
+      max_increase_tl: 10,
+      max_single_change_pct: 15,
+      max_daily_change_pct: 15,
+      daily_action_limit: 3,
+      min_change_interval_minutes: 0,
+    },
+  };
+  let sent = 0;
+  let refreshCalls = 0;
+  let staleStatus = null;
+  const actions = {
+    get: async () => action,
+    findOpen: async () => null,
+    updateStatus: async (id, status, fields) => {
+      staleStatus = status;
+      return { ...action, status, error: fields.error };
+    },
+  };
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions,
+    products: { get: async () => refreshedProduct },
+    settings: {},
+    trendyol: {
+      updatePrices: async () => {
+        sent++;
+      },
+    },
+    audit: { record: async () => {} },
+    repricer: {
+      refreshBuybox: async () => {
+        refreshCalls++;
+        return {
+          processed: 1,
+          successful: 1,
+          failed: 0,
+          updatedBarcodes: [action.barcode],
+          failedBarcodes: [],
+        };
+      },
+      globalSettings: async () => ({
+        dryRun: false,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        platformMinPriceChangeTl: 0.01,
+        unlimitedIncrease: false,
+      }),
+    },
+  });
+
+  const result = await service.apply(action.id, "system");
+  assert.equal(refreshCalls, 1);
+  assert.equal(staleStatus, "STALE");
+  assert.equal(result.status, "STALE");
+  assert.equal(sent, 0);
+});
