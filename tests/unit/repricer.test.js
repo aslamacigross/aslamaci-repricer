@@ -518,6 +518,13 @@ test("ilk üç sıra ekonomik değilse açık sonuç verir", () => {
 
 test("Hepsiburada repricer onizlemesi DB verisiyle calisir", async () => {
   const service = new RepricerService({
+    marketplaceRegistry: {
+      adapter: () => ({
+        configured: () => true,
+        supports: (operation) =>
+          ["getCurrentOffer", "getCommission"].includes(operation),
+      }),
+    },
     settings: {
       getAll: async () => ({
         global_dry_run: true,
@@ -553,6 +560,47 @@ test("Hepsiburada repricer onizlemesi DB verisiyle calisir", async () => {
   const [preview] = await service.preview("HB-SKU-1", "HEPSIBURADA");
   assert.equal(preview.barcode, "HB-SKU-1");
   assert.equal(preview.productName, "Hepsiburada Ürünü");
+});
+
+test("Hepsiburada komisyonu eksik urun repricer guvenligini gecemez", async () => {
+  const service = new RepricerService({
+    marketplaceRegistry: {
+      adapter: () => ({
+        configured: () => true,
+        supports: (operation) =>
+          ["getCurrentOffer", "getCommission"].includes(operation),
+      }),
+    },
+    settings: {
+      getAll: async () => ({
+        global_dry_run: true,
+        global_repricer_enabled: false,
+        default_price_cut_tl: 1,
+      }),
+    },
+    actions: { todayStats: async () => ({ action_count: 0 }) },
+    db: {
+      query: async () => ({
+        rows: [
+          {
+            ...base,
+            marketplace: "HEPSIBURADA",
+            barcode: "HB-COMMISSION-MISSING",
+            commission_rate: null,
+            strategy: "Normal",
+            setting_auto_update: true,
+            mode: "AUTOMATIC",
+          },
+        ],
+      }),
+    },
+  });
+
+  const [preview] = await service.preview(
+    "HB-COMMISSION-MISSING",
+    "HEPSIBURADA",
+  );
+  assert.ok(preview.blockedReasons.includes("COMMISSION_MISSING"));
 });
 
 test("desteklenmeyen pazaryeri repricer tarafinda fail-closed reddedilir", async () => {

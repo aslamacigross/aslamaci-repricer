@@ -342,8 +342,9 @@ class ActionRepository {
       if (locked.verified_at) return locked;
       if (locked.status !== "AWAITING_RESULT")
         throw new Error("Fiyat aksiyonu doğrulanabilir durumda değil");
-      const appliedPrice = Number(marketProduct.salePrice);
-      const listPrice = Number(marketProduct.listPrice) || appliedPrice;
+      const appliedPrice = Number(marketProduct.salePrice ?? marketProduct.price);
+      const listPrice =
+        Number(marketProduct.listPrice ?? marketProduct.price) || appliedPrice;
       const apiResponse = {
         ...(locked.api_response || {}),
         verification: {

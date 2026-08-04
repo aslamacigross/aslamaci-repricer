@@ -6,10 +6,11 @@ const { env } = require("../config/env");
 const { AppError } = require("../utils/errors");
 
 class RepricerService {
-  constructor({ db, actions, settings }) {
+  constructor({ db, actions, settings, marketplaceRegistry }) {
     this.db = db;
     this.actions = actions;
     this.settings = settings;
+    this.marketplaceRegistry = marketplaceRegistry;
   }
 
   async globalSettings() {
@@ -37,7 +38,14 @@ class RepricerService {
 
   ensureSupportedMarketplace(marketplace) {
     const normalized = String(marketplace || "TRENDYOL").toUpperCase();
-    if (!["TRENDYOL", "HEPSIBURADA"].includes(normalized))
+    if (normalized === "TRENDYOL") return normalized;
+    const adapter = this.marketplaceRegistry?.adapter?.(normalized);
+    if (
+      !adapter ||
+      !adapter.configured?.() ||
+      !adapter.supports?.("getCurrentOffer") ||
+      !adapter.supports?.("getCommission")
+    )
       throw new AppError(
         `${normalized} repricer bağlantısı desteklenmiyor`,
         409,

@@ -213,6 +213,13 @@ class HepsiburadaService {
       env.hepsiburadaProductBaseUrl ||
       defaults.productBaseUrl;
     this.timeoutMs = options.timeoutMs || 20000;
+    this.maxReadRetries = options.maxReadRetries ?? 2;
+    this.maxConcurrentUploads = Math.min(
+      Math.max(Number(options.maxConcurrentUploads) || 5, 1),
+      5,
+    );
+    this.activeUploads = 0;
+    this.uploadWaiters = [];
   }
 
   configured() {
@@ -516,30 +523,55 @@ class HepsiburadaService {
   }
 
   async request(url, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const response = await this.fetch(url, {
-        ...options,
-        headers: { ...this.headers(), ...(options.headers || {}) },
-        signal: controller.signal,
-      });
-      const body = await response.text();
-      if (!response.ok) {
-        const safeHint =
-          response.status === 401 && this.environment === "production"
-            ? " Hepsiburada development/SIT bilgileri kullaniliyorsa Railway'de HEPSIBURADA_ENV=sit ayarlayin."
-            : "";
-        const error = new Error(
-          `Hepsiburada HTTP ${response.status}: ${body.slice(0, 500)}${safeHint}`,
-        );
-        error.status = response.status;
-        throw error;
+    const method = String(options.method || "GET").toUpperCase();
+    const retries = Number.isInteger(options.retries)
+      ? Math.max(options.retries, 0)
+      : method === "GET"
+        ? this.maxReadRetries
+        : 0;
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        const response = await this.fetch(url, {
+          ...options,
+          headers: { ...this.headers(), ...(options.headers || {}) },
+          signal: controller.signal,
+        });
+        const body = await response.text();
+        if (!response.ok) {
+          const safeHint =
+            response.status === 401 && this.environment === "production"
+              ? " Hepsiburada development/SIT bilgileri kullaniliyorsa Railway'de HEPSIBURADA_ENV=sit ayarlayin."
+              : "";
+          const error = new Error(
+            `Hepsiburada HTTP ${response.status}: ${body.slice(0, 500)}${safeHint}`,
+          );
+          error.status = response.status;
+          throw error;
+        }
+        if (!body) return {};
+        try {
+          return JSON.parse(body);
+        } catch (error) {
+          error.code = "HEPSIBURADA_SCHEMA_DRIFT";
+          throw error;
+        }
+      } catch (error) {
+        lastError = error;
+        const retryable =
+          method === "GET" &&
+          (error.name === "AbortError" ||
+            error.status === 429 ||
+            Number(error.status) >= 500);
+        if (!retryable || attempt >= retries) throw error;
+        await sleep(Math.min(250 * 2 ** attempt, 2000));
+      } finally {
+        clearTimeout(timer);
       }
-      return body ? JSON.parse(body) : {};
-    } finally {
-      clearTimeout(timer);
     }
+    throw lastError;
   }
 
   async listOrders({ beginDate, endDate, offset = 0, limit = 100 } = {}) {
@@ -857,6 +889,47 @@ class HepsiburadaService {
     );
   }
 
+  async getListingByIdentifier({ merchantSku, hbSku, listingId } = {}) {
+    let payload;
+    if (merchantSku)
+      payload = await this.listListingsFiltered({
+        merchantSkuList: String(merchantSku),
+        limit: 100,
+      });
+    else if (hbSku)
+      payload = await this.listListingsFiltered({
+        hbSkuList: String(hbSku),
+        limit: 100,
+      });
+    else if (listingId)
+      payload = { listings: await this.fetchAllListings() };
+    else return null;
+    return (
+      normalizeRows(payload).find((row) => {
+        if (merchantSku)
+          return String(row.merchantSku || "") === String(merchantSku);
+        if (hbSku)
+          return String(row.hepsiburadaSku || row.hbSku || "") === String(hbSku);
+        return String(row.listingId || "") === String(listingId);
+      }) || null
+    );
+  }
+
+  async getCurrentOffer(identifier = {}) {
+    const listing = await this.getListingByIdentifier(identifier);
+    if (!listing) return null;
+    return {
+      merchantSku: String(listing.merchantSku || ""),
+      hbSku: String(listing.hepsiburadaSku || listing.hbSku || ""),
+      listingId: String(listing.listingId || ""),
+      price: Number(listing.price || 0),
+      stock: Number(listing.availableStock || 0),
+      isSalable: listing.isSalable === true,
+      priceIncreaseDisabled: listing.priceIncreaseDisabled === true,
+      priceDecreaseDisabled: listing.priceDecreaseDisabled === true,
+    };
+  }
+
   assertSitTestAllowed() {
     if (this.environment !== "sit") {
       const error = new Error(
@@ -887,6 +960,57 @@ class HepsiburadaService {
       )}/${path}`,
       { method: "POST", body: JSON.stringify(rows) },
     );
+  }
+
+  async withUploadSlot(work) {
+    if (this.activeUploads >= this.maxConcurrentUploads)
+      await new Promise((resolve) => this.uploadWaiters.push(resolve));
+    this.activeUploads++;
+    try {
+      return await work();
+    } finally {
+      this.activeUploads--;
+      this.uploadWaiters.shift()?.();
+    }
+  }
+
+  async submitPriceUpdate({ merchantSku, hbSku, price } = {}) {
+    if (!this.mutationsEnabled() || !this.priceUpdatesEnabled())
+      return {
+        ok: false,
+        code: "HEPSIBURADA_MUTATIONS_DISABLED",
+        mutationPerformed: false,
+      };
+    if (!merchantSku || !hbSku || !(Number(price) > 0)) {
+      const error = new Error("Hepsiburada fiyat paketi eksik veya gecersiz");
+      error.status = 400;
+      error.code = "HEPSIBURADA_PRICE_PAYLOAD_INVALID";
+      throw error;
+    }
+    return this.withUploadSlot(async () => {
+      const response = await this.postListingUpload("price", [
+        {
+          merchantSku: String(merchantSku),
+          hepsiburadaSku: String(hbSku),
+          price: Number(price),
+        },
+      ]);
+      return {
+        ok: true,
+        trackingId: responseId(response),
+        response: safeResponseSummary(response),
+      };
+    });
+  }
+
+  async getPriceUpdateStatus(trackingId) {
+    if (!trackingId) {
+      const error = new Error("Hepsiburada fiyat takip numarasi eksik");
+      error.code = "HEPSIBURADA_TRACKING_ID_MISSING";
+      error.status = 400;
+      throw error;
+    }
+    return this.getListingUploadStatus("price", trackingId);
   }
 
   async getListingUploadStatus(kind, id) {
@@ -1372,28 +1496,56 @@ class HepsiburadaService {
   }
 
   async updatePriceAndInventory({ sku, price, stock }) {
-    if (!this.priceUpdatesEnabled())
+    if (!this.mutationsEnabled() || !this.priceUpdatesEnabled())
       return {
         dryRun: true,
-        code: "HEPSIBURADA_PRICE_UPDATES_DISABLED",
+        code: "HEPSIBURADA_MUTATIONS_DISABLED",
         message: "Hepsiburada fiyat güncelleme anahtarı kapalı",
       };
-    const body = {};
-    if (price != null) body.price = Number(price);
-    if (stock != null) body.availableStock = Number(stock);
-    return this.request(
-      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
-        env.hepsiburadaMerchantId,
-      )}/sku/${encodeURIComponent(String(sku))}`,
-      { method: "PUT", body: JSON.stringify(body) },
-    );
+    const listing = await this.getListingByIdentifier({ merchantSku: sku });
+    if (!listing) return { ok: false, code: "HEPSIBURADA_LISTING_NOT_FOUND" };
+    if (price != null)
+      return this.submitPriceUpdate({
+        merchantSku: listing.merchantSku,
+        hbSku: listing.hepsiburadaSku || listing.hbSku,
+        price,
+      });
+    if (stock != null)
+      return this.postListingUpload("stock", [
+        {
+          merchantSku: String(listing.merchantSku),
+          hepsiburadaSku: String(
+            listing.hepsiburadaSku || listing.hbSku || "",
+          ),
+          availableStock: Number(stock),
+        },
+      ]);
+    return { ok: false, code: "HEPSIBURADA_UPDATE_PAYLOAD_EMPTY" };
   }
 
   async fetchAllListings({ pageSize = 100, maxPages = 200 } = {}) {
     const items = [];
     let offset = 0;
     for (let page = 0; page < maxPages; page++) {
-      const payload = await this.listListings({ offset, limit: pageSize });
+      let payload;
+      try {
+        payload = await this.listListings({ offset, limit: pageSize });
+      } catch (error) {
+        if (!items.length) throw error;
+        Object.defineProperty(items, "partialFailure", {
+          value: {
+            page,
+            offset,
+            code: error.code || `HTTP_${error.status || "ERROR"}`,
+            message: String(error.message || "Hepsiburada listing sayfasi okunamadi").slice(
+              0,
+              400,
+            ),
+          },
+          enumerable: false,
+        });
+        break;
+      }
       const rows = normalizeRows(payload);
       items.push(...rows);
       if (rows.length < pageSize) break;

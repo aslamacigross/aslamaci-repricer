@@ -363,7 +363,10 @@ test("geri alma istegi dogrudan fiyat gondermeden bagli aksiyon olusturur", asyn
 test("Hepsiburada aksiyonu Trendyol fiyat servisine asla gönderilmez", async () => {
   const { action, product } = fixture();
   action.marketplace = "HEPSIBURADA";
+  action.approved_by = "admin";
   product.marketplace = "HEPSIBURADA";
+  product.merchant_sku = "HB-MERCHANT-1";
+  product.hb_sku = "HBV-1";
   let trendyolCalls = 0;
   let failedStatus;
   const actions = {
@@ -399,12 +402,231 @@ test("Hepsiburada aksiyonu Trendyol fiyat servisine asla gönderilmez", async ()
         minChangeTl: 0.1,
       }),
     },
+    marketplaceRegistry: {
+      execute: async () => ({
+        ok: false,
+        code: "HEPSIBURADA_MUTATIONS_DISABLED",
+        message: "Hepsiburada mutasyonları kapalı",
+      }),
+    },
   });
 
   await assert.rejects(
     service.apply(action.id, "admin"),
-    (error) => error.code === "MARKETPLACE_CREDENTIALS_MISSING",
+    (error) => error.code === "HEPSIBURADA_PILOT_NOT_ALLOWED",
   );
   assert.equal(trendyolCalls, 0);
   assert.equal(failedStatus, "FAILED");
+});
+
+test("Hepsiburada takip numarasi aksiyonu SUCCESS yapmaz", async () => {
+  const { env } = require("../../src/config/env");
+  const previousPilot = env.hepsiburadaPricePilotBarcodes;
+  const { action, product } = fixture();
+  action.marketplace = "HEPSIBURADA";
+  action.approved_by = "admin";
+  action.idempotency_key = "hb-price-action-1";
+  product.marketplace = "HEPSIBURADA";
+  product.merchant_sku = "HB-MERCHANT-1";
+  product.hb_sku = "HBV-1";
+  env.hepsiburadaPricePilotBarcodes = [action.barcode];
+  const calls = [];
+  const actions = {
+    findOpen: async () => null,
+    todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+    recordMarketPreflight: async () => {},
+    updateStatus: async (id, status, fields = {}) => ({
+      ...action,
+      status,
+      batch_id: fields.batchId,
+    }),
+  };
+  try {
+    const service = new ActionService({
+      db: {},
+      withTransaction: async (work) =>
+        work({ query: async () => ({ rows: [action] }) }),
+      actions,
+      products: { get: async () => product },
+      settings: {},
+      trendyol: {
+        getProductByBarcode: async () => assert.fail("Trendyol cagrilmamali"),
+        updatePrices: async () => assert.fail("Trendyol cagrilmamali"),
+      },
+      audit: { record: async () => {} },
+      repricer: {
+        globalSettings: async () => ({
+          dryRun: false,
+          repricerEnabled: true,
+          buyboxMaxAgeMinutes: 20,
+          maxChangePct: 15,
+          minChangeTl: 0.1,
+        }),
+      },
+      marketplaceRegistry: {
+        execute: async (marketplace, operation, input) => {
+          calls.push({ marketplace, operation, input });
+          if (operation === "getCurrentOffer")
+            return {
+              merchantSku: "HB-MERCHANT-1",
+              hbSku: "HBV-1",
+              price: 944,
+              stock: 10,
+              isSalable: true,
+            };
+          return { ok: true, trackingId: "hb-tracking-1", response: {} };
+        },
+      },
+    });
+    const result = await service.apply(action.id, "admin");
+    assert.equal(result.status, "AWAITING_RESULT");
+    assert.equal(result.batch_id, "hb-tracking-1");
+    assert.deepEqual(
+      calls.map((call) => call.operation),
+      ["getCurrentOffer", "updatePrice"],
+    );
+  } finally {
+    env.hepsiburadaPricePilotBarcodes = previousPilot;
+  }
+});
+
+test("Hepsiburada dry-run aksiyonu dis mutasyon cagirmadan tamamlanir", async () => {
+  const { action, product } = fixture();
+  action.marketplace = "HEPSIBURADA";
+  action.approved_by = "admin";
+  product.marketplace = "HEPSIBURADA";
+  let registryCalls = 0;
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions: {
+      findOpen: async () => null,
+      todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+      updateStatus: async (id, status, fields = {}) => ({
+        ...action,
+        status,
+        api_response: fields.apiResponse,
+      }),
+    },
+    products: { get: async () => product },
+    settings: {},
+    trendyol: {},
+    audit: { record: async () => {} },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: true,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+    marketplaceRegistry: {
+      execute: async () => {
+        registryCalls++;
+        return { ok: true };
+      },
+    },
+  });
+
+  const result = await service.apply(action.id, "admin");
+  assert.equal(result.status, "DRY_RUN");
+  assert.equal(registryCalls, 0);
+});
+
+test("Hepsiburada preflight fiyat uyusmazliginda gonderim yapmaz", async () => {
+  const { env } = require("../../src/config/env");
+  const previousPilot = env.hepsiburadaPricePilotBarcodes;
+  const { action, product } = fixture();
+  action.marketplace = "HEPSIBURADA";
+  action.approved_by = "admin";
+  product.marketplace = "HEPSIBURADA";
+  product.merchant_sku = "HB-MERCHANT-1";
+  product.hb_sku = "HBV-1";
+  env.hepsiburadaPricePilotBarcodes = [action.barcode];
+  let updateCalls = 0;
+  let finalStatus;
+  try {
+    const service = new ActionService({
+      db: {},
+      withTransaction: async (work) =>
+        work({ query: async () => ({ rows: [action] }) }),
+      actions: {
+        findOpen: async () => null,
+        todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+        recordMarketPreflight: async () => {},
+        updateStatus: async (id, status) => {
+          finalStatus = status;
+          return { ...action, status };
+        },
+      },
+      products: { get: async () => product },
+      settings: {},
+      trendyol: {},
+      audit: { record: async () => {} },
+      repricer: {
+        globalSettings: async () => ({
+          dryRun: false,
+          repricerEnabled: true,
+          buyboxMaxAgeMinutes: 20,
+          maxChangePct: 15,
+          minChangeTl: 0.1,
+        }),
+      },
+      marketplaceRegistry: {
+        execute: async (marketplace, operation) => {
+          assert.equal(marketplace, "HEPSIBURADA");
+          if (operation === "getCurrentOffer")
+            return {
+              merchantSku: "HB-MERCHANT-1",
+              hbSku: "HBV-1",
+              price: 945,
+              stock: 10,
+              isSalable: true,
+            };
+          updateCalls++;
+          return { ok: true, trackingId: "should-not-exist" };
+        },
+      },
+    });
+
+    await assert.rejects(
+      service.apply(action.id, "admin"),
+      (error) => error.code === "MARKET_PRICE_MISMATCH",
+    );
+    assert.equal(updateCalls, 0);
+    assert.equal(finalStatus, "STALE");
+  } finally {
+    env.hepsiburadaPricePilotBarcodes = previousPilot;
+  }
+});
+
+test("Hepsiburada AWAITING_RESULT aksiyonu ikinci fiyat istegi gondermez", async () => {
+  const { action, product } = fixture("AWAITING_RESULT");
+  action.marketplace = "HEPSIBURADA";
+  product.marketplace = "HEPSIBURADA";
+  let registryCalls = 0;
+  const service = new ActionService({
+    db: {},
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions: {},
+    products: { get: async () => product },
+    settings: {},
+    trendyol: {},
+    audit: {},
+    repricer: {},
+    marketplaceRegistry: {
+      execute: async () => {
+        registryCalls++;
+      },
+    },
+  });
+
+  await assert.rejects(
+    service.apply(action.id, "admin"),
+    (error) => error.code === "DUPLICATE_APPLY",
+  );
+  assert.equal(registryCalls, 0);
 });

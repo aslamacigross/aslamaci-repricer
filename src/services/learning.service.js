@@ -48,7 +48,7 @@ class LearningService {
           await this.actions.markVerificationFailed(
             action.id,
             result.error ||
-              "Trendyol fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı",
+              "Pazaryeri fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı",
             result.batchResponse,
           );
           await this.audit?.record?.({
@@ -69,7 +69,7 @@ class LearningService {
       } catch (error) {
         summary.errors++;
         await this.audit?.integration?.({
-          integration: "TRENDYOL",
+          integration: String(action.marketplace || "TRENDYOL").toUpperCase(),
           level: "ERROR",
           operation: "PRICE_ACTION_VERIFICATION",
           message: error.message,
@@ -83,6 +83,12 @@ class LearningService {
   async checkOutcomes(elapsedMinutes, actionId = null) {
     const verification = await this.verifyPendingActions(actionId);
     let pending = await this.actions.pendingOutcomes(elapsedMinutes, actionId);
+    const buyboxUnsupported = pending.filter(
+      (action) => String(action.marketplace).toUpperCase() === "HEPSIBURADA",
+    ).length;
+    pending = pending.filter(
+      (action) => String(action.marketplace).toUpperCase() === "TRENDYOL",
+    );
     let refreshFailures = 0;
     if (pending.length && this.sync) {
       try {
@@ -172,6 +178,7 @@ class LearningService {
       recoveries,
       refreshFailures,
       verification,
+      buyboxUnsupported,
     };
   }
 }
