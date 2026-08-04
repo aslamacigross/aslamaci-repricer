@@ -109,6 +109,24 @@ class MarketplaceAdapter {
   async updatePriceAndInventory() {
     return this.unsupported("updatePriceAndInventory");
   }
+  async listListings() {
+    return this.unsupported("listListings");
+  }
+  async getListingByIdentifier() {
+    return this.unsupported("getListingByIdentifier");
+  }
+  async getCurrentOffer() {
+    return this.unsupported("getCurrentOffer");
+  }
+  async getCommission() {
+    return this.unsupported("getCommission");
+  }
+  async updatePrice() {
+    return this.unsupported("updatePrice");
+  }
+  async getPriceUpdateStatus() {
+    return this.unsupported("getPriceUpdateStatus");
+  }
   async fetchProducts() {
     return this.unsupported("fetchProducts");
   }

@@ -114,10 +114,30 @@ function createContainer(overrides = {}) {
     });
   const shippingService =
     overrides.shippingService || new ShippingService(costs);
+  const marketplaceRegistry =
+    overrides.marketplaceRegistry ||
+    new MarketplaceRegistryService({
+      repository: marketplaceRepository,
+      adapters: {
+        TRENDYOL: new TrendyolAdapter(trendyol),
+        HEPSIBURADA: new HepsiburadaAdapter(hepsiburada),
+        PAZARAMA: new SkeletonMarketplaceAdapter("PAZARAMA"),
+        IDEFIX: new SkeletonMarketplaceAdapter("IDEFIX"),
+        N11: new SkeletonMarketplaceAdapter("N11"),
+        PTTAVM: new SkeletonMarketplaceAdapter("PTTAVM"),
+      },
+    });
   const sync =
     overrides.sync || new SyncService({ db, trendyol, hepsiburada, audit });
   const repricer =
-    overrides.repricer || new RepricerService({ db, actions, settings });
+    overrides.repricer ||
+    new RepricerService({
+      db,
+      actions,
+      settings,
+      marketplaceRegistry,
+      sync,
+    });
   const actionService =
     overrides.actionService ||
     new ActionService({
@@ -129,6 +149,7 @@ function createContainer(overrides = {}) {
       trendyol,
       audit,
       repricer,
+      marketplaceRegistry,
     });
   const learning =
     overrides.learning || new LearningService({ actions, sync, audit });
@@ -145,19 +166,6 @@ function createContainer(overrides = {}) {
     overrides.health || new HealthService({ db, trendyol, hepsiburada });
   const finance =
     overrides.finance || new FinanceService({ db, trendyol, hepsiburada });
-  const marketplaceRegistry =
-    overrides.marketplaceRegistry ||
-    new MarketplaceRegistryService({
-      repository: marketplaceRepository,
-      adapters: {
-        TRENDYOL: new TrendyolAdapter(trendyol),
-        HEPSIBURADA: new HepsiburadaAdapter(hepsiburada),
-        PAZARAMA: new SkeletonMarketplaceAdapter("PAZARAMA"),
-        IDEFIX: new SkeletonMarketplaceAdapter("IDEFIX"),
-        N11: new SkeletonMarketplaceAdapter("N11"),
-        PTTAVM: new SkeletonMarketplaceAdapter("PTTAVM"),
-      },
-    });
   const pim = overrides.pim || new PimService({ repository: pimRepository });
   const publication =
     overrides.publication ||
@@ -244,15 +252,45 @@ function createContainer(overrides = {}) {
   jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
   jobService.register("calculate-costs", recalculateAllMarketplaces);
   jobService.register("validate-data", recalculateAllMarketplaces);
-  jobService.register("generate-mapping-suggestions", () =>
-    mappingAutomation.generate({ limit: 1000 }),
+  jobService.register("generate-mapping-suggestions", (metadata = {}) =>
+    mappingAutomation.generate({
+      limit: 1000,
+      marketplace: metadata.marketplace || "TRENDYOL",
+    }),
   );
-  jobService.register("generate-repricer-actions", () =>
-    repricer.generate({ source: "JOB" }),
+  jobService.register("generate-repricer-actions", (metadata = {}) =>
+    repricer.generate({
+      source: "JOB",
+      marketplace: metadata.marketplace || "TRENDYOL",
+    }),
   );
   jobService.register("generate-hepsiburada-repricer-actions", () =>
     repricer.generate({ source: "JOB", marketplace: "HEPSIBURADA" }),
   );
+  jobService.register("run-hepsiburada-repricer-dry-run", async () => {
+    const global = await repricer.globalSettings();
+    if (!global.dryRun)
+      return {
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        metadata: { status: "SKIPPED_DRY_RUN_REQUIRED" },
+      };
+    const generated = await repricer.generate({
+      source: "JOB",
+      marketplace: "HEPSIBURADA",
+    });
+    return {
+      processed: generated.processed,
+      successful: generated.created,
+      failed: generated.errors?.length || 0,
+      metadata: {
+        dryRun: true,
+        created: generated.created,
+        skipped: generated.skipped,
+      },
+    };
+  });
   jobService.register("run-auto-repricer", async () => {
     const global = await repricer.globalSettings();
     const verification = await learning.verifyPendingActions();

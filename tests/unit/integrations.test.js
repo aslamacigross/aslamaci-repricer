@@ -205,7 +205,7 @@ test("urun sync sadece gercekten satilabilir urunleri aktif tutar", async () => 
   ]);
 });
 
-test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async () => {
+test("Hepsiburada listing sync resmi olmayan buybox alanlarini kullanmaz", async () => {
   const queries = [];
   const sync = new SyncService({
     audit: {},
@@ -246,9 +246,11 @@ test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async ()
   assert.equal(upsert.params[0], "HB-SKU-1");
   assert.equal(upsert.params[7], 199.9);
   assert.equal(upsert.params[13], 15);
-  assert.equal(upsert.params[14], 205);
-  assert.equal(upsert.params[17], 2);
-  assert.equal(upsert.params[19], true);
+  assert.equal(upsert.params[14], true);
+  assert.equal(upsert.params[15], null);
+  assert.equal(upsert.params[17], "HB-SKU-1");
+  assert.equal(upsert.params[18], null);
+  assert.match(upsert.sql, /buybox_price=NULL/);
 });
 
 test("Hepsiburada listing sync resmi komisyon servisi sonucunu urune yazar", async () => {
@@ -332,7 +334,7 @@ test("Hepsiburada listing sync alternatif komisyon SKU alanlarini eslestirir", a
   assert.equal(result.metadata.hepsiburadaCommissionMissing, 0);
 });
 
-test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tamamlar", async () => {
+test("Hepsiburada listing sync eksik katalog alanlarini Trendyol urununden kopyalamaz", async () => {
   const queries = [];
   const sync = new SyncService({
     audit: {},
@@ -379,11 +381,17 @@ test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tam
   const upsert = queries.find((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
-  assert.equal(upsert.params[1], "Menekşe Konsantre Yumuşatıcı 1500 ml");
-  assert.equal(upsert.params[2], "Actisoft");
-  assert.equal(upsert.params[3], "Çamaşır Yumuşatıcısı");
-  assert.equal(upsert.params[4], "12345");
-  assert.equal(upsert.params[5], "https://cdn.test/menekse.jpg");
+  assert.equal(upsert.params[1], "");
+  assert.equal(upsert.params[2], "");
+  assert.equal(upsert.params[3], "");
+  assert.equal(upsert.params[4], "");
+  assert.equal(upsert.params[5], null);
+  assert.equal(
+    queries.some((query) =>
+      String(query.sql).includes("marketplace='TRENDYOL'"),
+    ),
+    false,
+  );
 });
 
 test("Hepsiburada listing sync yalniz kaynakli EAN alanini katalog GTIN olarak kaydeder", async () => {
@@ -452,9 +460,11 @@ test("Hepsiburada listing sync yalniz kaynakli EAN alanini katalog GTIN olarak k
   assert.equal(upserts[1].params[7], 199);
   assert.equal(upserts[0].params[5], "https://cdn.test/hb.jpg");
   assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
-  assert.equal(upserts[0].params[20], "4006381333931");
-  assert.equal(upserts[0].params[21], "HEPSIBURADA_CATALOG_API:ean");
-  assert.equal(upserts[0].params[19], true);
+  assert.equal(upserts[0].params[14], true);
+  assert.equal(upserts[0].params[15], "4006381333931");
+  assert.equal(upserts[0].params[16], "HEPSIBURADA_CATALOG_API:ean");
+  assert.equal(upserts[0].params[17], "HB-MERCHANT-SKU-1");
+  assert.equal(upserts[0].params[18], "HBV-CATALOG-1");
 });
 
 test("Hepsiburada listing sync katalog gorsel objelerini URL olarak normalize eder", async () => {
@@ -591,10 +601,10 @@ test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla z
   assert.equal(upserts[0].params[6], "HBV-1");
   assert.equal(upserts[0].params[7], 100);
   assert.equal(upserts[0].params[9], 3);
-  assert.equal(upserts[0].params[19], true);
+  assert.equal(upserts[0].params[14], true);
   assert.equal(upserts[1].params[0], "SELLER-SKU-2");
   assert.equal(upserts[1].params[1], "Katalog Ürünü 2");
-  assert.equal(upserts[1].params[19], false);
+  assert.equal(upserts[1].params[14], false);
   assert.equal(upserts[2].params[0], "LISTING-ONLY-OLD");
   assert.equal(upserts[2].params[1], "");
   assert.equal(upserts[2].params[7], 999);
@@ -608,6 +618,53 @@ test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla z
     "SELLER-SKU-2",
     "LISTING-ONLY-OLD",
   ]);
+});
+
+test("Hepsiburada listing sayfasi kismi hatada eski urunleri pasiflestirmez", async () => {
+  const queries = [];
+  const listings = [
+    {
+      merchantSku: "HB-PARTIAL-1",
+      hepsiburadaSku: "HBV-PARTIAL-1",
+      price: 100,
+      availableStock: 2,
+      isSalable: true,
+    },
+  ];
+  Object.defineProperty(listings, "partialFailure", {
+    value: { page: 2, code: "HEPSIBURADA_PAGE_FAILED" },
+    enumerable: false,
+  });
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => listings,
+      fetchAllMerchantProducts: async () => [],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 1);
+  assert.deepEqual(result.metadata.hepsiburadaListingPartialFailure, {
+    page: 2,
+    code: "HEPSIBURADA_PAGE_FAILED",
+  });
+  assert.equal(
+    queries.some(
+      ({ sql }) =>
+        String(sql).includes("marketplace='HEPSIBURADA'") &&
+        String(sql).includes("NOT (barcode=ANY"),
+    ),
+    false,
+  );
 });
 
 test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {
@@ -759,4 +816,65 @@ test("fiyat aksiyonu batch ve magazadaki fiyat birlikte dogrulaninca tamamlanir"
   });
   assert.equal(result.status, "VERIFIED");
   assert.equal(result.observedPrice, 312.28);
+});
+
+test("Hepsiburada fiyat aksiyonu item sonucu ve listing fiyati birlikte dogrulanir", async () => {
+  const sync = new SyncService({
+    db: {
+      query: async () => ({
+        rows: [
+          {
+            merchant_sku: "HB-MERCHANT-1",
+            hb_sku: "HBV-1",
+            listing_id: "listing-1",
+          },
+        ],
+      }),
+    },
+    audit: {},
+    trendyol: {
+      getBatchResult: async () => assert.fail("Trendyol cagrilmamali"),
+    },
+    hepsiburada: {
+      getPriceUpdateStatus: async () => ({
+        priceValidations: [{ merchantSku: "HB-MERCHANT-1", status: "SUCCESS" }],
+      }),
+      getCurrentOffer: async () => ({ price: 299.9 }),
+    },
+  });
+  const result = await sync.verifyPriceAction({
+    marketplace: "HEPSIBURADA",
+    barcode: "HB-BARCODE-1",
+    batch_id: "hb-batch-1",
+    proposed_price: 299.9,
+  });
+  assert.equal(result.status, "VERIFIED");
+  assert.equal(result.observedPrice, 299.9);
+});
+
+test("Hepsiburada takip numarasi SKU sonucu olmadan fiyat basarisi sayilmaz", async () => {
+  let currentOfferCalls = 0;
+  const sync = new SyncService({
+    db: {
+      query: async () => ({
+        rows: [{ merchant_sku: "HB-MERCHANT-1", hb_sku: "HBV-1" }],
+      }),
+    },
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      getPriceUpdateStatus: async () => ({ id: "hb-batch-1", status: "Done" }),
+      getCurrentOffer: async () => {
+        currentOfferCalls++;
+      },
+    },
+  });
+  const result = await sync.verifyPriceAction({
+    marketplace: "HEPSIBURADA",
+    barcode: "HB-BARCODE-1",
+    batch_id: "hb-batch-1",
+    proposed_price: 299.9,
+  });
+  assert.equal(result.status, "PENDING");
+  assert.equal(currentOfferCalls, 0);
 });

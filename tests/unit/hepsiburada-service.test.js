@@ -1078,6 +1078,7 @@ describe("Hepsiburada API runtime configuration", () => {
       let createdOrderNumber = null;
       const service = new HepsiburadaService({
         environment: "sit",
+        maxReadRetries: 0,
         fetch: async (url, options = {}) => {
           requests.push({ url, options });
           if (
@@ -1194,5 +1195,128 @@ describe("Hepsiburada API runtime configuration", () => {
     } finally {
       Object.assign(env, previous);
     }
+  });
+
+  test("read-only GET gecici hatalarda sinirli retry yapar, POST yapmaz", async () => {
+    let getCalls = 0;
+    const getService = new HepsiburadaService({
+      environment: "production",
+      maxReadRetries: 2,
+      fetch: async () => {
+        getCalls++;
+        if (getCalls < 3)
+          return { ok: false, status: 503, text: async () => "temporary" };
+        return { ok: true, status: 200, text: async () => "{}" };
+      },
+    });
+    await getService.request("https://example.test/read");
+    assert.equal(getCalls, 3);
+
+    let postCalls = 0;
+    const postService = new HepsiburadaService({
+      environment: "production",
+      fetch: async () => {
+        postCalls++;
+        return { ok: false, status: 503, text: async () => "temporary" };
+      },
+    });
+    await assert.rejects(() =>
+      postService.request("https://example.test/write", { method: "POST" }),
+    );
+    assert.equal(postCalls, 1);
+  });
+
+  test("mutation anahtarlari kapaliyken fiyat HTTP istegi yapmaz", async () => {
+    const previous = {
+      hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
+      hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
+    };
+    let calls = 0;
+    Object.assign(env, {
+      hepsiburadaMutationsEnabled: false,
+      hepsiburadaPriceUpdatesEnabled: false,
+    });
+    try {
+      const service = new HepsiburadaService({
+        fetch: async () => {
+          calls++;
+          throw new Error("HTTP cagrilmamali");
+        },
+      });
+      const result = await service.submitPriceUpdate({
+        merchantSku: "SKU-1",
+        hbSku: "HBV-1",
+        price: 99.9,
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.code, "HEPSIBURADA_MUTATIONS_DISABLED");
+      assert.equal(calls, 0);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("fiyat upload eszamanliligi bes istegi asmaz", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
+      hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
+    };
+    let active = 0;
+    let maximum = 0;
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaMutationsEnabled: true,
+      hepsiburadaPriceUpdatesEnabled: true,
+    });
+    try {
+      const service = new HepsiburadaService({
+        maxConcurrentUploads: 5,
+        fetch: async () => {
+          active++;
+          maximum = Math.max(maximum, active);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          active--;
+          return {
+            ok: true,
+            text: async () => JSON.stringify({ id: `batch-${maximum}` }),
+          };
+        },
+      });
+      await Promise.all(
+        Array.from({ length: 7 }, (_, index) =>
+          service.submitPriceUpdate({
+            merchantSku: `SKU-${index}`,
+            hbSku: `HBV-${index}`,
+            price: 100 + index,
+          }),
+        ),
+      );
+      assert.equal(maximum, 5);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("listing pagination kismi hatada onceki sayfalari korur", async () => {
+    const service = new HepsiburadaService({ maxReadRetries: 0 });
+    let page = 0;
+    service.listListings = async () => {
+      if (page++ === 0)
+        return {
+          listings: Array.from({ length: 2 }, (_, index) => ({
+            merchantSku: `SKU-${index}`,
+          })),
+        };
+      const error = new Error("temporary page failure");
+      error.status = 503;
+      throw error;
+    };
+    const rows = await service.fetchAllListings({ pageSize: 2, maxPages: 3 });
+    assert.equal(rows.length, 2);
+    assert.equal(rows.partialFailure.page, 1);
+    assert.equal(rows.partialFailure.offset, 2);
   });
 });

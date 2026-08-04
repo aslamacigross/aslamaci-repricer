@@ -55,6 +55,8 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "030_hepsiburada_commission_api",
       "031_hepsiburada_catalog_barcode",
       "032_hepsiburada_verified_gtin",
+      "033_hepsiburada_listing_identifiers",
+      "034_repricer_campaign_adjustments",
     ],
   );
   const safety = await db.query(
@@ -306,6 +308,12 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "025_product_opportunity_engine",
       "026_ai_content_and_listing_health",
       "027_packaging_profiles",
+      "028_hepsiburada_repricer_readiness",
+      "029_manual_cost_review",
+      "030_hepsiburada_commission_api",
+      "031_hepsiburada_catalog_barcode",
+      "032_hepsiburada_verified_gtin",
+      "033_hepsiburada_listing_identifiers",
     ],
   );
   await migrate("down", db, { compatibility: "pg-mem" });
@@ -324,6 +332,14 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  // 028-033 are now executed in pg-mem compatibility mode. Roll them back
+  // before continuing the historical schema-down assertions below.
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });

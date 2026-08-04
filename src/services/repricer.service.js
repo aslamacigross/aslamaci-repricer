@@ -1,15 +1,22 @@
 const crypto = require("crypto");
-const { proposePrice, safetyCheck } = require("../domain/repricer");
+const {
+  proposePrice,
+  safetyCheck,
+  campaignEconomics,
+  isBuyboxFresh,
+} = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
 const { roundMoney, parseBoolean } = require("../utils/numbers");
 const { env } = require("../config/env");
 const { AppError } = require("../utils/errors");
 
 class RepricerService {
-  constructor({ db, actions, settings }) {
+  constructor({ db, actions, settings, marketplaceRegistry, sync }) {
     this.db = db;
     this.actions = actions;
     this.settings = settings;
+    this.marketplaceRegistry = marketplaceRegistry;
+    this.sync = sync;
   }
 
   async globalSettings() {
@@ -25,6 +32,7 @@ class RepricerService {
         5,
       unlimitedIncrease: stored.global_unlimited_increase ?? true,
       minChangeTl: env.minPriceChangeTl,
+      platformMinPriceChangeTl: 0.01,
       buyboxMaxAgeMinutes:
         stored.buybox_max_age_minutes ?? env.buyboxMaxAgeMinutes,
       defaultMaxIncrease:
@@ -37,7 +45,14 @@ class RepricerService {
 
   ensureSupportedMarketplace(marketplace) {
     const normalized = String(marketplace || "TRENDYOL").toUpperCase();
-    if (!["TRENDYOL", "HEPSIBURADA"].includes(normalized))
+    if (normalized === "TRENDYOL") return normalized;
+    const adapter = this.marketplaceRegistry?.adapter?.(normalized);
+    if (
+      !adapter ||
+      !adapter.configured?.() ||
+      !adapter.supports?.("getCurrentOffer") ||
+      !adapter.supports?.("getCommission")
+    )
       throw new AppError(
         `${normalized} repricer bağlantısı desteklenmiyor`,
         409,
@@ -81,32 +96,92 @@ class RepricerService {
     ).rows;
   }
 
-  async preview(barcode, marketplace = "TRENDYOL") {
+  settingsForProduct(product, global) {
+    return {
+      ...product,
+      price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
+      max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
+      max_single_change_pct:
+        product.max_single_change_pct ?? global.maxChangePct,
+      max_daily_change_pct: product.max_daily_change_pct ?? global.maxChangePct,
+      minimum_profit_tl:
+        product.minimum_profit_tl ??
+        product.target_profit ??
+        global.defaultTargetProfit,
+      auto_update: product.setting_auto_update,
+      unlimited_increase:
+        parseBoolean(global.unlimitedIncrease) ||
+        parseBoolean(product.unlimited_increase),
+    };
+  }
+
+  needsBuyboxRefresh(product, global) {
+    const settings = this.settingsForProduct(product, global);
+    const stale = !isBuyboxFresh(product, {
+      ...settings,
+      buyboxMaxAgeMinutes: global.buyboxMaxAgeMinutes,
+    });
+    const inconsistent =
+      Number(product.rank || 0) > 1 &&
+      Number(product.buybox_price || 0) > 0 &&
+      Number(product.my_price || 0) <= Number(product.buybox_price) + 0.009;
+    return stale || inconsistent;
+  }
+
+  async refreshBuybox(barcodes, marketplace = "TRENDYOL") {
+    const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
+    const unique = [...new Set((barcodes || []).map(String).filter(Boolean))];
+    if (!unique.length)
+      return {
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        updatedBarcodes: [],
+        failedBarcodes: [],
+      };
+    if (normalizedMarketplace !== "TRENDYOL" || !this.sync?.buybox)
+      return {
+        processed: 0,
+        successful: 0,
+        failed: unique.length,
+        updatedBarcodes: [],
+        failedBarcodes: unique,
+      };
+    try {
+      return await this.sync.buybox(unique);
+    } catch (error) {
+      return {
+        processed: 0,
+        successful: 0,
+        failed: unique.length,
+        updatedBarcodes: [],
+        failedBarcodes: unique,
+        error: error.message,
+      };
+    }
+  }
+
+  async preview(
+    barcode,
+    marketplace = "TRENDYOL",
+    { refreshBuybox = true } = {},
+  ) {
     if (Array.isArray(barcode) && barcode.length === 0) return [];
     const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
     const global = await this.globalSettings();
-    const products = await this.candidates(barcode, normalizedMarketplace);
+    let products = await this.candidates(barcode, normalizedMarketplace);
+    if (refreshBuybox && normalizedMarketplace === "TRENDYOL") {
+      const refreshBarcodes = products
+        .filter((product) => this.needsBuyboxRefresh(product, global))
+        .map((product) => product.barcode);
+      if (refreshBarcodes.length) {
+        await this.refreshBuybox(refreshBarcodes, normalizedMarketplace);
+        products = await this.candidates(barcode, normalizedMarketplace);
+      }
+    }
     const results = [];
     for (const product of products) {
-      const settings = {
-        ...product,
-        price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
-        max_increase_tl: product.max_increase_tl ?? global.defaultMaxIncrease,
-        max_single_change_pct:
-          product.max_single_change_pct ?? global.maxChangePct,
-        max_daily_change_pct:
-          product.max_daily_change_pct ?? global.maxChangePct,
-        minimum_profit_tl:
-          product.minimum_profit_tl ??
-          product.target_profit ??
-          global.defaultTargetProfit,
-        auto_update: product.setting_auto_update,
-        // The global unlimited switch is a safety-wide override. A legacy
-        // product-level cap must not silently turn an unlimited pilot into KORU.
-        unlimited_increase:
-          parseBoolean(global.unlimitedIncrease) ||
-          parseBoolean(product.unlimited_increase),
-      };
+      const settings = this.settingsForProduct(product, global);
       const proposal = proposePrice(product, settings);
       const today = await this.actions.todayStats(
         product.barcode,
@@ -261,8 +336,17 @@ class RepricerService {
             ? "MIN_FIYATA_TOPARLA"
             : "FIYAT_ARTIR"
           : "KORU";
+    const economics = campaignEconomics(
+      product,
+      product,
+      price,
+      Math.max(
+        Number(product.min_price || 0),
+        Number(product.minimum_price || 0),
+      ),
+    );
     const moneyInput = {
-      salePrice: price,
+      salePrice: economics.sellerSettlementPrice,
       commissionRate: product.commission_rate,
       productCost: product.calculated_product_cost,
       shippingCost: product.calculated_shipping_cost,
@@ -272,6 +356,11 @@ class RepricerService {
     const proposal = {
       action,
       proposedPrice: price,
+      campaignAdjustedMinPrice: economics.campaignAdjustedMinPrice,
+      effectiveCandidatePrice: economics.effectiveCandidatePrice,
+      effectiveCustomerPrice: economics.effectiveCustomerPrice,
+      activeSellerDiscount: economics.activeSellerDiscount,
+      trendyolFundedDiscount: economics.trendyolFundedDiscount,
       expectedProfit: calculateNetProfit(moneyInput),
       expectedMargin: calculateNetMargin(moneyInput),
     };

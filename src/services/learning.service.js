@@ -48,7 +48,7 @@ class LearningService {
           await this.actions.markVerificationFailed(
             action.id,
             result.error ||
-              "Trendyol fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı",
+              "Pazaryeri fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı",
             result.batchResponse,
           );
           await this.audit?.record?.({
@@ -69,7 +69,7 @@ class LearningService {
       } catch (error) {
         summary.errors++;
         await this.audit?.integration?.({
-          integration: "TRENDYOL",
+          integration: String(action.marketplace || "TRENDYOL").toUpperCase(),
           level: "ERROR",
           operation: "PRICE_ACTION_VERIFICATION",
           message: error.message,
@@ -83,6 +83,12 @@ class LearningService {
   async checkOutcomes(elapsedMinutes, actionId = null) {
     const verification = await this.verifyPendingActions(actionId);
     let pending = await this.actions.pendingOutcomes(elapsedMinutes, actionId);
+    const marketplaceOf = (action) =>
+      String(action.marketplace || "TRENDYOL").toUpperCase();
+    const buyboxUnsupported = pending.filter(
+      (action) => marketplaceOf(action) === "HEPSIBURADA",
+    ).length;
+    pending = pending.filter((action) => marketplaceOf(action) === "TRENDYOL");
     let refreshFailures = 0;
     if (pending.length && this.sync) {
       try {
@@ -93,7 +99,10 @@ class LearningService {
         refreshFailures = Number(refresh.failed || 0);
         pending = (
           await this.actions.pendingOutcomes(elapsedMinutes, actionId)
-        ).filter((action) => updated.has(action.barcode));
+        ).filter(
+          (action) =>
+            marketplaceOf(action) === "TRENDYOL" && updated.has(action.barcode),
+        );
       } catch (error) {
         refreshFailures = pending.length;
         pending = [];
@@ -172,6 +181,7 @@ class LearningService {
       recoveries,
       refreshFailures,
       verification,
+      buyboxUnsupported,
     };
   }
 }

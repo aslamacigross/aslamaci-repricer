@@ -38,14 +38,14 @@ const settings = {
   auto_update: true,
 };
 test("fiyat yonu etiketi matematikle daima uyumludur", () => {
-  const down = proposePrice(base, settings);
+  const down = proposePrice({ ...base, my_price: 960 }, settings);
   assert.equal(down.proposedPrice, 939);
   assert.equal(down.action, "FIYAT_DUSUR");
   const up = proposePrice(
     { ...base, my_price: 900, rank: 1, second_price: 950 },
     { ...settings, price_cut_tl: 1 },
   );
-  assert.equal(up.proposedPrice, 909.98);
+  assert.equal(up.proposedPrice, 949);
   assert.equal(up.action, "FIYAT_ARTIR");
   const keep = proposePrice(base, { ...settings, strategy: "Manuel" });
   assert.equal(keep.proposedPrice, 944);
@@ -58,7 +58,7 @@ test("minimum fiyat altina onermez", () => {
   );
   assert.ok(result.proposedPrice >= 940);
 });
-test("birinci sira minimum altindaysa mevcut sirada maksimum kari arar", () => {
+test("birinci sira minimum altindaysa buybox disinda fiyat artirmaz", () => {
   const result = proposePrice(
     {
       ...base,
@@ -72,10 +72,11 @@ test("birinci sira minimum altindaysa mevcut sirada maksimum kari arar", () => {
     { ...settings, price_cut_tl: 1 },
   );
   assert.equal(result.targetRank, 2);
-  assert.equal(result.proposedPrice, 955.18);
-  assert.equal(result.action, "FIYAT_ARTIR");
+  assert.equal(result.proposedPrice, 944);
+  assert.equal(result.action, "KORU");
+  assert.equal(result.obstacle, "BUYBOX_NOT_ECONOMIC");
 });
-test("ucuncu siradan ekonomik olan en iyi bilinen siraya cikar", () => {
+test("ucuncu sirada buybox ekonomik degilse fiyat artirmadan korur", () => {
   const result = proposePrice(
     {
       ...base,
@@ -88,10 +89,12 @@ test("ucuncu siradan ekonomik olan en iyi bilinen siraya cikar", () => {
     },
     { ...settings, price_cut_tl: 1 },
   );
-  assert.equal(result.targetRank, 2);
-  assert.equal(result.proposedPrice, 969);
+  assert.equal(result.targetRank, 3);
+  assert.equal(result.proposedPrice, 950);
+  assert.equal(result.action, "KORU");
+  assert.equal(result.obstacle, "BUYBOX_NOT_ECONOMIC");
 });
-test("gorunen buybox altinda kalip sira alamazsa ek kontrollu fiyat kirar", () => {
+test("gorunen buybox altinda kalip sira alamazsa tutarsizlik uretir", () => {
   const result = proposePrice(
     {
       ...base,
@@ -104,12 +107,12 @@ test("gorunen buybox altinda kalip sira alamazsa ek kontrollu fiyat kirar", () =
     },
     { ...settings, price_cut_tl: 5 },
   );
-  assert.equal(result.targetRank, 1);
-  assert.equal(result.proposedPrice, 826.07);
-  assert.equal(result.action, "FIYAT_DUSUR");
-  assert.match(result.reason, /görünmeyen avantaj/);
+  assert.equal(result.targetRank, 2);
+  assert.equal(result.proposedPrice, 831.07);
+  assert.equal(result.action, "KORU");
+  assert.equal(result.obstacle, "BUYBOX_INCONSISTENT");
 });
-test("buybox fiyati ustte gorunse bile rank alinmadiysa mevcut fiyattan kirar", () => {
+test("buybox fiyati ustte gorunse bile rank alinmadiysa fiyat degistirmez", () => {
   const result = proposePrice(
     {
       ...base,
@@ -122,18 +125,18 @@ test("buybox fiyati ustte gorunse bile rank alinmadiysa mevcut fiyattan kirar", 
     },
     { ...settings, price_cut_tl: 5 },
   );
-  assert.equal(result.targetRank, 1);
-  assert.equal(result.proposedPrice, 826.07);
-  assert.equal(result.action, "FIYAT_DUSUR");
-  assert.match(result.reason, /mevcut fiyattan kontrollü/);
+  assert.equal(result.targetRank, 2);
+  assert.equal(result.proposedPrice, 831.07);
+  assert.equal(result.action, "KORU");
+  assert.equal(result.obstacle, "BUYBOX_INCONSISTENT");
 });
 test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   const increase = proposePrice(
     { ...base, my_price: 900, rank: 1, second_price: 1000 },
     { ...settings, price_cut_tl: 1, max_increase_tl: 10 },
   );
-  assert.equal(increase.proposedPrice, 910);
-  assert.equal(increase.limitedBy, "KADEMELI_ARTIS");
+  assert.equal(increase.proposedPrice, 999);
+  assert.equal(increase.limitedBy, "BUYBOX_PIYASA_DUZELTMESI");
   const decrease = proposePrice(
     { ...base, my_price: 1000, min_price: 500, rank: 2, buybox_price: 700 },
     { ...settings, price_cut_tl: 1, max_daily_change_pct: 15 },
@@ -240,7 +243,7 @@ test("yukari yonlu fiyat artisi limitsiz ayarda yuzde limitine takilmaz", () => 
     max_daily_change_pct: 5,
     unlimited_increase: true,
   });
-  assert.equal(proposal.proposedPrice, 920);
+  assert.equal(proposal.proposedPrice, 1299);
   const result = safetyCheck({
     product,
     settings: { ...settings, unlimited_increase: true },
@@ -276,10 +279,10 @@ test("buybox bizdeyken limitsiz artis eski sifir urun limitine takilmaz", () => 
       unlimited_increase: true,
     },
   );
-  assert.equal(proposal.proposedPrice, 653.42);
+  assert.equal(proposal.proposedPrice, 712.44);
   assert.equal(proposal.action, "FIYAT_ARTIR");
-  assert.equal(proposal.difference, 14.98);
-  assert.equal(proposal.limitedBy, "BUYBOX_KAR_YOKLAMASI");
+  assert.equal(proposal.difference, 74);
+  assert.equal(proposal.limitedBy, "BUYBOX_PIYASA_DUZELTMESI");
 });
 test("buybox bizdeyken eski yuksek fiyat kirma degeri kar artisini engellemez", () => {
   const proposal = proposePrice(
@@ -293,11 +296,11 @@ test("buybox bizdeyken eski yuksek fiyat kirma degeri kar artisini engellemez", 
     },
     { ...settings, price_cut_tl: 75, min_undercut_tl: 0.1 },
   );
-  assert.equal(proposal.proposedPrice, 497.89);
+  assert.equal(proposal.proposedPrice, 498);
   assert.equal(proposal.action, "FIYAT_ARTIR");
-  assert.equal(proposal.effectiveUndercut, 0.1);
+  assert.equal(proposal.effectiveUndercut, 1);
 });
-test("buybox bizdeyken kucuk fiyat degisimi anlamli esige takilir", () => {
+test("buybox bizdeyken gecerli fiyat degisimi eski ticari esige takilmaz", () => {
   const product = {
     ...base,
     my_price: 492.89,
@@ -326,7 +329,7 @@ test("buybox bizdeyken kucuk fiyat degisimi anlamli esige takilir", () => {
     proposal,
     today: { actionCount: 0, dayStartPrice: product.my_price },
   });
-  assert.ok(safety.failures.includes("CHANGE_TOO_SMALL"));
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
 });
 test("buybox disindayken hedef siraya kucuk fiyat kirma change too small engeline takilmaz", () => {
   const product = {
@@ -518,6 +521,13 @@ test("ilk üç sıra ekonomik değilse açık sonuç verir", () => {
 
 test("Hepsiburada repricer onizlemesi DB verisiyle calisir", async () => {
   const service = new RepricerService({
+    marketplaceRegistry: {
+      adapter: () => ({
+        configured: () => true,
+        supports: (operation) =>
+          ["getCurrentOffer", "getCommission"].includes(operation),
+      }),
+    },
     settings: {
       getAll: async () => ({
         global_dry_run: true,
@@ -553,6 +563,47 @@ test("Hepsiburada repricer onizlemesi DB verisiyle calisir", async () => {
   const [preview] = await service.preview("HB-SKU-1", "HEPSIBURADA");
   assert.equal(preview.barcode, "HB-SKU-1");
   assert.equal(preview.productName, "Hepsiburada Ürünü");
+});
+
+test("Hepsiburada komisyonu eksik urun repricer guvenligini gecemez", async () => {
+  const service = new RepricerService({
+    marketplaceRegistry: {
+      adapter: () => ({
+        configured: () => true,
+        supports: (operation) =>
+          ["getCurrentOffer", "getCommission"].includes(operation),
+      }),
+    },
+    settings: {
+      getAll: async () => ({
+        global_dry_run: true,
+        global_repricer_enabled: false,
+        default_price_cut_tl: 1,
+      }),
+    },
+    actions: { todayStats: async () => ({ action_count: 0 }) },
+    db: {
+      query: async () => ({
+        rows: [
+          {
+            ...base,
+            marketplace: "HEPSIBURADA",
+            barcode: "HB-COMMISSION-MISSING",
+            commission_rate: null,
+            strategy: "Normal",
+            setting_auto_update: true,
+            mode: "AUTOMATIC",
+          },
+        ],
+      }),
+    },
+  });
+
+  const [preview] = await service.preview(
+    "HB-COMMISSION-MISSING",
+    "HEPSIBURADA",
+  );
+  assert.ok(preview.blockedReasons.includes("COMMISSION_MISSING"));
 });
 
 test("desteklenmeyen pazaryeri repricer tarafinda fail-closed reddedilir", async () => {

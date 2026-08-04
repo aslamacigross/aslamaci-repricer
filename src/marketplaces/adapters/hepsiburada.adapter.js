@@ -7,12 +7,14 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
       status: service?.configured?.() ? "READY" : "WAITING_CREDENTIALS",
       capabilities: {
         supportsCatalogProductRead: service?.configured?.() === true,
+        supportsListingsRead: service?.configured?.() === true,
+        supportsCurrentPriceRead: service?.configured?.() === true,
         supportsCommissionApi: service?.configured?.() === true,
+        supportsBuybox: false,
         supportsOrders: true,
         supportsFinancialTransactions: false,
-        supportsPriceUpdate:
-          service?.configured?.() === true &&
-          service?.priceUpdatesEnabled?.() === true,
+        supportsPriceUpdate: service?.configured?.() === true,
+        supportsPriceUpdateStatus: service?.configured?.() === true,
         supportsInventoryUpdate:
           service?.configured?.() === true &&
           service?.priceUpdatesEnabled?.() === true,
@@ -60,6 +62,34 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
 
   async updatePriceAndInventory(input = {}) {
     return this.service.updatePriceAndInventory(input);
+  }
+
+  async listListings(input = {}) {
+    return this.service.fetchAllListings(input);
+  }
+
+  async getListingByIdentifier(input = {}) {
+    return this.service.getListingByIdentifier(input);
+  }
+
+  async getCurrentOffer(input = {}) {
+    return this.service.getCurrentOffer(input);
+  }
+
+  async getCommission(input = {}) {
+    const rows = await this.service.fetchCommissions([
+      input.merchantSku,
+      input.hbSku,
+    ]);
+    return rows[0] || null;
+  }
+
+  async updatePrice(input = {}) {
+    return this.service.submitPriceUpdate(input);
+  }
+
+  async getPriceUpdateStatus(input = {}) {
+    return this.service.getPriceUpdateStatus(input.trackingId || input.id);
   }
 }
 

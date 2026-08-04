@@ -201,7 +201,8 @@ class ActionRepository {
       ).rows[0];
       if (
         !product ||
-        Number(product.my_price) !== Number(original.applied_price || original.proposed_price) ||
+        Number(product.my_price) !==
+          Number(original.applied_price || original.proposed_price) ||
         Number(original.old_price) < Number(product.min_price || 0)
       )
         return null;
@@ -225,7 +226,10 @@ class ActionRepository {
           third_price: original.third_price,
           expected_profit: original.net_profit_before,
           expected_margin: original.expected_margin,
-          safety_checks: { automaticRecovery: true, revertsActionId: original.id },
+          safety_checks: {
+            automaticRecovery: true,
+            revertsActionId: original.id,
+          },
           expires_at: new Date(Date.now() + 15 * 60000).toISOString(),
           net_profit_before: original.expected_profit,
           target_rank: 1,
@@ -342,8 +346,11 @@ class ActionRepository {
       if (locked.verified_at) return locked;
       if (locked.status !== "AWAITING_RESULT")
         throw new Error("Fiyat aksiyonu doğrulanabilir durumda değil");
-      const appliedPrice = Number(marketProduct.salePrice);
-      const listPrice = Number(marketProduct.listPrice) || appliedPrice;
+      const appliedPrice = Number(
+        marketProduct.salePrice ?? marketProduct.price,
+      );
+      const listPrice =
+        Number(marketProduct.listPrice ?? marketProduct.price) || appliedPrice;
       const apiResponse = {
         ...(locked.api_response || {}),
         verification: {
