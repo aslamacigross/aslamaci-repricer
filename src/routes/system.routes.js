@@ -280,28 +280,9 @@ function systemRoutes({
             preview_difference: preview?.difference ?? 0,
             preview_expected_profit: preview?.expectedProfit ?? null,
             preview_reason: preview?.reason || "Fiyat korunuyor",
-            preview_obstacle: preview?.obstacle || null,
             preview_blocked_reasons: preview?.blockedReasons || [],
             preview_target_rank: preview?.targetRank ?? item.rank ?? null,
             preview_effective_undercut: preview?.effectiveUndercut ?? null,
-            buybox_gap:
-              preview?.buyboxGap ??
-              Number(item.my_price || 0) - Number(item.buybox_price || 0),
-            action_delta: preview?.actionDelta ?? 0,
-            campaign_adjusted_min_price:
-              preview?.campaignAdjustedMinPrice ?? item.min_price,
-            effective_candidate_price:
-              preview?.effectiveCandidatePrice ?? item.my_price,
-            effective_customer_price:
-              preview?.effectiveCustomerPrice ?? item.my_price,
-            estimated_profit_after_action:
-              preview?.estimatedProfitAfterAction ?? null,
-            active_seller_discount:
-              preview?.activeSellerDiscount ??
-              Number(item.active_seller_discount || 0),
-            trendyol_funded_discount:
-              preview?.trendyolFundedDiscount ??
-              Number(item.trendyol_funded_discount || 0),
           };
         }),
       });

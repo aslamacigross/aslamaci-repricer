@@ -38,12 +38,6 @@ describe("Marketplace adapter sözleşmesi", () => {
       "createOfferOnExistingCatalogProduct",
       "updateProductContent",
       "updatePriceAndInventory",
-      "listListings",
-      "getListingByIdentifier",
-      "getCurrentOffer",
-      "getCommission",
-      "updatePrice",
-      "getPriceUpdateStatus",
       "fetchProducts",
       "fetchOrders",
       "fetchCommissions",
@@ -85,19 +79,6 @@ describe("Marketplace adapter sözleşmesi", () => {
     const result = await adapter.testConnection();
     assert.equal(result.ok, false);
     assert.equal(result.code, "MARKETPLACE_CREDENTIALS_MISSING");
-  });
-
-  test("Hepsiburada yalniz gerceklesen fiyat yeteneklerini bildirir", () => {
-    const adapter = new HepsiburadaAdapter({
-      configured: () => true,
-      priceUpdatesEnabled: () => false,
-    });
-    assert.equal(adapter.supports("listListings"), true);
-    assert.equal(adapter.supports("getCurrentOffer"), true);
-    assert.equal(adapter.supports("getCommission"), true);
-    assert.equal(adapter.supports("updatePrice"), true);
-    assert.equal(adapter.supports("getPriceUpdateStatus"), true);
-    assert.equal(adapter.supports("fetchBuybox"), false);
   });
 
   test("skeleton adapter gerçek çağrı yapmaz", async () => {

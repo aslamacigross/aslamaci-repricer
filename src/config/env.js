@@ -70,12 +70,6 @@ const env = {
       process.env.HB_PRICE_UPDATES_ENABLED,
     false,
   ),
-  hepsiburadaPricePilotBarcodes: String(
-    process.env.HEPSIBURADA_PRICE_PILOT_BARCODES || "",
-  )
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean),
   adminUsername: process.env.ADMIN_USERNAME || "admin",
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || "",
@@ -132,17 +126,10 @@ function validateEnv() {
     errors.push("OPPORTUNITY_AUTO_PUBLISH_ENABLED false kalmali");
   if (!["sit", "test", "production", "prod"].includes(env.hepsiburadaEnv))
     errors.push("HEPSIBURADA_ENV sit veya production olmali");
-  if (env.hepsiburadaPriceUpdatesEnabled && !env.hepsiburadaMutationsEnabled)
-    errors.push(
-      "HEPSIBURADA_PRICE_UPDATES_ENABLED icin HEPSIBURADA_MUTATIONS_ENABLED gerekli",
-    );
-  if (
-    env.hepsiburadaPriceUpdatesEnabled &&
-    env.hepsiburadaPricePilotBarcodes.length === 0
-  )
-    errors.push(
-      "HEPSIBURADA_PRICE_UPDATES_ENABLED icin HEPSIBURADA_PRICE_PILOT_BARCODES gerekli",
-    );
+  if (env.hepsiburadaMutationsEnabled)
+    errors.push("HEPSIBURADA_MUTATIONS_ENABLED false kalmali");
+  if (env.hepsiburadaPriceUpdatesEnabled)
+    errors.push("HEPSIBURADA_PRICE_UPDATES_ENABLED false kalmali");
   if (errors.length)
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }

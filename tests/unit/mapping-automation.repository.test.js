@@ -57,10 +57,9 @@ test("tedarikçi fiyat güncellemesi aynı ürünün duplicate kayıtlarına ba�
   const linkLookup = calls.find(
     (call) =>
       String(call.sql).includes("FROM cost_item_file_links l") &&
-      String(call.sql).includes("IN ($1,$2)"),
+      String(call.sql).includes("ANY($1::bigint[])"),
   );
-  assert.ok(linkLookup);
-  assert.deepEqual(linkLookup.params, [2, 1]);
+  assert.deepEqual(linkLookup.params[0], [2, 1]);
   assert.equal(result.tier_price_updates[0].barcode, "TY-KURABIYE");
   assert.equal(result.tier_price_updates[0].unit_cost, 229);
 });
@@ -70,44 +69,24 @@ test("mapping aday havuzu aynı tedarikçi ürününden en güncel duplicate kay
   const db = {
     query: async (sql, params = []) => {
       calls.push({ sql, params });
-      return {
-        rows: [
-          {
-            id: 1,
-            supplier_code: "FILE_MARKET",
-            normalized_name: "harras tereyagli kurabiye 180 g",
-            current_price: 195,
-            last_seen_at: "2026-07-31T00:00:00.000Z",
-          },
-          {
-            id: 2,
-            supplier_code: "FILE_MARKET",
-            normalized_name: "harras tereyagli kurabiye 180 g",
-            current_price: 229,
-            last_seen_at: "2026-08-01T00:00:00.000Z",
-          },
-          {
-            id: 3,
-            supplier_code: "FILE_MARKET",
-            normalized_name: "gecersiz sifir fiyat",
-            current_price: 0,
-            last_seen_at: "2026-08-02T00:00:00.000Z",
-          },
-        ],
-      };
+      return { rows: [] };
     },
   };
   const repo = new MappingAutomationRepository(db, async (callback) =>
     callback(db),
   );
 
-  const items = await repo.fileItemsForMatching("FILE_MARKET");
+  await repo.fileItemsForMatching("FILE_MARKET");
 
-  assert.match(calls[0].sql, /FROM file_market_items/);
+  assert.match(
+    calls[0].sql,
+    /SELECT DISTINCT ON \(supplier_code,normalized_name\)/,
+  );
+  assert.match(
+    calls[0].sql,
+    /ORDER BY supplier_code,normalized_name,last_seen_at DESC/,
+  );
   assert.deepEqual(calls[0].params, ["FILE_MARKET"]);
-  assert.equal(items.length, 1);
-  assert.equal(items[0].id, 2);
-  assert.equal(items[0].current_price, 229);
 });
 
 test("tedarikçi havuzu normal listede merge edilmiş eski duplicate kayıtları gizler", async () => {
@@ -225,11 +204,7 @@ test("Bizim canlı import boş çoklu fiyatla manuel fiyat kademelerini ezmez", 
   const upsert = calls.find((call) =>
     String(call.sql).includes("ON CONFLICT(source_key)DO UPDATE"),
   );
-  assert.match(
-    upsert.sql,
-    /WHEN \$19::boolean THEN file_market_items\.price_tiers/,
-  );
-  assert.equal(upsert.params[18], true);
+  assert.match(upsert.sql, /JSONB_ARRAY_LENGTH\(EXCLUDED\.price_tiers\)=0/);
   assert.doesNotMatch(upsert.sql, /supplier_code=EXCLUDED\.supplier_code/);
 });
 

@@ -12,83 +12,49 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 34);
-    assert.equal(
-      initial.rows.at(-1).version,
-      "034_repricer_campaign_adjustments",
-    );
+    assert.equal(initial.rowCount, 32);
+    assert.equal(initial.rows.at(-1).version, "032_hepsiburada_verified_gtin");
 
     const columnsAfterUp = await db.query(`
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'products'
-        AND column_name IN (
-          'catalog_gtin', 'catalog_gtin_source',
-          'merchant_sku', 'hb_sku', 'listing_id'
-        )
+        AND column_name IN ('catalog_gtin', 'catalog_gtin_source')
       ORDER BY column_name
     `);
     assert.deepEqual(
       columnsAfterUp.rows.map((row) => row.column_name),
-      [
-        "catalog_gtin",
-        "catalog_gtin_source",
-        "hb_sku",
-        "listing_id",
-        "merchant_sku",
-      ],
+      ["catalog_gtin", "catalog_gtin_source"],
     );
 
     await migrate("down", db);
     const afterDown = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterDown.rowCount, 33);
+    assert.equal(afterDown.rowCount, 31);
     assert.equal(
       afterDown.rows.at(-1).version,
-      "033_hepsiburada_listing_identifiers",
+      "031_hepsiburada_catalog_barcode",
     );
 
-    const campaignColumnsAfterDown = await db.query(`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'products'
-        AND column_name IN (
-          'active_seller_discount', 'trendyol_funded_discount',
-          'campaign_adjustment_source', 'campaign_adjustment_details',
-          'campaign_adjustment_updated_at'
-        )
-    `);
-    assert.equal(campaignColumnsAfterDown.rowCount, 0);
-
-    const listingIdentityColumnsAfterDown = await db.query(`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'products'
-        AND column_name IN ('merchant_sku', 'hb_sku', 'listing_id')
-    `);
-    assert.equal(listingIdentityColumnsAfterDown.rowCount, 3);
-
-    const verifiedGtinColumnsAfterDown = await db.query(`
+    const columnsAfterDown = await db.query(`
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'products'
         AND column_name IN ('catalog_gtin', 'catalog_gtin_source')
     `);
-    assert.equal(verifiedGtinColumnsAfterDown.rowCount, 2);
+    assert.equal(columnsAfterDown.rowCount, 0);
 
     await migrate("up", db);
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 34);
+    assert.equal(afterRoundTrip.rowCount, 32);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "034_repricer_campaign_adjustments",
+      "032_hepsiburada_verified_gtin",
     );
   } finally {
     await db.end();

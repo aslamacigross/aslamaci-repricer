@@ -171,6 +171,47 @@ function hepsiburadaListingStock(listing) {
   return Number(value) || 0;
 }
 
+function hepsiburadaListingBuybox(listing) {
+  const buyboxPrice = Number(
+    firstValue(listing, [
+      "buyboxPrice",
+      "buyBoxPrice",
+      "bestPrice",
+      "winningPrice",
+      "buybox.price",
+      "buyBox.price",
+    ]),
+  );
+  const secondPrice = Number(
+    firstValue(listing, ["secondPrice", "secondBuyboxPrice", "rank2Price"]),
+  );
+  const thirdPrice = Number(
+    firstValue(listing, ["thirdPrice", "thirdBuyboxPrice", "rank3Price"]),
+  );
+  const rank = Number(
+    firstValue(listing, [
+      "rank",
+      "buyboxOrder",
+      "buyBoxOrder",
+      "buyboxRank",
+      "buyBoxRank",
+    ]),
+  );
+  const sellerCount = Number(
+    firstValue(listing, ["sellerCount", "merchantCount", "competitorCount"]),
+  );
+  return {
+    buyboxPrice:
+      Number.isFinite(buyboxPrice) && buyboxPrice > 0 ? buyboxPrice : null,
+    secondPrice:
+      Number.isFinite(secondPrice) && secondPrice > 0 ? secondPrice : null,
+    thirdPrice:
+      Number.isFinite(thirdPrice) && thirdPrice > 0 ? thirdPrice : null,
+    rank: Number.isFinite(rank) && rank > 0 ? rank : null,
+    hasMultipleSeller: Number.isFinite(sellerCount) ? sellerCount > 1 : null,
+  };
+}
+
 function enrichedListingValue(
   listing,
   fallback,
@@ -216,44 +257,6 @@ function enrichedImageValue(listing, fallback) {
     fallback?.product_image_url ||
     null;
   return normalizeImageUrl(listingImage) || normalizeImageUrl(fallbackImage);
-}
-
-function hepsiburadaPriceUploadItem(payload, identifiers = {}) {
-  const rows = normalizeApiRows(payload);
-  const merchantSku = String(identifiers.merchantSku || "");
-  const hbSku = String(identifiers.hbSku || "");
-  return (
-    rows.find((row) => {
-      const rowMerchant = String(row.merchantSku || row.merchantSKU || "");
-      const rowHb = String(row.hepsiburadaSku || row.hbSku || "");
-      return (
-        (merchantSku && rowMerchant === merchantSku) ||
-        (hbSku && rowHb === hbSku)
-      );
-    }) || null
-  );
-}
-
-function normalizeApiRows(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  for (const key of [
-    "items",
-    "listings",
-    "priceValidations",
-    "validations",
-    "results",
-    "content",
-    "data",
-  ]) {
-    const value = payload[key];
-    if (Array.isArray(value)) return value;
-    if (value && typeof value === "object") {
-      const nested = normalizeApiRows(value);
-      if (nested.length) return nested;
-    }
-  }
-  return [];
 }
 
 class SyncService {
@@ -353,7 +356,6 @@ class SyncService {
       pageSize: 100,
       maxPages: 200,
     });
-    const listingPartialFailure = listings.partialFailure || null;
     let processed = 0;
     const seenBarcodes = new Set();
     let metadataRows = [];
@@ -415,6 +417,25 @@ class SyncService {
         }
       }
     }
+    const listingBarcodes = [
+      ...new Set(
+        listings
+          .map((listing) => hepsiburadaListingBarcode(listing))
+          .filter(Boolean),
+      ),
+    ];
+    const fallbackRows = listingBarcodes.length
+      ? (
+          await this.db.query(
+            `SELECT barcode,product_name,brand,category_name,category_id,product_image_url
+             FROM products WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])`,
+            [listingBarcodes],
+          )
+        ).rows
+      : [];
+    const fallbackByBarcode = new Map(
+      fallbackRows.map((row) => [String(row.barcode), row]),
+    );
     const syncRows = [];
     const syncedListingKeys = new Set();
     for (const product of metadataRows) {
@@ -444,12 +465,15 @@ class SyncService {
         (product ? hepsiburadaCatalogPlatformId(product) : "") ||
         hepsiburadaListingPlatformId(listing);
       const fallbackProduct =
-        product || metadataForListing(metadataByKey, listing);
+        product ||
+        metadataForListing(metadataByKey, listing) ||
+        fallbackByBarcode.get(barcode);
       const catalogIdentity = hepsiburadaVerifiedCatalogGtin(product || {});
       seenBarcodes.add(barcode);
       const saleSource = Object.keys(listing || {}).length ? listing : product;
       const salePrice = hepsiburadaListingPrice(saleSource || {});
       const quantity = hepsiburadaListingStock(saleSource || {});
+      const buybox = hepsiburadaListingBuybox(listing);
       const commissionRate =
         commissionRateValue(metadataForListing(commissionByKey, listing)) ??
         commissionRateValue(listing);
@@ -477,11 +501,10 @@ class SyncService {
           product_image_url,marketplace_product_id,my_price,list_price,
           stock_quantity,archived,locked,on_sale,approved,commission_rate,
           buybox_price,second_price,third_price,rank,has_multiple_seller,
-          buybox_updated_at,is_active,catalog_gtin,catalog_gtin_source,
-          merchant_sku,hb_sku,listing_id,updated_at
+          buybox_updated_at,is_active,catalog_gtin,catalog_gtin_source,updated_at
         )VALUES(
           'HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,FALSE,$12,$13,$14,
-          NULL,NULL,NULL,NULL,NULL,NULL,$15,$16,$17,$18,$19,$20,NOW()
+          $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,$21,$22,NOW()
         )
         ON CONFLICT(marketplace,barcode)DO UPDATE SET
           product_name=COALESCE(NULLIF(EXCLUDED.product_name,''),products.product_name),
@@ -498,12 +521,12 @@ class SyncService {
           on_sale=EXCLUDED.on_sale,
           approved=EXCLUDED.approved,
           commission_rate=COALESCE(EXCLUDED.commission_rate,products.commission_rate),
-          buybox_price=NULL,
-          second_price=NULL,
-          third_price=NULL,
-          rank=NULL,
-          has_multiple_seller=NULL,
-          buybox_updated_at=NULL,
+          buybox_price=COALESCE(EXCLUDED.buybox_price,products.buybox_price),
+          second_price=COALESCE(EXCLUDED.second_price,products.second_price),
+          third_price=COALESCE(EXCLUDED.third_price,products.third_price),
+          rank=COALESCE(EXCLUDED.rank,products.rank),
+          has_multiple_seller=COALESCE(EXCLUDED.has_multiple_seller,products.has_multiple_seller),
+          buybox_updated_at=COALESCE(EXCLUDED.buybox_updated_at,products.buybox_updated_at),
           is_active=EXCLUDED.is_active,
           catalog_gtin=COALESCE(
             NULLIF(EXCLUDED.catalog_gtin,''),
@@ -513,9 +536,6 @@ class SyncService {
             NULLIF(EXCLUDED.catalog_gtin_source,''),
             products.catalog_gtin_source
           ),
-          merchant_sku=COALESCE(NULLIF(EXCLUDED.merchant_sku,''),products.merchant_sku),
-          hb_sku=COALESCE(NULLIF(EXCLUDED.hb_sku,''),products.hb_sku),
-          listing_id=COALESCE(NULLIF(EXCLUDED.listing_id,''),products.listing_id),
           updated_at=NOW()`,
         [
           barcode,
@@ -556,19 +576,19 @@ class SyncService {
           onSale,
           approved,
           commissionRate,
+          buybox.buyboxPrice,
+          buybox.secondPrice,
+          buybox.thirdPrice,
+          buybox.rank,
+          buybox.hasMultipleSeller,
           active,
           catalogIdentity.gtin || null,
           catalogIdentity.source || null,
-          String(listing?.merchantSku || "").trim() || null,
-          String(
-            listing?.hepsiburadaSku || listing?.hbSku || product?.hbSku || "",
-          ).trim() || null,
-          String(listing?.listingId || "").trim() || null,
         ],
       );
       processed++;
     }
-    if (seenBarcodes.size && !listingPartialFailure) {
+    if (seenBarcodes.size) {
       await this.db.query(
         `UPDATE products
          SET is_active=FALSE,on_sale=FALSE,archived=TRUE,updated_at=NOW()
@@ -588,7 +608,6 @@ class SyncService {
         hepsiburadaCommissionMatched: commissionMatched,
         hepsiburadaCommissionMissing: commissionMissing,
         hepsiburadaCommissionMissingSamples: commissionMissingSamples,
-        hepsiburadaListingPartialFailure: listingPartialFailure,
         hepsiburadaCommissionError: commissionError,
       },
     };
@@ -809,8 +828,6 @@ class SyncService {
   }
 
   async verifyPriceAction(action) {
-    if (String(action.marketplace).toUpperCase() === "HEPSIBURADA")
-      return this.verifyHepsiburadaPriceAction(action);
     const batchResponse = await this.trendyol.getBatchResult(action.batch_id);
     const item = (batchResponse.items || []).find((candidate) => {
       const request = candidate.requestItem || candidate.request || {};
@@ -856,77 +873,6 @@ class SyncService {
     };
   }
 
-  async verifyHepsiburadaPriceAction(action) {
-    const product = (
-      await this.db.query(
-        `SELECT merchant_sku,hb_sku,listing_id
-         FROM products WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
-        [action.barcode],
-      )
-    ).rows[0];
-    if (!product)
-      return { status: "FAILED", error: "Hepsiburada ürünü bulunamadı" };
-    const batchResponse = await this.hepsiburada.getPriceUpdateStatus(
-      action.batch_id,
-    );
-    const item = hepsiburadaPriceUploadItem(batchResponse, {
-      merchantSku: product.merchant_sku || action.barcode,
-      hbSku: product.hb_sku,
-    });
-    if (!item) {
-      const errors = normalizeApiRows(batchResponse?.errors);
-      return {
-        status: errors.length ? "FAILED" : "PENDING",
-        error: errors.length
-          ? errors
-              .map((row) => row.message || row.error || JSON.stringify(row))
-              .join("; ")
-          : "Hepsiburada fiyat yükleme sonucunda SKU bazlı sonuç henüz yok",
-        batchResponse,
-      };
-    }
-    const itemStatus = String(
-      item.status || item.state || item.result || "IN_PROGRESS",
-    ).toUpperCase();
-    if (["FAILED", "ERROR", "REJECTED", "INVALID"].includes(itemStatus))
-      return {
-        status: "FAILED",
-        error: String(
-          item.message ||
-            item.error ||
-            "Hepsiburada fiyat güncellemesi reddedildi",
-        ),
-        batchResponse,
-      };
-    if (!["SUCCESS", "DONE", "COMPLETED", "OK"].includes(itemStatus))
-      return { status: "PENDING", batchResponse };
-    const marketProduct = await this.hepsiburada.getCurrentOffer({
-      merchantSku: product.merchant_sku || action.barcode,
-      hbSku: product.hb_sku,
-      listingId: product.listing_id,
-    });
-    if (!marketProduct)
-      return {
-        status: "PENDING",
-        error: "Hepsiburada listing fiyatı henüz okunamadı",
-        batchResponse,
-      };
-    const observedPrice = roundMoney(marketProduct.price);
-    if (observedPrice !== roundMoney(action.proposed_price))
-      return {
-        status: "MISMATCH",
-        error: `Beklenen fiyat ${roundMoney(action.proposed_price)}, görülen fiyat ${observedPrice}`,
-        batchResponse,
-        marketProduct,
-      };
-    return {
-      status: "VERIFIED",
-      batchResponse,
-      marketProduct,
-      observedPrice,
-    };
-  }
-
   async health() {
     return {
       configured: this.trendyol.configured(),
@@ -935,8 +881,4 @@ class SyncService {
   }
 }
 
-module.exports = {
-  SyncService,
-  hepsiburadaVerifiedCatalogGtin,
-  hepsiburadaPriceUploadItem,
-};
+module.exports = { SyncService, hepsiburadaVerifiedCatalogGtin };
