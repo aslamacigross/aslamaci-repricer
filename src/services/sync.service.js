@@ -17,16 +17,23 @@ function firstValue(source, keys, fallback = "") {
 
 function hepsiburadaListingBarcode(listing) {
   return String(
+    firstValue(listing, ["merchantSku", "merchantSKU", "sku"]),
+  ).trim();
+}
+
+function hepsiburadaListingHbSku(listing) {
+  return String(
     firstValue(listing, [
-      "merchantSku",
-      "merchantSKU",
-      "sku",
-      "barcode",
-      "merchantBarcode",
       "hbSku",
-      "productBarcode",
+      "hepsiburadaSku",
+      "productSku",
+      "variantSku",
     ]),
   ).trim();
+}
+
+function hepsiburadaListingId(listing) {
+  return String(firstValue(listing, ["listingId", "id"], "")).trim();
 }
 
 function hepsiburadaListingPlatformId(listing) {
@@ -44,11 +51,12 @@ function hepsiburadaListingPlatformId(listing) {
 function hepsiburadaCatalogBarcode(product) {
   return String(
     firstValue(product, [
-      "merchantSku",
-      "merchantSKU",
-      "sku",
       "barcode",
-      "merchantBarcode",
+      "productBarcode",
+      "gtin",
+      "ean",
+      "gtin13",
+      "ean13",
     ]),
   ).trim();
 }
@@ -108,18 +116,11 @@ function addMetadataIndex(index, product) {
 
 function metadataForListing(index, listing) {
   return (
-    index.get(normalizedKey(hepsiburadaListingBarcode(listing))) ||
+    index.get(normalizedKey(listing?.merchantSku)) ||
+    index.get(normalizedKey(listing?.merchantSKU)) ||
+    index.get(normalizedKey(hepsiburadaListingHbSku(listing))) ||
     index.get(normalizedKey(hepsiburadaListingPlatformId(listing))) ||
     index.get(normalizedKey(listing?.productId)) ||
-    null
-  );
-}
-
-function listingForMetadata(index, product) {
-  return (
-    index.get(normalizedKey(hepsiburadaCatalogBarcode(product))) ||
-    index.get(normalizedKey(hepsiburadaCatalogPlatformId(product))) ||
-    index.get(normalizedKey(product?.productId)) ||
     null
   );
 }
@@ -172,34 +173,15 @@ function hepsiburadaListingStock(listing) {
 }
 
 function hepsiburadaListingBuybox(listing) {
+  const competition =
+    listing?.buybox || listing?.buyBox || listing?.competition;
   const buyboxPrice = Number(
-    firstValue(listing, [
-      "buyboxPrice",
-      "buyBoxPrice",
-      "bestPrice",
-      "winningPrice",
-      "buybox.price",
-      "buyBox.price",
-    ]),
+    firstValue(competition || {}, ["price", "buyboxPrice", "winningPrice"]),
   );
-  const secondPrice = Number(
-    firstValue(listing, ["secondPrice", "secondBuyboxPrice", "rank2Price"]),
-  );
-  const thirdPrice = Number(
-    firstValue(listing, ["thirdPrice", "thirdBuyboxPrice", "rank3Price"]),
-  );
-  const rank = Number(
-    firstValue(listing, [
-      "rank",
-      "buyboxOrder",
-      "buyBoxOrder",
-      "buyboxRank",
-      "buyBoxRank",
-    ]),
-  );
-  const sellerCount = Number(
-    firstValue(listing, ["sellerCount", "merchantCount", "competitorCount"]),
-  );
+  const secondPrice = Number(firstValue(competition || {}, ["secondPrice"]));
+  const thirdPrice = Number(firstValue(competition || {}, ["thirdPrice"]));
+  const rank = Number(firstValue(competition || {}, ["rank"]));
+  const sellerCount = Number(firstValue(competition || {}, ["sellerCount"]));
   return {
     buyboxPrice:
       Number.isFinite(buyboxPrice) && buyboxPrice > 0 ? buyboxPrice : null,
@@ -392,63 +374,32 @@ class SyncService {
     const metadataByKey = new Map();
     for (const product of metadataRows)
       addMetadataIndex(metadataByKey, product);
-    const listingByKey = new Map();
-    for (const listing of listings) addMetadataIndex(listingByKey, listing);
-    if (
-      metadataByKey.size === 0 &&
-      this.hepsiburada.getMerchantProductMetadata
-    ) {
-      for (const listing of listings.slice(0, 1000)) {
+    const syncRows = [];
+    for (const listing of listings) {
+      let product = metadataForListing(metadataByKey, listing);
+      if (!product && this.hepsiburada.getMerchantProductMetadata) {
         const merchantSku = hepsiburadaListingBarcode(listing);
-        const hbSku = hepsiburadaListingPlatformId(listing);
-        if (!merchantSku && !hbSku) continue;
-        try {
-          const product = await this.hepsiburada.getMerchantProductMetadata({
-            merchantSku,
-            hbSku,
-          });
-          metadataLookupCount++;
-          if (product) {
-            metadataRows.push(product);
-            addMetadataIndex(metadataByKey, product);
+        const hbSku = hepsiburadaListingHbSku(listing);
+        const catalogBarcode = hepsiburadaCatalogBarcode(listing);
+        if (merchantSku || hbSku || catalogBarcode) {
+          try {
+            product = await this.hepsiburada.getMerchantProductMetadata({
+              merchantSku,
+              hbSku,
+              barcode: catalogBarcode,
+            });
+            metadataLookupCount++;
+            if (product) {
+              metadataRows.push(product);
+              addMetadataIndex(metadataByKey, product);
+            }
+          } catch (error) {
+            metadataError ||= error.message;
           }
-        } catch (error) {
-          metadataError ||= error.message;
         }
       }
-    }
-    const listingBarcodes = [
-      ...new Set(
-        listings
-          .map((listing) => hepsiburadaListingBarcode(listing))
-          .filter(Boolean),
-      ),
-    ];
-    const fallbackRows = listingBarcodes.length
-      ? (
-          await this.db.query(
-            `SELECT barcode,product_name,brand,category_name,category_id,product_image_url
-             FROM products WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])`,
-            [listingBarcodes],
-          )
-        ).rows
-      : [];
-    const fallbackByBarcode = new Map(
-      fallbackRows.map((row) => [String(row.barcode), row]),
-    );
-    const syncRows = [];
-    const syncedListingKeys = new Set();
-    for (const product of metadataRows) {
-      const listing = listingForMetadata(listingByKey, product) || {};
-      const listingKey = normalizedKey(hepsiburadaListingBarcode(listing));
-      if (listingKey) syncedListingKeys.add(listingKey);
-      syncRows.push({ product, listing });
-    }
-    for (const listing of listings) {
-      const listingKey = normalizedKey(hepsiburadaListingBarcode(listing));
-      if (listingKey && syncedListingKeys.has(listingKey)) continue;
       syncRows.push({
-        product: metadataForListing(metadataByKey, listing) || null,
+        product: product || null,
         listing,
       });
     }
@@ -465,9 +416,7 @@ class SyncService {
         (product ? hepsiburadaCatalogPlatformId(product) : "") ||
         hepsiburadaListingPlatformId(listing);
       const fallbackProduct =
-        product ||
-        metadataForListing(metadataByKey, listing) ||
-        fallbackByBarcode.get(barcode);
+        product || metadataForListing(metadataByKey, listing);
       const catalogIdentity = hepsiburadaVerifiedCatalogGtin(product || {});
       seenBarcodes.add(barcode);
       const saleSource = Object.keys(listing || {}).length ? listing : product;
@@ -501,10 +450,11 @@ class SyncService {
           product_image_url,marketplace_product_id,my_price,list_price,
           stock_quantity,archived,locked,on_sale,approved,commission_rate,
           buybox_price,second_price,third_price,rank,has_multiple_seller,
-          buybox_updated_at,is_active,catalog_gtin,catalog_gtin_source,updated_at
+          buybox_updated_at,is_active,catalog_gtin,catalog_gtin_source,
+          merchant_sku,hb_sku,listing_id,updated_at
         )VALUES(
           'HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,FALSE,$12,$13,$14,
-          $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,$21,$22,NOW()
+          $15,$16,$17,$18,$19,CASE WHEN $15::numeric IS NULL AND $18::integer IS NULL THEN NULL ELSE NOW() END,$20,$21,$22,$23,$24,$25,NOW()
         )
         ON CONFLICT(marketplace,barcode)DO UPDATE SET
           product_name=COALESCE(NULLIF(EXCLUDED.product_name,''),products.product_name),
@@ -536,6 +486,9 @@ class SyncService {
             NULLIF(EXCLUDED.catalog_gtin_source,''),
             products.catalog_gtin_source
           ),
+          merchant_sku=COALESCE(NULLIF(EXCLUDED.merchant_sku,''),products.merchant_sku),
+          hb_sku=COALESCE(NULLIF(EXCLUDED.hb_sku,''),products.hb_sku),
+          listing_id=COALESCE(NULLIF(EXCLUDED.listing_id,''),products.listing_id),
           updated_at=NOW()`,
         [
           barcode,
@@ -584,6 +537,9 @@ class SyncService {
           active,
           catalogIdentity.gtin || null,
           catalogIdentity.source || null,
+          hepsiburadaListingBarcode(listing) || null,
+          hepsiburadaListingHbSku(listing) || null,
+          hepsiburadaListingId(listing) || null,
         ],
       );
       processed++;

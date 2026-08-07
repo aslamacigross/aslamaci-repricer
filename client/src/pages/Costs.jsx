@@ -1373,7 +1373,7 @@ function Shipping({
     setImportingTariff(true);
     try {
       const result = await post("/api/shipping/hepsiburada/import", {
-        force: true,
+        force: pagination.total > 0,
       });
       const recalculation = result.data?.metadata?.recalculation;
       const message = result.data?.metadata?.skipped

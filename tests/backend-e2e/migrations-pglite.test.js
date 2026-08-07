@@ -12,30 +12,45 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 32);
-    assert.equal(initial.rows.at(-1).version, "032_hepsiburada_verified_gtin");
+    assert.equal(initial.rowCount, 33);
+    assert.equal(
+      initial.rows.at(-1).version,
+      "033_hepsiburada_listing_identity",
+    );
 
     const columnsAfterUp = await db.query(`
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'products'
-        AND column_name IN ('catalog_gtin', 'catalog_gtin_source')
+        AND column_name IN (
+          'catalog_gtin',
+          'catalog_gtin_source',
+          'merchant_sku',
+          'hb_sku',
+          'listing_id'
+        )
       ORDER BY column_name
     `);
     assert.deepEqual(
       columnsAfterUp.rows.map((row) => row.column_name),
-      ["catalog_gtin", "catalog_gtin_source"],
+      [
+        "catalog_gtin",
+        "catalog_gtin_source",
+        "hb_sku",
+        "listing_id",
+        "merchant_sku",
+      ],
     );
 
     await migrate("down", db);
     const afterDown = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterDown.rowCount, 31);
+    assert.equal(afterDown.rowCount, 32);
     assert.equal(
       afterDown.rows.at(-1).version,
-      "031_hepsiburada_catalog_barcode",
+      "032_hepsiburada_verified_gtin",
     );
 
     const columnsAfterDown = await db.query(`
@@ -43,7 +58,7 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'products'
-        AND column_name IN ('catalog_gtin', 'catalog_gtin_source')
+        AND column_name IN ('merchant_sku', 'hb_sku', 'listing_id')
     `);
     assert.equal(columnsAfterDown.rowCount, 0);
 
@@ -51,10 +66,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 32);
+    assert.equal(afterRoundTrip.rowCount, 33);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "032_hepsiburada_verified_gtin",
+      "033_hepsiburada_listing_identity",
     );
   } finally {
     await db.end();

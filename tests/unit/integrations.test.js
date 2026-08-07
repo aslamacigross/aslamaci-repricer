@@ -224,8 +224,8 @@ test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async ()
           availableStock: 4,
           status: "ACTIVE",
           commissionRate: 15,
-          buyboxPrice: 205,
-          buyboxOrder: 2,
+          buybox: { price: 205, rank: 2 },
+          listingId: "listing-1",
         },
       ],
     },
@@ -249,6 +249,9 @@ test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async ()
   assert.equal(upsert.params[14], 205);
   assert.equal(upsert.params[17], 2);
   assert.equal(upsert.params[19], true);
+  assert.equal(upsert.params[22], "HB-SKU-1");
+  assert.equal(upsert.params[23], null);
+  assert.equal(upsert.params[24], "listing-1");
 });
 
 test("Hepsiburada listing sync resmi komisyon servisi sonucunu urune yazar", async () => {
@@ -332,7 +335,7 @@ test("Hepsiburada listing sync alternatif komisyon SKU alanlarini eslestirir", a
   assert.equal(result.metadata.hepsiburadaCommissionMissing, 0);
 });
 
-test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tamamlar", async () => {
+test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tamamlamaz", async () => {
   const queries = [];
   const sync = new SyncService({
     audit: {},
@@ -352,23 +355,6 @@ test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tam
     db: {
       query: async (sql, params) => {
         queries.push({ sql, params });
-        if (
-          String(sql).includes("FROM products") &&
-          String(sql).includes("marketplace='TRENDYOL'")
-        )
-          return {
-            rows: [
-              {
-                barcode: "8690609598109",
-                product_name: "Menekşe Konsantre Yumuşatıcı 1500 ml",
-                brand: "Actisoft",
-                category_name: "Çamaşır Yumuşatıcısı",
-                category_id: "12345",
-                product_image_url: "https://cdn.test/menekse.jpg",
-              },
-            ],
-            rowCount: 1,
-          };
         return { rows: [], rowCount: 0 };
       },
     },
@@ -379,11 +365,19 @@ test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tam
   const upsert = queries.find((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
-  assert.equal(upsert.params[1], "Menekşe Konsantre Yumuşatıcı 1500 ml");
-  assert.equal(upsert.params[2], "Actisoft");
-  assert.equal(upsert.params[3], "Çamaşır Yumuşatıcısı");
-  assert.equal(upsert.params[4], "12345");
-  assert.equal(upsert.params[5], "https://cdn.test/menekse.jpg");
+  assert.equal(upsert.params[1], "");
+  assert.equal(upsert.params[2], "");
+  assert.equal(upsert.params[3], "");
+  assert.equal(upsert.params[4], "");
+  assert.equal(upsert.params[5], null);
+  assert.equal(upsert.params[22], "8690609598109");
+  assert.equal(upsert.params[23], "HBV-CATALOG-1");
+  assert.equal(
+    queries.some((query) =>
+      String(query.sql).includes("marketplace='TRENDYOL'"),
+    ),
+    false,
+  );
 });
 
 test("Hepsiburada listing sync yalniz kaynakli EAN alanini katalog GTIN olarak kaydeder", async () => {
@@ -454,6 +448,8 @@ test("Hepsiburada listing sync yalniz kaynakli EAN alanini katalog GTIN olarak k
   assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
   assert.equal(upserts[0].params[20], "4006381333931");
   assert.equal(upserts[0].params[21], "HEPSIBURADA_CATALOG_API:ean");
+  assert.equal(upserts[0].params[22], "HB-MERCHANT-SKU-1");
+  assert.equal(upserts[0].params[23], "HBV-CATALOG-1");
   assert.equal(upserts[0].params[19], true);
 });
 
@@ -511,7 +507,7 @@ test("Hepsiburada listing sync katalog gorsel objelerini URL olarak normalize ed
   );
 });
 
-test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla zenginlestirir", async () => {
+test("Hepsiburada sync listingleri ana urun kaynagi yapar ve katalogla zenginlestirir", async () => {
   const queries = [];
   const sync = new SyncService({
     audit: {},
@@ -608,6 +604,72 @@ test("Hepsiburada sync katalogu ana urun kaynagi yapar ve listing fiyat stokla z
     "SELLER-SKU-2",
     "LISTING-ONLY-OLD",
   ]);
+});
+
+test("Hepsiburada listing sync kismi katalogda eksik kalan listing icin tekil metadata sorgular", async () => {
+  const queries = [];
+  const metadataCalls = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "SELLER-MISSING",
+          hbSku: "HBV-MISSING",
+          price: 119,
+          availableStock: 8,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "UNRELATED",
+          hbSku: "HBV-OTHER",
+          productName: "Başka Ürün",
+        },
+      ],
+      getMerchantProductMetadata: async (input) => {
+        metadataCalls.push(input);
+        return {
+          merchantSku: "SELLER-MISSING",
+          hbSku: "HBV-MISSING",
+          productName: "Tekil Tamamlanan Ürün",
+          brand: "Harras",
+          categoryName: "Çay",
+          categoryId: 789,
+          images: ["https://cdn.test/missing.jpg"],
+        };
+      },
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 1);
+  assert.equal(result.metadata.hepsiburadaCatalogProducts, 2);
+  assert.equal(result.metadata.hepsiburadaCatalogLookupCount, 1);
+  assert.deepEqual(metadataCalls, [
+    {
+      merchantSku: "SELLER-MISSING",
+      hbSku: "HBV-MISSING",
+      barcode: "",
+    },
+  ]);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[1], "Tekil Tamamlanan Ürün");
+  assert.equal(upsert.params[2], "Harras");
+  assert.equal(upsert.params[3], "Çay");
+  assert.equal(upsert.params[4], "789");
+  assert.equal(upsert.params[5], "https://cdn.test/missing.jpg");
 });
 
 test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {

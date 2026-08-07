@@ -1,5 +1,5 @@
 const { version: APP_VERSION } = require("../../package.json");
 
-const REQUIRED_MIGRATION = "032_hepsiburada_verified_gtin";
+const REQUIRED_MIGRATION = "033_hepsiburada_listing_identity";
 
 module.exports = { APP_VERSION, REQUIRED_MIGRATION };

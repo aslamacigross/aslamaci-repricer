@@ -30,8 +30,27 @@ async function migrate(direction = "up", database = pool, options = {}) {
     try {
       await client.query("BEGIN");
       let sql = fs.readFileSync(path.join(directory, file), "utf8");
-      if (options.compatibility === "pg-mem")
+      if (options.compatibility === "pg-mem") {
         sql = sql.replaceAll(" NOT VALID", "");
+        sql = sql.replaceAll(
+          "manual_review_interval_days || ' days'",
+          "manual_review_interval_days::text || ' days'",
+        );
+        sql = sql.replace(
+          /UPDATE marketplace_registry\s+SET capabilities=JSONB_SET\(\s+COALESCE\(capabilities,'\{}'::jsonb\),\s+'\{supportsCommissionApi\}',\s+'true'::jsonb,\s+TRUE\s+\),\s+updated_at=NOW\(\)\s+WHERE code='HEPSIBURADA';/g,
+          `UPDATE marketplace_registry
+SET capabilities='{"supportsCatalogSearch":false,"supportsCatalogProductRead":true,"supportsExistingCatalogOfferCreate":false,"supportsNewProductCreate":false,"supportsCategorySync":false,"supportsAttributeSync":false,"supportsBrandSync":false,"supportsCommissionApi":true,"supportsBuybox":false,"supportsContentUpdate":false,"supportsImageUpdate":false,"supportsVideo":false,"supportsOrders":true,"supportsFinancialTransactions":false,"supportsPriceUpdate":false,"supportsInventoryUpdate":false,"supportsBatchStatus":false,"supportsListingVerification":false}'::jsonb,
+    updated_at=NOW()
+WHERE code='HEPSIBURADA';`,
+        );
+        sql = sql.replace(
+          /UPDATE marketplace_registry\s+SET capabilities=JSONB_SET\(\s+COALESCE\(capabilities,'\{}'::jsonb\),\s+'\{supportsCommissionApi\}',\s+'false'::jsonb,\s+TRUE\s+\),\s+updated_at=NOW\(\)\s+WHERE code='HEPSIBURADA';/g,
+          `UPDATE marketplace_registry
+SET capabilities='{"supportsCatalogSearch":false,"supportsCatalogProductRead":true,"supportsExistingCatalogOfferCreate":false,"supportsNewProductCreate":false,"supportsCategorySync":false,"supportsAttributeSync":false,"supportsBrandSync":false,"supportsCommissionApi":false,"supportsBuybox":false,"supportsContentUpdate":false,"supportsImageUpdate":false,"supportsVideo":false,"supportsOrders":true,"supportsFinancialTransactions":false,"supportsPriceUpdate":false,"supportsInventoryUpdate":false,"supportsBatchStatus":false,"supportsListingVerification":false}'::jsonb,
+    updated_at=NOW()
+WHERE code='HEPSIBURADA';`,
+        );
+      }
       await client.query(sql);
       if (direction === "up") {
         await client.query(

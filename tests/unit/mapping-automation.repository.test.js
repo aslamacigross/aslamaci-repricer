@@ -57,9 +57,9 @@ test("tedarikçi fiyat güncellemesi aynı ürünün duplicate kayıtlarına ba�
   const linkLookup = calls.find(
     (call) =>
       String(call.sql).includes("FROM cost_item_file_links l") &&
-      String(call.sql).includes("ANY($1::bigint[])"),
+      String(call.sql).includes("file_market_item_id IN"),
   );
-  assert.deepEqual(linkLookup.params[0], [2, 1]);
+  assert.deepEqual(linkLookup.params, [2, 1]);
   assert.equal(result.tier_price_updates[0].barcode, "TY-KURABIYE");
   assert.equal(result.tier_price_updates[0].unit_cost, 229);
 });
@@ -69,19 +69,41 @@ test("mapping aday havuzu aynı tedarikçi ürününden en güncel duplicate kay
   const db = {
     query: async (sql, params = []) => {
       calls.push({ sql, params });
-      return { rows: [] };
+      return {
+        rows: [
+          {
+            id: 2,
+            supplier_code: "FILE_MARKET",
+            normalized_name: "harras kurabiye",
+            product_name: "Harras Kurabiye 229",
+          },
+          {
+            id: 1,
+            supplier_code: "FILE_MARKET",
+            normalized_name: "harras kurabiye",
+            product_name: "Harras Kurabiye 195",
+          },
+          {
+            id: 3,
+            supplier_code: "FILE_MARKET",
+            normalized_name: "harras kakao",
+            product_name: "Harras Kakao",
+          },
+        ],
+      };
     },
   };
   const repo = new MappingAutomationRepository(db, async (callback) =>
     callback(db),
   );
 
-  await repo.fileItemsForMatching("FILE_MARKET");
+  const items = await repo.fileItemsForMatching("FILE_MARKET");
 
-  assert.match(
-    calls[0].sql,
-    /SELECT DISTINCT ON \(supplier_code,normalized_name\)/,
-  );
+  assert.equal(items.length, 2);
+  assert.equal(items[0].id, 2);
+  assert.equal(items[0].product_name, "Harras Kurabiye 229");
+  assert.equal(items[1].id, 3);
+  assert.doesNotMatch(calls[0].sql, /SELECT DISTINCT ON/);
   assert.match(
     calls[0].sql,
     /ORDER BY supplier_code,normalized_name,last_seen_at DESC/,
@@ -204,7 +226,7 @@ test("Bizim canlı import boş çoklu fiyatla manuel fiyat kademelerini ezmez", 
   const upsert = calls.find((call) =>
     String(call.sql).includes("ON CONFLICT(source_key)DO UPDATE"),
   );
-  assert.match(upsert.sql, /JSONB_ARRAY_LENGTH\(EXCLUDED\.price_tiers\)=0/);
+  assert.match(upsert.sql, /EXCLUDED\.price_tiers='\[\]'::jsonb/);
   assert.doesNotMatch(upsert.sql, /supplier_code=EXCLUDED\.supplier_code/);
 });
 

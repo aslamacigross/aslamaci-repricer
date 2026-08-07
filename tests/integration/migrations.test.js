@@ -55,6 +55,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "030_hepsiburada_commission_api",
       "031_hepsiburada_catalog_barcode",
       "032_hepsiburada_verified_gtin",
+      "033_hepsiburada_listing_identity",
     ],
   );
   const safety = await db.query(
@@ -136,6 +137,12 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
        AND column_name IN('price_tiers','selected_price_tier')`,
   );
   assert.equal(supplierTierColumns.rowCount, 2);
+  const hepsiburadaIdentityColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='products'
+       AND column_name IN('merchant_sku','hb_sku','listing_id')`,
+  );
+  assert.equal(hepsiburadaIdentityColumns.rowCount, 3);
   const mappingLearningTables = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN('mapping_feedback_events','mapping_learning_profiles')
@@ -272,6 +279,17 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       )VALUES('TRENDYOL','INVALID',100)`,
     ),
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedHepsiburadaIdentityColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='products'
+       AND column_name IN('merchant_sku','hb_sku','listing_id')`,
+  );
+  assert.equal(removedHepsiburadaIdentityColumns.rowCount, 0);
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
+  await migrate("down", db, { compatibility: "pg-mem" });
   await migrate("down", db, { compatibility: "pg-mem" });
   const afterDown = await db.query(
     "SELECT version FROM schema_migrations ORDER BY version",

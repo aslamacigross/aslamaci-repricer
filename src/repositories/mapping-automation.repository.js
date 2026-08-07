@@ -107,8 +107,8 @@ class MappingAutomationRepository {
               desi_confidence=EXCLUDED.desi_confidence,
               price_tiers=CASE
                 WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
-                  AND JSONB_ARRAY_LENGTH(EXCLUDED.price_tiers)=0
-                  AND JSONB_ARRAY_LENGTH(file_market_items.price_tiers)>0
+                  AND EXCLUDED.price_tiers='[]'::jsonb
+                  AND file_market_items.price_tiers<>'[]'::jsonb
                 THEN file_market_items.price_tiers
                 ELSE EXCLUDED.price_tiers END,
               last_seen_at=EXCLUDED.last_seen_at,
@@ -153,6 +153,9 @@ class MappingAutomationRepository {
         if (!previous) created++;
         if (priceChanged) changed++;
         const canonicalIds = await canonicalSupplierItemIds(client, item);
+        const canonicalPlaceholders = canonicalIds
+          .map((_, index) => `$${index + 1}`)
+          .join(",");
         const links = (
           await client.query(
             `SELECT l.cost_item_code,ci.unit_cost,pcm.marketplace,pcm.barcode,
@@ -161,9 +164,10 @@ class MappingAutomationRepository {
              JOIN cost_items ci ON ci.item_code=l.cost_item_code
              LEFT JOIN product_cost_mappings pcm
                ON pcm.cost_item_code=l.cost_item_code
-             WHERE l.file_market_item_id=ANY($1::bigint[]) AND l.status='APPROVED'
+             WHERE l.file_market_item_id IN (${canonicalPlaceholders})
+               AND l.status='APPROVED'
              ORDER BY l.cost_item_code,pcm.marketplace,pcm.barcode`,
-            [canonicalIds],
+            canonicalIds,
           )
         ).rows;
         for (const costCode of [
@@ -311,6 +315,9 @@ class MappingAutomationRepository {
         .sort((left, right) => right.min_quantity - left.min_quantity);
       const affected = [];
       const canonicalIds = await canonicalSupplierItemIds(client, item);
+      const canonicalPlaceholders = canonicalIds
+        .map((_, index) => `$${index + 1}`)
+        .join(",");
       const linkedMappings = (
         await client.query(
           `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
@@ -319,9 +326,10 @@ class MappingAutomationRepository {
            FROM cost_item_file_links l
            JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
            JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-           WHERE l.file_market_item_id=ANY($1::bigint[]) AND l.status='APPROVED'
+           WHERE l.file_market_item_id IN (${canonicalPlaceholders})
+             AND l.status='APPROVED'
            ORDER BY pcm.barcode,pcm.cost_item_code`,
-          [canonicalIds],
+          canonicalIds,
         )
       ).rows;
       for (const costCode of [
@@ -745,18 +753,25 @@ class MappingAutomationRepository {
     const supplierFilter = supplierCode
       ? `AND supplier_code=$${params.push(supplierCode)}`
       : "";
-    return (
+    const rows = (
       await this.db.query(
-        `SELECT DISTINCT ON (supplier_code,normalized_name) *
+        `SELECT *
          FROM file_market_items
          WHERE current_price>0
-           AND normalized_name IS NOT NULL AND normalized_name<>''
+           AND normalized_name<>''
            ${supplierFilter}
          ORDER BY supplier_code,normalized_name,last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
-         LIMIT 5000`,
+         LIMIT 10000`,
         params,
       )
     ).rows;
+    const unique = new Map();
+    for (const row of rows) {
+      const key = `${row.supplier_code || ""}:${row.normalized_name || ""}`;
+      if (!unique.has(key)) unique.set(key, row);
+      if (unique.size >= 5000) break;
+    }
+    return [...unique.values()];
   }
 
   async costItemsForMatching() {
