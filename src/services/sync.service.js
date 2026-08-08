@@ -48,6 +48,7 @@ function hepsiburadaListingPlatformId(listing) {
     firstValue(listing, [
       "hbSku",
       "hepsiburadaSku",
+      "sku",
       "productId",
       "listingId",
       "variantGroupId",
@@ -90,6 +91,7 @@ function hepsiburadaCatalogPlatformId(product) {
     firstValue(product, [
       "hbSku",
       "hepsiburadaSku",
+      "matchedHbProductInfo.0.hbSku",
       "productId",
       "variantGroupId",
     ]),
@@ -114,6 +116,7 @@ function addMetadataIndex(index, product) {
     product?.hbSku,
     product?.hbsku,
     product?.hepsiburadaSku,
+    product?.matchedHbProductInfo?.[0]?.hbSku,
     product?.productSku,
     product?.variantSku,
     product?.productId,
@@ -144,8 +147,10 @@ function hasUsefulHepsiburadaMetadata(product) {
       "name",
       "title",
       "product.name",
+      "matchedHbProductInfo.0.productName",
       "brand",
       "brandName",
+      "matchedHbProductInfo.0.brand",
       "categoryName",
       "category.name",
     ]) || enrichedImageValue({}, product),
@@ -267,6 +272,7 @@ function enrichedImageValue(listing, fallback) {
   ]);
   const fallbackImage =
     fallback?.images?.[0] ||
+    fallback?.matchedHbProductInfo?.[0]?.images?.[0] ||
     fallback?.imageUrl ||
     fallback?.mainImageUrl ||
     fallback?.product_image_url ||
@@ -577,13 +583,19 @@ class SyncService {
           enrichedListingValue(
             listing,
             fallbackProduct,
-            ["productName", "name", "title", "product.name"],
+            [
+              "productName",
+              "name",
+              "title",
+              "product.name",
+              "matchedHbProductInfo.0.productName",
+            ],
             fallbackProduct?.productName ? "productName" : "product_name",
           ),
           enrichedListingValue(
             listing,
             fallbackProduct,
-            ["brand", "brandName", "product.brand"],
+            ["brand", "brandName", "product.brand", "matchedHbProductInfo.0.brand"],
             "brand",
           ),
           enrichedListingValue(

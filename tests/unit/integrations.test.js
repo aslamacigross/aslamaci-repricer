@@ -881,7 +881,59 @@ test("Hepsiburada listing sync platform-only kimlik icin katalog lookup spamleme
   );
   assert.equal(upsert.params[0], "HBCV00008MIZH2");
   assert.equal(upsert.params[1], "");
+  assert.equal(upsert.params[6], "HBCV00008MIZH2");
   assert.equal(upsert.params[23], "HBCV00008MIZH2");
+});
+
+test("Hepsiburada listing sync matched katalog bilgisinden urun adini tamamlar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          sku: "HBCV0000MATCHED",
+          price: 349,
+          availableStock: 5,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "CATALOG-ROW-ONLY",
+          matchedHbProductInfo: [
+            {
+              hbSku: "HBCV0000MATCHED",
+              productName: "Harras Tereyağlı Kurabiye 180 g",
+              brand: "Harras",
+              images: ["https://cdn.test/matched.jpg"],
+            },
+          ],
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+
+  assert.equal(result.processed, 1);
+  assert.equal(result.metadata.hepsiburadaCatalogProducts, 1);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[0], "HBCV0000MATCHED");
+  assert.equal(upsert.params[1], "Harras Tereyağlı Kurabiye 180 g");
+  assert.equal(upsert.params[2], "Harras");
+  assert.equal(upsert.params[5], "https://cdn.test/matched.jpg");
+  assert.equal(upsert.params[6], "HBCV0000MATCHED");
 });
 
 test("Hepsiburada listing sync bos katalog alanlariyla mevcut urun bilgisini ezmez", async () => {
