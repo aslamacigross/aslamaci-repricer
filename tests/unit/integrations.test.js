@@ -737,6 +737,57 @@ test("Hepsiburada listing sync bos bulk metadata icin detay metadata sorgular", 
   assert.equal(upsert.params[5], "https://cdn.test/ceylon.jpg");
 });
 
+test("Hepsiburada listing sync platform SKU yerine satici stok kodunu anahtar yapar", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          sku: "HBCV0000ULKER",
+          stockCode: "ULKERKAKAO1KG",
+          price: 299,
+          availableStock: 8,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          hbSku: "HBCV0000ULKER",
+          productName: "Ülker Toz Kakao 1 kg",
+          brand: "Ülker",
+          categoryName: "Kakao",
+          categoryId: 1001,
+          images: ["https://cdn.test/ulker-kakao.jpg"],
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+
+  assert.equal(result.processed, 1);
+  assert.equal(result.metadata.hepsiburadaMerchantKeyCount, 1);
+  assert.equal(result.metadata.hepsiburadaPlatformKeyFallbackCount, 0);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[0], "ULKERKAKAO1KG");
+  assert.equal(upsert.params[1], "Ülker Toz Kakao 1 kg");
+  assert.equal(upsert.params[2], "Ülker");
+  assert.equal(upsert.params[6], "HBCV0000ULKER");
+  assert.equal(upsert.params[22], "ULKERKAKAO1KG");
+  assert.equal(upsert.params[23], "HBCV0000ULKER");
+});
+
 test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {
   const queries = [];
   const sync = new SyncService({

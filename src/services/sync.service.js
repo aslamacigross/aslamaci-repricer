@@ -17,7 +17,13 @@ function firstValue(source, keys, fallback = "") {
 
 function hepsiburadaListingBarcode(listing) {
   return String(
-    firstValue(listing, ["merchantSku", "merchantSKU", "sku"]),
+    firstValue(listing, [
+      "merchantSku",
+      "merchantSKU",
+      "merchantStockCode",
+      "merchantSkuCode",
+      "stockCode",
+    ]),
   ).trim();
 }
 
@@ -26,6 +32,7 @@ function hepsiburadaListingHbSku(listing) {
     firstValue(listing, [
       "hbSku",
       "hepsiburadaSku",
+      "sku",
       "productSku",
       "variantSku",
     ]),
@@ -397,6 +404,8 @@ class SyncService {
     for (const product of metadataRows)
       addMetadataIndex(metadataByKey, product);
     const syncRows = [];
+    let merchantKeyCount = 0;
+    let platformKeyFallbackCount = 0;
     for (const listing of listings) {
       let product = metadataForListing(metadataByKey, listing);
       if (
@@ -449,10 +458,15 @@ class SyncService {
     const commissionMissingSamples = [];
     for (const row of syncRows) {
       const { listing, product } = row;
+      const merchantSku = hepsiburadaListingBarcode(listing);
+      const hbSku = hepsiburadaListingHbSku(listing);
       const barcode =
-        hepsiburadaListingBarcode(listing) ||
-        (product ? hepsiburadaCatalogBarcode(product) : "");
+        merchantSku ||
+        (product ? hepsiburadaCatalogBarcode(product) : "") ||
+        hbSku;
       if (!barcode) continue;
+      if (merchantSku) merchantKeyCount++;
+      else platformKeyFallbackCount++;
       const platformId =
         (product ? hepsiburadaCatalogPlatformId(product) : "") ||
         hepsiburadaListingPlatformId(listing);
@@ -578,8 +592,8 @@ class SyncService {
           active,
           catalogIdentity.gtin || null,
           catalogIdentity.source || null,
-          hepsiburadaListingBarcode(listing) || null,
-          hepsiburadaListingHbSku(listing) || null,
+          merchantSku || null,
+          hbSku || null,
           hepsiburadaListingId(listing) || null,
         ],
       );
@@ -606,6 +620,8 @@ class SyncService {
         hepsiburadaCommissionMissing: commissionMissing,
         hepsiburadaCommissionMissingSamples: commissionMissingSamples,
         hepsiburadaCommissionError: commissionError,
+        hepsiburadaMerchantKeyCount: merchantKeyCount,
+        hepsiburadaPlatformKeyFallbackCount: platformKeyFallbackCount,
       },
     };
   }

@@ -187,6 +187,8 @@ const HEPSIBURADA_IDENTIFIER_HINT_TOKENS = [
   "actisoft",
   "harras",
   "daycare",
+  "ulker",
+  "ülker",
   "berk",
   "ceylon",
   "bergamot",
@@ -206,6 +208,7 @@ const HEPSIBURADA_IDENTIFIER_HINT_TOKENS = [
   "kolonya",
   "kurabiye",
   "kakao",
+  "toz",
   "kahve",
   "pirinc",
   "pirinç",
@@ -220,6 +223,8 @@ const HEPSIBURADA_IDENTIFIER_BRAND_HINTS = [
   "actisoft",
   "harras",
   "daycare",
+  "ulker",
+  "ülker",
   "berk",
 ];
 
@@ -250,6 +255,11 @@ function compactIdentifierHint(value) {
     )
   )
     hints.push("cay");
+  for (const match of normalized.matchAll(/(\d+(?:[.,]\d+)?)(kg|gr|g|ml|lt|l)\b/g)) {
+    const amount = match[1].replace(",", ".");
+    const unit = match[2] === "gr" ? "g" : match[2] === "lt" ? "l" : match[2];
+    hints.push(amount, unit);
+  }
   const trailingPack = normalized.match(/(?:^|[a-z])([2-9])$/i)?.[1];
   if (trailingPack) hints.push("x", trailingPack, "adet");
   return [...new Set(hints)].join(" ");
@@ -270,6 +280,14 @@ function hepsiburadaMatchingTarget(target) {
     .filter(Boolean);
   if (!identifierHints.length) return target;
   const normalizedIdentifiers = identifierValues.map(normalizeText).join(" ");
+  const normalizedProductName = normalizeText(target.product_name);
+  const identifierOnlyName = Boolean(
+    !normalizedProductName ||
+      identifierValues
+        .map(normalizeText)
+        .filter(Boolean)
+        .includes(normalizedProductName),
+  );
   const brandHint =
     concreteBrand(target.brand) ||
     HEPSIBURADA_IDENTIFIER_BRAND_HINTS.find((brand) =>
@@ -280,6 +298,7 @@ function hepsiburadaMatchingTarget(target) {
     ...target,
     brand: brandHint,
     _hepsiburada_identifier_hint: true,
+    _hepsiburada_identifier_only_name: identifierOnlyName,
     product_name: [
       target.product_name || "",
       ...identifierHints,
@@ -923,7 +942,14 @@ function compareHepsiburadaSupplierProduct(target, candidate) {
   )
     return { compatible: false, score: 0, reasons: [] };
 
-  const meaningfulOverlap = variantCoverage.overlap + 1;
+  let meaningfulOverlap = variantCoverage.overlap + 1;
+  if (
+    target._hepsiburada_identifier_hint &&
+    target._hepsiburada_identifier_only_name &&
+    brand.matches &&
+    (size === "EXACT" || sharedKinds.length)
+  )
+    meaningfulOverlap++;
   if (meaningfulOverlap < 2)
     return { compatible: false, score: 0, reasons: [] };
 

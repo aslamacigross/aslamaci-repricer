@@ -2182,6 +2182,52 @@ test("Hepsiburada platform SKU semantik ipucu olarak kullanilmaz", async () => {
   assert.equal(saved.length, 0);
 });
 
+test("Hepsiburada kompakt stok kodunda marka ve olcu varsa dogru tedarikciyi secer", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "ULKERKAKAO1KG",
+        merchant_sku: "ULKERKAKAO1KG",
+        hb_sku: "HBCV0000ULKER",
+        product_name: "",
+        brand: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 921,
+        product_name: "Marifet Toz Kakao 1 kg",
+        brand: "Marifet",
+        current_price: 180,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+      {
+        id: 922,
+        product_name: "Ülker Toz Kakao 1 kg",
+        brand: "Ülker",
+        current_price: 229,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].items[0].file_market_item_id, 922);
+  assert.equal(saved[0].items[0].quantity, 1);
+});
+
 test("Hepsiburada marka kaniti olmayan tek varyant sinyalini onermez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [
