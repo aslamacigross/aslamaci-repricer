@@ -240,6 +240,11 @@ function normalizeIdentifier(value) {
     .toUpperCase();
 }
 
+function isHepsiburadaPlatformIdentifier(value) {
+  const normalized = normalizeIdentifier(value);
+  return /^HBC?V[0-9A-Z]+$/.test(normalized);
+}
+
 function compactIdentifierHint(value) {
   const normalized = normalizeText(value);
   if (!normalized || normalized.length < 4) return "";
@@ -272,7 +277,7 @@ function hepsiburadaMatchingTarget(target) {
     target.merchant_sku,
     target.barcode,
     target.seller_listing_barcode,
-  ];
+  ].filter((value) => !isHepsiburadaPlatformIdentifier(value));
   const identifierHints = [
     ...identifierValues,
   ]

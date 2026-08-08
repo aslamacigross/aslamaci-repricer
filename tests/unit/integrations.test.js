@@ -841,6 +841,49 @@ test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", as
   assert.equal(upsert.params[5], "https://cdn.test/single.jpg");
 });
 
+test("Hepsiburada listing sync platform-only kimlik icin katalog lookup spamlemez", async () => {
+  const queries = [];
+  let metadataCalls = 0;
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          sku: "HBCV00008MIZH2",
+          price: 499,
+          availableStock: 4,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [],
+      getMerchantProductMetadata: async () => {
+        metadataCalls++;
+        return null;
+      },
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+
+  assert.equal(result.processed, 1);
+  assert.equal(metadataCalls, 0);
+  assert.equal(result.metadata.hepsiburadaCatalogLookupCount, 0);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[0], "HBCV00008MIZH2");
+  assert.equal(upsert.params[1], "");
+  assert.equal(upsert.params[23], "HBCV00008MIZH2");
+});
+
 test("Hepsiburada listing sync bos katalog alanlariyla mevcut urun bilgisini ezmez", async () => {
   const queries = [];
   const sync = new SyncService({

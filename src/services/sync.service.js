@@ -55,6 +55,10 @@ function hepsiburadaListingPlatformId(listing) {
   ).trim();
 }
 
+function isHepsiburadaPlatformIdentifier(value) {
+  return /^HBC?V[0-9A-Z]+$/i.test(String(value || "").trim());
+}
+
 function hepsiburadaCatalogBarcode(product) {
   return String(
     firstValue(product, [
@@ -406,6 +410,8 @@ class SyncService {
     const syncRows = [];
     let merchantKeyCount = 0;
     let platformKeyFallbackCount = 0;
+    const failedMetadataLookupKeys = new Set();
+    let metadataLookupSkippedCount = 0;
     for (const listing of listings) {
       let product = metadataForListing(metadataByKey, listing);
       if (
@@ -423,6 +429,19 @@ class SyncService {
         ].filter((attempt, index, attempts) => {
           if (!attempt.merchantSku && !attempt.hbSku && !attempt.barcode)
             return false;
+          if (
+            !attempt.merchantSku &&
+            attempt.hbSku &&
+            isHepsiburadaPlatformIdentifier(attempt.hbSku)
+          )
+            return false;
+          if (
+            !attempt.merchantSku &&
+            !attempt.hbSku &&
+            attempt.barcode &&
+            isHepsiburadaPlatformIdentifier(attempt.barcode)
+          )
+            return false;
           const key = `${attempt.merchantSku}|${attempt.hbSku}|${attempt.barcode}`;
           return (
             attempts.findIndex(
@@ -433,6 +452,11 @@ class SyncService {
           );
         });
         for (const lookup of lookupAttempts) {
+          const lookupKey = `${lookup.merchantSku}|${lookup.hbSku}|${lookup.barcode}`;
+          if (failedMetadataLookupKeys.has(lookupKey)) {
+            metadataLookupSkippedCount++;
+            continue;
+          }
           try {
             const lookupProduct =
               await this.hepsiburada.getMerchantProductMetadata(lookup);
@@ -443,8 +467,11 @@ class SyncService {
               product = betterHepsiburadaMetadata(product, lookupProduct);
               if (hasUsefulHepsiburadaMetadata(product)) break;
             }
+            if (!hasUsefulHepsiburadaMetadata(lookupProduct))
+              failedMetadataLookupKeys.add(lookupKey);
           } catch (error) {
             metadataError ||= error.message;
+            failedMetadataLookupKeys.add(lookupKey);
           }
         }
       }
@@ -615,6 +642,7 @@ class SyncService {
         hepsiburadaCatalogProducts: metadataRows.length,
         hepsiburadaCatalogError: metadataError,
         hepsiburadaCatalogLookupCount: metadataLookupCount,
+        hepsiburadaCatalogLookupSkippedCount: metadataLookupSkippedCount,
         hepsiburadaCommissionCount: commissionRows.length,
         hepsiburadaCommissionMatched: commissionMatched,
         hepsiburadaCommissionMissing: commissionMissing,
