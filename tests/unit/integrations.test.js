@@ -672,6 +672,71 @@ test("Hepsiburada listing sync kismi katalogda eksik kalan listing icin tekil me
   assert.equal(upsert.params[5], "https://cdn.test/missing.jpg");
 });
 
+test("Hepsiburada listing sync bos bulk metadata icin detay metadata sorgular", async () => {
+  const queries = [];
+  const metadataCalls = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          merchantSku: "HARRASCEYLON2",
+          hbSku: "HBV-CEYLON-2",
+          price: 399,
+          availableStock: 6,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "HARRASCEYLON2",
+          hbSku: "HBV-CEYLON-2",
+        },
+      ],
+      getMerchantProductMetadata: async (input) => {
+        metadataCalls.push(input);
+        return {
+          merchantSku: "HARRASCEYLON2",
+          hbSku: "HBV-CEYLON-2",
+          productName: "Harras Ceylon Çayı 500 g x 2",
+          brand: "Harras",
+          categoryName: "Çay",
+          categoryId: 987,
+          images: ["https://cdn.test/ceylon.jpg"],
+        };
+      },
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+  assert.equal(result.processed, 1);
+  assert.equal(result.metadata.hepsiburadaCatalogProducts, 2);
+  assert.equal(result.metadata.hepsiburadaCatalogLookupCount, 1);
+  assert.deepEqual(metadataCalls, [
+    {
+      merchantSku: "HARRASCEYLON2",
+      hbSku: "HBV-CEYLON-2",
+      barcode: "",
+    },
+  ]);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[1], "Harras Ceylon Çayı 500 g x 2");
+  assert.equal(upsert.params[2], "Harras");
+  assert.equal(upsert.params[3], "Çay");
+  assert.equal(upsert.params[4], "987");
+  assert.equal(upsert.params[5], "https://cdn.test/ceylon.jpg");
+});
+
 test("Hepsiburada listing sync bulk katalog bos ise tekil metadata sorgular", async () => {
   const queries = [];
   const sync = new SyncService({

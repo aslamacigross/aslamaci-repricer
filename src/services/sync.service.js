@@ -125,6 +125,28 @@ function metadataForListing(index, listing) {
   );
 }
 
+function hasUsefulHepsiburadaMetadata(product) {
+  if (!product) return false;
+  return Boolean(
+    firstValue(product, [
+      "productName",
+      "name",
+      "title",
+      "product.name",
+      "brand",
+      "brandName",
+      "categoryName",
+      "category.name",
+    ]) || enrichedImageValue({}, product),
+  );
+}
+
+function betterHepsiburadaMetadata(current, candidate) {
+  if (!candidate) return current || null;
+  if (!current) return candidate;
+  return hasUsefulHepsiburadaMetadata(candidate) ? candidate : current;
+}
+
 function commissionRateValue(source) {
   const value = Number(
     firstValue(
@@ -377,21 +399,40 @@ class SyncService {
     const syncRows = [];
     for (const listing of listings) {
       let product = metadataForListing(metadataByKey, listing);
-      if (!product && this.hepsiburada.getMerchantProductMetadata) {
+      if (
+        (!product || !hasUsefulHepsiburadaMetadata(product)) &&
+        this.hepsiburada.getMerchantProductMetadata
+      ) {
         const merchantSku = hepsiburadaListingBarcode(listing);
         const hbSku = hepsiburadaListingHbSku(listing);
         const catalogBarcode = hepsiburadaCatalogBarcode(listing);
-        if (merchantSku || hbSku || catalogBarcode) {
+        const lookupAttempts = [
+          { merchantSku, hbSku, barcode: catalogBarcode },
+          { merchantSku, hbSku: "", barcode: "" },
+          { merchantSku: "", hbSku, barcode: "" },
+          { merchantSku: "", hbSku: "", barcode: catalogBarcode },
+        ].filter((attempt, index, attempts) => {
+          if (!attempt.merchantSku && !attempt.hbSku && !attempt.barcode)
+            return false;
+          const key = `${attempt.merchantSku}|${attempt.hbSku}|${attempt.barcode}`;
+          return (
+            attempts.findIndex(
+              (candidate) =>
+                `${candidate.merchantSku}|${candidate.hbSku}|${candidate.barcode}` ===
+                key,
+            ) === index
+          );
+        });
+        for (const lookup of lookupAttempts) {
           try {
-            product = await this.hepsiburada.getMerchantProductMetadata({
-              merchantSku,
-              hbSku,
-              barcode: catalogBarcode,
-            });
+            const lookupProduct =
+              await this.hepsiburada.getMerchantProductMetadata(lookup);
             metadataLookupCount++;
-            if (product) {
-              metadataRows.push(product);
-              addMetadataIndex(metadataByKey, product);
+            if (lookupProduct) {
+              metadataRows.push(lookupProduct);
+              addMetadataIndex(metadataByKey, lookupProduct);
+              product = betterHepsiburadaMetadata(product, lookupProduct);
+              if (hasUsefulHepsiburadaMetadata(product)) break;
             }
           } catch (error) {
             metadataError ||= error.message;
