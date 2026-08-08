@@ -729,6 +729,7 @@ class MappingAutomationRepository {
         `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,p.catalog_gtin,p.catalog_gtin_source,
                 p.product_name,p.brand,p.category_id,p.category_name,
                 p.product_image_url,p.data_status,p.is_active,p.stock_quantity,
+                p.merchant_sku,p.hb_sku,p.listing_id,
                 p.needs_cost_mapping,p.calculated_product_cost,p.desi
          FROM products p
          LEFT JOIN (

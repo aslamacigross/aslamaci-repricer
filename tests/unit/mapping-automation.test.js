@@ -2066,6 +2066,122 @@ test("Hepsiburada bagimsiz ad motoru eksik marka alaninda guclu urun adini incel
   assert.equal(saved[0].items[0].quantity, 3);
 });
 
+test("Hepsiburada kompakt satici stok kodunu sadece ad ipucu olarak kullanir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HARRASCEYLON2",
+        merchant_sku: "HARRASCEYLON2",
+        hb_sku: "HBCV0000CEYLON",
+        product_name: "HARRASCEYLON2",
+        brand: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 918,
+        product_name: "Harras Ceylon Çayı 500 g",
+        brand: "Harras",
+        current_price: 169,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(result.supplierScoped, 1);
+  assert.equal(saved[0].barcode, "HARRASCEYLON2");
+  assert.equal(saved[0].items[0].file_market_item_id, 918);
+  assert.equal(saved[0].items[0].quantity, 2);
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+});
+
+test("Hepsiburada teshisi kompakt satici stok kodu ipucunu kullanir", async () => {
+  const { service } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "HARRASCEYLON2",
+        merchant_sku: "HARRASCEYLON2",
+        hb_sku: "HBCV0000RANDOM",
+        product_name: "",
+        brand: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 920,
+        product_name: "Harras Ceylon Çayı 500 g",
+        brand: "Harras",
+        current_price: 169,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.diagnostics({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.items[0].diagnosis, "SUGGESTION_AVAILABLE");
+  assert.match(result.items[0].product_name, /harras ceylon/i);
+  assert.equal(result.items[0].best_file_product_name, "Harras Ceylon Çayı 500 g");
+});
+
+test("Hepsiburada platform SKU semantik ipucu olarak kullanilmaz", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        barcode: "SELLER-PLAIN",
+        merchant_sku: "SELLER-PLAIN",
+        hb_sku: "HARRASCEYLON2",
+        product_name: "SELLER-PLAIN",
+        brand: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+        marketplace: "HEPSIBURADA",
+      },
+    ],
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 919,
+        product_name: "Harras Ceylon Çayı 500 g",
+        brand: "Harras",
+        current_price: 169,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+  });
+
+  const result = await service.generate({
+    limit: 100,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
 test("Hepsiburada marka kaniti olmayan tek varyant sinyalini onermez", async () => {
   const { service, saved } = fixture({
     targetProducts: async () => [

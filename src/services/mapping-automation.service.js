@@ -183,6 +183,46 @@ const MATCH_NOISE_TOKENS = new Set([
   "super",
 ]);
 
+const HEPSIBURADA_IDENTIFIER_HINT_TOKENS = [
+  "actisoft",
+  "harras",
+  "daycare",
+  "berk",
+  "ceylon",
+  "bergamot",
+  "earl",
+  "grey",
+  "filiz",
+  "karadeniz",
+  "demlik",
+  "poset",
+  "poşet",
+  "cay",
+  "çay",
+  "yumusatici",
+  "yumuşatıcı",
+  "camasir",
+  "çamaşır",
+  "kolonya",
+  "kurabiye",
+  "kakao",
+  "kahve",
+  "pirinc",
+  "pirinç",
+  "bulgur",
+  "mercimek",
+  "fasulye",
+  "nohut",
+  "makarna",
+  "set",
+];
+const HEPSIBURADA_IDENTIFIER_BRAND_HINTS = [
+  "actisoft",
+  "harras",
+  "daycare",
+  "berk",
+];
+
 function normalizeMarketplace(value) {
   return String(value || "TRENDYOL")
     .trim()
@@ -193,6 +233,60 @@ function normalizeIdentifier(value) {
   return String(value || "")
     .trim()
     .toUpperCase();
+}
+
+function compactIdentifierHint(value) {
+  const normalized = normalizeText(value);
+  if (!normalized || normalized.length < 4) return "";
+  const hints = [];
+  for (const token of HEPSIBURADA_IDENTIFIER_HINT_TOKENS) {
+    const normalizedToken = normalizeText(token);
+    if (normalizedToken.length >= 3 && normalized.includes(normalizedToken))
+      hints.push(normalizedToken);
+  }
+  if (
+    ["ceylon", "bergamot", "demlik", "poset", "poşet"].some((token) =>
+      normalized.includes(normalizeText(token)),
+    )
+  )
+    hints.push("cay");
+  const trailingPack = normalized.match(/(?:^|[a-z])([2-9])$/i)?.[1];
+  if (trailingPack) hints.push("x", trailingPack, "adet");
+  return [...new Set(hints)].join(" ");
+}
+
+function hepsiburadaMatchingTarget(target) {
+  if (normalizeMarketplace(target.marketplace) !== "HEPSIBURADA")
+    return target;
+  const identifierValues = [
+    target.merchant_sku,
+    target.barcode,
+    target.seller_listing_barcode,
+  ];
+  const identifierHints = [
+    ...identifierValues,
+  ]
+    .map(compactIdentifierHint)
+    .filter(Boolean);
+  if (!identifierHints.length) return target;
+  const normalizedIdentifiers = identifierValues.map(normalizeText).join(" ");
+  const brandHint =
+    concreteBrand(target.brand) ||
+    HEPSIBURADA_IDENTIFIER_BRAND_HINTS.find((brand) =>
+      normalizedIdentifiers.includes(brand),
+    ) ||
+    target.brand;
+  return {
+    ...target,
+    brand: brandHint,
+    _hepsiburada_identifier_hint: true,
+    product_name: [
+      target.product_name || "",
+      ...identifierHints,
+    ]
+      .join(" ")
+      .trim(),
+  };
 }
 
 function generatedSupplierSourceKey(supplierCode, normalizedName) {
@@ -716,6 +810,7 @@ function hepsiburadaMatchTokens(product) {
         "lt",
         "gr",
         "kg",
+        "x",
       ].includes(token) &&
       ![...PRODUCT_KIND_TOKENS].some((kindToken) =>
         fuzzyTokenEquivalent(kindToken, token),
@@ -2394,7 +2489,11 @@ class MappingAutomationService {
 
   candidatesForPool(target, examples, costItems, pool, targetHints) {
     const minimumCandidateConfidence =
-      normalizeMarketplace(target.marketplace) === "HEPSIBURADA" ? 0.62 : 0.3;
+      normalizeMarketplace(target.marketplace) === "HEPSIBURADA"
+        ? target._hepsiburada_identifier_hint
+          ? 0.5
+          : 0.62
+        : 0.3;
     const rawCandidateConfidence =
       normalizeMarketplace(target.marketplace) === "HEPSIBURADA" ? 0.48 : 0.3;
     return [
@@ -2571,26 +2670,31 @@ class MappingAutomationService {
         ...rawTarget,
         marketplace: rawTarget.marketplace || selectedMarketplace,
       };
+      const matchingTarget = hepsiburadaMatchingTarget(target);
       const targetHints = feedbackHints.get(target.barcode);
       const manualCandidates = supplierCode
         ? []
-        : this.manualHistoryCandidatesForTarget(target, examples, targetHints);
-      const exactGtinMatches = verifiedCatalogGtin(target)
+        : this.manualHistoryCandidatesForTarget(
+            matchingTarget,
+            examples,
+            targetHints,
+          );
+      const exactGtinMatches = verifiedCatalogGtin(matchingTarget)
         ? verifiedGtinExamples.filter(
             (example) =>
               canonicalGtin(example.barcode) ===
-              verifiedCatalogGtin(target).gtin,
+              verifiedCatalogGtin(matchingTarget).gtin,
           )
         : [];
       const catalogBarcodeCandidates = supplierCode
         ? []
         : this.catalogBarcodeRecipeCandidates(
-            target,
+            matchingTarget,
             verifiedGtinExamples,
             [],
           ).map((candidate) =>
             this.applyCompositeSafety(
-              target,
+              matchingTarget,
               applyRejectionHints(candidate, targetHints),
             ),
           );
@@ -2598,10 +2702,23 @@ class MappingAutomationService {
         gtinConflicts++;
       const costCatalogCandidates = supplierCode
         ? []
-        : this.costCatalogCandidatesForTarget(target, costItems, targetHints);
-      const candidatePools = this.candidatePoolsForTarget(target, pools);
+        : this.costCatalogCandidatesForTarget(
+            matchingTarget,
+            costItems,
+            targetHints,
+          );
+      const candidatePools = this.candidatePoolsForTarget(
+        matchingTarget,
+        pools,
+      );
       const poolCandidates = candidatePools.flatMap((pool) =>
-        this.candidatesForPool(target, examples, costItems, pool, targetHints),
+        this.candidatesForPool(
+          matchingTarget,
+          examples,
+          costItems,
+          pool,
+          targetHints,
+        ),
       );
       if (
         !poolCandidates.length &&
@@ -2622,7 +2739,9 @@ class MappingAutomationService {
         ...manualCandidates,
         ...poolCandidates,
         ...costCatalogCandidates,
-      ].sort((left, right) => sortCandidatesForTarget(target, left, right));
+      ].sort((left, right) =>
+        sortCandidatesForTarget(matchingTarget, left, right),
+      );
       if (!candidates.length) {
         withoutCandidate++;
         continue;
@@ -2801,41 +2920,52 @@ class MappingAutomationService {
           )
         : [],
     );
-    const items = targets.map((rawTarget) => {
-      const target = {
-        ...rawTarget,
-        marketplace: rawTarget.marketplace || selectedMarketplace,
-      };
-      const candidatePools = this.candidatePoolsForTarget(target, pools);
-      if (!candidatePools.length)
-        return {
-          ...target,
-          diagnosis: "NOT_SUPPLIER_BRAND",
-          diagnosis_label: "Tedarikçi havuzlarında marka bulunamadı",
-        };
-      const scopedItems = candidatePools.flatMap((pool) => pool.items);
-      const fileMatches = scopedItems
-        .map((fileItem) => ({
-          fileItem,
-          comparison: compareMappingProducts(target, fileItem),
-        }))
-        .sort((left, right) => right.comparison.score - left.comparison.score);
-      const bestFile = fileMatches[0] || null;
-      const candidates = candidatePools.flatMap((pool) =>
-        this.candidatesForPool(target, examples, costItems, pool),
-      );
-      if (!scopedItems.length)
-        return {
-          ...target,
-          diagnosis: "SUPPLIER_POOL_EMPTY",
-          diagnosis_label: "Tedarikçi havuzu boş",
-        };
-      if (!candidates.length)
-        return {
-          ...target,
-          diagnosis:
-            bestFile?.comparison?.score >= 0.18
-              ? "LOW_SCORE"
+	    const items = targets.map((rawTarget) => {
+	      const target = {
+	        ...rawTarget,
+	        marketplace: rawTarget.marketplace || selectedMarketplace,
+	      };
+	      const matchingTarget = hepsiburadaMatchingTarget(target);
+	      const displayTarget = {
+	        ...target,
+	        product_name: target.product_name || matchingTarget.product_name,
+	      };
+	      const candidatePools = this.candidatePoolsForTarget(
+	        matchingTarget,
+	        pools,
+	      );
+	      if (!candidatePools.length)
+	        return {
+	          ...displayTarget,
+	          diagnosis: "NOT_SUPPLIER_BRAND",
+	          diagnosis_label: "Tedarikçi havuzlarında marka bulunamadı",
+	        };
+	      const scopedItems = candidatePools.flatMap((pool) => pool.items);
+	      const fileMatches = scopedItems
+	        .map((fileItem) => ({
+	          fileItem,
+	          comparison:
+	            selectedMarketplace === "HEPSIBURADA"
+	              ? compareHepsiburadaSupplierProduct(matchingTarget, fileItem)
+	              : compareMappingProducts(matchingTarget, fileItem),
+	        }))
+	        .sort((left, right) => right.comparison.score - left.comparison.score);
+	      const bestFile = fileMatches[0] || null;
+	      const candidates = candidatePools.flatMap((pool) =>
+	        this.candidatesForPool(matchingTarget, examples, costItems, pool),
+	      );
+	      if (!scopedItems.length)
+	        return {
+	          ...displayTarget,
+	          diagnosis: "SUPPLIER_POOL_EMPTY",
+	          diagnosis_label: "Tedarikçi havuzu boş",
+	        };
+	      if (!candidates.length)
+	        return {
+	          ...displayTarget,
+	          diagnosis:
+	            bestFile?.comparison?.score >= 0.18
+	              ? "LOW_SCORE"
               : "NO_SUPPLIER_CANDIDATE",
           diagnosis_label:
             bestFile?.comparison?.score >= 0.18
@@ -2847,11 +2977,11 @@ class MappingAutomationService {
           best_supplier_label:
             supplier(bestFile?.fileItem?.supplier_code)?.label || null,
           best_file_score: bestFile?.comparison?.score || null,
-          best_file_price: bestFile?.fileItem?.current_price || null,
-        };
-      const suggestions = candidates
-        .map((candidate) => this.buildSuggestion(target, candidate))
-        .filter(Boolean);
+	          best_file_price: bestFile?.fileItem?.current_price || null,
+	        };
+	      const suggestions = candidates
+	        .map((candidate) => this.buildSuggestion(target, candidate))
+	        .filter(Boolean);
       const rejected = suggestions.find(
         (suggestion) =>
           rejectedFingerprints.has(
@@ -2868,11 +2998,11 @@ class MappingAutomationService {
             `${suggestion.barcode}:${suggestion.recipe_key}`,
           ),
       );
-      if (available)
-        return {
-          ...target,
-          diagnosis:
-            available.base_confidence >= 0.54
+	      if (available)
+	        return {
+	          ...displayTarget,
+	          diagnosis:
+	            available.base_confidence >= 0.54
               ? "SUGGESTION_AVAILABLE"
               : "LOW_CONFIDENCE_AVAILABLE",
           diagnosis_label:
@@ -2905,9 +3035,9 @@ class MappingAutomationService {
             null,
           confidence: available.base_confidence,
         };
-      return {
-        ...target,
-        diagnosis: rejected ? "REJECTED_PATTERN" : "NO_SUPPLIER_SUPPORT",
+	      return {
+	        ...displayTarget,
+	        diagnosis: rejected ? "REJECTED_PATTERN" : "NO_SUPPLIER_SUPPORT",
         diagnosis_label: rejected
           ? "Benzer öneri daha önce reddedilmiş"
           : "Tedarikçi fiyat desteği yok",
