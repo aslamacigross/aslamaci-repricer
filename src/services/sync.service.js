@@ -92,6 +92,7 @@ function hepsiburadaCatalogPlatformId(product) {
       "hbSku",
       "hepsiburadaSku",
       "matchedHbProductInfo.0.hbSku",
+      "matchedHbProductInfo.hbSku",
       "productId",
       "variantGroupId",
     ]),
@@ -104,8 +105,41 @@ function normalizedKey(value) {
     .toUpperCase();
 }
 
-function addMetadataIndex(index, product) {
-  for (const key of [
+function matchedHbProductInfos(product) {
+  const matched =
+    product?.matchedHbProductInfo ||
+    product?.matchedHBProductInfo ||
+    product?.matchedProductInfo ||
+    product?.matchedProductInfos;
+  if (Array.isArray(matched)) return matched.filter(Boolean);
+  return matched && typeof matched === "object" ? [matched] : [];
+}
+
+function metadataIndexCandidates(product) {
+  const matched = matchedHbProductInfos(product);
+  if (!matched.length) return [product];
+  return [
+    product,
+    ...matched.map((info) => ({
+      ...product,
+      ...info,
+      merchantSku: product?.merchantSku || product?.merchantSKU,
+      matchedHbProductInfo: [info],
+      hbSku: info?.hbSku || info?.hepsiburadaSku || product?.hbSku,
+      hepsiburadaSku:
+        info?.hepsiburadaSku || info?.hbSku || product?.hepsiburadaSku,
+      productName:
+        info?.productName || info?.name || info?.title || product?.productName,
+      brand: info?.brand || info?.brandName || product?.brand,
+      categoryName: info?.categoryName || product?.categoryName,
+      categoryId: info?.categoryId || product?.categoryId,
+      images: info?.images || product?.images,
+    })),
+  ];
+}
+
+function metadataIndexKeys(product) {
+  return [
     product?.merchantSku,
     product?.merchantSKU,
     product?.merchantSkuCode,
@@ -116,15 +150,23 @@ function addMetadataIndex(index, product) {
     product?.hbSku,
     product?.hbsku,
     product?.hepsiburadaSku,
-    product?.matchedHbProductInfo?.[0]?.hbSku,
     product?.productSku,
     product?.variantSku,
     product?.productId,
     product?.listingId,
     product?.variantGroupId,
-  ]) {
-    const normalized = normalizedKey(key);
-    if (normalized && !index.has(normalized)) index.set(normalized, product);
+  ];
+}
+
+function addMetadataIndex(index, product) {
+  for (const candidate of metadataIndexCandidates(product)) {
+    for (const key of metadataIndexKeys(candidate)) {
+      const normalized = normalizedKey(key);
+      if (!normalized) continue;
+      const existing = index.get(normalized);
+      if (!existing || (!hasUsefulHepsiburadaMetadata(existing) && hasUsefulHepsiburadaMetadata(candidate)))
+        index.set(normalized, candidate);
+    }
   }
 }
 
@@ -148,9 +190,11 @@ function hasUsefulHepsiburadaMetadata(product) {
       "title",
       "product.name",
       "matchedHbProductInfo.0.productName",
+      "matchedHbProductInfo.productName",
       "brand",
       "brandName",
       "matchedHbProductInfo.0.brand",
+      "matchedHbProductInfo.brand",
       "categoryName",
       "category.name",
     ]) || enrichedImageValue({}, product),
@@ -273,6 +317,7 @@ function enrichedImageValue(listing, fallback) {
   const fallbackImage =
     fallback?.images?.[0] ||
     fallback?.matchedHbProductInfo?.[0]?.images?.[0] ||
+    fallback?.matchedHbProductInfo?.images?.[0] ||
     fallback?.imageUrl ||
     fallback?.mainImageUrl ||
     fallback?.product_image_url ||

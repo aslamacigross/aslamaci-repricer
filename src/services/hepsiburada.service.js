@@ -62,18 +62,58 @@ function compactProductSummary(payload) {
     first: safeResponseSummary({
       merchantSku: row.merchantSku,
       barcode: row.barcode,
-      hbSku: row.hbSku || row.hepsiburadaSku,
+      hbSku: row.hbSku || row.hepsiburadaSku || firstMatchedInfo(row)?.hbSku,
       variantGroupId: row.variantGroupId,
-      productName: row.productName,
-      brand: row.brand,
-      categoryId: row.categoryId,
-      categoryName: row.categoryName,
-      imagesCount: Array.isArray(row.images) ? row.images.length : 0,
-      firstImage: Array.isArray(row.images) ? row.images[0] : undefined,
+      productName: row.productName || firstMatchedInfo(row)?.productName,
+      brand: row.brand || firstMatchedInfo(row)?.brand,
+      categoryId: row.categoryId || firstMatchedInfo(row)?.categoryId,
+      categoryName: row.categoryName || firstMatchedInfo(row)?.categoryName,
+      imagesCount: Array.isArray(row.images)
+        ? row.images.length
+        : Array.isArray(firstMatchedInfo(row)?.images)
+          ? firstMatchedInfo(row).images.length
+          : 0,
+      firstImage: Array.isArray(row.images)
+        ? row.images[0]
+        : firstMatchedInfo(row)?.images?.[0],
       status: row.status || row.productStatus,
       isSalable: row.isSalable,
     }),
   };
+}
+
+function matchedInfos(row) {
+  const value =
+    row?.matchedHbProductInfo ||
+    row?.matchedHBProductInfo ||
+    row?.matchedProductInfo ||
+    row?.matchedProductInfos;
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value && typeof value === "object" ? [value] : [];
+}
+
+function firstMatchedInfo(row) {
+  return matchedInfos(row)[0] || null;
+}
+
+function rowSignatureIdentifier(row) {
+  const matched = firstMatchedInfo(row);
+  return (
+    row?.merchantSku ||
+    row?.merchantSKU ||
+    row?.hbSku ||
+    row?.hepsiburadaSku ||
+    row?.sku ||
+    row?.barcode ||
+    row?.productId ||
+    row?.variantGroupId ||
+    matched?.hbSku ||
+    matched?.hepsiburadaSku ||
+    matched?.productName ||
+    row?.productName ||
+    row?.name ||
+    ""
+  );
 }
 
 function responseId(payload) {
@@ -724,14 +764,7 @@ class HepsiburadaService {
       });
       const rows = normalizeRows(payload);
       const pageSignature = JSON.stringify(
-        rows.map(
-          (row) =>
-            row?.merchantSku ||
-            row?.hbSku ||
-            row?.hepsiburadaSku ||
-            row?.barcode ||
-            "",
-        ),
+        rows.map((row) => rowSignatureIdentifier(row)),
       );
       if (page > 0 && pageSignature && seenPages.has(pageSignature)) break;
       seenPages.add(pageSignature);

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { TrendyolService } = require("../../src/services/trendyol.service");
 const { SyncService } = require("../../src/services/sync.service");
+const { HepsiburadaService } = require("../../src/services/hepsiburada.service");
 
 test("Trendyol dry-run hic HTTP cagrisi yapmaz", async () => {
   let calls = 0;
@@ -934,6 +935,129 @@ test("Hepsiburada listing sync matched katalog bilgisinden urun adini tamamlar",
   assert.equal(upsert.params[2], "Harras");
   assert.equal(upsert.params[5], "https://cdn.test/matched.jpg");
   assert.equal(upsert.params[6], "HBCV0000MATCHED");
+});
+
+test("Hepsiburada katalog sayfalari yalniz matched HB SKU ile farklilassa erken kesilmez", async () => {
+  const requestedPages = [];
+  const service = new HepsiburadaService({
+    fetch: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page"));
+      requestedPages.push(page);
+      const rowsByPage = {
+        0: [
+          {
+            merchantSku: "",
+            matchedHbProductInfo: [
+              {
+                hbSku: "HBCV0000PAGE1",
+                productName: "Harras Ceylon Çayı 500 g",
+              },
+            ],
+          },
+        ],
+        1: [
+          {
+            merchantSku: "",
+            matchedHbProductInfo: [
+              {
+                hbSku: "HBCV0000PAGE2",
+                productName: "Ülker Toz Kakao 1 kg",
+              },
+            ],
+          },
+        ],
+        2: [
+          {
+            merchantSku: "",
+            matchedHbProductInfo: [
+              {
+                hbSku: "HBCV0000PAGE2",
+                productName: "Ülker Toz Kakao 1 kg",
+              },
+            ],
+          },
+        ],
+      };
+      return {
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            data: rowsByPage[page] || [],
+          }),
+      };
+    },
+    productBaseUrl: "https://mpop.test/product/api",
+  });
+
+  const rows = await service.fetchAllMerchantProducts({
+    pageSize: 1,
+    maxPages: 5,
+  });
+
+  assert.deepEqual(requestedPages, [0, 1, 2]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].matchedHbProductInfo[0].hbSku, "HBCV0000PAGE1");
+  assert.equal(rows[1].matchedHbProductInfo[0].hbSku, "HBCV0000PAGE2");
+});
+
+test("Hepsiburada listing sync matched katalog listesinden dogru HB SKU satirini secer", async () => {
+  const queries = [];
+  const sync = new SyncService({
+    audit: {},
+    trendyol: {},
+    hepsiburada: {
+      configured: () => true,
+      fetchAllListings: async () => [
+        {
+          sku: "HBCV0000SECOND",
+          price: 229,
+          availableStock: 7,
+          isSalable: true,
+        },
+      ],
+      fetchAllMerchantProducts: async () => [
+        {
+          merchantSku: "CATALOG-MULTI-MATCH",
+          matchedHbProductInfo: [
+            {
+              hbSku: "HBCV0000FIRST",
+              productName: "Yanlış İlk Ürün",
+              brand: "Yanlış Marka",
+              images: ["https://cdn.test/first.jpg"],
+            },
+            {
+              hbSku: "HBCV0000SECOND",
+              productName: "Actisoft Sıvı Bulaşık Deterjanı 750 ml",
+              brand: "Actisoft",
+              categoryName: "Bulaşık Deterjanı",
+              categoryId: 12345,
+              images: ["https://cdn.test/second.jpg"],
+            },
+          ],
+        },
+      ],
+    },
+    db: {
+      query: async (sql, params) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+
+  const result = await sync.hepsiburadaProducts();
+
+  assert.equal(result.processed, 1);
+  const upsert = queries.find((query) =>
+    String(query.sql).includes("INSERT INTO products"),
+  );
+  assert.equal(upsert.params[0], "HBCV0000SECOND");
+  assert.equal(upsert.params[1], "Actisoft Sıvı Bulaşık Deterjanı 750 ml");
+  assert.equal(upsert.params[2], "Actisoft");
+  assert.equal(upsert.params[3], "Bulaşık Deterjanı");
+  assert.equal(upsert.params[4], "12345");
+  assert.equal(upsert.params[5], "https://cdn.test/second.jpg");
+  assert.equal(upsert.params[6], "HBCV0000SECOND");
 });
 
 test("Hepsiburada listing sync bos katalog alanlariyla mevcut urun bilgisini ezmez", async () => {
