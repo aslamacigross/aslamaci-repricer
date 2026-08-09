@@ -213,6 +213,117 @@ test("egitim receteleri ayni barkodda pazaryerleri arasinda birbirine karismaz",
   );
 });
 
+test("HB metadata eksikse merchantSku ipucu mapping readiness gateini bypass etmemeli", async () => {
+  const saved = [];
+  const { service } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "ACTISOFTSET",
+        merchant_sku: "ACTISOFTSET",
+        hb_sku: "HBVACTISOFT",
+        product_name: "   ",
+        brand: "",
+        category_id: "",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 12,
+        supplier_code: "FILE_MARKET",
+        product_name: "Actisoft Amber Oda&Kumaş Kokusu 500 ml",
+        normalized_name: "actisoft amber oda kumas kokusu 500 ml",
+        brand: "Actisoft",
+        current_price: 146,
+      },
+    ],
+    saveSuggestions: async (rows) => {
+      saved.push(...rows);
+      return {
+        created: rows.length,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        skippedDuplicates: 0,
+        skippedSamePending: 0,
+        items: rows,
+      };
+    },
+  });
+
+  const result = await service.generate({
+    marketplace: "HEPSIBURADA",
+    limit: 20,
+  });
+
+  assert.equal(result.created, 0);
+  assert.equal(saved.length, 0);
+});
+
+test("tedarikci fiyat guncellemesi her marketplace icin ayri recalculate cagirir", async () => {
+  const recalculated = [];
+  const service = new MappingAutomationService({
+    repository: {
+      updateSupplierItemPricing: async () => ({
+        id: 7,
+        tier_price_updates: [
+          { marketplace: "TRENDYOL", barcode: "TY-A" },
+          { marketplace: "HEPSIBURADA", barcode: "HB-B" },
+        ],
+      }),
+    },
+    costs: { validateMappings: async () => ({ valid: true, errors: [] }) },
+    costEngine: {
+      recalculate: async (barcode, queryable, marketplace) => {
+        recalculated.push([barcode, marketplace]);
+        return { processed: 1 };
+      },
+    },
+  });
+
+  await service.updateSupplierItemPricing("BIZIM_MARKET", 7, {
+    current_price: 99,
+  });
+
+  assert.deepEqual(recalculated, [
+    ["TY-A", "TRENDYOL"],
+    ["HB-B", "HEPSIBURADA"],
+  ]);
+});
+
+test("tedarikci importu etkilenen HB ve Trendyol barkodlarini marketplace ile recalculate eder", async () => {
+  const recalculated = [];
+  const service = new MappingAutomationService({
+    repository: {
+      importSupplierItems: async () => ({
+        imported: 1,
+        affectedBarcodes: [
+          { marketplace: "TRENDYOL", barcode: "TY-A" },
+          { marketplace: "HEPSIBURADA", barcode: "HB-B" },
+        ],
+      }),
+    },
+    costs: { validateMappings: async () => ({ valid: true, errors: [] }) },
+    costEngine: {
+      recalculate: async (barcode, queryable, marketplace) => {
+        recalculated.push([barcode, marketplace]);
+        return { processed: 1 };
+      },
+    },
+  });
+
+  await service.importSupplierItems("FILE_MARKET", [
+    { product_name: "Actisoft Ürün", current_price: 99 },
+  ]);
+
+  assert.deepEqual(recalculated, [
+    ["TY-A", "TRENDYOL"],
+    ["HB-B", "HEPSIBURADA"],
+  ]);
+});
+
 test("toplu oneride bekleyen ve onaylanan oneriler yeniden taranmaz", async () => {
   let capturedSql = "";
   const repository = new MappingAutomationRepository(

@@ -4,6 +4,15 @@ const { canonicalGtin } = require("../domain/catalog-gtin");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function hasText(value) {
+  return String(value || "").trim() !== "";
+}
+
+function blankToNull(value) {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
+}
+
 function firstValue(source, keys, fallback = "") {
   for (const key of keys) {
     const value = key
@@ -325,6 +334,105 @@ function enrichedImageValue(listing, fallback) {
   return normalizeImageUrl(listingImage) || normalizeImageUrl(fallbackImage);
 }
 
+function persistentMetadataObject(row) {
+  const image = blankToNull(row.product_image_url);
+  return {
+    merchantSku: row.merchant_sku || row.barcode,
+    hbSku: row.hb_sku || row.marketplace_product_id,
+    hepsiburadaSku: row.hb_sku || row.marketplace_product_id,
+    listingId: row.listing_id,
+    productId: row.marketplace_product_id,
+    barcode: row.catalog_gtin || "",
+    gtin: row.catalog_gtin || "",
+    productName: row.product_name,
+    brand: row.brand,
+    categoryName: row.category_name,
+    categoryId: row.category_id,
+    imageUrl: image,
+    product_image_url: image,
+    images: image ? [image] : [],
+  };
+}
+
+function sourcedMetadata(product, source, confidence) {
+  if (!product) return null;
+  return {
+    ...product,
+    metadataSource: product.metadataSource || source,
+    metadataConfidence:
+      product.metadataConfidence == null ? confidence : product.metadataConfidence,
+  };
+}
+
+function addPersistentMetadataIndex(index, row) {
+  const metadata = persistentMetadataObject(row);
+  for (const [type, value] of [
+    ["hb_sku", row.hb_sku],
+    ["marketplace_product_id", row.marketplace_product_id],
+    ["listing_id", row.listing_id],
+    ["catalog_gtin", row.catalog_gtin],
+    ["merchant_sku", row.merchant_sku || row.barcode],
+  ]) {
+    const normalized = normalizedKey(value);
+    if (!normalized) continue;
+    index.set(`${type}:${normalized}`, metadata);
+  }
+}
+
+function persistentMetadataForListing(index, listing) {
+  const hbSku = hepsiburadaListingHbSku(listing);
+  const platformId = hepsiburadaListingPlatformId(listing);
+  const listingId = hepsiburadaListingId(listing);
+  const merchantSku = hepsiburadaListingBarcode(listing);
+  const keys = [
+    ["hb_sku", hbSku],
+    ["marketplace_product_id", platformId],
+    ["listing_id", listingId],
+  ];
+  if (!hbSku && !platformId && !listingId)
+    keys.push(["merchant_sku", merchantSku]);
+  for (const [type, value] of keys) {
+    const normalized = normalizedKey(value);
+    if (!normalized) continue;
+    const metadata = index.get(`${type}:${normalized}`);
+    if (metadata) return metadata;
+  }
+  return null;
+}
+
+async function verifiedGtinCrossMarketMetadata(db, gtin) {
+  const canonical = canonicalGtin(gtin);
+  if (!canonical) return null;
+  const row = (
+    await db.query(
+      `SELECT barcode,product_name,brand,category_name,category_id,
+              product_image_url
+       FROM products
+       WHERE marketplace='TRENDYOL'
+         AND barcode=$1
+         AND NULLIF(BTRIM(product_name),'') IS NOT NULL
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [canonical],
+    )
+  ).rows[0];
+  if (!row) return null;
+  return {
+    merchantSku: canonical,
+    barcode: canonical,
+    gtin: canonical,
+    productName: row.product_name,
+    brand: row.brand,
+    categoryName: row.category_name,
+    categoryId: row.category_id,
+    imageUrl: row.product_image_url,
+    product_image_url: row.product_image_url,
+    images: row.product_image_url ? [row.product_image_url] : [],
+    metadataSource: "VERIFIED_GTIN_CROSSMARKET",
+    metadataConfidence: 0.8,
+  };
+}
+
 class SyncService {
   constructor({ db, trendyol, hepsiburada, audit }) {
     this.db = db;
@@ -427,6 +535,8 @@ class SyncService {
     let metadataRows = [];
     let metadataError = null;
     let metadataLookupCount = 0;
+    let orderMetadataRows = [];
+    let orderMetadataError = null;
     let commissionRows = [];
     let commissionError = null;
     if (this.hepsiburada.fetchCommissions) {
@@ -458,13 +568,54 @@ class SyncService {
     const metadataByKey = new Map();
     for (const product of metadataRows)
       addMetadataIndex(metadataByKey, product);
+    const orderMetadataByKey = new Map();
+    if (this.hepsiburada.fetchOrderMetadata) {
+      try {
+        orderMetadataRows = await this.hepsiburada.fetchOrderMetadata({
+          days: 120,
+          limit: 100,
+        });
+        for (const product of orderMetadataRows)
+          addMetadataIndex(orderMetadataByKey, product);
+      } catch (error) {
+        orderMetadataError = error.message;
+      }
+    }
+    const persistentMetadataByKey = new Map();
+    const persistentMetadataRows = (
+      await this.db.query(
+        `SELECT barcode,merchant_sku,hb_sku,listing_id,marketplace_product_id,
+                catalog_gtin,product_name,brand,category_name,category_id,
+                product_image_url
+         FROM products
+         WHERE marketplace='HEPSIBURADA'
+           AND NULLIF(BTRIM(product_name),'') IS NOT NULL`,
+      )
+    ).rows;
+    for (const row of persistentMetadataRows)
+      addPersistentMetadataIndex(persistentMetadataByKey, row);
     const syncRows = [];
     let merchantKeyCount = 0;
     let platformKeyFallbackCount = 0;
     const failedMetadataLookupKeys = new Set();
     let metadataLookupSkippedCount = 0;
+    let persistentMetadataResolvedCount = 0;
+    let publicCatalogResolvedCount = 0;
+    let publicCatalogErrorCount = 0;
+    let publicCatalogLookupCount = 0;
+    let publicCatalogSkippedCount = 0;
+    const publicCatalogLookupLimit = Math.max(
+      Number(env.hepsiburadaPublicMetadataLookupLimit) || 0,
+      0,
+    );
+    let orderMetadataResolvedCount = 0;
+    let verifiedGtinResolvedCount = 0;
     for (const listing of listings) {
-      let product = metadataForListing(metadataByKey, listing);
+      let product = sourcedMetadata(
+        metadataForListing(metadataByKey, listing),
+        "HB_OFFICIAL_CATALOG",
+        0.95,
+      );
       if (
         (!product || !hasUsefulHepsiburadaMetadata(product)) &&
         this.hepsiburada.getMerchantProductMetadata
@@ -515,7 +666,10 @@ class SyncService {
             if (lookupProduct) {
               metadataRows.push(lookupProduct);
               addMetadataIndex(metadataByKey, lookupProduct);
-              product = betterHepsiburadaMetadata(product, lookupProduct);
+              product = betterHepsiburadaMetadata(
+                product,
+                sourcedMetadata(lookupProduct, "HB_OFFICIAL_CATALOG", 0.95),
+              );
               if (hasUsefulHepsiburadaMetadata(product)) break;
             }
             if (!hasUsefulHepsiburadaMetadata(lookupProduct))
@@ -524,6 +678,81 @@ class SyncService {
             metadataError ||= error.message;
             failedMetadataLookupKeys.add(lookupKey);
           }
+        }
+      }
+      if (!product || !hasUsefulHepsiburadaMetadata(product)) {
+        const persistentProduct = persistentMetadataForListing(
+          persistentMetadataByKey,
+          listing,
+        );
+        const resolvedProduct = betterHepsiburadaMetadata(
+          product,
+          persistentProduct,
+        );
+        if (
+          resolvedProduct !== product &&
+          hasUsefulHepsiburadaMetadata(resolvedProduct)
+        ) {
+          product = sourcedMetadata(
+            resolvedProduct,
+            "PERSISTED_TRUSTED",
+            0.9,
+          );
+          persistentMetadataResolvedCount++;
+        } else {
+          product = resolvedProduct;
+        }
+      }
+      if (
+        (!product || !hasUsefulHepsiburadaMetadata(product)) &&
+        this.hepsiburada.resolvePublicCatalogMetadata
+      ) {
+        if (publicCatalogLookupCount >= publicCatalogLookupLimit) {
+          publicCatalogSkippedCount++;
+        } else {
+          try {
+            publicCatalogLookupCount++;
+            const publicProduct =
+              await this.hepsiburada.resolvePublicCatalogMetadata({
+                hbSku: hepsiburadaListingHbSku(listing),
+                merchantSku: hepsiburadaListingBarcode(listing),
+                productId: hepsiburadaListingPlatformId(listing),
+                listingId: hepsiburadaListingId(listing),
+              });
+            if (hasUsefulHepsiburadaMetadata(publicProduct)) {
+              product = sourcedMetadata(
+                publicProduct,
+                "HB_PUBLIC_CATALOG",
+                0.82,
+              );
+              publicCatalogResolvedCount++;
+            }
+          } catch (error) {
+            metadataError ||= error.message;
+            publicCatalogErrorCount++;
+          }
+        }
+      }
+      if (!product || !hasUsefulHepsiburadaMetadata(product)) {
+        const orderProduct = metadataForListing(orderMetadataByKey, listing);
+        if (hasUsefulHepsiburadaMetadata(orderProduct)) {
+          product = sourcedMetadata(orderProduct, "HB_ORDER_HISTORY", 0.7);
+          orderMetadataResolvedCount++;
+        }
+      }
+      const candidateIdentity = product || listing || {};
+      const candidateGtin = hepsiburadaVerifiedCatalogGtin(candidateIdentity);
+      if (
+        (!product || !hasUsefulHepsiburadaMetadata(product)) &&
+        candidateGtin.gtin
+      ) {
+        const crossMarketProduct = await verifiedGtinCrossMarketMetadata(
+          this.db,
+          candidateGtin.gtin,
+        );
+        if (hasUsefulHepsiburadaMetadata(crossMarketProduct)) {
+          product = crossMarketProduct;
+          verifiedGtinResolvedCount++;
         }
       }
       syncRows.push({
@@ -551,6 +780,52 @@ class SyncService {
       const fallbackProduct =
         product || metadataForListing(metadataByKey, listing);
       const catalogIdentity = hepsiburadaVerifiedCatalogGtin(product || {});
+      const resolvedProductName = blankToNull(
+        enrichedListingValue(
+          listing,
+          fallbackProduct,
+          [
+            "productName",
+            "name",
+            "title",
+            "product.name",
+            "matchedHbProductInfo.0.productName",
+          ],
+          fallbackProduct?.productName ? "productName" : "product_name",
+        ),
+      );
+      const resolvedBrand = blankToNull(
+        enrichedListingValue(
+          listing,
+          fallbackProduct,
+          [
+            "brand",
+            "brandName",
+            "product.brand",
+            "matchedHbProductInfo.0.brand",
+          ],
+          "brand",
+        ),
+      );
+      const resolvedCategoryName = blankToNull(
+        enrichedListingValue(
+          listing,
+          fallbackProduct,
+          ["categoryName", "category.name", "product.categoryName"],
+          "category_name",
+        ),
+      );
+      const resolvedCategoryId = blankToNull(
+        enrichedListingValue(
+          listing,
+          fallbackProduct,
+          ["categoryId", "category.id", "product.categoryId"],
+          "category_id",
+        ),
+      );
+      const resolvedImage = blankToNull(
+        enrichedImageValue(listing, fallbackProduct),
+      );
       seenBarcodes.add(barcode);
       const saleSource = Object.keys(listing || {}).length ? listing : product;
       const salePrice = hepsiburadaListingPrice(saleSource || {});
@@ -577,6 +852,22 @@ class SyncService {
         !archived &&
         !["PASSIVE", "INACTIVE"].includes(status);
       const active = approved && onSale && quantity > 0 && salePrice > 0;
+      const existingIdentity = (
+        await this.db.query(
+          `SELECT hb_sku,catalog_gtin
+           FROM products
+           WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
+          [barcode],
+        )
+      ).rows[0];
+      const incomingHbSku = String(hbSku || "").trim();
+      const incomingGtin = String(catalogIdentity.gtin || "").trim();
+      const existingHbSku = String(existingIdentity?.hb_sku || "").trim();
+      const existingGtin = String(existingIdentity?.catalog_gtin || "").trim();
+      const identityChanged = Boolean(
+        (existingHbSku && incomingHbSku && existingHbSku !== incomingHbSku) ||
+          (existingGtin && incomingGtin && existingGtin !== incomingGtin),
+      );
       await this.db.query(
         `INSERT INTO products(
           marketplace,barcode,product_name,brand,category_name,category_id,
@@ -625,39 +916,11 @@ class SyncService {
           updated_at=NOW()`,
         [
           barcode,
-          enrichedListingValue(
-            listing,
-            fallbackProduct,
-            [
-              "productName",
-              "name",
-              "title",
-              "product.name",
-              "matchedHbProductInfo.0.productName",
-            ],
-            fallbackProduct?.productName ? "productName" : "product_name",
-          ),
-          enrichedListingValue(
-            listing,
-            fallbackProduct,
-            ["brand", "brandName", "product.brand", "matchedHbProductInfo.0.brand"],
-            "brand",
-          ),
-          enrichedListingValue(
-            listing,
-            fallbackProduct,
-            ["categoryName", "category.name", "product.categoryName"],
-            "category_name",
-          ),
-          String(
-            enrichedListingValue(
-              listing,
-              fallbackProduct,
-              ["categoryId", "category.id", "product.categoryId"],
-              "category_id",
-            ),
-          ),
-          firstValue(listing, [], enrichedImageValue(listing, fallbackProduct)),
+          resolvedProductName,
+          resolvedBrand,
+          resolvedCategoryName,
+          resolvedCategoryId,
+          resolvedImage,
           platformId,
           salePrice,
           Number(
@@ -681,6 +944,74 @@ class SyncService {
           hepsiburadaListingId(listing) || null,
         ],
       );
+      if (identityChanged) {
+        await this.db.query(
+          `DELETE FROM product_cost_mappings
+           WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
+          [barcode],
+        );
+        await this.db.query(
+          `UPDATE products
+           SET data_status='HB_IDENTITY_CHANGED',
+               needs_cost_mapping=TRUE,
+               product_name=$5,
+               brand=$6,
+               category_name=$7,
+               category_id=$8,
+               product_image_url=$9,
+               hb_sku=COALESCE(NULLIF($2,''),hb_sku),
+               catalog_gtin=COALESCE(NULLIF($3,''),catalog_gtin),
+               catalog_gtin_source=COALESCE(NULLIF($4,''),catalog_gtin_source),
+               updated_at=NOW()
+           WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
+          [
+            barcode,
+            incomingHbSku,
+            incomingGtin,
+            catalogIdentity.source || "",
+            resolvedProductName,
+            resolvedBrand,
+            resolvedCategoryName,
+            resolvedCategoryId,
+            resolvedImage,
+          ],
+        );
+      } else {
+        const storedProductName = (
+          await this.db.query(
+            `SELECT product_name FROM products
+             WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
+            [barcode],
+          )
+        ).rows[0]?.product_name;
+        if (!hasText(storedProductName)) {
+        await this.db.query(
+          `UPDATE products
+           SET data_status='HB_METADATA_INCOMPLETE',
+               needs_cost_mapping=TRUE,
+               updated_at=NOW()
+           WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
+          [barcode],
+        );
+        } else {
+          await this.db.query(
+            `UPDATE products
+             SET data_status=CASE
+                   WHEN data_status IN ('HB_METADATA_INCOMPLETE','INCOMPLETE')
+                   THEN 'MAPPING_MISSING'
+                   ELSE data_status
+                 END,
+                 needs_cost_mapping=CASE
+                   WHEN data_status IN ('HB_METADATA_INCOMPLETE','INCOMPLETE')
+                   THEN TRUE
+                   ELSE needs_cost_mapping
+                 END,
+                 updated_at=NOW()
+             WHERE marketplace='HEPSIBURADA' AND barcode=$1`,
+            [barcode],
+          );
+        }
+      }
       processed++;
     }
     if (seenBarcodes.size) {
@@ -700,6 +1031,17 @@ class SyncService {
         hepsiburadaCatalogError: metadataError,
         hepsiburadaCatalogLookupCount: metadataLookupCount,
         hepsiburadaCatalogLookupSkippedCount: metadataLookupSkippedCount,
+        hepsiburadaPersistentMetadataResolved:
+          persistentMetadataResolvedCount,
+        hepsiburadaPublicCatalogResolved: publicCatalogResolvedCount,
+        hepsiburadaPublicCatalogLookupCount: publicCatalogLookupCount,
+        hepsiburadaPublicCatalogSkippedCount: publicCatalogSkippedCount,
+        hepsiburadaPublicCatalogLookupLimit: publicCatalogLookupLimit,
+        hepsiburadaPublicCatalogErrors: publicCatalogErrorCount,
+        hepsiburadaOrderMetadataRows: orderMetadataRows.length,
+        hepsiburadaOrderMetadataResolved: orderMetadataResolvedCount,
+        hepsiburadaOrderMetadataError: orderMetadataError,
+        hepsiburadaVerifiedGtinResolved: verifiedGtinResolvedCount,
         hepsiburadaCommissionCount: commissionRows.length,
         hepsiburadaCommissionMatched: commissionMatched,
         hepsiburadaCommissionMissing: commissionMissing,

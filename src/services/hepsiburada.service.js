@@ -1,4 +1,5 @@
 const { env } = require("../config/env");
+const { canonicalGtin } = require("../domain/catalog-gtin");
 
 const DEFAULT_ENDPOINTS = Object.freeze({
   production: {
@@ -233,6 +234,388 @@ function orderLineItemRequestsFromPayload(payload, orderNumber) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function htmlDecode(value) {
+  return String(value || "")
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function normalizePublicIdentifier(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function publicMetadataResult(fields, method, confidence = 0.82) {
+  if (!fields?.productName) return null;
+  const gtin = canonicalGtin(fields.gtin || fields.barcode || "");
+  const images = Array.isArray(fields.images)
+    ? fields.images
+    : fields.image
+      ? [fields.image]
+      : [];
+  return {
+    productName: firstText(fields.productName, fields.name),
+    brand: firstText(fields.brand, fields.brandName),
+    categoryName: firstText(fields.categoryName, fields.category),
+    categoryId: firstText(fields.categoryId),
+    gtin,
+    images: images.map((image) => String(image || "").trim()).filter(Boolean),
+    url: firstText(fields.url),
+    metadataSource: "HB_PUBLIC_CATALOG",
+    metadataDetectionMethod: method,
+    metadataConfidence: confidence,
+  };
+}
+
+function mergePublicMetadata(primary, enrichment) {
+  if (!primary) return enrichment || null;
+  if (!enrichment) return primary;
+  return {
+    ...primary,
+    brand: firstText(primary.brand, enrichment.brand),
+    categoryName: firstText(primary.categoryName, enrichment.categoryName),
+    categoryId: firstText(primary.categoryId, enrichment.categoryId),
+    gtin: firstText(primary.gtin, enrichment.gtin),
+    images: primary.images?.length ? primary.images : enrichment.images || [],
+    url: firstText(primary.url, enrichment.url),
+    metadataDetectionMethod: [
+      primary.metadataDetectionMethod,
+      enrichment.metadataDetectionMethod,
+    ]
+      .filter(Boolean)
+      .join("+"),
+    metadataConfidence: Math.max(
+      Number(primary.metadataConfidence) || 0,
+      Number(enrichment.metadataConfidence) || 0,
+    ),
+  };
+}
+
+function findJsonLdProducts(value, products = []) {
+  if (!value) return products;
+  if (Array.isArray(value)) {
+    for (const item of value) findJsonLdProducts(item, products);
+    return products;
+  }
+  if (typeof value !== "object") return products;
+  const type = value["@type"];
+  const types = Array.isArray(type) ? type : [type];
+  if (types.some((item) => String(item || "").toLowerCase() === "product"))
+    products.push(value);
+  for (const key of ["@graph", "itemListElement", "mainEntity", "offers"])
+    findJsonLdProducts(value[key], products);
+  return products;
+}
+
+function findJsonLdBreadcrumbs(value, names = []) {
+  if (!value) return names;
+  if (Array.isArray(value)) {
+    for (const item of value) findJsonLdBreadcrumbs(item, names);
+    return names;
+  }
+  if (typeof value !== "object") return names;
+  const type = value["@type"];
+  const types = Array.isArray(type) ? type : [type];
+  if (types.some((item) => String(item || "").toLowerCase() === "breadcrumblist")) {
+    const elements = Array.isArray(value.itemListElement)
+      ? value.itemListElement
+      : [];
+    for (const element of elements) {
+      const name = element?.item?.name || element?.name;
+      if (name) names.push(String(name));
+    }
+  }
+  for (const nested of Object.values(value)) findJsonLdBreadcrumbs(nested, names);
+  return names;
+}
+
+function parseJsonLdBlocks(html) {
+  const blocks = [];
+  const pattern =
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = pattern.exec(String(html || "")))) {
+    const body = htmlDecode(match[1]);
+    if (!body) continue;
+    try {
+      blocks.push(JSON.parse(body));
+    } catch (_) {
+      // Public pages occasionally include malformed tracking fragments. Ignore them.
+    }
+  }
+  return blocks;
+}
+
+function extractBalancedObject(text, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let quote = "";
+  for (let index = start; index < text.length; index++) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) inString = false;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      inString = true;
+      quote = char;
+      continue;
+    }
+    if (char === "{") depth++;
+    else if (char === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return "";
+}
+
+function readPublicField(fragment, field) {
+  const escapedPattern = new RegExp(
+    `\\\\?"${field}\\\\?"\\s*:\\s*\\\\?"([\\s\\S]*?)\\\\?"(?=,|}|\\])`,
+  );
+  const match = fragment.match(escapedPattern);
+  if (!match) return "";
+  return htmlDecode(
+    match[1]
+      .replace(/\\u002F/g, "/")
+      .replace(/\\u003C/g, "<")
+      .replace(/\\u003E/g, ">")
+      .replace(/\\u0026/g, "&")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\"),
+  );
+}
+
+function publicSearchIdentifiers({ hbSku, merchantSku, productId } = {}) {
+  return new Set(
+    [hbSku, merchantSku, productId]
+      .map(normalizePublicIdentifier)
+      .filter(Boolean),
+  );
+}
+
+function productUrlFromPublicPath(path) {
+  const value = String(path || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/")) return `https://www.hepsiburada.com${value}`;
+  return "";
+}
+
+function parseHepsiburadaPublicSearchHtml(html, identifiers = []) {
+  const source = String(html || "");
+  const idSet = new Set(
+    [...identifiers].map(normalizePublicIdentifier).filter(Boolean),
+  );
+  if (!idSet.size) return null;
+
+  const skuMatches = [
+    ...source.matchAll(/\\?"sku\\?"\s*:\s*\\?"(HBC?V[0-9A-Z]+)\\?"/gi),
+  ];
+  for (const match of skuMatches) {
+    const sku = normalizePublicIdentifier(match[1]);
+    if (!idSet.has(sku)) continue;
+    const productStart = Math.max(
+      source.lastIndexOf('{\\"productId\\"', match.index),
+      source.lastIndexOf('{"productId"', match.index),
+      source.lastIndexOf('{\\"brand\\"', match.index),
+      source.lastIndexOf('{"brand"', match.index),
+    );
+    const fragment = source.slice(
+      productStart >= 0 ? productStart : Math.max(0, match.index - 3000),
+      Math.min(source.length, match.index + 7000),
+    );
+    const name = readPublicField(
+      source.slice(match.index, Math.min(source.length, match.index + 1500)),
+      "name",
+    );
+    const brand = readPublicField(fragment, "brand");
+    const url = productUrlFromPublicPath(
+      readPublicField(
+        source.slice(match.index, Math.min(source.length, match.index + 2000)),
+        "url",
+      ),
+    );
+    const image = readPublicField(
+      source.slice(match.index, Math.min(source.length, match.index + 5000)),
+      "link",
+    );
+    return publicMetadataResult(
+      {
+        productName: name,
+        brand,
+        images: image ? [image.replace("{size}", "500")] : [],
+        url,
+      },
+      "EMBEDDED_STATE",
+      0.8,
+    );
+  }
+  return null;
+}
+
+function parseReduxStoreHtml(html) {
+  const match = String(html || "").match(
+    /<script[^>]+id=["']reduxStore["'][^>]*>([\s\S]*?)<\/script>/i,
+  );
+  if (!match) return null;
+  try {
+    const state = JSON.parse(htmlDecode(match[1]));
+    const product = state?.productState?.product;
+    if (!product) return null;
+    const categories = Array.isArray(product.categories)
+      ? product.categories
+      : [];
+    const lastCategory = categories.at(-1) || {};
+    const image =
+      product.media?.[0]?.url ||
+      product.media?.[0]?.link ||
+      product.images?.[0]?.url ||
+      product.images?.[0];
+    return publicMetadataResult(
+      {
+        productName: product.name
+          ? `${product.brand || ""} ${product.name}`.trim()
+          : "",
+        brand: product.brand,
+        categoryName: lastCategory.categoryName || lastCategory.name,
+        categoryId: lastCategory.categoryId || lastCategory.id,
+        gtin: product.barcode || product.gtin,
+        images: image ? [String(image).replace("{size}", "500")] : [],
+        url: product.url,
+      },
+      "EMBEDDED_STATE",
+      0.84,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+function parseUtagDataHtml(html) {
+  const source = String(html || "");
+  const marker = "const utagData =";
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const start = source.indexOf("{", markerIndex);
+  const body = start >= 0 ? extractBalancedObject(source, start) : "";
+  if (!body) return null;
+  try {
+    const data = JSON.parse(body);
+    return publicMetadataResult(
+      {
+        productName: data.product_names?.[0] || data.product_name_array,
+        brand: data.product_brands?.[0] || data.product_brand,
+        categoryName:
+          data.category_name_hierarchy ||
+          (Array.isArray(data.product_categories)
+            ? data.product_categories.join(" > ")
+            : ""),
+        categoryId: Array.isArray(data.product_category_ids)
+          ? data.product_category_ids.at(-1)
+          : "",
+        gtin: data.product_barcodes?.[0] || data.product_barcode,
+        url: data.canonical_url,
+      },
+      "EMBEDDED_STATE",
+      0.84,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+function parseHepsiburadaPublicCatalogHtml(html) {
+  const blocks = parseJsonLdBlocks(html);
+  const products = blocks.flatMap((block) => findJsonLdProducts(block, []));
+  const product = products.find((item) => item?.name) || products[0];
+  let metadata = null;
+  if (product) {
+    const brand =
+      typeof product.brand === "string"
+        ? product.brand
+        : product.brand?.name || product.manufacturer?.name || "";
+    const images = Array.isArray(product.image)
+      ? product.image
+      : product.image
+        ? [product.image]
+        : [];
+    const breadcrumbs = blocks.flatMap((block) =>
+      findJsonLdBreadcrumbs(block, []),
+    );
+    metadata = publicMetadataResult(
+      {
+        productName: product.name,
+        brand,
+        categoryName: firstText(product.category, breadcrumbs.at(-1)),
+        gtin:
+          product.gtin13 ||
+          product.gtin14 ||
+          product.gtin12 ||
+          product.gtin8 ||
+          product.gtin ||
+          product.ean ||
+          "",
+        images,
+        url: product.offers?.url || product.url,
+      },
+      "JSON_LD",
+      0.86,
+    );
+  }
+  metadata = mergePublicMetadata(metadata, parseReduxStoreHtml(html));
+  metadata = mergePublicMetadata(metadata, parseUtagDataHtml(html));
+  return metadata;
+}
+
+function extractPublicProductLinks(html, identifiers = []) {
+  const idSet = new Set(
+    [...identifiers].map(normalizePublicIdentifier).filter(Boolean),
+  );
+  if (!idSet.size) return [];
+  const links = [];
+  const seen = new Set();
+  const pattern = /href=["']([^"']+-p(?:m)?-HBC?[V]?[0-9A-Z][^"']*)["']/gi;
+  let match;
+  while ((match = pattern.exec(String(html || "")))) {
+    const href = htmlDecode(match[1]);
+    const upperHref = href.toUpperCase();
+    const matched = [...idSet].some((id) => upperHref.includes(id));
+    if (!matched && !/-PM?-HBC?[0-9A-Z]+/i.test(href)) continue;
+    const url = productUrlFromPublicPath(href);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    links.push(url);
+  }
+  return links;
+}
+
+function publicResolutionDiagnostics(errorCode, details = {}) {
+  return {
+    resolved: false,
+    errorCode,
+    ...details,
+  };
 }
 
 class HepsiburadaService {
@@ -580,6 +963,121 @@ class HepsiburadaService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async publicRequest(url, options = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      options.timeoutMs || Math.min(this.timeoutMs, 6000),
+    );
+    try {
+      const response = await this.fetch(url, {
+        method: "GET",
+        redirect: "follow",
+        headers: {
+          "User-Agent": this.userAgent(),
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+        signal: controller.signal,
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        if (options.diagnostics)
+          return { ok: false, status: response.status, url: response.url, body };
+        return null;
+      }
+      if (options.diagnostics)
+        return { ok: true, status: response.status, url: response.url, body };
+      return body;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async resolvePublicCatalogMetadata({
+    hbSku,
+    merchantSku,
+    productId,
+    diagnostics = false,
+  } = {}) {
+    const identifiers = [
+      hbSku,
+      merchantSku,
+      productId,
+      String(productId || "").replace(/^HBC/i, "HBCV"),
+    ]
+      .map(normalizePublicIdentifier)
+      .filter(Boolean);
+    if (!identifiers.some((identifier) => /^HBC?[V]?[0-9A-Z]+$/i.test(identifier)))
+      return diagnostics
+        ? publicResolutionDiagnostics("UNSUPPORTED_IDENTIFIER")
+        : null;
+
+    const searchUrl = `https://www.hepsiburada.com/ara?q=${encodeURIComponent(
+      identifiers[0],
+    )}`;
+    const searchResponse = await this.publicRequest(searchUrl, { diagnostics });
+    const searchHtml = diagnostics ? searchResponse?.body : searchResponse;
+    if (!searchHtml) {
+      const code = searchResponse?.status
+        ? `SEARCH_HTTP_${searchResponse.status}`
+        : "SEARCH_NO_RESPONSE";
+      return diagnostics ? publicResolutionDiagnostics(code) : null;
+    }
+
+    let metadata = parseHepsiburadaPublicSearchHtml(searchHtml, identifiers);
+    const links = extractPublicProductLinks(searchHtml, identifiers);
+    if (!metadata?.productName && !links.length)
+      return diagnostics
+        ? publicResolutionDiagnostics("SEARCH_RESULT_WITHOUT_MATCH", {
+            searchFound: true,
+          })
+        : null;
+
+    const productUrls = [
+      metadata?.url,
+      ...links,
+    ].filter(Boolean);
+    for (const url of [...new Set(productUrls)].slice(0, 3)) {
+      const productResponse = await this.publicRequest(url, { diagnostics });
+      const productHtml = diagnostics ? productResponse?.body : productResponse;
+      if (!productHtml) continue;
+      const productMetadata = parseHepsiburadaPublicCatalogHtml(productHtml);
+      if (productMetadata?.productName)
+        metadata = mergePublicMetadata(metadata, productMetadata);
+      if (metadata?.productName && (metadata.categoryName || metadata.gtin))
+        break;
+    }
+
+    if (metadata?.productName) {
+      if (diagnostics)
+        return {
+          resolved: true,
+          metadata,
+          searchFound: true,
+          productPagesFound: productUrls.length,
+        };
+      return metadata;
+    }
+    return diagnostics
+      ? publicResolutionDiagnostics("PRODUCT_PAGE_METADATA_MISSING", {
+          searchFound: true,
+          productPagesFound: productUrls.length,
+        })
+      : null;
+  }
+
+  async fetchOrderMetadata({ days = 90, limit = 100 } = {}) {
+    const end = new Date();
+    const begin = new Date(end.getTime() - Math.max(Number(days) || 90, 1) * 86400000);
+    const payload = await this.listOrders({
+      beginDate: begin.toISOString(),
+      endDate: end.toISOString(),
+      offset: 0,
+      limit: Math.min(Math.max(Number(limit) || 100, 1), 100),
+    });
+    return normalizeRows(payload);
   }
 
   async listOrders({ beginDate, endDate, offset = 0, limit = 100 } = {}) {
@@ -1566,6 +2064,8 @@ module.exports = {
   normalizedEnvironment,
   normalizeRows,
   normalizeCommissionRows,
+  parseHepsiburadaPublicCatalogHtml,
+  parseHepsiburadaPublicSearchHtml,
   listingDeactivationSummary,
   packageNumberFromPayload,
   orderLineItemRequestsFromPayload,

@@ -28,6 +28,10 @@ function normalizeMarketplace(value) {
     .toUpperCase();
 }
 
+function productPairKey(marketplace, barcode) {
+  return `${normalizeMarketplace(marketplace)}\u0000${String(barcode || "").trim()}`;
+}
+
 async function canonicalSupplierItemIds(client, item) {
   const normalizedName = String(item?.normalized_name || "").trim();
   const supplierCode = String(item?.supplier_code || "").trim();
@@ -59,7 +63,7 @@ class MappingAutomationRepository {
       let created = 0;
       let changed = 0;
       let costCodesUpdated = 0;
-      const affectedBarcodes = new Set();
+      const affectedProducts = new Map();
       const items = [];
       for (const row of rows) {
         const previous = (
@@ -223,7 +227,13 @@ class MappingAutomationRepository {
                 JSON.stringify(tier.tier || null),
               ],
             );
-            affectedBarcodes.add(linked.barcode);
+            affectedProducts.set(
+              productPairKey(linked.marketplace, linked.barcode),
+              {
+                marketplace: normalizeMarketplace(linked.marketplace),
+                barcode: linked.barcode,
+              },
+            );
           }
           if (costChanged)
             await client.query(
@@ -264,7 +274,7 @@ class MappingAutomationRepository {
         changed,
         unavailable,
         costCodesUpdated,
-        affectedBarcodes: [...affectedBarcodes],
+        affectedBarcodes: [...affectedProducts.values()],
         items,
       };
     });
@@ -708,7 +718,7 @@ class MappingAutomationRepository {
     const where = [
       "p.marketplace=$1",
       "p.is_active=TRUE",
-      "p.product_name IS NOT NULL",
+      "NULLIF(BTRIM(p.product_name),'') IS NOT NULL",
       `(p.data_status='MAPPING_MISSING' OR COALESCE(mt.mapping_count,0)=0)`,
     ];
     const forcePendingRegeneration = Boolean(

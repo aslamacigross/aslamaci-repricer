@@ -21,6 +21,18 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
     returns: "integer",
     implementation: (value) => value.length,
   });
+  memory.public.registerFunction({
+    name: "btrim",
+    args: ["text"],
+    returns: "text",
+    implementation: (value) => String(value || "").trim(),
+  });
+  memory.public.registerFunction({
+    name: "nullif",
+    args: ["text", "text"],
+    returns: "text",
+    implementation: (left, right) => (left === right ? null : left),
+  });
   const adapter = memory.adapters.createPg();
   const db = new adapter.Pool();
   await migrate("up", db, { compatibility: "pg-mem" });

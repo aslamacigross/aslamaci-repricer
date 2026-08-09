@@ -342,6 +342,23 @@ function validateSupplierSourceKey(supplierCode, sourceKey, index) {
     );
 }
 
+function affectedProductPairs(rows = []) {
+  const pairs = new Map();
+  for (const row of rows || []) {
+    const barcode =
+      typeof row === "string" || typeof row === "number"
+        ? String(row).trim()
+        : String(row?.barcode || "").trim();
+    if (!barcode) continue;
+    const marketplace =
+      typeof row === "object" && row !== null
+        ? normalizeMarketplace(row.marketplace)
+        : "TRENDYOL";
+    pairs.set(`${marketplace}\u0000${barcode}`, { marketplace, barcode });
+  }
+  return [...pairs.values()];
+}
+
 function filePriceMode(target, fileItem) {
   const targetVariants = tokens(target.product_name || target.item_name).filter(
     (token) => !PRODUCT_FAMILY_TOKENS.has(token),
@@ -1406,14 +1423,17 @@ class MappingAutomationService {
       },
     );
     if (!updated) return null;
-    const updatedBarcodes = [
-      ...new Set((updated?.tier_price_updates || []).map((row) => row.barcode)),
-    ];
-    for (const barcode of updatedBarcodes)
-      await this.costEngine.recalculate(barcode);
+    const updatedProducts = affectedProductPairs(updated?.tier_price_updates);
+    for (const product of updatedProducts)
+      await this.costEngine.recalculate(
+        product.barcode,
+        undefined,
+        product.marketplace,
+      );
     return {
       ...updated,
-      recalculated_barcodes: updatedBarcodes,
+      recalculated_barcodes: updatedProducts.map((product) => product.barcode),
+      recalculated_products: updatedProducts,
     };
   }
 
@@ -1428,11 +1448,17 @@ class MappingAutomationService {
       this.normalizeSupplierRows(normalizedCode, rows),
       options,
     );
-    for (const barcode of imported.affectedBarcodes || [])
-      await this.costEngine.recalculate(barcode);
+    const affectedProducts = affectedProductPairs(imported.affectedBarcodes);
+    for (const product of affectedProducts)
+      await this.costEngine.recalculate(
+        product.barcode,
+        undefined,
+        product.marketplace,
+      );
     return {
       ...imported,
-      recalculated: (imported.affectedBarcodes || []).length,
+      recalculated: affectedProducts.length,
+      recalculated_products: affectedProducts,
     };
   }
 

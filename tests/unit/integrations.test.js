@@ -366,10 +366,10 @@ test("Hepsiburada listing sync eksik katalog alanlarini Trendyol barkodundan tam
   const upsert = queries.find((query) =>
     String(query.sql).includes("INSERT INTO products"),
   );
-  assert.equal(upsert.params[1], "");
-  assert.equal(upsert.params[2], "");
-  assert.equal(upsert.params[3], "");
-  assert.equal(upsert.params[4], "");
+  assert.equal(upsert.params[1], null);
+  assert.equal(upsert.params[2], null);
+  assert.equal(upsert.params[3], null);
+  assert.equal(upsert.params[4], null);
   assert.equal(upsert.params[5], null);
   assert.equal(upsert.params[22], "8690609598109");
   assert.equal(upsert.params[23], "HBV-CATALOG-1");
@@ -443,7 +443,7 @@ test("Hepsiburada listing sync yalniz kaynakli EAN alanini katalog GTIN olarak k
   assert.equal(upserts[0].params[3], "Çay");
   assert.equal(upserts[0].params[4], "987");
   assert.equal(upserts[1].params[0], "HB-MERCHANT-SKU-2");
-  assert.equal(upserts[1].params[1], "");
+  assert.equal(upserts[1].params[1], null);
   assert.equal(upserts[1].params[7], 199);
   assert.equal(upserts[0].params[5], "https://cdn.test/hb.jpg");
   assert.equal(upserts[0].params[6], "HBV-CATALOG-1");
@@ -593,7 +593,7 @@ test("Hepsiburada sync listingleri ana urun kaynagi yapar ve katalogla zenginles
   assert.equal(upserts[1].params[1], "Katalog Ürünü 2");
   assert.equal(upserts[1].params[19], false);
   assert.equal(upserts[2].params[0], "LISTING-ONLY-OLD");
-  assert.equal(upserts[2].params[1], "");
+  assert.equal(upserts[2].params[1], null);
   assert.equal(upserts[2].params[7], 999);
   const staleUpdate = queries.find(
     (query) =>
@@ -881,7 +881,7 @@ test("Hepsiburada listing sync platform-only kimlik icin katalog lookup spamleme
     String(query.sql).includes("INSERT INTO products"),
   );
   assert.equal(upsert.params[0], "HBCV00008MIZH2");
-  assert.equal(upsert.params[1], "");
+  assert.equal(upsert.params[1], null);
   assert.equal(upsert.params[6], "HBCV00008MIZH2");
   assert.equal(upsert.params[23], "HBCV00008MIZH2");
 });

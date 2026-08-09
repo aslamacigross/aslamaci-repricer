@@ -70,6 +70,11 @@ const env = {
       process.env.HB_PRICE_UPDATES_ENABLED,
     false,
   ),
+  hepsiburadaPublicMetadataLookupLimit: number(
+    process.env.HEPSIBURADA_PUBLIC_METADATA_LOOKUP_LIMIT ||
+      process.env.HB_PUBLIC_METADATA_LOOKUP_LIMIT,
+    50,
+  ),
   adminUsername: process.env.ADMIN_USERNAME || "admin",
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || "",
