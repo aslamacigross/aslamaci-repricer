@@ -56,6 +56,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "031_hepsiburada_catalog_barcode",
       "032_hepsiburada_verified_gtin",
       "033_hepsiburada_listing_identity",
+      "034_trendyol_august_2026_shipping_tariffs",
     ],
   );
   const safety = await db.query(
@@ -110,6 +111,14 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT COUNT(*)::int count FROM shipping_barems WHERE marketplace='HEPSIBURADA'",
   );
   assert.equal(hepsiburadaBarems.rows[0].count, 14);
+  const trendyolShipping = await db.query(
+    "SELECT COUNT(*)::int count FROM shipping_costs WHERE marketplace='TRENDYOL'",
+  );
+  assert.equal(trendyolShipping.rows[0].count, 4210);
+  const trendyolBarems = await db.query(
+    "SELECT COUNT(*)::int count FROM shipping_barems WHERE marketplace='TRENDYOL'",
+  );
+  assert.equal(trendyolBarems.rows[0].count, 14);
   const historyJob = await db.query(
     "SELECT enabled FROM jobs WHERE name='backfill-trendyol-finance-history'",
   );
@@ -279,6 +288,14 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       )VALUES('TRENDYOL','INVALID',100)`,
     ),
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedTrendyolTariffs = await db.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM shipping_costs WHERE marketplace='TRENDYOL') AS rates,
+       (SELECT COUNT(*)::int FROM shipping_barems WHERE marketplace='TRENDYOL') AS barems`,
+  );
+  assert.equal(Number(removedTrendyolTariffs.rows[0].rates), 0);
+  assert.equal(Number(removedTrendyolTariffs.rows[0].barems), 0);
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedHepsiburadaIdentityColumns = await db.query(
     `SELECT column_name FROM information_schema.columns

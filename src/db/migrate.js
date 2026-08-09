@@ -50,6 +50,22 @@ SET capabilities='{"supportsCatalogSearch":false,"supportsCatalogProductRead":tr
     updated_at=NOW()
 WHERE code='HEPSIBURADA';`,
         );
+        if (version === "034_trendyol_august_2026_shipping_tariffs") {
+          sql = sql.replace(
+            "DROP INDEX IF EXISTS shipping_barems_min_basket_max_basket_carrier_key;",
+            `DROP INDEX IF EXISTS shipping_barems_min_basket_max_basket_carrier_key;
+ALTER TABLE shipping_barems DROP CONSTRAINT IF EXISTS shipping_barems_pkey;`,
+          );
+          sql = sql.replace(
+            "DELETE FROM shipping_costs WHERE marketplace='TRENDYOL';",
+            `UPDATE shipping_barems
+SET min_basket=min_basket+100000,
+    max_basket=max_basket+100000
+WHERE marketplace='HEPSIBURADA';
+
+DELETE FROM shipping_costs WHERE marketplace='TRENDYOL';`,
+          );
+        }
       }
       await client.query(sql);
       if (direction === "up") {

@@ -12,10 +12,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 33);
+    assert.equal(initial.rowCount, 34);
     assert.equal(
       initial.rows.at(-1).version,
-      "033_hepsiburada_listing_identity",
+      "034_trendyol_august_2026_shipping_tariffs",
     );
 
     const columnsAfterUp = await db.query(`
@@ -47,30 +47,36 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterDown = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterDown.rowCount, 32);
+    assert.equal(afterDown.rowCount, 33);
     assert.equal(
       afterDown.rows.at(-1).version,
-      "032_hepsiburada_verified_gtin",
+      "033_hepsiburada_listing_identity",
     );
 
-    const columnsAfterDown = await db.query(`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'products'
-        AND column_name IN ('merchant_sku', 'hb_sku', 'listing_id')
+    const tariffRowsAfterDown = await db.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM shipping_costs WHERE marketplace='TRENDYOL') AS rates,
+        (SELECT COUNT(*)::int FROM shipping_barems WHERE marketplace='TRENDYOL') AS barems
     `);
-    assert.equal(columnsAfterDown.rowCount, 0);
+    assert.equal(Number(tariffRowsAfterDown.rows[0].rates), 0);
+    assert.equal(Number(tariffRowsAfterDown.rows[0].barems), 0);
 
     await migrate("up", db);
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 33);
+    assert.equal(afterRoundTrip.rowCount, 34);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "033_hepsiburada_listing_identity",
+      "034_trendyol_august_2026_shipping_tariffs",
     );
+    const tariffRowsAfterRoundTrip = await db.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM shipping_costs WHERE marketplace='TRENDYOL') AS rates,
+        (SELECT COUNT(*)::int FROM shipping_barems WHERE marketplace='TRENDYOL') AS barems
+    `);
+    assert.equal(Number(tariffRowsAfterRoundTrip.rows[0].rates), 4210);
+    assert.equal(Number(tariffRowsAfterRoundTrip.rows[0].barems), 14);
   } finally {
     await db.end();
   }
