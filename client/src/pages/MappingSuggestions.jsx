@@ -117,6 +117,28 @@ function statusTone(status) {
   return "danger";
 }
 
+function itemLiveSupplier(item, fallbackSupplierCode) {
+  if (item.file_market_item_id)
+    return {
+      connected: true,
+      direct: true,
+      code: item.supplier_code || fallbackSupplierCode,
+      productName: item.supplier_product_name || item.file_product_name,
+      currentPrice: item.supplier_current_price || item.file_current_price,
+      lastSeenAt: item.supplier_last_seen_at || item.file_last_seen_at,
+    };
+  if (item.linked_supplier_item_id)
+    return {
+      connected: true,
+      direct: false,
+      code: item.linked_supplier_code || fallbackSupplierCode,
+      productName: item.linked_supplier_product_name,
+      currentPrice: item.linked_supplier_current_price,
+      lastSeenAt: item.linked_supplier_last_seen_at,
+    };
+  return { connected: false, code: item.supplier_code || fallbackSupplierCode };
+}
+
 function formatMappingError(error) {
   const details = Array.isArray(error.details) ? error.details : [];
   if (!details.length)
@@ -1327,22 +1349,37 @@ function SuggestionDrawer({
         <section>
           <h3>Önerilen maliyet reçetesi</h3>
           <div className="suggestion-items">
-            {suggestion.items.map((item, index) => (
-              <div key={item.id || `${item.cost_item_code}:${index}`}>
-                <div className="suggestion-item-heading">
-                  <strong>{item.item_name || item.cost_item_code}</strong>
-                  <Badge tone={item.file_market_item_id ? "info" : "neutral"}>
-                    {item.file_market_item_id
-                      ? evidence.fileMatches?.find(
-                          (match) =>
-                            match.costItemCode === item.cost_item_code &&
-                            match.priceMode === "SIBLING_VARIANT",
-                        )
-                        ? "Varyant fiyatından türetildi"
-                        : `${supplierDefinition(item.supplier_code || suggestion.supplier_code).shortLabel} fiyatı bulundu`
-                      : "Mevcut fiyat"}
-                  </Badge>
-                </div>
+            {suggestion.items.map((item, index) => {
+              const liveSupplier = itemLiveSupplier(
+                item,
+                suggestion.supplier_code,
+              );
+              return (
+                <div key={item.id || `${item.cost_item_code}:${index}`}>
+                  <div className="suggestion-item-heading">
+                    <strong>{item.item_name || item.cost_item_code}</strong>
+                    <Badge
+                      tone={
+                        item.file_market_item_id
+                          ? "info"
+                          : liveSupplier.connected
+                            ? "success"
+                            : "neutral"
+                      }
+                    >
+                      {item.file_market_item_id
+                        ? evidence.fileMatches?.find(
+                            (match) =>
+                              match.costItemCode === item.cost_item_code &&
+                              match.priceMode === "SIBLING_VARIANT",
+                          )
+                          ? "Varyant fiyatından türetildi"
+                          : `${supplierDefinition(item.supplier_code || suggestion.supplier_code).shortLabel} fiyatı bulundu`
+                        : liveSupplier.connected
+                          ? `${supplierDefinition(liveSupplier.code).shortLabel} canlı bağlantılı`
+                          : "Mevcut fiyat"}
+                    </Badge>
+                  </div>
                 <div className="form-grid">
                   <Field label="Cost Code">
                     <input
@@ -1402,11 +1439,20 @@ function SuggestionDrawer({
                       item.file_product_name ||
                       "Eşleşme yok"}
                   </b>
+                  <span>Canlı bağlantı</span>
+                  <b>
+                    {liveSupplier.connected
+                      ? `${supplierDefinition(liveSupplier.code).label} · ${liveSupplier.productName || "Tedarikçi ürünü"}`
+                      : "Yok"}
+                  </b>
                   <span>Güncel tedarikçi fiyatı</span>
                   <b>
-                    {item.supplier_current_price || item.file_current_price
+                    {liveSupplier.currentPrice ||
+                    item.supplier_current_price ||
+                    item.file_current_price
                       ? money(
-                          item.supplier_current_price ||
+                          liveSupplier.currentPrice ||
+                            item.supplier_current_price ||
                             item.file_current_price,
                         )
                       : "-"}
@@ -1431,7 +1477,8 @@ function SuggestionDrawer({
                   </b>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
         {suggestion.items.some((item) => item.file_market_item_id) && (

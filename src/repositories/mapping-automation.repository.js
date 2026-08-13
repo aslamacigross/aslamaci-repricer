@@ -1153,6 +1153,11 @@ class MappingAutomationRepository {
     const rows = (
       await queryable.query(
         `SELECT msi.*,ci.item_name,ci.unit_cost,ci.unit_desi,
+                linked_f.id AS linked_supplier_item_id,
+                linked_f.supplier_code AS linked_supplier_code,
+                linked_f.product_name AS linked_supplier_product_name,
+                linked_f.current_price AS linked_supplier_current_price,
+                linked_f.last_seen_at AS linked_supplier_last_seen_at,
                 f.product_name AS file_product_name,f.current_price AS file_current_price,
                 f.last_seen_at AS file_last_seen_at,
                 f.product_name AS supplier_product_name,
@@ -1164,6 +1169,9 @@ class MappingAutomationRepository {
                 COALESCE(msi.supplier_code,f.supplier_code) AS supplier_code
          FROM mapping_suggestion_items msi
          LEFT JOIN cost_items ci ON ci.item_code=msi.cost_item_code
+         LEFT JOIN cost_item_file_links linked
+           ON linked.cost_item_code=msi.cost_item_code AND linked.status='APPROVED'
+         LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
          LEFT JOIN file_market_items f ON f.id=msi.file_market_item_id
          WHERE msi.suggestion_id IN (${placeholders})
          ORDER BY msi.suggestion_id,msi.id`,

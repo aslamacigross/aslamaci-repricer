@@ -28,9 +28,21 @@ class CostRepository {
   async listCostItems() {
     return (
       await this.db.query(
-        `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count
-       FROM cost_items ci LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
-       GROUP BY ci.id ORDER BY ci.item_name`,
+        `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count,
+                link.file_market_item_id AS live_supplier_item_id,
+                supplier_item.supplier_code AS live_supplier_code,
+                supplier_item.product_name AS live_supplier_product_name,
+                supplier_item.current_price AS live_supplier_current_price,
+                supplier_item.last_seen_at AS live_supplier_last_seen_at,
+                link.approved_at AS live_supplier_approved_at
+       FROM cost_items ci
+       LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+       LEFT JOIN cost_item_file_links link
+         ON link.cost_item_code=ci.item_code AND link.status='APPROVED'
+       LEFT JOIN file_market_items supplier_item
+         ON supplier_item.id=link.file_market_item_id
+       GROUP BY ci.id,link.file_market_item_id,link.approved_at,supplier_item.id
+       ORDER BY ci.item_name`,
       )
     ).rows;
   }

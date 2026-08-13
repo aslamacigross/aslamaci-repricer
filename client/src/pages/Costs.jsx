@@ -51,6 +51,16 @@ const titles = {
   ],
 };
 
+function supplierLabel(code) {
+  return (
+    {
+      FILE_MARKET: "File",
+      BIZIM_MARKET: "Bizim",
+      BIM: "BİM",
+    }[code] || code || "Tedarikçi"
+  );
+}
+
 function parseBulkRows(text, mode) {
   return String(text || "")
     .split("\n")
@@ -718,6 +728,18 @@ function ResourceTable({
           },
           { key: "unit_desi", label: "Birim desi" },
           { key: "unit", label: "Birim" },
+          {
+            key: "live_supplier_code",
+            label: "Canlı bağlantı",
+            render: (r) =>
+              r.live_supplier_item_id ? (
+                <Badge tone="success">
+                  {supplierLabel(r.live_supplier_code)} canlı
+                </Badge>
+              ) : (
+                <Badge tone="warning">Sabit/manual</Badge>
+              ),
+          },
           { key: "product_count", label: "Kullanım" },
         ]
       : mode === "mappings"
@@ -1176,6 +1198,21 @@ function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
                   onChange={(e) => set("note", e.target.value)}
                 />
               </Field>
+              <div className="info-banner" style={{ gridColumn: "1 / -1" }}>
+                <Store />
+                <div>
+                  <strong>
+                    {value.live_supplier_item_id
+                      ? "Canlı tedarikçi bağlantısı var"
+                      : "Canlı tedarikçi bağlantısı yok"}
+                  </strong>
+                  <p>
+                    {value.live_supplier_item_id
+                      ? `${supplierLabel(value.live_supplier_code)} · ${value.live_supplier_product_name || "Tedarikçi ürünü"} · ${money(value.live_supplier_current_price)}`
+                      : "Bu kalem sabit/manual maliyetle hesaplanır; tedarikçi havuzu fiyatı değişirse otomatik güncellenmez."}
+                  </p>
+                </div>
+              </div>
             </>
           )}
           {mode === "mappings" && (
