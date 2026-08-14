@@ -377,8 +377,10 @@ function safetyCheck(context) {
   const hasRealChange = delta >= parseNumber(global.platformMinChangeTl, 0.01);
   const controlledProfitProbe =
     proposal.limitedBy === "BUYBOX_KAR_YOKLAMASI" &&
+    rank === 1 &&
     proposed > current &&
-    targetRank === rank;
+    targetRank === rank &&
+    delta >= 1;
   if (proposal.blockerCode) failures.push(proposal.blockerCode);
   if (
     hasRealChange &&

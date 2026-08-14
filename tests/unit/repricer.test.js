@@ -298,18 +298,18 @@ test("buybox bizdeyken eski yuksek fiyat kirma degeri kar artisini engellemez", 
   assert.equal(proposal.action, "FIYAT_ARTIR");
   assert.equal(proposal.effectiveUndercut, 0.1);
 });
-test("buybox bizdeyken kontrollu kar yoklamasi anlamli esige takilmaz", () => {
+test("rank1 +4 TL kontrollu kar yoklamasi change too small engeline takilmaz", () => {
   const product = {
     ...base,
-    my_price: 492.89,
+    my_price: 500,
     min_price: 400,
-    buybox_price: 492.89,
-    second_price: 499,
+    buybox_price: 500,
+    second_price: 520,
     rank: 1,
   };
   const proposal = {
     ...proposePrice(product, { ...settings, price_cut_tl: 5 }),
-    proposedPrice: 496,
+    proposedPrice: 504,
     targetRank: 1,
     expectedProfit: 100,
     expectedMargin: 10,
@@ -326,9 +326,76 @@ test("buybox bizdeyken kontrollu kar yoklamasi anlamli esige takilmaz", () => {
       minChangeTl: 5,
     },
     proposal,
-    today: { actionCount: 0, dayStartPrice: product.my_price },
+    today: { actionCount: 0, dayStartPrice: 500 },
   });
   assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("rank1 mikro kontrollu kar yoklamasi change too small engeline takilir", () => {
+  const product = {
+    ...base,
+    my_price: 500,
+    min_price: 400,
+    buybox_price: 500,
+    second_price: 520,
+    rank: 1,
+  };
+  const proposal = {
+    ...proposePrice(product, { ...settings, price_cut_tl: 5 }),
+    proposedPrice: 500.5,
+    targetRank: 1,
+    expectedProfit: 100,
+    expectedMargin: 10,
+    limitedBy: "BUYBOX_KAR_YOKLAMASI",
+  };
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 500 },
+  });
+  assert.ok(safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("rank2 kontrollu kar yoklamasi recovery olmadigi icin change too small engeline takilir", () => {
+  const product = {
+    ...base,
+    my_price: 500,
+    min_price: 400,
+    buybox_price: 490,
+    second_price: 500,
+    third_price: 530,
+    rank: 2,
+  };
+  const proposal = {
+    ...proposePrice(product, { ...settings, price_cut_tl: 5 }),
+    proposedPrice: 504,
+    targetRank: 2,
+    expectedProfit: 100,
+    expectedMargin: 10,
+    limitedBy: "BUYBOX_KAR_YOKLAMASI",
+  };
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 500 },
+  });
+  assert.ok(safety.failures.includes("CHANGE_TOO_SMALL"));
 });
 test("buybox disindayken hedef siraya kucuk fiyat kirma change too small engeline takilmaz", () => {
   const product = {
