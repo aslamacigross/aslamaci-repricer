@@ -17,6 +17,12 @@ function visibleRankPrice(product, rank) {
   return 0;
 }
 
+function rankPriceMatchesCurrent(product, rank, tolerance = 0.01) {
+  const current = parseNumber(product.my_price);
+  const rankPrice = visibleRankPrice(product, rank);
+  return rankPrice > 0 && Math.abs(rankPrice - current) <= tolerance;
+}
+
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
@@ -130,6 +136,7 @@ function proposePrice(product, settings = {}) {
   let reason = "Fiyat korunuyor";
   let limitedBy = null;
   let effectiveCut = cut;
+  let blockerCode = null;
 
   if (minimum > 0 && current < minimum) {
     proposed = minimum;
@@ -164,6 +171,7 @@ function proposePrice(product, settings = {}) {
           limitedBy = "BUYBOX_KAR_YOKLAMASI";
         } else if (upperRankBlocked) {
           reason = "Üst sıra minimum fiyatın altında; mevcut sıra korunuyor";
+          blockerCode = "BUYBOX_MIN_PRICE_LIMIT";
         }
         targetRank = rank;
         found = true;
@@ -175,6 +183,25 @@ function proposePrice(product, settings = {}) {
       const currentRankPrice = visibleRankPrice(product, rank);
       const listedAtCurrentRank =
         currentRankPrice > 0 && Math.abs(currentRankPrice - current) < 0.01;
+      const rankPriceInconsistent =
+        candidateRank === 1 &&
+        rank > 1 &&
+        current < visiblePrice &&
+        !listedAtCurrentRank;
+      if (rankPriceInconsistent) {
+        proposed = current;
+        targetRank = rank;
+        reason = `${rank}. sıra fiyatı mevcut fiyatla tutarsız; current ${roundMoney(
+          current,
+        )} TL buybox ${roundMoney(
+          visiblePrice,
+        )} TL altında ama görünen sıra fiyatı ${roundMoney(
+          currentRankPrice,
+        )} TL`;
+        blockerCode = "RANK_PRICE_INCONSISTENT";
+        found = true;
+        break;
+      }
       if (candidateRank === 1 && target >= current) {
         target = roundMoney(Math.max(minimum || 0, current - cut));
         if (target >= current) continue;
@@ -187,6 +214,20 @@ function proposePrice(product, settings = {}) {
         break;
       }
       if (minimum > 0 && target < minimum) {
+        if (
+          candidateRank === 1 &&
+          listedAtCurrentRank &&
+          minimum < current &&
+          visiblePrice > minimum
+        ) {
+          proposed = minimum;
+          targetRank = candidateRank;
+          reason =
+            "Öğrenilmiş fiyat kırma minimumun altında; güvenli minimum fiyat hedefleniyor";
+          limitedBy = "BUYBOX_MIN_PRICE_FALLBACK";
+          found = true;
+          break;
+        }
         upperRankBlocked = true;
         continue;
       }
@@ -196,8 +237,10 @@ function proposePrice(product, settings = {}) {
       found = true;
       break;
     }
-    if (!found && upperRankBlocked)
+    if (!found && upperRankBlocked) {
       reason = "Bilinen üst sıralar minimum fiyatın altında";
+      blockerCode = "BUYBOX_MIN_PRICE_LIMIT";
+    }
   }
 
   if (strategy === "Manuel" || strategy === "Sadece İzle") {
@@ -256,6 +299,7 @@ function proposePrice(product, settings = {}) {
     strategy,
     strategyFactor: factor,
     limitedBy,
+    blockerCode,
     confidence: parseNumber(settings.confidence_score, 0),
     expiresAt: new Date(Date.now() + 15 * 60000).toISOString(),
   };
@@ -329,9 +373,19 @@ function safetyCheck(context) {
     targetRank < rank &&
     proposed < current &&
     proposed >= minimum;
+  const delta = Math.abs(proposed - current);
+  const hasRealChange = delta >= parseNumber(global.platformMinChangeTl, 0.01);
+  const controlledProfitProbe =
+    proposal.limitedBy === "BUYBOX_KAR_YOKLAMASI" &&
+    proposed > current &&
+    targetRank === rank;
+  if (proposal.blockerCode) failures.push(proposal.blockerCode);
   if (
+    hasRealChange &&
+    !recovery &&
+    !controlledProfitProbe &&
     !buyboxAcquisitionAttempt &&
-    Math.abs(proposed - current) < parseNumber(global.minChangeTl, 5)
+    delta < parseNumber(global.minChangeTl, 5)
   )
     failures.push("CHANGE_TOO_SMALL");
   if (parseNumber(product.calculated_net_profit) < 0 && proposed < current)

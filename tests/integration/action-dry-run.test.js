@@ -28,7 +28,7 @@ function fixture(status = "APPROVED") {
     data_complete: true,
     commission_rate: 17,
     buybox_price: 950,
-    second_price: 949,
+    second_price: 944,
     third_price: 960,
     rank: 2,
     buybox_updated_at: new Date(),

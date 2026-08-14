@@ -62,9 +62,10 @@ test("dashboard missing mapping metriği gerçek mapping kaydını da kontrol ed
               missing_shipping: 0,
               loss_products: 0,
               below_minimum: 0,
+              buybox_single_seller: 0,
               buybox_owned: 0,
-              buybox_outside: 0,
               buybox_available: 0,
+              buybox_unavailable: 0,
               stale_buybox: 0,
               auto_update_enabled: 0,
               average_margin: 0,
@@ -111,9 +112,10 @@ test("dashboard maliyet aksiyon metrikleri pasif ve stoksuz ürünleri saymaz", 
               missing_shipping: 0,
               loss_products: 0,
               below_minimum: 0,
+              buybox_single_seller: 0,
               buybox_owned: 0,
-              buybox_outside: 0,
               buybox_available: 0,
+              buybox_unavailable: 0,
               stale_buybox: 0,
               auto_update_enabled: 0,
               average_margin: 0,
@@ -168,9 +170,10 @@ test("dashboard buybox metrikleri sadece satılabilir ürünleri sayar", async (
               missing_shipping: 0,
               loss_products: 0,
               below_minimum: 0,
+              buybox_single_seller: 0,
               buybox_owned: 0,
-              buybox_outside: 0,
               buybox_available: 0,
+              buybox_unavailable: 0,
               stale_buybox: 0,
               auto_update_enabled: 0,
               average_margin: 0,
@@ -189,16 +192,18 @@ test("dashboard buybox metrikleri sadece satılabilir ürünleri sayar", async (
   const kpiSql = queries.find((sql) =>
     sql.includes("COUNT(*)::int total_products"),
   );
-  assert.match(kpiSql, /is_active=TRUE AND stock_quantity>0 AND rank=1/);
+  assert.match(kpiSql, /has_multiple_seller,FALSE\)=FALSE/);
+  assert.match(kpiSql, /has_multiple_seller,TRUE\)=TRUE AND rank=1/);
   assert.match(
     kpiSql,
     /products\.min_price<=GREATEST\(products\.buybox_price-LEAST/,
   );
+  assert.match(kpiSql, /buybox_unavailable/);
   assert.match(kpiSql, /default_price_cut_tl/);
   assert.match(kpiSql, /learned_price_cut_tl/);
   assert.match(
     kpiSql,
-    /is_active=TRUE AND stock_quantity>0 AND \(buybox_updated_at IS NULL/,
+    /rank IS NULL OR buybox_price<=0 OR buybox_updated_at IS NULL/,
   );
 });
 
@@ -214,9 +219,52 @@ test("dashboard buybox alınabilir detayı aktif fiyat kırmayı hesaba katar", 
   await new DashboardRepository(db).metricDetails("buybox_available");
 
   assert.match(detailSql, /p\.min_price<=GREATEST\(p\.buybox_price-LEAST/);
+  assert.match(detailSql, /NOT \(p\.my_price<p\.buybox_price AND NOT/);
   assert.match(detailSql, /product_settings ps/);
   assert.match(detailSql, /default_price_cut_tl/);
   assert.match(detailSql, /learned_price_cut_tl/);
+});
+
+test("dashboard buybox güvenli alınamaz detayı alınabilir ile overlap etmez", async () => {
+  let detailSql = "";
+  const db = {
+    query: async (sql) => {
+      detailSql = sql;
+      return { rows: [] };
+    },
+  };
+
+  await new DashboardRepository(db).metricDetails("buybox_unavailable");
+
+  assert.match(
+    detailSql,
+    /NOT \(\s*COALESCE\(p\.has_multiple_seller,TRUE\)=TRUE/,
+  );
+  assert.match(detailSql, /buybox_reason_code/);
+  assert.match(detailSql, /RANK_PRICE_INCONSISTENT/);
+});
+
+test("dashboard tek satıcı metriği güvenli alınamaz sınıfından ayrıdır", async () => {
+  const detailQueries = [];
+  const db = {
+    query: async (sql) => {
+      detailQueries.push(sql);
+      return { rows: [] };
+    },
+  };
+  const repository = new DashboardRepository(db);
+
+  await repository.metricDetails("buybox_single_seller");
+  await repository.metricDetails("buybox_unavailable");
+
+  assert.match(
+    detailQueries[0],
+    /COALESCE\(p\.has_multiple_seller,FALSE\)=FALSE/,
+  );
+  assert.match(
+    detailQueries[1],
+    /COALESCE\(p\.has_multiple_seller,TRUE\)=TRUE/,
+  );
 });
 
 test("dashboard metrik detayları mapping kırılımı alanlarını döndürür", async () => {
@@ -234,6 +282,7 @@ test("dashboard metrik detayları mapping kırılımı alanlarını döndürür"
   assert.match(detailSql, /p\.is_active=TRUE AND p\.stock_quantity>0/);
   assert.match(detailSql, /calculated_product_cost/);
   assert.match(detailSql, /data_issue_label/);
+  assert.match(detailSql, /buybox_reason_code/);
 });
 
 test("dashboard eski buybox detayı pasif ve stoksuz ürünleri dışarıda bırakır", async () => {

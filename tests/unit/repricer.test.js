@@ -38,7 +38,7 @@ const settings = {
   auto_update: true,
 };
 test("fiyat yonu etiketi matematikle daima uyumludur", () => {
-  const down = proposePrice(base, settings);
+  const down = proposePrice({ ...base, second_price: base.my_price }, settings);
   assert.equal(down.proposedPrice, 939);
   assert.equal(down.action, "FIYAT_DUSUR");
   const up = proposePrice(
@@ -113,19 +113,20 @@ test("buybox fiyati ustte gorunse bile rank alinmadiysa mevcut fiyattan kirar", 
   const result = proposePrice(
     {
       ...base,
-      my_price: 831.07,
+      my_price: 769.95,
       min_price: 733.61,
-      buybox_price: 836.07,
-      second_price: 900,
-      third_price: 1742.5,
+      buybox_price: 794.43,
+      second_price: 849.99,
+      third_price: 1259.99,
       rank: 2,
     },
     { ...settings, price_cut_tl: 5 },
   );
-  assert.equal(result.targetRank, 1);
-  assert.equal(result.proposedPrice, 826.07);
-  assert.equal(result.action, "FIYAT_DUSUR");
-  assert.match(result.reason, /mevcut fiyattan kontrollü/);
+  assert.equal(result.targetRank, 2);
+  assert.equal(result.proposedPrice, 769.95);
+  assert.equal(result.action, "KORU");
+  assert.equal(result.blockerCode, "RANK_PRICE_INCONSISTENT");
+  assert.match(result.reason, /fiyatı mevcut fiyatla tutarsız/);
 });
 test("artis ve dusus tek turda guvenli adimlarla sinirlanir", () => {
   const increase = proposePrice(
@@ -297,7 +298,7 @@ test("buybox bizdeyken eski yuksek fiyat kirma degeri kar artisini engellemez", 
   assert.equal(proposal.action, "FIYAT_ARTIR");
   assert.equal(proposal.effectiveUndercut, 0.1);
 });
-test("buybox bizdeyken kucuk fiyat degisimi anlamli esige takilir", () => {
+test("buybox bizdeyken kontrollu kar yoklamasi anlamli esige takilmaz", () => {
   const product = {
     ...base,
     my_price: 492.89,
@@ -312,6 +313,7 @@ test("buybox bizdeyken kucuk fiyat degisimi anlamli esige takilir", () => {
     targetRank: 1,
     expectedProfit: 100,
     expectedMargin: 10,
+    limitedBy: "BUYBOX_KAR_YOKLAMASI",
   };
   const safety = safetyCheck({
     product,
@@ -326,7 +328,7 @@ test("buybox bizdeyken kucuk fiyat degisimi anlamli esige takilir", () => {
     proposal,
     today: { actionCount: 0, dayStartPrice: product.my_price },
   });
-  assert.ok(safety.failures.includes("CHANGE_TOO_SMALL"));
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
 });
 test("buybox disindayken hedef siraya kucuk fiyat kirma change too small engeline takilmaz", () => {
   const product = {
@@ -358,6 +360,209 @@ test("buybox disindayken hedef siraya kucuk fiyat kirma change too small engelin
     today: { actionCount: 0, dayStartPrice: product.my_price },
   });
   assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("KORU aksiyonu fiyat degisimi olmadigi icin change too small uretmez", () => {
+  const product = {
+    ...base,
+    my_price: 500,
+    min_price: 450,
+    buybox_price: 500,
+    rank: 1,
+  };
+  const proposal = {
+    ...proposePrice(product, { ...settings, strategy: "Manuel" }),
+    expectedProfit: 100,
+    expectedMargin: 10,
+  };
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 500 },
+  });
+  assert.equal(proposal.action, "KORU");
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("minimum fiyat toparlamasi kucuk olsa bile change too small ile engellenmez", () => {
+  const product = {
+    ...base,
+    my_price: 497,
+    min_price: 500,
+    buybox_price: 520,
+    rank: 2,
+  };
+  const proposal = proposePrice(product, settings);
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 497 },
+  });
+  assert.equal(proposal.action, "MIN_FIYATA_TOPARLA");
+  assert.equal(proposal.proposedPrice, 500);
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("5263747828182828 kontrollu kar yoklamasi uygulanabilir kalir", () => {
+  const product = {
+    ...base,
+    my_price: 485,
+    min_price: 446.33,
+    buybox_price: 485,
+    second_price: 500.4,
+    third_price: 551.08,
+    rank: 1,
+  };
+  const proposal = proposePrice(product, {
+    ...settings,
+    price_cut_tl: 5,
+    max_single_change_pct: (4 / 485) * 100,
+  });
+  assert.equal(proposal.proposedPrice, 489);
+  assert.equal(proposal.action, "FIYAT_ARTIR");
+  assert.equal(proposal.limitedBy, "BUYBOX_KAR_YOKLAMASI");
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 485 },
+  });
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("6248309297217 tutarsiz rank fiyati otomatik fiyat kirmayi engeller", () => {
+  const product = {
+    ...base,
+    my_price: 769.95,
+    min_price: 758.06,
+    buybox_price: 794.43,
+    second_price: 849.99,
+    third_price: 1259.99,
+    rank: 2,
+  };
+  const proposal = proposePrice(product, { ...settings, price_cut_tl: 75 });
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: product.my_price },
+  });
+  assert.equal(proposal.action, "KORU");
+  assert.equal(proposal.proposedPrice, 769.95);
+  assert.ok(safety.failures.includes("RANK_PRICE_INCONSISTENT"));
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("ogrenilmis kirma minimum altina tasarsa minimum fiyat fallback denenir", () => {
+  const product = {
+    ...base,
+    my_price: 271.08,
+    min_price: 266.9,
+    buybox_price: 275.08,
+    second_price: 271.08,
+    third_price: 0,
+    rank: 2,
+  };
+  const proposal = proposePrice(product, {
+    ...settings,
+    price_cut_tl: 5,
+    learned_price_cut_tl: 17,
+  });
+  assert.equal(proposal.action, "FIYAT_DUSUR");
+  assert.equal(proposal.proposedPrice, 266.9);
+  assert.equal(proposal.limitedBy, "BUYBOX_MIN_PRICE_FALLBACK");
+});
+
+test("buybox minimum fiyat altindaysa ekonomik limit nedeniyle korunur", () => {
+  const product = {
+    ...base,
+    my_price: 500,
+    min_price: 475,
+    buybox_price: 450,
+    second_price: 500,
+    third_price: 0,
+    rank: 2,
+  };
+  const proposal = proposePrice(product, { ...settings, price_cut_tl: 5 });
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 500 },
+  });
+  assert.equal(proposal.action, "KORU");
+  assert.equal(proposal.blockerCode, "BUYBOX_MIN_PRICE_LIMIT");
+  assert.ok(safety.failures.includes("BUYBOX_MIN_PRICE_LIMIT"));
+  assert.ok(!safety.failures.includes("CHANGE_TOO_SMALL"));
+});
+
+test("normal kucuk fiyat oynatma change too small kuralini korur", () => {
+  const product = {
+    ...base,
+    my_price: 500,
+    min_price: 450,
+    buybox_price: 520,
+    rank: 2,
+  };
+  const proposal = {
+    ...proposePrice(product, settings),
+    proposedPrice: 498,
+    targetRank: 2,
+    expectedProfit: 100,
+    expectedMargin: 10,
+    limitedBy: null,
+  };
+  const safety = safetyCheck({
+    product,
+    settings,
+    global: {
+      repricerEnabled: true,
+      dryRun: false,
+      buyboxMaxAgeMinutes: 20,
+      maxChangePct: 15,
+      minChangeTl: 5,
+    },
+    proposal,
+    today: { actionCount: 0, dayStartPrice: 500 },
+  });
+  assert.ok(safety.failures.includes("CHANGE_TOO_SMALL"));
 });
 test("auto update kapali urun safety gate gecemez", () => {
   const proposal = proposePrice(base, settings);
