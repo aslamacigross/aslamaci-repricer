@@ -333,6 +333,188 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
   await db.end();
 });
 
+test("Bizim import PDP provenance olmadan legacy tier silmez, verified sonuçla replace eder", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => value.length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+  await migrate("up", db, { compatibility: "pg-mem" });
+  const withTransaction = async (work) => {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  await db.query(
+    `INSERT INTO file_market_items(
+      source_key,product_name,normalized_name,brand,current_price,
+      supplier_code,availability,price_tiers,raw_data
+    )VALUES(
+      'bizim-web:tier-safe','Bizim Tier Ürünü',
+      'bizim tier urunu','Teno',44.90,'BIZIM_MARKET','AVAILABLE',
+      '[{"min_quantity":16,"unit_price":82,"label":"16+ adet"}]'::jsonb,
+      '{
+        "provider":"bizim-toptan-web",
+        "catalog_marker":"old",
+        "price_tiers":[{"min_quantity":16,"unit_price":82,"label":"16+ adet"}],
+        "price_tiers_source":"BIZIM_PRODUCT_DETAIL",
+        "price_tiers_verified":true,
+        "price_tiers_verified_at":"2026-08-09T00:00:00.000Z",
+        "product_detail_url":"https://example.test/old-detail",
+        "product_detail_badges":["16 Adet üzeri 82 TL"],
+        "package_prices":[{"package_quantity":16,"unit_price":82,"package_total_price":1312}]
+      }'::jsonb
+    )`,
+  );
+
+  const service = new MappingAutomationService({
+    repository: new MappingAutomationRepository(db, withTransaction),
+    costs: new CostRepository(db, withTransaction),
+    costEngine: {
+      recalculate: async () => ({ processed: 1 }),
+    },
+  });
+  const row = (raw_data, price_tiers, current_price = 45.9) => ({
+    source_key: "bizim-web:tier-safe",
+    product_name: "Bizim Tier Ürünü",
+    normalized_name: "bizim tier urunu",
+    brand: "Teno",
+    current_price,
+    currency: "TRY",
+    availability: "AVAILABLE",
+    raw_data,
+    observed_at: "2026-08-10T00:00:00.000Z",
+    price_tiers,
+  });
+
+  await service.importSupplierItems("BIZIM_MARKET", [
+    row(
+      {
+        provider: "bizim-toptan-web",
+        catalog_marker: "new",
+        category: "Temel Gıda",
+        price_tiers: [],
+      },
+      [],
+    ),
+  ]);
+  let stored = await db.query(
+    "SELECT current_price,price_tiers,raw_data FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.equal(Number(stored.rows[0].current_price), 45.9);
+  assert.equal(Number(stored.rows[0].price_tiers[0].unit_price), 82);
+  assert.equal(stored.rows[0].raw_data.catalog_marker, "new");
+  assert.equal(stored.rows[0].raw_data.category, "Temel Gıda");
+  assert.equal(
+    stored.rows[0].raw_data.price_tiers_source,
+    "BIZIM_PRODUCT_DETAIL",
+  );
+  assert.equal(stored.rows[0].raw_data.price_tiers_verified, true);
+  assert.equal(
+    stored.rows[0].raw_data.price_tiers_verified_at,
+    "2026-08-09T00:00:00.000Z",
+  );
+  assert.equal(
+    stored.rows[0].raw_data.product_detail_url,
+    "https://example.test/old-detail",
+  );
+  assert.deepEqual(stored.rows[0].raw_data.product_detail_badges, [
+    "16 Adet üzeri 82 TL",
+  ]);
+  assert.equal(Number(stored.rows[0].raw_data.package_prices[0].unit_price), 82);
+
+  await service.importSupplierItems("BIZIM_MARKET", [
+    row(
+      {
+        provider: "bizim-toptan-web",
+        catalog_marker: "failure-kept",
+        category: "Temel Gıda",
+      },
+      [],
+    ),
+  ]);
+  stored = await db.query(
+    "SELECT price_tiers,raw_data FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.equal(Number(stored.rows[0].price_tiers[0].unit_price), 82);
+  assert.equal(stored.rows[0].raw_data.catalog_marker, "failure-kept");
+  assert.equal(
+    stored.rows[0].raw_data.price_tiers_verified_at,
+    "2026-08-09T00:00:00.000Z",
+  );
+
+  await service.importSupplierItems("BIZIM_MARKET", [
+    row(
+      {
+        price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+        price_tiers_verified: true,
+        price_tiers_verified_at: "2026-08-10T00:00:00.000Z",
+        product_detail_url: "https://example.test/today-detail",
+        product_detail_badges: ["16 Adet üzeri 79 TL"],
+        package_prices: [
+          { package_quantity: 16, unit_price: 79, package_total_price: 1264 },
+        ],
+      },
+      [{ min_quantity: 16, unit_price: 79, label: "16+ adet" }],
+    ),
+  ]);
+  stored = await db.query(
+    "SELECT price_tiers,raw_data FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.equal(Number(stored.rows[0].price_tiers[0].unit_price), 79);
+  assert.equal(
+    stored.rows[0].raw_data.price_tiers_verified_at,
+    "2026-08-10T00:00:00.000Z",
+  );
+  assert.equal(
+    stored.rows[0].raw_data.product_detail_url,
+    "https://example.test/today-detail",
+  );
+  assert.equal(Number(stored.rows[0].raw_data.package_prices[0].unit_price), 79);
+
+  await service.importSupplierItems("BIZIM_MARKET", [
+    row(
+      {
+        price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+        price_tiers_verified: true,
+        price_tiers_verified_at: "2026-08-11T00:00:00.000Z",
+        product_detail_url: "https://example.test/no-tier-detail",
+        product_detail_badges: [],
+        package_prices: [],
+      },
+      [],
+    ),
+  ]);
+  stored = await db.query(
+    "SELECT price_tiers,raw_data FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.deepEqual(stored.rows[0].price_tiers, []);
+  assert.deepEqual(stored.rows[0].raw_data.product_detail_badges, []);
+  assert.deepEqual(stored.rows[0].raw_data.package_prices, []);
+  assert.equal(
+    stored.rows[0].raw_data.price_tiers_verified_at,
+    "2026-08-11T00:00:00.000Z",
+  );
+
+  await db.end();
+});
+
 test("stok durumu olmayan tedarikçi ürünü fiyatı varsa mapping aday havuzuna girer", async () => {
   const memory = newDb({
     autoCreateForeignKeyIndices: true,

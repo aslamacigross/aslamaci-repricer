@@ -42,6 +42,63 @@ function jsonEqual(left, right) {
   return JSON.stringify(left || null) === JSON.stringify(right || null);
 }
 
+function jsonArrayValue(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isVerifiedBizimProductDetailTiers(supplierCode, rawData) {
+  return (
+    supplierCode === "BIZIM_MARKET" &&
+    rawData &&
+    typeof rawData === "object" &&
+    rawData.price_tiers_source === "BIZIM_PRODUCT_DETAIL" &&
+    rawData.price_tiers_verified === true
+  );
+}
+
+function mergedSupplierRawData(supplierCode, previousRawData, incomingRawData) {
+  const incoming =
+    incomingRawData && typeof incomingRawData === "object"
+      ? incomingRawData
+      : {};
+  if (
+    supplierCode !== "BIZIM_MARKET" ||
+    isVerifiedBizimProductDetailTiers(supplierCode, incoming)
+  )
+    return incoming;
+  const previous =
+    previousRawData && typeof previousRawData === "object"
+      ? previousRawData
+      : {};
+  const merged = { ...previous, ...incoming };
+  for (const key of [
+    "price_tiers",
+    "price_tiers_source",
+    "price_tiers_verified",
+    "price_tiers_verified_at",
+    "product_detail_url",
+    "product_detail_badges",
+    "package_prices",
+  ])
+    if (Object.prototype.hasOwnProperty.call(previous, key))
+      merged[key] = previous[key];
+  return merged;
+}
+
+function supplierPriceTiersForImport(supplierCode, previous, row) {
+  if (supplierCode !== "BIZIM_MARKET") return row.price_tiers || [];
+  if (isVerifiedBizimProductDetailTiers(supplierCode, row.raw_data))
+    return row.price_tiers || [];
+  return previous ? jsonArrayValue(previous.price_tiers) : row.price_tiers || [];
+}
+
 async function canonicalSupplierItemIds(client, item) {
   const normalizedName = String(item?.normalized_name || "").trim();
   const supplierCode = String(item?.supplier_code || "").trim();
@@ -56,6 +113,57 @@ async function canonicalSupplierItemIds(client, item) {
   ).rows;
   const ids = rows.map((row) => Number(row.id)).filter(Boolean);
   return ids.length ? ids : [item.id];
+}
+
+async function approvedSupplierLinkKeys(client, supplierCode, rows) {
+  const normalizedNames = [
+    ...new Set(
+      rows
+        .map((row) => String(row.normalized_name || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const sourceKeys = [
+    ...new Set(
+      rows.map((row) => String(row.source_key || "").trim()).filter(Boolean),
+    ),
+  ];
+  if (!normalizedNames.length && !sourceKeys.length)
+    return { normalizedNames: new Set(), sourceKeys: new Set() };
+  const params = [supplierCode, ...normalizedNames, ...sourceKeys];
+  const normalizedPlaceholders = normalizedNames
+    .map((_, index) => `$${index + 2}`)
+    .join(",");
+  const sourceKeyOffset = normalizedNames.length + 2;
+  const sourceKeyPlaceholders = sourceKeys
+    .map((_, index) => `$${index + sourceKeyOffset}`)
+    .join(",");
+  const predicates = [];
+  if (normalizedPlaceholders)
+    predicates.push(`f.normalized_name IN (${normalizedPlaceholders})`);
+  if (sourceKeyPlaceholders)
+    predicates.push(`f.source_key IN (${sourceKeyPlaceholders})`);
+  const result = await client.query(
+    `SELECT DISTINCT f.normalized_name,f.source_key
+     FROM file_market_items f
+     JOIN cost_item_file_links l
+       ON l.file_market_item_id=f.id AND l.status='APPROVED'
+     WHERE f.supplier_code=$1
+       AND (${predicates.join(" OR ")})`,
+    params,
+  );
+  return {
+    normalizedNames: new Set(
+      result.rows
+        .map((row) => String(row.normalized_name || "").trim())
+        .filter(Boolean),
+    ),
+    sourceKeys: new Set(
+      result.rows
+        .map((row) => String(row.source_key || "").trim())
+        .filter(Boolean),
+    ),
+  };
 }
 
 class MappingAutomationRepository {
@@ -73,6 +181,11 @@ class MappingAutomationRepository {
       let created = 0;
       let changed = 0;
       let costCodesUpdated = 0;
+      const approvedLinkKeys = await approvedSupplierLinkKeys(
+        client,
+        supplierCode,
+        rows,
+      );
       const affectedProducts = new Map();
       const items = [];
       for (const row of rows) {
@@ -98,6 +211,16 @@ class MappingAutomationRepository {
           previous &&
           effectivePriceType(previous.raw_data) !==
             effectivePriceType(row.raw_data);
+        const rawData = mergedSupplierRawData(
+          supplierCode,
+          previous?.raw_data,
+          row.raw_data,
+        );
+        const priceTiers = supplierPriceTiersForImport(
+          supplierCode,
+          previous,
+          row,
+        );
         const item = (
           await client.query(
             `INSERT INTO file_market_items(
@@ -125,12 +248,7 @@ class MappingAutomationRepository {
               source_category=EXCLUDED.source_category,
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
               desi_confidence=EXCLUDED.desi_confidence,
-              price_tiers=CASE
-                WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
-                  AND EXCLUDED.price_tiers='[]'::jsonb
-                  AND file_market_items.price_tiers<>'[]'::jsonb
-                THEN file_market_items.price_tiers
-                ELSE EXCLUDED.price_tiers END,
+              price_tiers=EXCLUDED.price_tiers,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
                 WHEN file_market_items.current_price<>EXCLUDED.current_price
@@ -148,7 +266,7 @@ class MappingAutomationRepository {
               row.current_price,
               row.currency,
               row.availability,
-              row.raw_data,
+              rawData,
               row.observed_at,
               previous
                 ? priceChanged
@@ -160,10 +278,16 @@ class MappingAutomationRepository {
               row.source_category || null,
               row.estimated_unit_desi || null,
               row.desi_confidence || "LOW",
-              JSON.stringify(row.price_tiers || []),
+              JSON.stringify(priceTiers),
             ],
           )
         ).rows[0];
+        item.price_tiers = isVerifiedBizimProductDetailTiers(
+          supplierCode,
+          row.raw_data,
+        )
+          ? row.price_tiers || []
+          : jsonArrayValue(item.price_tiers);
         if (
           !previous ||
           priceChanged ||
@@ -178,6 +302,15 @@ class MappingAutomationRepository {
           );
         if (!previous) created++;
         if (priceChanged) changed++;
+        const hasApprovedLink =
+          approvedLinkKeys.normalizedNames.has(
+            String(item.normalized_name || "").trim(),
+          ) ||
+          approvedLinkKeys.sourceKeys.has(String(item.source_key || "").trim());
+        if (!hasApprovedLink) {
+          items.push(item);
+          continue;
+        }
         const canonicalIds = await canonicalSupplierItemIds(client, item);
         const canonicalPlaceholders = canonicalIds
           .map((_, index) => `$${index + 1}`)
@@ -219,7 +352,7 @@ class MappingAutomationRepository {
           } else {
             await client.query(
               `UPDATE cost_items SET price_source=$2,source_checked_at=$3,
-                 updated_at=CASE WHEN source_checked_at IS DISTINCT FROM $3
+                 updated_at=CASE WHEN source_checked_at IS NULL OR source_checked_at<>$3
                    THEN NOW() ELSE updated_at END
                WHERE item_code=$1`,
               [costCode, supplierCode, row.observed_at],
@@ -314,6 +447,23 @@ class MappingAutomationRepository {
 
   async importFileItems(rows) {
     return this.importSupplierItems("FILE_MARKET", rows);
+  }
+
+  async bizimPriceTierVerificationItems() {
+    return (
+      await this.db.query(
+        `SELECT source_key,product_name,normalized_name,brand,size_value,size_unit,
+                current_price,currency,availability,raw_data,last_seen_at AS observed_at,
+                supplier_code,source_url,source_category,estimated_unit_desi,
+                desi_confidence,price_tiers
+         FROM file_market_items
+         WHERE supplier_code='BIZIM_MARKET'
+           AND availability='AVAILABLE'
+           AND source_url IS NOT NULL
+           AND source_url<>''
+         ORDER BY last_seen_at DESC NULLS LAST,product_name`,
+      )
+    ).rows;
   }
 
   async updateSupplierItemPricing(supplierCode, id, input = {}) {

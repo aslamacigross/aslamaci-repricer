@@ -106,6 +106,39 @@ test("BİM canlı katalog kategori sonuçlarını tekilleştirir", async () => {
   assert.equal(result.stats.duplicates, 1);
 });
 
+test("BİM kargoya uygun olmayan kategorilere GraphQL request atmaz", async () => {
+  const calls = [];
+  const service = new BimMarketService({
+    apiUrl: "https://api.test/graphql",
+    categories: [
+      { id: "fruit", name: "Meyve & Sebze" },
+      { id: "meat", name: "Et, Tavuk & Şarküteri" },
+      { id: "icecream", name: "Dondurma" },
+      { id: "bakery", name: "Fırından" },
+      { id: "food", name: "Temel Gıda" },
+      { id: "home", name: "Ev Bakım" },
+    ],
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body.variables.categoryId);
+      return graphqlResponse(body.variables.categoryId);
+    },
+  });
+
+  const result = await service.livePriceRows();
+
+  assert.deepEqual(calls.sort(), ["food", "home"]);
+  assert.equal(result.fullSnapshot, true);
+  assert.equal(result.stats.categoriesRequested, 2);
+  assert.equal(result.stats.categoriesSkipped, 4);
+  assert.deepEqual(result.stats.excludedCategories, [
+    "Meyve & Sebze",
+    "Et, Tavuk & Şarküteri",
+    "Dondurma",
+    "Fırından",
+  ]);
+});
+
 test("BİM canlı katalog tek kategori hatasında çalışan kategorileri korur", async () => {
   const service = new BimMarketService({
     apiUrl: "https://api.test/graphql",
@@ -136,6 +169,27 @@ test("BİM canlı katalog tek kategori hatasında çalışan kategorileri korur"
     result.stats.failedCategories[0].category,
     "Geçici Bozuk Kategori",
   );
+});
+
+test("BİM excluded kategori failures listesine girmez", async () => {
+  const service = new BimMarketService({
+    apiUrl: "https://api.test/graphql",
+    categories: [
+      { id: "icecream", name: "Dondurma" },
+      { id: "food", name: "Temel Gıda" },
+    ],
+    retries: 0,
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      assert.equal(body.variables.categoryId, "food");
+      return graphqlResponse("food");
+    },
+  });
+
+  const result = await service.livePriceRows();
+
+  assert.equal(result.fullSnapshot, true);
+  assert.deepEqual(result.stats.failedCategories, []);
 });
 
 test("BİM canlı katalog eksik ürün cevabında mevcut havuzu değiştirmeden hata verir", async () => {

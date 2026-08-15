@@ -1,11 +1,12 @@
 const { estimatePackageDesi } = require("../domain/supplier-products");
+const {
+  isShippingExcludedCategory,
+} = require("../domain/shipping-exclusions");
 
 const BIM_API_URL = "https://tr.fd-api.com/api/v5/graphql";
 const BIM_VENDOR_ID = "fu9o";
 const BIM_GLOBAL_ENTITY_ID = "YS_TR";
 const BIM_LOCALE = "tr_TR";
-const BIM_EXCLUDED_CATEGORY_PATTERN = /dondur/i;
-
 const BIM_CATEGORY_DEFINITIONS = Object.freeze([
   {
     id: "61e2c593-865c-4688-bb2b-9b98a4420eb1",
@@ -190,10 +191,10 @@ class BimMarketService {
     this.locale = locale;
     const categoryList = [...categories];
     this.excludedCategories = categoryList.filter((category) =>
-      BIM_EXCLUDED_CATEGORY_PATTERN.test(category.name),
+      isShippingExcludedCategory(category.name),
     );
     this.categories = categoryList.filter(
-      (category) => !BIM_EXCLUDED_CATEGORY_PATTERN.test(category.name),
+      (category) => !isShippingExcludedCategory(category.name),
     );
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
