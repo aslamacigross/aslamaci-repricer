@@ -1,5 +1,6 @@
 const { isSupplierPriceFresh } = require("../domain/file-market");
 const {
+  SUPPLIER_CODES,
   estimatePackageDesi,
   priceTierForQuantity,
   supplier,
@@ -791,10 +792,12 @@ class MappingAutomationRepository {
   }
 
   async fileItemsForMatching(supplierCode = null) {
-    const params = [];
-    const supplierFilter = supplierCode
-      ? `AND supplier_code=$${params.push(supplierCode)}`
-      : "";
+    const perSupplierLimit = 10000;
+    const supplierCodes = supplierCode ? [supplierCode] : SUPPLIER_CODES;
+    const supplierFilter = supplierCode ? "AND supplier_code=$1" : "";
+    const params = supplierCode
+      ? [supplierCode, perSupplierLimit]
+      : [perSupplierLimit * supplierCodes.length];
     const rows = (
       await this.db.query(
         `SELECT *
@@ -803,15 +806,20 @@ class MappingAutomationRepository {
            AND normalized_name<>''
            ${supplierFilter}
          ORDER BY supplier_code,normalized_name,last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
-         LIMIT 10000`,
+         LIMIT $${params.length}`,
         params,
       )
     ).rows;
     const unique = new Map();
+    const supplierCounts = new Map();
     for (const row of rows) {
-      const key = `${row.supplier_code || ""}:${row.normalized_name || ""}`;
-      if (!unique.has(key)) unique.set(key, row);
-      if (unique.size >= 5000) break;
+      const code = row.supplier_code || "";
+      const key = `${code}:${row.normalized_name || ""}`;
+      if (unique.has(key)) continue;
+      const count = supplierCounts.get(code) || 0;
+      if (count >= perSupplierLimit) continue;
+      unique.set(key, row);
+      supplierCounts.set(code, count + 1);
     }
     return [...unique.values()];
   }

@@ -108,7 +108,46 @@ test("mapping aday havuzu aynı tedarikçi ürününden en güncel duplicate kay
     calls[0].sql,
     /ORDER BY supplier_code,normalized_name,last_seen_at DESC/,
   );
-  assert.deepEqual(calls[0].params, ["FILE_MARKET"]);
+  assert.deepEqual(calls[0].params, ["FILE_MARKET", 10000]);
+});
+
+test("mapping aday havuzu supplier bazlı limitlenir ve Rossmann büyük katalogda kesilmez", async () => {
+  const rows = [];
+  for (let index = 0; index < 6000; index++)
+    rows.push({
+      id: index + 1,
+      supplier_code: "BIM",
+      normalized_name: `bim urun ${index}`,
+      product_name: `BİM Ürün ${index}`,
+    });
+  rows.push({
+    id: 7001,
+    supplier_code: "ROSSMANN",
+    normalized_name: "edenland musk latte edp 50 ml",
+    product_name: "Edenland Musk Latte EDP 50 ml",
+  });
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      return { rows };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const items = await repo.fileItemsForMatching();
+
+  assert.equal(items.length, 6001);
+  assert.ok(
+    items.some(
+      (item) =>
+        item.supplier_code === "ROSSMANN" &&
+        item.product_name === "Edenland Musk Latte EDP 50 ml",
+    ),
+  );
+  assert.deepEqual(calls[0].params, [50000]);
 });
 
 test("tedarikçi havuzu normal listede merge edilmiş eski duplicate kayıtları gizler", async () => {

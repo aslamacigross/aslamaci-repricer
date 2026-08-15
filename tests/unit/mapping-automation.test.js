@@ -1736,6 +1736,61 @@ test("ret notundaki çoklu doğru reçeteyi File destekli mapping önerisine çe
   assert.equal(saved[0].evidence.explicitFeedbackRecipe, true);
 });
 
+test("Rossmann parfüm ret notu BİM/File yerine doğru Rossmann ürününü seçer", async () => {
+  const { service, saved } = fixture({
+    trainingRows: async () => [],
+    costItemsForMatching: async () => [],
+    rejectedFeedbackHints: async () => [
+      {
+        barcode: "EDENLAND-MUSK-LATTE-TY",
+        reason: "DOĞRU: Edenland Musk Latte 50 ml - 499₺",
+        created_at: "2026-08-15T12:00:00.000Z",
+      },
+    ],
+    targetProducts: async () => [
+      {
+        barcode: "EDENLAND-MUSK-LATTE-TY",
+        product_name: "Edenland Musk Latte Parfüm 50 ml",
+        brand: "Edenland",
+        category_id: "parfum",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 801,
+        product_name: "BİM Dost Taze Peynir 500 g",
+        normalized_name: "bim dost taze peynir 500 g",
+        brand: "Dost",
+        current_price: 89,
+        supplier_code: "BIM",
+      },
+      {
+        id: 802,
+        product_name: "Edenland Musk Latte EDP 50 ml",
+        normalized_name: "edenland musk latte edp 50 ml",
+        brand: "Edenland",
+        current_price: 499,
+        supplier_code: "ROSSMANN",
+        raw_data: { effective_price_type: "ROSSMANN_CARD" },
+      },
+    ],
+  });
+
+  const result = await service.generate({ limit: 100 });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].supplier_code, "ROSSMANN");
+  assert.equal(saved[0].items[0].supplier_code, "ROSSMANN");
+  assert.equal(
+    saved[0].items[0].file_product_name,
+    "Edenland Musk Latte EDP 50 ml",
+  );
+  assert.equal(saved[0].items[0].suggested_unit_cost, 499);
+  assert.equal(saved[0].source_type, "FEEDBACK_EXPLICIT_FILE_RECIPE");
+});
+
 test("virgülle yazılan çoklu ret notundan varyant kahve reçetesi üretir", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],
