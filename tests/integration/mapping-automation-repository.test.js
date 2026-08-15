@@ -333,6 +333,103 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
   await db.end();
 });
 
+test("Bizim import PDP provenance olmadan legacy tier silmez, verified sonuçla replace eder", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => value.length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+  await migrate("up", db, { compatibility: "pg-mem" });
+  const withTransaction = async (work) => {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  await db.query(
+    `INSERT INTO file_market_items(
+      source_key,product_name,normalized_name,brand,current_price,
+      supplier_code,availability,price_tiers,raw_data
+    )VALUES(
+      'bizim-web:tier-safe','Bizim Tier Ürünü',
+      'bizim tier urunu','Teno',100,'BIZIM_MARKET','AVAILABLE',
+      '[{"min_quantity":16,"unit_price":82,"label":"16+ adet"}]'::jsonb,
+      '{}'::jsonb
+    )`,
+  );
+
+  const service = new MappingAutomationService({
+    repository: new MappingAutomationRepository(db, withTransaction),
+    costs: new CostRepository(db, withTransaction),
+    costEngine: {
+      recalculate: async () => ({ processed: 1 }),
+    },
+  });
+  const row = (raw_data, price_tiers) => ({
+    source_key: "bizim-web:tier-safe",
+    product_name: "Bizim Tier Ürünü",
+    normalized_name: "bizim tier urunu",
+    brand: "Teno",
+    current_price: 100,
+    currency: "TRY",
+    availability: "AVAILABLE",
+    raw_data,
+    observed_at: "2026-08-10T00:00:00.000Z",
+    price_tiers,
+  });
+
+  await service.importSupplierItems("BIZIM_MARKET", [row({}, [])]);
+  let stored = await db.query(
+    "SELECT price_tiers FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.equal(Number(stored.rows[0].price_tiers[0].unit_price), 82);
+
+  await service.importSupplierItems("BIZIM_MARKET", [
+    row(
+      {
+        price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+        price_tiers_verified: true,
+      },
+      [],
+    ),
+  ]);
+  stored = await db.query(
+    "SELECT price_tiers FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.deepEqual(stored.rows[0].price_tiers, []);
+
+  await service.importSupplierItems("BIZIM_MARKET", [
+    row(
+      {
+        price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+        price_tiers_verified: true,
+      },
+      [{ min_quantity: 16, unit_price: 79, label: "16+ adet" }],
+    ),
+  ]);
+  stored = await db.query(
+    "SELECT price_tiers FROM file_market_items WHERE source_key='bizim-web:tier-safe'",
+  );
+  assert.equal(Number(stored.rows[0].price_tiers[0].unit_price), 79);
+
+  await db.end();
+});
+
 test("stok durumu olmayan tedarikçi ürünü fiyatı varsa mapping aday havuzuna girer", async () => {
   const memory = newDb({
     autoCreateForeignKeyIndices: true,

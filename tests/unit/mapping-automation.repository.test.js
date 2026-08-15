@@ -212,7 +212,7 @@ test("duplicate tedarikçi grubu eski linkleri kanonik kayda taşır ve eski kay
   assert.deepEqual(itemUpdate.params, [9, [4, 2]]);
 });
 
-test("Bizim canlı import verified boş çoklu fiyatla legacy kademeleri temizler", async () => {
+test("Bizim canlı import price tier replace işlemini PDP provenance ile sınırlar", async () => {
   const calls = [];
   const db = {
     query: async (sql, params = []) => {
@@ -254,7 +254,10 @@ test("Bizim canlı import verified boş çoklu fiyatla legacy kademeleri temizle
         current_price: 16.9,
         currency: "TRY",
         availability: "AVAILABLE",
-        raw_data: {},
+        raw_data: {
+          price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+          price_tiers_verified: true,
+        },
         observed_at: "2026-08-01T00:00:00.000Z",
         price_tiers: [],
       },
@@ -265,9 +268,286 @@ test("Bizim canlı import verified boş çoklu fiyatla legacy kademeleri temizle
   const upsert = calls.find((call) =>
     String(call.sql).includes("ON CONFLICT(source_key)DO UPDATE"),
   );
-  assert.match(upsert.sql, /price_tiers=EXCLUDED\.price_tiers/);
-  assert.doesNotMatch(upsert.sql, /THEN file_market_items\.price_tiers/);
+  assert.match(upsert.sql, /price_tiers=CASE/);
+  assert.match(
+    upsert.sql,
+    /EXCLUDED\.raw_data->>'price_tiers_source'='BIZIM_PRODUCT_DETAIL'/,
+  );
+  assert.match(
+    upsert.sql,
+    /EXCLUDED\.raw_data->>'price_tiers_verified'='true'/,
+  );
+  assert.match(upsert.sql, /THEN EXCLUDED\.price_tiers/);
+  assert.match(upsert.sql, /THEN file_market_items\.price_tiers/);
   assert.doesNotMatch(upsert.sql, /supplier_code=EXCLUDED\.supplier_code/);
+});
+
+test("File import link olmayan satırlarda canonical ve cost lookup yapmaz", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT DISTINCT f.normalized_name,f.source_key"))
+        return { rows: [] };
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return { rows: [] };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 10,
+              source_key: "file-api:10",
+              supplier_code: "FILE_MARKET",
+              normalized_name: "baglantisiz urun",
+              current_price: 25,
+              availability: "AVAILABLE",
+              price_tiers: [],
+            },
+          ],
+        };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.importSupplierItems("FILE_MARKET", [
+    {
+      source_key: "file-api:10",
+      product_name: "Bağlantısız Ürün",
+      normalized_name: "baglantisiz urun",
+      brand: "",
+      current_price: 25,
+      currency: "TRY",
+      availability: "AVAILABLE",
+      raw_data: {},
+      observed_at: "2026-08-01T00:00:00.000Z",
+      price_tiers: [],
+    },
+  ]);
+
+  assert.equal(result.processed, 1);
+  assert.equal(result.costCodesUpdated, 0);
+  assert.equal(
+    calls.some(
+      (call) =>
+        String(call.sql).includes("SELECT id FROM file_market_items") &&
+        String(call.sql).includes("normalized_name=$2"),
+    ),
+    false,
+  );
+  assert.equal(
+    calls.some((call) =>
+      String(call.sql).includes("LEFT JOIN product_cost_mappings"),
+    ),
+    false,
+  );
+});
+
+test("File import canonical duplicate grubunda link varsa cost lookup korunur", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT DISTINCT f.normalized_name,f.source_key"))
+        return {
+          rows: [
+            {
+              normalized_name: "harras kurabiye",
+              source_key: "file-api:old",
+            },
+          ],
+        };
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return { rows: [] };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 12,
+              source_key: "file-api:new",
+              supplier_code: "FILE_MARKET",
+              normalized_name: "harras kurabiye",
+              current_price: 120,
+              availability: "AVAILABLE",
+              price_tiers: [],
+            },
+          ],
+        };
+      if (
+        String(sql).includes("SELECT id FROM file_market_items") &&
+        String(sql).includes("normalized_name=$2")
+      )
+        return { rows: [{ id: 12 }, { id: 7 }] };
+      if (
+        String(sql).includes("FROM cost_item_file_links l") &&
+        String(sql).includes("LEFT JOIN product_cost_mappings")
+      )
+        return {
+          rows: [
+            {
+              cost_item_code: "HARRAS_KURABIYE",
+              unit_cost: 110,
+              marketplace: "TRENDYOL",
+              barcode: "KURABIYE-1",
+              quantity: 1,
+              effective_unit_cost: null,
+              supplier_price_tier: null,
+            },
+          ],
+        };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.importSupplierItems("FILE_MARKET", [
+    {
+      source_key: "file-api:new",
+      product_name: "Harras Kurabiye",
+      normalized_name: "harras kurabiye",
+      brand: "Harras",
+      current_price: 120,
+      currency: "TRY",
+      availability: "AVAILABLE",
+      raw_data: {},
+      observed_at: "2026-08-01T00:00:00.000Z",
+      price_tiers: [],
+    },
+  ]);
+
+  const canonicalLookup = calls.find(
+    (call) =>
+      String(call.sql).includes("SELECT id FROM file_market_items") &&
+      String(call.sql).includes("normalized_name=$2"),
+  );
+  assert.deepEqual(canonicalLookup.params, [
+    "FILE_MARKET",
+    "harras kurabiye",
+  ]);
+  assert.deepEqual(result.affectedBarcodes, [
+    { marketplace: "TRENDYOL", barcode: "KURABIYE-1" },
+  ]);
+  assert.equal(result.costCodesUpdated, 1);
+});
+
+test("Bizim verified PDP tier değişimi linked quantity mapping maliyetini günceller", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT DISTINCT f.normalized_name,f.source_key"))
+        return {
+          rows: [
+            {
+              normalized_name: "bizim tier urunu",
+              source_key: "bizim-web:tier-safe",
+            },
+          ],
+        };
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return {
+          rows: [
+            {
+              id: 31,
+              source_key: "bizim-web:tier-safe",
+              supplier_code: "BIZIM_MARKET",
+              normalized_name: "bizim tier urunu",
+              current_price: 100,
+              availability: "AVAILABLE",
+              price_tiers: [
+                { min_quantity: 16, unit_price: 82, label: "16+ adet" },
+              ],
+            },
+          ],
+        };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 31,
+              source_key: "bizim-web:tier-safe",
+              supplier_code: "BIZIM_MARKET",
+              normalized_name: "bizim tier urunu",
+              current_price: 100,
+              availability: "AVAILABLE",
+              price_tiers: [
+                { min_quantity: 16, unit_price: 79, label: "16+ adet" },
+              ],
+            },
+          ],
+        };
+      if (
+        String(sql).includes("SELECT id FROM file_market_items") &&
+        String(sql).includes("normalized_name=$2")
+      )
+        return { rows: [{ id: 31 }] };
+      if (
+        String(sql).includes("FROM cost_item_file_links l") &&
+        String(sql).includes("LEFT JOIN product_cost_mappings")
+      )
+        return {
+          rows: [
+            {
+              cost_item_code: "BIZIM_TIER_ITEM",
+              unit_cost: 100,
+              marketplace: "TRENDYOL",
+              barcode: "BIZIM-TIER-16",
+              quantity: 16,
+              effective_unit_cost: 82,
+              supplier_price_tier: {
+                min_quantity: 16,
+                unit_price: 82,
+                label: "16+ adet",
+              },
+            },
+          ],
+        };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.importSupplierItems("BIZIM_MARKET", [
+    {
+      source_key: "bizim-web:tier-safe",
+      product_name: "Bizim Tier Ürünü",
+      normalized_name: "bizim tier urunu",
+      brand: "Teno",
+      current_price: 100,
+      currency: "TRY",
+      availability: "AVAILABLE",
+      raw_data: {
+        price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+        price_tiers_verified: true,
+      },
+      observed_at: "2026-08-01T00:00:00.000Z",
+      price_tiers: [{ min_quantity: 16, unit_price: 79, label: "16+ adet" }],
+    },
+  ]);
+
+  const mappingUpdate = calls.find((call) =>
+    String(call.sql).includes("UPDATE product_cost_mappings SET"),
+  );
+  assert.deepEqual(mappingUpdate.params.slice(0, 4), [
+    "TRENDYOL",
+    "BIZIM-TIER-16",
+    "BIZIM_TIER_ITEM",
+    79,
+  ]);
+  assert.deepEqual(JSON.parse(mappingUpdate.params[4]), {
+    min_quantity: 16,
+    unit_price: 79,
+    label: "16+ adet",
+  });
+  assert.deepEqual(result.affectedBarcodes, [
+    { marketplace: "TRENDYOL", barcode: "BIZIM-TIER-16" },
+  ]);
 });
 
 test("tedarikçi importu aynı kaynak anahtarını başka havuza taşımaz", async () => {
@@ -315,6 +595,15 @@ test("tedarikçi importu değişmeyen observation için history yazmaz", async (
   const db = {
     query: async (sql, params = []) => {
       calls.push({ sql, params });
+      if (String(sql).includes("SELECT DISTINCT f.normalized_name,f.source_key"))
+        return {
+          rows: [
+            {
+              normalized_name: "domol mendil",
+              source_key: "rossmann-api:44",
+            },
+          ],
+        };
       if (String(sql).includes("SELECT * FROM file_market_items"))
         return {
           rows: [
@@ -488,7 +777,10 @@ test("tedarikçi importu değişmeyen linked ürün için recalculation adayı �
         String(sql).includes("normalized_name=$2")
       )
         return { rows: [{ id: 44 }] };
-      if (String(sql).includes("FROM cost_item_file_links l"))
+      if (
+        String(sql).includes("FROM cost_item_file_links l") &&
+        String(sql).includes("LEFT JOIN product_cost_mappings")
+      )
         return {
           rows: [
             {
