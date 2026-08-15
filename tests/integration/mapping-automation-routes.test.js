@@ -95,6 +95,7 @@ function appFixture(overrides = {}) {
       fileMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       bizimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       bimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
+      rossmannMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       audit: { record: async () => {} },
     }),
   );
@@ -119,7 +120,7 @@ test("File fiyat havuzu canlı API üzerinden yenilenir", async () => {
   assert.equal(response.body.data.metadata.productsScanned, 20);
 });
 
-test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async () => {
+test("Bizim Toptan, BİM ve Rossmann havuzları ayrı endpointlerden yönetilir", async () => {
   const fixture = appFixture();
   const bizim = await request(fixture.app)
     .post("/api/supplier-price-pools/BIZIM_MARKET/items/sync-live")
@@ -131,6 +132,15 @@ test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async ()
     .send({})
     .expect(200);
   assert.equal(bim.body.data.supplierCode, "BIM");
+  const rossmann = await request(fixture.app)
+    .get("/api/supplier-price-pools/ROSSMANN/items")
+    .expect(200);
+  assert.equal(rossmann.body.data.supplierCode, "ROSSMANN");
+  const rossmannSync = await request(fixture.app)
+    .post("/api/supplier-price-pools/ROSSMANN/items/sync-live")
+    .send({})
+    .expect(200);
+  assert.equal(rossmannSync.body.data.supplierCode, "ROSSMANN");
   const other = await request(fixture.app)
     .post("/api/supplier-price-pools/OTHER/items/bulk")
     .send({ rows: [{ product_name: "Diğer ürün", current_price: 25 }] })

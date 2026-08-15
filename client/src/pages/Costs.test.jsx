@@ -64,6 +64,17 @@ describe("Toplu mapping paneli", () => {
     );
   });
 
+  test("mapping ekranında Rossmann fiyat havuzu sekmesi açılır", async () => {
+    const user = userEvent.setup();
+    render(<Costs mode="mappings" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", { name: /Rossmann havuzu/ }),
+    );
+    expect(
+      await screen.findByPlaceholderText("Rossmann ürün veya marka ara"),
+    ).toBeVisible();
+  });
+
   test("maliyet kalemlerini panelden toplu yükler", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();

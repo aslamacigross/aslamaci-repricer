@@ -226,7 +226,7 @@ class CostRepository {
         JOIN file_market_items supplier_item ON supplier_item.id=link.file_market_item_id
         WHERE link.cost_item_code=ci.item_code
           AND link.status='APPROVED'
-          AND supplier_item.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')
+          AND supplier_item.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN')
       )`,
     ];
     if (!["true", true, "1", 1].includes(includeOk)) {
@@ -306,7 +306,7 @@ class CostRepository {
                )
                AND f.normalized_name ILIKE '%' || cost_token || '%'
            ) token_match
-           WHERE f.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')
+           WHERE f.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN')
              AND f.availability='AVAILABLE'
              AND (
                f.normalized_name ILIKE '%' || REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') || '%'
@@ -406,7 +406,7 @@ class CostRepository {
       const supplierItem = (
         await client.query(
           `SELECT * FROM file_market_items
-           WHERE id=$1 AND supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM')`,
+           WHERE id=$1 AND supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN')`,
           [supplierItemId],
         )
       ).rows[0];

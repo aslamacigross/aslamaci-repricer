@@ -106,9 +106,10 @@ class HealthService {
          FROM jobs j
          LEFT JOIN job_runs r ON r.job_name=j.name
          WHERE j.name IN(
-           'sync-file-market-prices',
-           'sync-bizim-market-prices',
-           'sync-bim-market-prices'
+          'sync-file-market-prices',
+          'sync-bizim-market-prices',
+          'sync-bim-market-prices',
+          'sync-rossmann-market-prices'
          )
          GROUP BY j.name ORDER BY j.name`,
       )

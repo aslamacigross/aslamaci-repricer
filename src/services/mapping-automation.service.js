@@ -72,6 +72,7 @@ const SUPPLIER_SOURCE_PREFIXES = Object.freeze({
   FILE_MARKET: ["file-api:"],
   BIZIM_MARKET: ["bizim-web:", "bizim_market:"],
   BIM: ["bim-yemeksepeti:", "bim:"],
+  ROSSMANN: ["rossmann-api:"],
   OTHER: ["other:"],
 });
 

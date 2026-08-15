@@ -105,6 +105,31 @@ test("tedarikçi importu başka havuza ait kaynak anahtarını reddeder", () => 
   );
 });
 
+test("Rossmann kaynak anahtarı kendi havuzunda kabul edilir ve başka havuza taşınmaz", () => {
+  const { service } = fixture();
+  const [row] = service.normalizeSupplierRows("ROSSMANN", [
+    {
+      source_key: "rossmann-api:219",
+      product_name: "Isana Duş Jeli 250 ml",
+      current_price: "75,00",
+      raw_data: { effective_price_type: "ROSSMANN_CARD" },
+    },
+  ]);
+  assert.equal(row.source_key, "rossmann-api:219");
+  assert.equal(row.supplier_code, "ROSSMANN");
+  assert.throws(
+    () =>
+      service.normalizeSupplierRows("FILE_MARKET", [
+        {
+          source_key: "rossmann-api:219",
+          product_name: "Isana Duş Jeli 250 ml",
+          current_price: "75,00",
+        },
+      ]),
+    /kaynak anahtarı .* havuzuyla uyumlu değil/,
+  );
+});
+
 test("geçmiş mappingi File fiyatıyla destekleyip hedef adede ölçekler", async () => {
   const { service, saved, evaluated } = fixture();
   const result = await service.generate({ limit: 100 });

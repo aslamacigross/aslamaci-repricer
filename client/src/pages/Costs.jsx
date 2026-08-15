@@ -57,6 +57,7 @@ function supplierLabel(code) {
       FILE_MARKET: "File",
       BIZIM_MARKET: "Bizim",
       BIM: "BİM",
+      ROSSMANN: "Rossmann",
     }[code] || code || "Tedarikçi"
   );
 }
@@ -262,6 +263,12 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
             <Store /> BİM havuzu
           </button>
           <button
+            className={mappingView === "rossmann" ? "active" : ""}
+            onClick={() => setMappingView("rossmann")}
+          >
+            <Store /> Rossmann havuzu
+          </button>
+          <button
             className={mappingView === "other" ? "active" : ""}
             onClick={() => setMappingView("other")}
           >
@@ -397,11 +404,7 @@ function ManualCostReview({ notify }) {
       render: (row) =>
         row.supplier_candidate ? (
           <Badge tone="info">
-            {row.supplier_candidate.supplier_code === "FILE_MARKET"
-              ? "File"
-              : row.supplier_candidate.supplier_code === "BIZIM_MARKET"
-                ? "Bizim"
-                : "BİM"}
+            {supplierLabel(row.supplier_candidate.supplier_code)}
           </Badge>
         ) : (
           "-"
@@ -600,11 +603,7 @@ function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
               <p>
                 {supplierCandidate.product_name} ·{" "}
                 {money(supplierCandidate.current_price)} ·{" "}
-                {supplierCandidate.supplier_code === "FILE_MARKET"
-                  ? "File Market"
-                  : supplierCandidate.supplier_code === "BIZIM_MARKET"
-                    ? "Bizim Toptan"
-                    : "BİM"}
+                {supplierLabel(supplierCandidate.supplier_code)}
               </p>
             </div>
           </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Check,
   DatabaseZap,
+  ExternalLink,
   Eye,
   FileUp,
   Pencil,
@@ -49,6 +50,7 @@ const supplierDefinitions = {
     liveSync: true,
   },
   BIM: { label: "BİM", shortLabel: "BİM", liveSync: true },
+  ROSSMANN: { label: "Rossmann", shortLabel: "Rossmann", liveSync: true },
   OTHER: {
     label: "Diğer maliyet havuzu",
     shortLabel: "Diğer",
@@ -245,6 +247,8 @@ export default function MappingSuggestions({
     return <SupplierPricePool supplierCode="BIZIM_MARKET" notify={notify} />;
   if (view === "bim")
     return <SupplierPricePool supplierCode="BIM" notify={notify} />;
+  if (view === "rossmann")
+    return <SupplierPricePool supplierCode="ROSSMANN" notify={notify} />;
   if (view === "other")
     return <SupplierPricePool supplierCode="OTHER" notify={notify} />;
   if (view === "learning")
@@ -1782,12 +1786,54 @@ function SupplierPricePool({ supplierCode, notify }) {
       label: `${definition.shortLabel} ürünü`,
       width: 330,
     },
+    {
+      key: "source_url",
+      label: "Canlı bağlantı",
+      exportable: false,
+      render: (row) =>
+        row.source_url ? (
+          <a
+            className="inline-link"
+            href={row.source_url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <ExternalLink size={14} /> Aç
+          </a>
+        ) : (
+          "-"
+        ),
+    },
     { key: "brand", label: "Marka" },
     {
       key: "current_price",
       label: "Güncel fiyat",
       render: (row) => money(row.current_price),
     },
+    ...(supplierCode === "ROSSMANN"
+      ? [
+          {
+            key: "effective_price_type",
+            label: "Fiyat tipi",
+            render: (row) => (
+              <Badge
+                tone={
+                  row.raw_data?.effective_price_type === "ROSSMANN_CARD"
+                    ? "success"
+                    : "info"
+                }
+              >
+                {row.raw_data?.effective_price_type === "ROSSMANN_CARD"
+                  ? "Rossmann Card"
+                  : row.raw_data?.effective_price_type === "SALE"
+                    ? "Normal indirim"
+                    : "Normal fiyat"}
+              </Badge>
+            ),
+          },
+        ]
+      : []),
     ...(supportsBulkPrices
       ? [
           {
@@ -1934,9 +1980,11 @@ function SupplierPricePool({ supplierCode, notify }) {
               taşınır; eski satırlar silinmeden gizli “MERGED” durumuna alınır.
             </p>
             <div className="inline-actions">
-              {duplicates.items.slice(0, 3).map((group) => (
+              {duplicates.items.slice(0, 3).map((group, index) => (
                 <Button
-                  key={group.normalized_name}
+                  key={
+                    group.normalized_name || group.canonical_item_id || index
+                  }
                   variant="secondary"
                   disabled={mergingDuplicate === group.normalized_name}
                   onClick={() => mergeDuplicateGroup(group)}

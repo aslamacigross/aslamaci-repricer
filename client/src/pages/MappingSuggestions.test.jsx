@@ -347,6 +347,65 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("Rossmann havuzunda Card fiyat badge'i ve canlı kaynak linki görünür", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 9,
+            source_key: "rossmann-api:26",
+            product_name: "Nivea Soft Krem 2'li",
+            brand: "Nivea",
+            current_price: 199,
+            previous_price: 219,
+            size_value: null,
+            size_unit: null,
+            last_seen_at: "2026-08-15T10:00:00.000Z",
+            stale: false,
+            source_url:
+              "https://www.rossmann.com.tr/nivea-soft-krem-2-li-p-kt20100233",
+            raw_data: {
+              regular_price: 330,
+              rossmann_card_price: 199,
+              effective_price_type: "ROSSMANN_CARD",
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 50,
+      },
+    });
+    post.mockResolvedValue({
+      data: {
+        processed: 1,
+        created: 0,
+        changed: 0,
+        metadata: { productsScanned: 1 },
+      },
+    });
+
+    render(<MappingSuggestions view="rossmann" notify={notify} />);
+
+    expect(await screen.findByText("Nivea Soft Krem 2'li")).toBeVisible();
+    expect(screen.getByText("Rossmann Card")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Aç/ })).toHaveAttribute(
+      "href",
+      "https://www.rossmann.com.tr/nivea-soft-krem-2-li-p-kt20100233",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Canlı Rossmann'den yenile" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/supplier-price-pools/ROSSMANN/items/sync-live",
+        {},
+      ),
+    );
+  });
+
   test("Diğer maliyet havuzu manuel ürünleri ayrı tedarikçi koduyla aktarır", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();
