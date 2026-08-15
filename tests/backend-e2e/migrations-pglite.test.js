@@ -12,10 +12,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 35);
+    assert.equal(initial.rowCount, 36);
     assert.equal(
       initial.rows.at(-1).version,
-      "035_rossmann_market_live_sync",
+      "036_bizim_price_tier_job",
     );
 
     const columnsAfterUp = await db.query(`
@@ -42,6 +42,20 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
         "merchant_sku",
       ],
     );
+
+    await migrate("down", db);
+    const afterBizimTierDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(afterBizimTierDown.rowCount, 35);
+    assert.equal(
+      afterBizimTierDown.rows.at(-1).version,
+      "035_rossmann_market_live_sync",
+    );
+    const bizimTierJobAfterDown = await db.query(
+      "SELECT name FROM jobs WHERE name='sync-bizim-price-tiers'",
+    );
+    assert.equal(bizimTierJobAfterDown.rowCount, 0);
 
     await migrate("down", db);
     const afterRossmannDown = await db.query(
@@ -76,10 +90,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 35);
+    assert.equal(afterRoundTrip.rowCount, 36);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "035_rossmann_market_live_sync",
+      "036_bizim_price_tier_job",
     );
     const tariffRowsAfterRoundTrip = await db.query(`
       SELECT

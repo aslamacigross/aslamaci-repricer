@@ -58,6 +58,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "033_hepsiburada_listing_identity",
       "034_trendyol_august_2026_shipping_tariffs",
       "035_rossmann_market_live_sync",
+      "036_bizim_price_tier_job",
     ],
   );
   const safety = await db.query(
@@ -104,6 +105,14 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   assert.equal(Number(rossmannMarketJob.rows[0].schedule_minutes), 1440);
   assert.equal(rossmannMarketJob.rows[0].schedule_type, "DAILY");
   assert.equal(rossmannMarketJob.rows[0].daily_at, "00:00");
+  const bizimTierJob = await db.query(
+    "SELECT enabled,schedule_minutes,schedule_type,daily_at FROM jobs WHERE name='sync-bizim-price-tiers'",
+  );
+  assert.equal(bizimTierJob.rowCount, 1);
+  assert.equal(bizimTierJob.rows[0].enabled, true);
+  assert.equal(Number(bizimTierJob.rows[0].schedule_minutes), 1440);
+  assert.equal(bizimTierJob.rows[0].schedule_type, "DAILY");
+  assert.equal(bizimTierJob.rows[0].daily_at, "01:30");
   const hepsiburadaDefaults = await db.query(
     `SELECT key,value FROM system_settings
      WHERE key IN('default_carrier_hepsiburada','service_fee_hepsiburada')
@@ -297,6 +306,11 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       )VALUES('TRENDYOL','INVALID',100)`,
     ),
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedBizimTierJob = await db.query(
+    "SELECT name FROM jobs WHERE name='sync-bizim-price-tiers'",
+  );
+  assert.equal(removedBizimTierJob.rowCount, 0);
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedRossmannJob = await db.query(
     "SELECT name FROM jobs WHERE name='sync-rossmann-market-prices'",

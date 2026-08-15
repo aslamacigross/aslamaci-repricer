@@ -29,6 +29,8 @@ const BIZIM_SHIPPING_EXCLUDED_CATEGORY_PATHS = Object.freeze([
   "/dondurma",
 ]);
 const BIZIM_TIER_SOURCE = "BIZIM_PRODUCT_DETAIL";
+const DEFAULT_TIER_REQUEST_DELAY_MS = 1000;
+const DEFAULT_TIER_COOLDOWN_MS = 30000;
 
 function decodeHtml(value) {
   return String(value || "")
@@ -240,10 +242,14 @@ async function fetchText(
           "user-agent": "AslamaciERP/2.0 supplier-price-sync",
         },
       });
-      if (!response.ok)
-        throw new Error(
+      if (!response.ok) {
+        const error = new Error(
           `Bizim Toptan ${response.status}: ${response.statusText}`,
         );
+        error.status = response.status;
+        error.retryAfter = response.headers?.get?.("retry-after") || null;
+        throw error;
+      }
       return await response.text();
     } catch (error) {
       lastError = error;
@@ -256,6 +262,20 @@ async function fetchText(
   throw lastError;
 }
 
+function retryAfterMs(value) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime()))
+    return Math.max(0, date.getTime() - Date.now());
+  return null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 class BizimMarketService {
   constructor({
     baseUrl = BIZIM_BASE_URL,
@@ -265,6 +285,9 @@ class BizimMarketService {
     retries = 2,
     maxPagesPerCategory = 100,
     detailConcurrency = 6,
+    tierRequestDelayMs = DEFAULT_TIER_REQUEST_DELAY_MS,
+    tierCooldownMs = DEFAULT_TIER_COOLDOWN_MS,
+    tierMaxAttempts = 3,
   } = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     const pathList = [...categoryPaths];
@@ -275,6 +298,9 @@ class BizimMarketService {
     this.retries = retries;
     this.maxPagesPerCategory = maxPagesPerCategory;
     this.detailConcurrency = detailConcurrency;
+    this.tierRequestDelayMs = tierRequestDelayMs;
+    this.tierCooldownMs = tierCooldownMs;
+    this.tierMaxAttempts = tierMaxAttempts;
   }
 
   async fetchText(url) {
@@ -302,7 +328,11 @@ class BizimMarketService {
 
   async verifyProductDetail(row, observedAt) {
     if (!row.source_url) throw new Error("Bizim ürün detay URL'si yok");
-    const html = await this.fetchText(row.source_url);
+    const html = await fetchText(row.source_url, {
+      fetchImpl: this.fetchImpl,
+      timeoutMs: this.timeoutMs,
+      retries: 0,
+    });
     const detail = parseProductDetailPriceTiers(html, row.current_price);
     return {
       ...row,
@@ -360,17 +390,23 @@ class BizimMarketService {
           continue;
         }
         if (rowsBySource.has(row.source_key)) duplicates++;
-        rowsBySource.set(row.source_key, row);
+        rowsBySource.set(row.source_key, {
+          ...row,
+          price_tiers: [],
+          raw_data: {
+            ...row.raw_data,
+            catalog_price_tiers: row.price_tiers,
+          },
+        });
       }
     const observedAt = new Date().toISOString();
-    const detailResult = await this.verifyProductDetails(
-      [...rowsBySource.values()],
-      observedAt,
-    );
-    const rows = detailResult.rows;
+    const rows = [...rowsBySource.values()].map((row) => ({
+      ...row,
+      observed_at: observedAt,
+    }));
     return {
       rows,
-      fullSnapshot: detailResult.failures.length === 0,
+      fullSnapshot: true,
       stats: {
         provider: "bizim-toptan-web",
         categoriesScanned: this.categoryPaths.length,
@@ -384,17 +420,100 @@ class BizimMarketService {
         targetProducts: rows.length,
         duplicates,
         productsSkippedShippingExcluded,
-        productDetailRequests: rows.length + detailResult.failures.length,
-        productDetailsVerified: rows.length,
-        productDetailsFailed: detailResult.failures.length,
-        failedProductDetails: detailResult.failures,
-        productsWithPriceTiers: rows.filter((row) => row.price_tiers.length)
-          .length,
-        productsWithMultiplePriceTiers: rows.filter(
-          (row) => row.price_tiers.length > 1,
-        ).length,
-        productsWithoutPriceTiers: rows.filter((row) => !row.price_tiers.length)
-          .length,
+        productDetailRequests: 0,
+        productDetailsVerified: 0,
+        productDetailsFailed: 0,
+        failedProductDetails: [],
+      },
+    };
+  }
+
+  async livePriceTierRows(items = [], options = {}) {
+    const observedAt = options.observedAt || new Date().toISOString();
+    const requestDelayMs = Number(
+      options.requestDelayMs ?? this.tierRequestDelayMs,
+    );
+    const cooldownMs = Number(options.cooldownMs ?? this.tierCooldownMs);
+    const maxAttempts = Math.max(
+      1,
+      Number(options.maxAttempts ?? this.tierMaxAttempts) || 1,
+    );
+    const queue = items
+      .filter(
+        (item) =>
+          item?.source_url &&
+          item.availability === "AVAILABLE" &&
+          !isShippingExcludedRow(item),
+      )
+      .map((item) => ({ item, attempts: 0 }));
+    const rows = [];
+    const failures = [];
+    const stats = {
+      provider: "bizim-toptan-web",
+      source: "BIZIM_PRODUCT_DETAIL",
+      concurrency: 1,
+      requestDelayMs,
+      cooldownMs,
+      eligibleProducts: queue.length,
+      attempts: 0,
+      success: 0,
+      failed: 0,
+      http429: 0,
+      http403: 0,
+      http5xx: 0,
+      timeout: 0,
+      productsWithPriceTiers: 0,
+      productsWithMultiplePriceTiers: 0,
+      productsWithoutPriceTiers: 0,
+    };
+    let lastRequestAt = 0;
+    while (queue.length) {
+      const current = queue.shift();
+      const sinceLast = Date.now() - lastRequestAt;
+      if (lastRequestAt && sinceLast < requestDelayMs)
+        await sleep(requestDelayMs - sinceLast);
+      current.attempts++;
+      stats.attempts++;
+      lastRequestAt = Date.now();
+      try {
+        const row = await this.verifyProductDetail(current.item, observedAt);
+        rows.push(row);
+        stats.success++;
+        if (row.price_tiers.length) stats.productsWithPriceTiers++;
+        else stats.productsWithoutPriceTiers++;
+        if (row.price_tiers.length > 1) stats.productsWithMultiplePriceTiers++;
+      } catch (error) {
+        if (error?.status === 429) {
+          stats.http429++;
+          if (current.attempts < maxAttempts) {
+            const retryMs =
+              retryAfterMs(error.retryAfter) ??
+              cooldownMs * 2 ** (current.attempts - 1) +
+                Math.floor(Math.random() * 1000);
+            await sleep(retryMs);
+            queue.push(current);
+            continue;
+          }
+        } else if (error?.status === 403) stats.http403++;
+        else if (Number(error?.status) >= 500) stats.http5xx++;
+        else if (error?.name === "AbortError") stats.timeout++;
+        failures.push({
+          source_key: current.item.source_key,
+          product_name: current.item.product_name,
+          product_detail_url: current.item.source_url,
+          attempts: current.attempts,
+          status: error?.status || null,
+          error: error.message || "Bizim ürün detayı doğrulanamadı",
+        });
+        stats.failed++;
+      }
+    }
+    return {
+      rows,
+      fullSnapshot: failures.length === 0,
+      stats: {
+        ...stats,
+        failedProductDetails: failures,
       },
     };
   }
@@ -405,6 +524,8 @@ module.exports = {
   BIZIM_CATEGORY_PATHS,
   BIZIM_SHIPPING_EXCLUDED_CATEGORY_PATHS,
   BIZIM_TIER_SOURCE,
+  DEFAULT_TIER_REQUEST_DELAY_MS,
+  DEFAULT_TIER_COOLDOWN_MS,
   BizimMarketService,
   decodeHtml,
   absoluteUrl,

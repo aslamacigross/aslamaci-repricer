@@ -85,6 +85,7 @@ test("canlı tarama tekrar eden ürünleri tekilleştirir", async () => {
   assert.equal(service.categoryPaths.length, 1);
   assert.equal(result.rows.length, 1);
   assert.equal(result.stats.duplicates, 1);
+  assert.equal(result.stats.productDetailRequests, 0);
 });
 
 test("canlı tarama dondurulmuş kategori satırlarını dışlar", async () => {
@@ -153,40 +154,124 @@ test("Bizim Türk fiyat formatını ayrıştırır", () => {
   assert.equal(parseBizimPrice("8,90"), 8.9);
 });
 
-test("Bizim detail fetch failure empty tier sayılmaz ve snapshot partial olur", async () => {
+test("Bizim base sync PDP çağırmaz ve tier doğrulamasından bağımsız snapshot döner", async () => {
+  let detailCalls = 0;
   const service = new BizimMarketService({
     baseUrl: "https://example.test",
     categoryPaths: ["/temel"],
     retries: 0,
     fetchImpl: async (url) => {
-      if (String(url).includes("/ulker-gofret"))
-        return { ok: false, status: 500, statusText: "FAIL", text: async () => "" };
+      if (String(url).includes("/ulker-gofret")) detailCalls++;
       return { ok: true, text: async () => productHtml.replace(/<link[^>]+>/, "") };
     },
   });
   const result = await service.livePriceRows();
-  assert.equal(result.rows.length, 0);
-  assert.equal(result.fullSnapshot, false);
-  assert.equal(result.stats.productDetailsFailed, 1);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.fullSnapshot, true);
+  assert.equal(result.stats.productDetailRequests, 0);
+  assert.equal(detailCalls, 0);
 });
 
-test("Bizim duplicate ürün için product detail tek kez fetch edilir", async () => {
+test("Bizim tier job duplicate edilmemiş eligible satırları tek concurrency ile doğrular", async () => {
   let detailCalls = 0;
   const service = new BizimMarketService({
     baseUrl: "https://example.test",
-    categoryPaths: ["/temel"],
+    tierRequestDelayMs: 1,
     fetchImpl: async (url) => {
       if (String(url).includes("/ulker-gofret")) {
         detailCalls++;
         return { ok: true, text: async () => detailHtml };
       }
-      return {
-        ok: true,
-        text: async () => `${productHtml}${productHtml.replace(/<link[^>]+>/, "")}`,
-      };
+      return { ok: true, text: async () => noTierDetailHtml };
     },
   });
-  const result = await service.livePriceRows();
+  const [item] = parseProductRows(productHtml);
+  const result = await service.livePriceTierRows([
+    { ...item, observed_at: "2026-08-01T00:00:00.000Z" },
+  ]);
   assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].raw_data.price_tiers_verified, true);
+  assert.equal(result.stats.concurrency, 1);
   assert.equal(detailCalls, 1);
+});
+
+test("Bizim tier job request delay uygular ve shipping excluded satıra PDP atmaz", async () => {
+  const calls = [];
+  const service = new BizimMarketService({
+    baseUrl: "https://example.test",
+    tierRequestDelayMs: 20,
+    fetchImpl: async (url) => {
+      calls.push({ url: String(url), at: Date.now() });
+      return { ok: true, text: async () => noTierDetailHtml };
+    },
+  });
+  const [item] = parseProductRows(productHtml);
+  const result = await service.livePriceTierRows([
+    { ...item, source_key: "bizim-web:1", source_url: "https://example.test/1" },
+    { ...item, source_key: "bizim-web:2", source_url: "https://example.test/2" },
+    {
+      ...item,
+      source_key: "bizim-web:frozen",
+      source_url: "https://example.test/frozen",
+      source_category: "Dondurma",
+      raw_data: { category: "Dondurma" },
+    },
+  ]);
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.stats.eligibleProducts, 2);
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].at - calls[0].at >= 15);
+  assert.equal(calls.some((call) => call.url.includes("frozen")), false);
+});
+
+test("Bizim tier job 429 için immediate retry yapmaz ve Retry-After bekler", async () => {
+  const calls = [];
+  const service = new BizimMarketService({
+    baseUrl: "https://example.test",
+    tierRequestDelayMs: 1,
+    tierCooldownMs: 5,
+    tierMaxAttempts: 2,
+    fetchImpl: async () => {
+      calls.push(Date.now());
+      if (calls.length === 1)
+        return {
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          headers: { get: () => "0.05" },
+          text: async () => "",
+        };
+      return { ok: true, text: async () => noTierDetailHtml };
+    },
+  });
+  const [item] = parseProductRows(productHtml);
+  const result = await service.livePriceTierRows([
+    { ...item, source_url: "https://example.test/ulker-gofret" },
+  ]);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.stats.http429, 1);
+  assert.equal(result.stats.attempts, 2);
+  assert.ok(calls[1] - calls[0] >= 45);
+});
+
+test("Bizim tier job PDP failure durumunda satırı import sonucuna koymaz", async () => {
+  const service = new BizimMarketService({
+    baseUrl: "https://example.test",
+    tierRequestDelayMs: 1,
+    tierMaxAttempts: 1,
+    fetchImpl: async () => ({
+      ok: false,
+      status: 500,
+      statusText: "FAIL",
+      text: async () => "",
+    }),
+  });
+  const [item] = parseProductRows(productHtml);
+  const result = await service.livePriceTierRows([
+    { ...item, source_url: "https://example.test/ulker-gofret" },
+  ]);
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.fullSnapshot, false);
+  assert.equal(result.stats.failed, 1);
+  assert.equal(result.stats.http5xx, 1);
 });

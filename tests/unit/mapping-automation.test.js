@@ -349,6 +349,107 @@ test("tedarikci importu etkilenen HB ve Trendyol barkodlarini marketplace ile re
   ]);
 });
 
+test("Bizim base sync PDP tier jobundan bağımsız catalog satırlarını import eder", async () => {
+  let importedSupplier;
+  let importedRows;
+  const service = new MappingAutomationService({
+    repository: {
+      importSupplierItems: async (supplierCode, rows, options) => {
+        importedSupplier = supplierCode;
+        importedRows = rows;
+        assert.deepEqual(options, { replaceAvailability: true });
+        return { processed: rows.length, affectedBarcodes: [] };
+      },
+    },
+    costs: {},
+    costEngine: { recalculate: async () => ({ processed: 1 }) },
+  });
+  const source = {
+    livePriceRows: async () => ({
+      fullSnapshot: true,
+      rows: [
+        {
+          source_key: "bizim-web:1",
+          product_name: "Bizim Ürün",
+          current_price: 100,
+          availability: "AVAILABLE",
+          source_url: "https://example.test/bizim-urun",
+          raw_data: {},
+          price_tiers: [],
+        },
+      ],
+      stats: { productDetailRequests: 0 },
+    }),
+  };
+
+  const result = await service.syncLiveSupplierItems("BIZIM_MARKET", source);
+
+  assert.equal(importedSupplier, "BIZIM_MARKET");
+  assert.equal(importedRows.length, 1);
+  assert.equal(importedRows[0].price_tiers.length, 0);
+  assert.equal(result.metadata.productDetailRequests, 0);
+});
+
+test("Bizim tier job yalnız verified PDP satırlarını import eder ve failure tiers korur", async () => {
+  let importedRows;
+  const service = new MappingAutomationService({
+    repository: {
+      bizimPriceTierVerificationItems: async () => [
+        {
+          source_key: "bizim-web:1",
+          product_name: "Verified Ürün",
+          current_price: 100,
+          availability: "AVAILABLE",
+          source_url: "https://example.test/verified",
+        },
+        {
+          source_key: "bizim-web:2",
+          product_name: "Fail Ürün",
+          current_price: 200,
+          availability: "AVAILABLE",
+          source_url: "https://example.test/fail",
+        },
+      ],
+      importSupplierItems: async (supplierCode, rows, options) => {
+        assert.equal(supplierCode, "BIZIM_MARKET");
+        assert.deepEqual(options, { replaceAvailability: false });
+        importedRows = rows;
+        return { processed: rows.length, affectedBarcodes: [] };
+      },
+    },
+    costs: {},
+    costEngine: { recalculate: async () => ({ processed: 1 }) },
+  });
+  const source = {
+    livePriceTierRows: async (items) => {
+      assert.equal(items.length, 2);
+      return {
+        rows: [
+          {
+            source_key: "bizim-web:1",
+            product_name: "Verified Ürün",
+            current_price: 100,
+            availability: "AVAILABLE",
+            raw_data: {
+              price_tiers_source: "BIZIM_PRODUCT_DETAIL",
+              price_tiers_verified: true,
+            },
+            price_tiers: [],
+          },
+        ],
+        stats: { success: 1, failed: 1, attempts: 1, http429: 0 },
+      };
+    },
+  };
+
+  const result = await service.syncBizimPriceTiers(source);
+
+  assert.equal(importedRows.length, 1);
+  assert.equal(importedRows[0].source_key, "bizim-web:1");
+  assert.equal(result.successful, 1);
+  assert.equal(result.failed, 1);
+});
+
 test("toplu oneride bekleyen ve onaylanan oneriler yeniden taranmaz", async () => {
   let capturedSql = "";
   const repository = new MappingAutomationRepository(

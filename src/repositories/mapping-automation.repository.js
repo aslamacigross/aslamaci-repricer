@@ -410,6 +410,23 @@ class MappingAutomationRepository {
     return this.importSupplierItems("FILE_MARKET", rows);
   }
 
+  async bizimPriceTierVerificationItems() {
+    return (
+      await this.db.query(
+        `SELECT source_key,product_name,normalized_name,brand,size_value,size_unit,
+                current_price,currency,availability,raw_data,last_seen_at AS observed_at,
+                supplier_code,source_url,source_category,estimated_unit_desi,
+                desi_confidence,price_tiers
+         FROM file_market_items
+         WHERE supplier_code='BIZIM_MARKET'
+           AND availability='AVAILABLE'
+           AND source_url IS NOT NULL
+           AND source_url<>''
+         ORDER BY last_seen_at DESC NULLS LAST,product_name`,
+      )
+    ).rows;
+  }
+
   async updateSupplierItemPricing(supplierCode, id, input = {}) {
     return this.withTransaction(async (client) => {
       const existing = (

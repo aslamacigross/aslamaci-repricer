@@ -1513,6 +1513,42 @@ class MappingAutomationService {
     };
   }
 
+  async syncBizimPriceTiers(bizimMarket, options = {}) {
+    if (!bizimMarket?.livePriceTierRows)
+      throw new AppError(
+        "Bizim Toptan fiyat kademesi kaynağı yapılandırılmamış",
+        409,
+        "BIZIM_TIER_SOURCE_UNAVAILABLE",
+      );
+    const items = await this.repository.bizimPriceTierVerificationItems();
+    const live = await bizimMarket.livePriceTierRows(items, options);
+    let imported = {
+      processed: 0,
+      created: 0,
+      changed: 0,
+      unavailable: 0,
+      costCodesUpdated: 0,
+      affectedBarcodes: [],
+      recalculated: 0,
+      recalculated_products: [],
+      items: [],
+    };
+    if (live.rows.length)
+      imported = await this.importSupplierItems("BIZIM_MARKET", live.rows, {
+        replaceAvailability: false,
+      });
+    return {
+      ...imported,
+      successful: live.stats.success,
+      failed: live.stats.failed,
+      metadata: {
+        ...live.stats,
+        supplierCode: "BIZIM_MARKET",
+        eligibleItems: items.length,
+      },
+    };
+  }
+
   async listSupplierItems(supplierCode, filters) {
     const normalizedCode = String(supplierCode || "").toUpperCase();
     if (!SUPPLIER_CODES.includes(normalizedCode))

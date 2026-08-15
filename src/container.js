@@ -220,6 +220,9 @@ function createContainer(overrides = {}) {
   jobService.register("sync-bizim-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("BIZIM_MARKET", bizimMarket),
   );
+  jobService.register("sync-bizim-price-tiers", () =>
+    mappingAutomation.syncBizimPriceTiers(bizimMarket),
+  );
   jobService.register("sync-bim-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("BIM", bimMarket),
   );
