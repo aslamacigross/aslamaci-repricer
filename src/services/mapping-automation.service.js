@@ -1137,6 +1137,10 @@ function sortCandidatesForTarget(target, left, right) {
     )
       return right.items.length - left.items.length;
   }
+  const supplierSupportDifference =
+    right.items.filter((item) => item.file_market_item_id).length -
+    left.items.filter((item) => item.file_market_item_id).length;
+  if (supplierSupportDifference) return supplierSupportDifference;
   const confidenceDifference = right.confidence - left.confidence;
   if (Math.abs(confidenceDifference) >= 0.03) return confidenceDifference;
   if (normalizeMarketplace(target.marketplace) !== "TRENDYOL") {
@@ -1634,6 +1638,9 @@ class MappingAutomationService {
         quantity: Number(row.quantity),
         current_unit_cost: Number(row.unit_cost),
         unit_desi: Number(row.unit_desi),
+        linked_supplier_item_id: row.linked_supplier_item_id || null,
+        linked_supplier_code: row.linked_supplier_code || null,
+        linked_supplier_product_name: row.linked_supplier_product_name || null,
       });
     }
     return [...grouped.values()];
@@ -1645,6 +1652,26 @@ class MappingAutomationService {
       product_name: `${item.item_name || ""} ${item.cost_item_code || ""}`,
     };
     for (const fileItem of fileItems) {
+      const linkedSupplierCode = item.linked_supplier_code
+        ? String(item.linked_supplier_code).toUpperCase()
+        : null;
+      if (
+        linkedSupplierCode &&
+        String(fileItem.supplier_code || "FILE_MARKET").toUpperCase() !==
+          linkedSupplierCode
+      )
+        continue;
+      if (
+        item.linked_supplier_item_id &&
+        String(fileItem.id) === String(item.linked_supplier_item_id)
+      )
+        return {
+          item: fileItem,
+          score: 1,
+          itemMatch: { score: 1, reasons: [{ code: "APPROVED_SUPPLIER_LINK" }] },
+          targetMatch: compareMappingProducts(target, fileItem),
+          priceMode: filePriceMode(target, fileItem),
+        };
       if (
         !productKindCompatible(
           target.product_name || target.item_name,

@@ -1160,6 +1160,71 @@ test("farklı tedarikçi havuzlarını tek mapping reçetesinde karıştırmaz",
   assert.equal(saved[0].supplier_code, saved[0].items[0].supplier_code);
 });
 
+test("onaylı File cost code gecmisi BİM fiyat kanitiyla zenginlesmez", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "86950771594",
+        product_name:
+          "Hipoalerjenik Yasemin Ve Çam kokulu Yüzey Temizleyici 4 Adet X 1500 ml",
+        brand: "Actisoft",
+        category_id: "2354",
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [
+      {
+        marketplace: "TRENDYOL",
+        barcode: "SOURCE-FILE",
+        product_name: "Actisoft Hipoalerjenik Yüzey Tem. 1500ml",
+        brand: "Actisoft",
+        category_id: "2354",
+        cost_item_code: "ACTISOFT_HIPOALERJENIK_YUZEY_TEM_1500ML",
+        item_name: "Actisoft Hipoalerjenik Yüzey Tem. 1500ml",
+        quantity: 1,
+        unit_cost: 79,
+        unit_desi: 1.5,
+        linked_supplier_item_id: 11,
+        linked_supplier_code: "FILE_MARKET",
+        linked_supplier_product_name:
+          "Actisoft Hipoalerjenik Yüzey Tem. 1500ml",
+      },
+    ],
+    fileItemsForMatching: async () => [
+      {
+        id: 22,
+        supplier_code: "BIM",
+        product_name: "Aks Çiçek Kokulu Yüzey Temizleyici 1500 ml",
+        brand: "Aks",
+        current_price: 64,
+        estimated_unit_desi: 1.5,
+      },
+      {
+        id: 11,
+        supplier_code: "FILE_MARKET",
+        product_name: "Actisoft Hipoalerjenik Yüzey Tem. 1500ml",
+        brand: "Actisoft",
+        current_price: 79,
+        estimated_unit_desi: 1.5,
+      },
+    ],
+    costItemsForMatching: async () => [],
+  });
+
+  const result = await service.generate({ marketplace: "TRENDYOL" });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].supplier_code, "FILE_MARKET");
+  assert.equal(saved[0].items[0].supplier_code, "FILE_MARKET");
+  assert.equal(
+    saved[0].items[0].supplier_product_name,
+    "Actisoft Hipoalerjenik Yüzey Tem. 1500ml",
+  );
+  assert.equal(saved[0].items[0].suggested_unit_cost, 79);
+});
+
 test("File fiyat desteği bulunmayan adaya mapping önermez", async () => {
   const { service, saved } = fixture({
     trainingRows: async () => [],

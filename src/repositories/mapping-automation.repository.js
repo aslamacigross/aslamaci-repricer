@@ -761,11 +761,23 @@ class MappingAutomationRepository {
       await this.db.query(
         `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,p.catalog_gtin,p.catalog_gtin_source,
                 p.product_name,p.brand,p.category_id,p.category_name,
-                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
+                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi,
+                linked.file_market_item_id AS linked_supplier_item_id,
+                linked_f.supplier_code AS linked_supplier_code,
+                linked_f.product_name AS linked_supplier_product_name
          FROM products p
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         LEFT JOIN LATERAL (
+           SELECT l.file_market_item_id
+           FROM cost_item_file_links l
+           WHERE l.cost_item_code=pcm.cost_item_code
+             AND l.status='APPROVED'
+           ORDER BY l.updated_at DESC NULLS LAST,l.id DESC
+           LIMIT 1
+         ) linked ON TRUE
+         LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
          WHERE p.marketplace=$1
            AND p.product_name IS NOT NULL
            AND ci.unit_cost>0 AND COALESCE(ci.unit_desi,0)>0
@@ -782,11 +794,23 @@ class MappingAutomationRepository {
       await this.db.query(
         `SELECT p.marketplace,p.barcode,p.product_name,p.brand,
                 p.category_id,p.category_name,
-                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
+                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi,
+                linked.file_market_item_id AS linked_supplier_item_id,
+                linked_f.supplier_code AS linked_supplier_code,
+                linked_f.product_name AS linked_supplier_product_name
          FROM products p
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         LEFT JOIN LATERAL (
+           SELECT l.file_market_item_id
+           FROM cost_item_file_links l
+           WHERE l.cost_item_code=pcm.cost_item_code
+             AND l.status='APPROVED'
+           ORDER BY l.updated_at DESC NULLS LAST,l.id DESC
+           LIMIT 1
+         ) linked ON TRUE
+         LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
          WHERE p.marketplace='TRENDYOL'
            AND p.barcode=ANY($1::text[])
            AND p.product_name IS NOT NULL
