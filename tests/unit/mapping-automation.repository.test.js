@@ -212,7 +212,7 @@ test("duplicate tedarikçi grubu eski linkleri kanonik kayda taşır ve eski kay
   assert.deepEqual(itemUpdate.params, [9, [4, 2]]);
 });
 
-test("Bizim canlı import boş çoklu fiyatla manuel fiyat kademelerini ezmez", async () => {
+test("Bizim canlı import verified boş çoklu fiyatla legacy kademeleri temizler", async () => {
   const calls = [];
   const db = {
     query: async (sql, params = []) => {
@@ -265,7 +265,8 @@ test("Bizim canlı import boş çoklu fiyatla manuel fiyat kademelerini ezmez", 
   const upsert = calls.find((call) =>
     String(call.sql).includes("ON CONFLICT(source_key)DO UPDATE"),
   );
-  assert.match(upsert.sql, /EXCLUDED\.price_tiers='\[\]'::jsonb/);
+  assert.match(upsert.sql, /price_tiers=EXCLUDED\.price_tiers/);
+  assert.doesNotMatch(upsert.sql, /THEN file_market_items\.price_tiers/);
   assert.doesNotMatch(upsert.sql, /supplier_code=EXCLUDED\.supplier_code/);
 });
 

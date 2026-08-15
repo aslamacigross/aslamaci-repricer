@@ -125,12 +125,7 @@ class MappingAutomationRepository {
               source_category=EXCLUDED.source_category,
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
               desi_confidence=EXCLUDED.desi_confidence,
-              price_tiers=CASE
-                WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
-                  AND EXCLUDED.price_tiers='[]'::jsonb
-                  AND file_market_items.price_tiers<>'[]'::jsonb
-                THEN file_market_items.price_tiers
-                ELSE EXCLUDED.price_tiers END,
+              price_tiers=EXCLUDED.price_tiers,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
                 WHEN file_market_items.current_price<>EXCLUDED.current_price

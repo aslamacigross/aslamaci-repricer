@@ -1681,6 +1681,7 @@ function parseSupplierImport(text) {
 function SupplierPricePool({ supplierCode, notify }) {
   const definition = supplierDefinition(supplierCode);
   const supportsBulkPrices = supplierCode === "BIZIM_MARKET";
+  const canEditBulkPrices = false;
   const [result, setResult] = useState(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -1841,6 +1842,18 @@ function SupplierPricePool({ supplierCode, notify }) {
             label: "Çoklu fiyat",
             render: (row) => {
               const tiers = priceTiers(row);
+              if (!canEditBulkPrices)
+                return (
+                  <div className="supplier-tier-readonly">
+                    <span>{tiers.length ? priceTierSummary(row) : "Tek fiyat"}</span>
+                    <Badge tone="info">
+                      {row.raw_data?.price_tiers_source ===
+                      "BIZIM_PRODUCT_DETAIL"
+                        ? "Bizim Toptan'dan otomatik"
+                        : "Otomatik"}
+                    </Badge>
+                  </div>
+                );
               return (
                 <button
                   type="button"
@@ -1909,7 +1922,7 @@ function SupplierPricePool({ supplierCode, notify }) {
         </Badge>
       ),
     },
-    ...(supportsBulkPrices
+    ...(supportsBulkPrices && canEditBulkPrices
       ? [
           {
             key: "ops",
@@ -2008,7 +2021,9 @@ function SupplierPricePool({ supplierCode, notify }) {
             columns={columns}
             rows={result.items}
             columnVisibilityKey={`supplier-price-pool-${supplierCode}`}
-            onRowClick={supportsBulkPrices ? setEditing : undefined}
+            onRowClick={
+              supportsBulkPrices && canEditBulkPrices ? setEditing : undefined
+            }
           />
           <Pagination
             page={result.page}
@@ -2051,7 +2066,7 @@ function SupplierPricePool({ supplierCode, notify }) {
           </Button>
         </footer>
       </Modal>
-      {supportsBulkPrices && (
+      {supportsBulkPrices && canEditBulkPrices && (
         <SupplierPriceDrawer
           item={editing}
           supplierCode={supplierCode}

@@ -43,6 +43,7 @@ const suggestion = {
 describe("Akıllı mapping paneli", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     get.mockImplementation(async (path) => {
       if (path.startsWith("/api/mapping-suggestions"))
         return {
@@ -345,6 +346,43 @@ describe("Akıllı mapping paneli", () => {
     expect(notify).toHaveBeenCalledWith(
       "1147 BİM ürünü işlendi; 12 yeni, 34 fiyat değişikliği. 1360 ürün tarandı.",
     );
+  });
+
+  test("Bizim otomatik fiyat kademesini gösterir ama manuel edit açmaz", async () => {
+    get.mockImplementation(async (path) => {
+      if (path.includes("/duplicates")) return { data: { items: [] } };
+      if (path.startsWith("/api/supplier-price-pools/BIZIM_MARKET/items"))
+        return {
+          data: {
+            items: [
+              {
+                id: 7,
+                source_key: "bizim-web:11770",
+                product_name: "Halk UHT Süt 1 L",
+                brand: "Halk",
+                current_price: 44.9,
+                price_tiers: [
+                  { min_quantity: 12, unit_price: 42.9, label: "12+ adet" },
+                ],
+                raw_data: { price_tiers_source: "BIZIM_PRODUCT_DETAIL" },
+              },
+            ],
+            total: 1,
+            page: 1,
+            limit: 50,
+          },
+        };
+      return { data: { items: [], total: 0, page: 1, limit: 50 } };
+    });
+
+    render(<MappingSuggestions view="bizim" notify={vi.fn()} />);
+
+    expect(await screen.findByText("Halk UHT Süt 1 L")).toBeVisible();
+    expect(screen.getByText(/12\+/)).toBeVisible();
+    expect(screen.getByText("Bizim Toptan'dan otomatik")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Fiyat kademelerini düzenle" }),
+    ).not.toBeInTheDocument();
   });
 
   test("Rossmann havuzunda Card fiyat badge'i ve canlı kaynak linki görünür", async () => {

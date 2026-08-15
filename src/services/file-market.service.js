@@ -1,4 +1,7 @@
 const FILE_API_BASE_URL = "https://api.filemarket.com.tr";
+const {
+  isShippingExcludedCategory,
+} = require("../domain/shipping-exclusions");
 
 const TARGET_BRANDS = ["Harras", "Daycare", "Actisoft"];
 const EXCLUDED_CATEGORIES = new Set([
@@ -23,8 +26,24 @@ function detectBrand(value) {
   );
 }
 
+function structuredBrand(product = {}) {
+  const direct =
+    product.brand ||
+    product.brandName ||
+    product.manufacturer ||
+    product.manufacturerName ||
+    product.vendor?.brandName ||
+    product.vendor?.brand;
+  return String(direct || "").trim();
+}
+
+function productBrand(product = {}) {
+  return structuredBrand(product) || detectBrand(product.productName);
+}
+
 function isExcludedCategory(value) {
-  return EXCLUDED_CATEGORIES.has(String(value || "").trim());
+  const name = String(value || "").trim();
+  return EXCLUDED_CATEGORIES.has(name) || isShippingExcludedCategory(name);
 }
 
 async function fetchJson(url, { fetchImpl = fetch, timeoutMs = 15000 } = {}) {
@@ -68,6 +87,13 @@ class FileMarketService {
       productsScanned: 0,
       targetProducts: 0,
       duplicates: 0,
+      legacyTargetBrandProducts: 0,
+      validPrices: 0,
+      invalidPrices: 0,
+      available: 0,
+      unavailable: 0,
+      brandsDetected: 0,
+      brandsMissing: 0,
     };
     const observedAt = new Date().toISOString();
 
@@ -83,23 +109,37 @@ class FileMarketService {
       for (const subcategory of Array.isArray(subcategories)
         ? subcategories
         : []) {
-        if (isExcludedCategory(subcategory.name)) continue;
+        if (isExcludedCategory(subcategory.name)) {
+          stats.categoriesSkipped++;
+          continue;
+        }
         stats.subcategoriesScanned++;
         for (const product of subcategory.products || []) {
           stats.productsScanned++;
-          if (!includesTargetBrand(product.productName)) continue;
           stats.targetProducts++;
           const price = Number(product.discountedPrice ?? product.productPrice);
-          if (!Number.isFinite(price) || price <= 0) continue;
+          if (!Number.isFinite(price) || price <= 0) {
+            stats.invalidPrices++;
+            continue;
+          }
+          stats.validPrices++;
+          if (includesTargetBrand(product.productName))
+            stats.legacyTargetBrandProducts++;
           const sourceKey = `file-api:${product.productCode || product.id}`;
           if (rowsBySource.has(sourceKey)) stats.duplicates++;
+          const brand = productBrand(product);
+          if (brand) stats.brandsDetected++;
+          else stats.brandsMissing++;
+          const availability =
+            product.enabled === false ? "UNAVAILABLE" : "AVAILABLE";
+          if (availability === "AVAILABLE") stats.available++;
+          else stats.unavailable++;
           rowsBySource.set(sourceKey, {
             source_key: sourceKey,
             product_name: product.productName,
             current_price: price,
-            brand: detectBrand(product.productName),
-            availability:
-              product.enabled === false ? "UNAVAILABLE" : "AVAILABLE",
+            brand,
+            availability,
             observed_at: observedAt,
             raw_data: {
               provider: "file-market-api",
@@ -114,6 +154,7 @@ class FileMarketService {
               amount_step: product.amountStep,
               max_amount: product.maxAmount,
               image_urls: product.imageURLs || [],
+              vendor: product.vendor || null,
               discounted_price: product.discountedPrice ?? null,
               product_price: product.productPrice,
             },
@@ -132,4 +173,7 @@ module.exports = {
   EXCLUDED_CATEGORIES,
   includesTargetBrand,
   detectBrand,
+  isExcludedCategory,
+  productBrand,
+  structuredBrand,
 };
