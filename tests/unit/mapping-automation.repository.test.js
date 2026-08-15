@@ -268,17 +268,7 @@ test("Bizim canlı import price tier replace işlemini PDP provenance ile sını
   const upsert = calls.find((call) =>
     String(call.sql).includes("ON CONFLICT(source_key)DO UPDATE"),
   );
-  assert.match(upsert.sql, /price_tiers=CASE/);
-  assert.match(
-    upsert.sql,
-    /EXCLUDED\.raw_data->>'price_tiers_source'='BIZIM_PRODUCT_DETAIL'/,
-  );
-  assert.match(
-    upsert.sql,
-    /EXCLUDED\.raw_data->>'price_tiers_verified'='true'/,
-  );
-  assert.match(upsert.sql, /THEN EXCLUDED\.price_tiers/);
-  assert.match(upsert.sql, /THEN file_market_items\.price_tiers/);
+  assert.match(upsert.sql, /price_tiers=EXCLUDED\.price_tiers/);
   assert.doesNotMatch(upsert.sql, /supplier_code=EXCLUDED\.supplier_code/);
 });
 

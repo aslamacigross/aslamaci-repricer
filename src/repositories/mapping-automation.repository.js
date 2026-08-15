@@ -63,6 +63,42 @@ function isVerifiedBizimProductDetailTiers(supplierCode, rawData) {
   );
 }
 
+function mergedSupplierRawData(supplierCode, previousRawData, incomingRawData) {
+  const incoming =
+    incomingRawData && typeof incomingRawData === "object"
+      ? incomingRawData
+      : {};
+  if (
+    supplierCode !== "BIZIM_MARKET" ||
+    isVerifiedBizimProductDetailTiers(supplierCode, incoming)
+  )
+    return incoming;
+  const previous =
+    previousRawData && typeof previousRawData === "object"
+      ? previousRawData
+      : {};
+  const merged = { ...previous, ...incoming };
+  for (const key of [
+    "price_tiers",
+    "price_tiers_source",
+    "price_tiers_verified",
+    "price_tiers_verified_at",
+    "product_detail_url",
+    "product_detail_badges",
+    "package_prices",
+  ])
+    if (Object.prototype.hasOwnProperty.call(previous, key))
+      merged[key] = previous[key];
+  return merged;
+}
+
+function supplierPriceTiersForImport(supplierCode, previous, row) {
+  if (supplierCode !== "BIZIM_MARKET") return row.price_tiers || [];
+  if (isVerifiedBizimProductDetailTiers(supplierCode, row.raw_data))
+    return row.price_tiers || [];
+  return previous ? jsonArrayValue(previous.price_tiers) : row.price_tiers || [];
+}
+
 async function canonicalSupplierItemIds(client, item) {
   const normalizedName = String(item?.normalized_name || "").trim();
   const supplierCode = String(item?.supplier_code || "").trim();
@@ -175,6 +211,16 @@ class MappingAutomationRepository {
           previous &&
           effectivePriceType(previous.raw_data) !==
             effectivePriceType(row.raw_data);
+        const rawData = mergedSupplierRawData(
+          supplierCode,
+          previous?.raw_data,
+          row.raw_data,
+        );
+        const priceTiers = supplierPriceTiersForImport(
+          supplierCode,
+          previous,
+          row,
+        );
         const item = (
           await client.query(
             `INSERT INTO file_market_items(
@@ -202,14 +248,7 @@ class MappingAutomationRepository {
               source_category=EXCLUDED.source_category,
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
               desi_confidence=EXCLUDED.desi_confidence,
-              price_tiers=CASE
-                WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
-                  AND EXCLUDED.raw_data->>'price_tiers_source'='BIZIM_PRODUCT_DETAIL'
-                  AND EXCLUDED.raw_data->>'price_tiers_verified'='true'
-                THEN EXCLUDED.price_tiers
-                WHEN EXCLUDED.supplier_code='BIZIM_MARKET'
-                THEN file_market_items.price_tiers
-                ELSE EXCLUDED.price_tiers END,
+              price_tiers=EXCLUDED.price_tiers,
               last_seen_at=EXCLUDED.last_seen_at,
               price_changed_at=CASE
                 WHEN file_market_items.current_price<>EXCLUDED.current_price
@@ -227,7 +266,7 @@ class MappingAutomationRepository {
               row.current_price,
               row.currency,
               row.availability,
-              row.raw_data,
+              rawData,
               row.observed_at,
               previous
                 ? priceChanged
@@ -239,7 +278,7 @@ class MappingAutomationRepository {
               row.source_category || null,
               row.estimated_unit_desi || null,
               row.desi_confidence || "LOW",
-              JSON.stringify(row.price_tiers || []),
+              JSON.stringify(priceTiers),
             ],
           )
         ).rows[0];
