@@ -269,3 +269,226 @@ test("tedarikçi importu aynı kaynak anahtarını başka havuza taşımaz", asy
     /Tedarikçi kaynak anahtarı çakışıyor/,
   );
 });
+
+test("tedarikçi importu değişmeyen observation için history yazmaz", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return {
+          rows: [
+            {
+              id: 42,
+              source_key: "rossmann-api:42",
+              supplier_code: "ROSSMANN",
+              normalized_name: "isana sampuan",
+              current_price: 149,
+              availability: "AVAILABLE",
+              raw_data: { effective_price_type: "ROSSMANN_CARD" },
+              price_changed_at: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+        };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 42,
+              supplier_code: "ROSSMANN",
+              normalized_name: "isana sampuan",
+              current_price: 149,
+              availability: "AVAILABLE",
+              raw_data: { effective_price_type: "ROSSMANN_CARD" },
+              price_tiers: [],
+            },
+          ],
+        };
+      if (
+        String(sql).includes("SELECT id FROM file_market_items") &&
+        String(sql).includes("normalized_name=$2")
+      )
+        return { rows: [{ id: 42 }] };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.importSupplierItems("ROSSMANN", [
+    {
+      source_key: "rossmann-api:42",
+      product_name: "Isana Şampuan",
+      normalized_name: "isana sampuan",
+      brand: "Isana",
+      current_price: 149,
+      currency: "TRY",
+      availability: "AVAILABLE",
+      raw_data: { effective_price_type: "ROSSMANN_CARD" },
+      observed_at: "2026-08-02T00:00:00.000Z",
+      price_tiers: [],
+    },
+  ]);
+
+  assert.equal(result.changed, 0);
+  assert.equal(
+    calls.some((call) =>
+      String(call.sql).includes("INSERT INTO file_market_price_history"),
+    ),
+    false,
+  );
+});
+
+test("tedarikçi importu effective price type değişirse history yazar", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return {
+          rows: [
+            {
+              id: 43,
+              source_key: "rossmann-api:43",
+              supplier_code: "ROSSMANN",
+              normalized_name: "isana krem",
+              current_price: 99,
+              availability: "AVAILABLE",
+              raw_data: { effective_price_type: "REGULAR" },
+              price_changed_at: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+        };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 43,
+              supplier_code: "ROSSMANN",
+              normalized_name: "isana krem",
+              current_price: 99,
+              availability: "AVAILABLE",
+              raw_data: { effective_price_type: "ROSSMANN_CARD" },
+              price_tiers: [],
+            },
+          ],
+        };
+      if (
+        String(sql).includes("SELECT id FROM file_market_items") &&
+        String(sql).includes("normalized_name=$2")
+      )
+        return { rows: [{ id: 43 }] };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  await repo.importSupplierItems("ROSSMANN", [
+    {
+      source_key: "rossmann-api:43",
+      product_name: "Isana Krem",
+      normalized_name: "isana krem",
+      brand: "Isana",
+      current_price: 99,
+      currency: "TRY",
+      availability: "AVAILABLE",
+      raw_data: { effective_price_type: "ROSSMANN_CARD" },
+      observed_at: "2026-08-02T00:00:00.000Z",
+      price_tiers: [],
+    },
+  ]);
+
+  assert.equal(
+    calls.some((call) =>
+      String(call.sql).includes("INSERT INTO file_market_price_history"),
+    ),
+    true,
+  );
+});
+
+test("tedarikçi importu değişmeyen linked ürün için recalculation adayı üretmez", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("SELECT * FROM file_market_items"))
+        return {
+          rows: [
+            {
+              id: 44,
+              source_key: "rossmann-api:44",
+              supplier_code: "ROSSMANN",
+              normalized_name: "domol mendil",
+              current_price: 69,
+              availability: "AVAILABLE",
+              raw_data: { effective_price_type: "ROSSMANN_CARD" },
+              price_changed_at: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+        };
+      if (String(sql).includes("INSERT INTO file_market_items"))
+        return {
+          rows: [
+            {
+              id: 44,
+              supplier_code: "ROSSMANN",
+              normalized_name: "domol mendil",
+              current_price: 69,
+              availability: "AVAILABLE",
+              raw_data: { effective_price_type: "ROSSMANN_CARD" },
+              price_tiers: [],
+            },
+          ],
+        };
+      if (
+        String(sql).includes("SELECT id FROM file_market_items") &&
+        String(sql).includes("normalized_name=$2")
+      )
+        return { rows: [{ id: 44 }] };
+      if (String(sql).includes("FROM cost_item_file_links l"))
+        return {
+          rows: [
+            {
+              cost_item_code: "DOMOL_MENDIL",
+              unit_cost: 69,
+              marketplace: "TRENDYOL",
+              barcode: "DOMOL-1",
+              quantity: 1,
+              effective_unit_cost: null,
+              supplier_price_tier: null,
+            },
+          ],
+        };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.importSupplierItems("ROSSMANN", [
+    {
+      source_key: "rossmann-api:44",
+      product_name: "Domol Mendil",
+      normalized_name: "domol mendil",
+      brand: "Domol",
+      current_price: 69,
+      currency: "TRY",
+      availability: "AVAILABLE",
+      raw_data: { effective_price_type: "ROSSMANN_CARD" },
+      observed_at: "2026-08-02T00:00:00.000Z",
+      price_tiers: [],
+    },
+  ]);
+
+  assert.deepEqual(result.affectedBarcodes, []);
+  assert.equal(
+    calls.some((call) =>
+      String(call.sql).includes("UPDATE product_cost_mappings SET"),
+    ),
+    false,
+  );
+});

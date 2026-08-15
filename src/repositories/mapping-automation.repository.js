@@ -32,6 +32,15 @@ function productPairKey(marketplace, barcode) {
   return `${normalizeMarketplace(marketplace)}\u0000${String(barcode || "").trim()}`;
 }
 
+function effectivePriceType(rawData) {
+  if (!rawData || typeof rawData !== "object") return null;
+  return rawData.effective_price_type || null;
+}
+
+function jsonEqual(left, right) {
+  return JSON.stringify(left || null) === JSON.stringify(right || null);
+}
+
 async function canonicalSupplierItemIds(client, item) {
   const normalizedName = String(item?.normalized_name || "").trim();
   const supplierCode = String(item?.supplier_code || "").trim();
@@ -82,6 +91,12 @@ class MappingAutomationRepository {
         const priceChanged =
           previous &&
           Number(previous.current_price) !== Number(row.current_price);
+        const availabilityChanged =
+          previous && previous.availability !== row.availability;
+        const effectiveTypeChanged =
+          previous &&
+          effectivePriceType(previous.raw_data) !==
+            effectivePriceType(row.raw_data);
         const item = (
           await client.query(
             `INSERT INTO file_market_items(
@@ -148,12 +163,18 @@ class MappingAutomationRepository {
             ],
           )
         ).rows[0];
-        await client.query(
-          `INSERT INTO file_market_price_history(
-            file_market_item_id,price,availability,observed_at
-          )VALUES($1,$2,$3,$4)`,
-          [item.id, row.current_price, row.availability, row.observed_at],
-        );
+        if (
+          !previous ||
+          priceChanged ||
+          availabilityChanged ||
+          effectiveTypeChanged
+        )
+          await client.query(
+            `INSERT INTO file_market_price_history(
+              file_market_item_id,price,availability,observed_at
+            )VALUES($1,$2,$3,$4)`,
+            [item.id, row.current_price, row.availability, row.observed_at],
+          );
         if (!previous) created++;
         if (priceChanged) changed++;
         const canonicalIds = await canonicalSupplierItemIds(client, item);
@@ -163,7 +184,7 @@ class MappingAutomationRepository {
         const links = (
           await client.query(
             `SELECT l.cost_item_code,ci.unit_cost,pcm.marketplace,pcm.barcode,
-                    pcm.quantity,pcm.effective_unit_cost
+                    pcm.quantity,pcm.effective_unit_cost,pcm.supplier_price_tier
              FROM cost_item_file_links l
              JOIN cost_items ci ON ci.item_code=l.cost_item_code
              LEFT JOIN product_cost_mappings pcm
@@ -213,27 +234,37 @@ class MappingAutomationRepository {
                     linked.quantity,
                   )
                 : { unitPrice: baseUnitCost, tier: null };
-            await client.query(
-              `UPDATE product_cost_mappings SET
-                 effective_unit_cost=$4,
-                 supplier_price_tier=$5::jsonb,
-                 updated_at=NOW()
-               WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
-              [
-                linked.marketplace,
-                linked.barcode,
-                costCode,
-                tier.tier ? tier.unitPrice : null,
-                JSON.stringify(tier.tier || null),
-              ],
-            );
-            affectedProducts.set(
-              productPairKey(linked.marketplace, linked.barcode),
-              {
-                marketplace: normalizeMarketplace(linked.marketplace),
-                barcode: linked.barcode,
-              },
-            );
+            const tierUnitCost = tier.tier ? tier.unitPrice : null;
+            const previousTierUnitCost =
+              linked.effective_unit_cost == null
+                ? null
+                : Number(linked.effective_unit_cost);
+            const tierChanged =
+              previousTierUnitCost !== tierUnitCost ||
+              !jsonEqual(linked.supplier_price_tier, tier.tier || null);
+            if (costChanged || tierChanged) {
+              await client.query(
+                `UPDATE product_cost_mappings SET
+                   effective_unit_cost=$4,
+                   supplier_price_tier=$5::jsonb,
+                   updated_at=NOW()
+                 WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
+                [
+                  linked.marketplace,
+                  linked.barcode,
+                  costCode,
+                  tierUnitCost,
+                  JSON.stringify(tier.tier || null),
+                ],
+              );
+              affectedProducts.set(
+                productPairKey(linked.marketplace, linked.barcode),
+                {
+                  marketplace: normalizeMarketplace(linked.marketplace),
+                  barcode: linked.barcode,
+                },
+              );
+            }
           }
           if (costChanged)
             await client.query(

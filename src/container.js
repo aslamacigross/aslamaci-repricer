@@ -13,6 +13,9 @@ const { MaintenanceService } = require("./services/maintenance.service");
 const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
 const { BimMarketService } = require("./services/bim-market.service");
+const {
+  RossmannMarketService,
+} = require("./services/rossmann-market.service");
 const { HealthService } = require("./services/health.service");
 const { FinanceService } = require("./services/finance.service");
 const { HepsiburadaService } = require("./services/hepsiburada.service");
@@ -138,6 +141,8 @@ function createContainer(overrides = {}) {
   const fileMarket = overrides.fileMarket || new FileMarketService();
   const bizimMarket = overrides.bizimMarket || new BizimMarketService();
   const bimMarket = overrides.bimMarket || new BimMarketService();
+  const rossmannMarket =
+    overrides.rossmannMarket || new RossmannMarketService();
   const desi = overrides.desi || new DesiService({ db, costEngine });
   const shippingTariff =
     overrides.shippingTariff || new ShippingTariffService({ db });
@@ -217,6 +222,9 @@ function createContainer(overrides = {}) {
   );
   jobService.register("sync-bim-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("BIM", bimMarket),
+  );
+  jobService.register("sync-rossmann-market-prices", () =>
+    mappingAutomation.syncLiveSupplierItems("ROSSMANN", rossmannMarket),
   );
   jobService.register("sync-products", () => sync.products());
   jobService.register("sync-hepsiburada-products", async () => {
@@ -448,6 +456,7 @@ function createContainer(overrides = {}) {
     fileMarket,
     bizimMarket,
     bimMarket,
+    rossmannMarket,
     health,
     desi,
     shippingTariff,

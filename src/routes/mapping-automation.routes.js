@@ -7,6 +7,7 @@ function mappingAutomationRoutes({
   fileMarket,
   bizimMarket,
   bimMarket,
+  rossmannMarket,
   audit,
 }) {
   const router = express.Router();
@@ -26,6 +27,7 @@ function mappingAutomationRoutes({
     FILE_MARKET: fileMarket,
     BIZIM_MARKET: bizimMarket,
     BIM: bimMarket,
+    ROSSMANN: rossmannMarket,
   };
   const supplierCode = (value) => String(value || "").toUpperCase();
   const marketplaceCode = (req) =>

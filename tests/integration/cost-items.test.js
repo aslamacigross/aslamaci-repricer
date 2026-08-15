@@ -127,7 +127,7 @@ test("manuel maliyet kontrol listesi otomatik tedarikci linklerini haric tutar",
   assert.equal(result.total, 1);
   assert.equal(result.items[0].item_code, "MANUEL_KALEM");
   assert.match(queries[0].sql, /NOT EXISTS/);
-  assert.match(queries[0].sql, /FILE_MARKET','BIZIM_MARKET','BIM/);
+  assert.match(queries[0].sql, /FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN/);
   assert.deepEqual(queries[0].params, [30, "%manuel%"]);
   assert.deepEqual(queries[1].params, [30, "%manuel%", 25, 25]);
 });
