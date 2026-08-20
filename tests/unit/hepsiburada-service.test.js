@@ -10,6 +10,7 @@ const {
   DEFAULT_ENDPOINTS,
   HepsiburadaService,
   listingDeactivationSummary,
+  normalizeBuyboxOrders,
   normalizedEnvironment,
   normalizeRows,
   normalizeCommissionRows,
@@ -54,6 +55,9 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaPassword: env.hepsiburadaPassword,
       hepsiburadaIntegratorKey: env.hepsiburadaIntegratorKey,
       hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaOrderBaseUrl: env.hepsiburadaOrderBaseUrl,
+      hepsiburadaListingBaseUrl: env.hepsiburadaListingBaseUrl,
+      hepsiburadaProductBaseUrl: env.hepsiburadaProductBaseUrl,
       hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
       hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
     };
@@ -63,6 +67,9 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaPassword: "secret-key",
       hepsiburadaIntegratorKey: "",
       hepsiburadaUserAgent: "aslamacigross_dev",
+      hepsiburadaOrderBaseUrl: "",
+      hepsiburadaListingBaseUrl: "",
+      hepsiburadaProductBaseUrl: "",
       hepsiburadaMutationsEnabled: false,
       hepsiburadaPriceUpdatesEnabled: false,
     });
@@ -138,6 +145,179 @@ describe("Hepsiburada API runtime configuration", () => {
       assert.match(request.url, /listings\/merchantid\/merchant-id/);
       assert.equal(request.options.headers["User-Agent"], "aslamacigross_dev");
       assert.match(request.options.headers.Authorization, /^Basic /);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("official buybox endpointi production URL Basic auth ve skuList kullanir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUsername: env.hepsiburadaUsername,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaListingBaseUrl: env.hepsiburadaListingBaseUrl,
+    };
+    let request;
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaUsername: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamaci_dev",
+      hepsiburadaListingBaseUrl: "",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url, options) => {
+          request = { url, options };
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                variants: [
+                  {
+                    sku: "HBV1",
+                    buyboxOrders: [
+                      {
+                        rank: 1,
+                        merchantName: "AŞLAMACI GROSS",
+                        price: 100,
+                      },
+                    ],
+                  },
+                ],
+              }),
+          };
+        },
+      });
+      const payload = await service.getBuyboxOrders({ skuList: ["HBV1"] });
+      assert.equal(payload.variants.length, 1);
+      assert.match(
+        request.url,
+        /listing-external\.hepsiburada\.com\/buybox-orders\/merchantid\/merchant-id/,
+      );
+      assert.equal(new URL(request.url).searchParams.get("skuList"), "HBV1");
+      assert.equal(request.options.headers["User-Agent"], "aslamaci_dev");
+      assert.match(request.options.headers.Authorization, /^Basic /);
+      assert.equal(JSON.stringify(request).includes("secret-key"), false);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("official buybox endpointi SIT URL ve 10lu skuList siniri kullanir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaListingBaseUrl: env.hepsiburadaListingBaseUrl,
+    };
+    let request;
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamaci_dev",
+      hepsiburadaListingBaseUrl: "",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "sit",
+        fetch: async (url, options) => {
+          request = { url, options };
+          return { ok: true, text: async () => JSON.stringify({ variants: [] }) };
+        },
+      });
+      await service.getBuyboxOrders({
+        skuList: Array.from({ length: 12 }, (_, index) => `HBV${index + 1}`),
+      });
+      assert.match(
+        request.url,
+        /listing-external-sit\.hepsiburada\.com\/buybox-orders\/merchantid\/merchant-id/,
+      );
+      const skus = new URL(request.url).searchParams.get("skuList").split(",");
+      assert.equal(skus.length, 10);
+      assert.equal(skus[0], "HBV1");
+      assert.equal(skus[9], "HBV10");
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("official buybox response yaygin alanlari normalize edilir", () => {
+    const rows = normalizeBuyboxOrders({
+      variants: [
+        {
+          hbSku: "HBV1",
+          buyboxOrders: [
+            { position: 2, seller: "Rakip", winningPrice: 110 },
+            {
+              rank: 1,
+              merchantName: "AŞLAMACI GROSS",
+              price: 100,
+              originalPrice: 120,
+            },
+          ],
+        },
+        { sku: "HBV2", buyboxOrders: [] },
+      ],
+    });
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].sku, "HBV1");
+    assert.equal(rows[0].buyboxOrders[0].rank, 1);
+    assert.equal(rows[0].buyboxOrders[0].price, 100);
+    assert.equal(rows[0].buyboxOrders[1].rank, 2);
+    assert.equal(rows[0].buyboxOrders[1].merchantName, "Rakip");
+    assert.deepEqual(rows[1].buyboxOrders, []);
+  });
+
+  test("public buybox 429 cevabinda sinirli retry yapar", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    let calls = 0;
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-1",
+      hepsiburadaUserAgent: "aslamaci_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async () => {
+          calls++;
+          if (calls === 1)
+            return {
+              ok: false,
+              status: 429,
+              url: "https://www.hepsiburada.com/ara?q=HBV1",
+              text: async () => "rate limited",
+            };
+          return {
+            ok: true,
+            status: 200,
+            url: "https://www.hepsiburada.com/ara?q=HBV1",
+            text: async () =>
+              `<script type="mime/invalid" id="reduxStore">${JSON.stringify({
+                productState: {
+                  product: {
+                    sku: "HBV1",
+                    merchantName: "AŞLAMACI GROSS",
+                    merchantId: "merchant-1",
+                    prices: [{ value: 100 }],
+                  },
+                },
+              })}</script>`,
+          };
+        },
+      });
+      const result = await service.fetchPublicBuybox({
+        hbSku: "HBV1",
+        diagnostics: true,
+      });
+      assert.equal(calls, 2);
+      assert.equal(result.ok, true);
+      assert.equal(result.rank, 1);
     } finally {
       Object.assign(env, previous);
     }
@@ -518,12 +698,14 @@ describe("Hepsiburada API runtime configuration", () => {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,
       hepsiburadaPassword: env.hepsiburadaPassword,
       hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaListingBaseUrl: env.hepsiburadaListingBaseUrl,
     };
     const requests = [];
     Object.assign(env, {
       hepsiburadaMerchantId: "merchant-id",
       hepsiburadaPassword: "secret-key",
       hepsiburadaUserAgent: "aslamacigross_dev",
+      hepsiburadaListingBaseUrl: "",
     });
     try {
       const service = new HepsiburadaService({

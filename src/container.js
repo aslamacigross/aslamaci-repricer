@@ -13,12 +13,13 @@ const { MaintenanceService } = require("./services/maintenance.service");
 const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
 const { BimMarketService } = require("./services/bim-market.service");
-const {
-  RossmannMarketService,
-} = require("./services/rossmann-market.service");
+const { RossmannMarketService } = require("./services/rossmann-market.service");
 const { HealthService } = require("./services/health.service");
 const { FinanceService } = require("./services/finance.service");
 const { HepsiburadaService } = require("./services/hepsiburada.service");
+const {
+  HepsiburadaSellerPortalMetadataService,
+} = require("./services/hepsiburada-seller-portal-metadata.service");
 const { DesiService } = require("./services/desi.service");
 const { ShippingTariffService } = require("./services/shipping-tariff.service");
 const {
@@ -146,6 +147,9 @@ function createContainer(overrides = {}) {
   const desi = overrides.desi || new DesiService({ db, costEngine });
   const shippingTariff =
     overrides.shippingTariff || new ShippingTariffService({ db });
+  const hepsiburadaSellerPortalMetadata =
+    overrides.hepsiburadaSellerPortalMetadata ||
+    new HepsiburadaSellerPortalMetadataService({ db });
   const health =
     overrides.health || new HealthService({ db, trendyol, hepsiburada });
   const finance =
@@ -252,6 +256,9 @@ function createContainer(overrides = {}) {
     };
   });
   jobService.register("sync-buybox", () => sync.buybox());
+  jobService.register("sync-hepsiburada-buybox", () =>
+    sync.hepsiburadaBuybox(),
+  );
   jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
   jobService.register("calculate-costs", recalculateAllMarketplaces);
   jobService.register("validate-data", recalculateAllMarketplaces);
@@ -452,6 +459,7 @@ function createContainer(overrides = {}) {
     auth,
     trendyol,
     hepsiburada,
+    hepsiburadaSellerPortalMetadata,
     audit,
     settings,
     products,

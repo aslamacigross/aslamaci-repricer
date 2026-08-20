@@ -2,7 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { TrendyolService } = require("../../src/services/trendyol.service");
 const { SyncService } = require("../../src/services/sync.service");
-const { HepsiburadaService } = require("../../src/services/hepsiburada.service");
+const {
+  HepsiburadaService,
+} = require("../../src/services/hepsiburada.service");
 
 test("Trendyol dry-run hic HTTP cagrisi yapmaz", async () => {
   let calls = 0;
@@ -247,8 +249,9 @@ test("Hepsiburada listing sync urunleri ayri marketplace olarak yazar", async ()
   assert.equal(upsert.params[0], "HB-SKU-1");
   assert.equal(upsert.params[7], 199.9);
   assert.equal(upsert.params[13], 15);
-  assert.equal(upsert.params[14], 205);
-  assert.equal(upsert.params[17], 2);
+  assert.equal(upsert.params[14], null);
+  assert.equal(upsert.params[17], null);
+  assert.equal(upsert.params[18], null);
   assert.equal(upsert.params[19], true);
   assert.equal(upsert.params[22], "HB-SKU-1");
   assert.equal(upsert.params[23], null);

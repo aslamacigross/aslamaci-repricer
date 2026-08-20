@@ -23,6 +23,7 @@ import {
   Activity,
   Pencil,
   Trophy,
+  Upload,
 } from "lucide-react";
 import { get, post, patch } from "../lib/api";
 import DataTable, {
@@ -115,9 +116,9 @@ function BuyboxStatusBadge({ row }) {
   return (
     <span
       className="buybox-status buybox-status-out"
-      title={hasBuybox ? "Buybox'a dahil değiliz" : "Buybox verisi yok"}
+      title={hasBuybox ? "Sıra bilinmiyor" : "Buybox verisi yok"}
     >
-      {hasBuybox ? "Dahil değil" : "Veri yok"}
+      {hasBuybox ? "Sıra bilinmiyor" : "Veri yok"}
     </span>
   );
 }
@@ -169,6 +170,7 @@ const COMMON_JOBS = new Set([
 
 const HEPSIBURADA_JOBS = new Set([
   "sync-hepsiburada-products",
+  "sync-hepsiburada-buybox",
   "generate-hepsiburada-repricer-actions",
   "import-hepsiburada-shipping",
   "sync-hepsiburada-orders",
@@ -363,6 +365,7 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       label: "Buybox",
       render: (r) => money(r.buybox_price),
     },
+    { key: "buybox_seller", label: "Buybox satıcı" },
     {
       key: "learned_max_increase_tl",
       label: "Öğrenilen maks. artış",
@@ -376,11 +379,13 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       label: "2. fiyat",
       render: (r) => money(r.second_price),
     },
+    { key: "second_seller", label: "2. satıcı" },
     {
       key: "third_price",
       label: "3. fiyat",
       render: (r) => money(r.third_price),
     },
+    { key: "third_seller", label: "3. satıcı" },
     {
       key: "rank",
       label: "Buybox durumu",
@@ -1906,6 +1911,9 @@ function Settings({ notify, setDryRun, marketplace }) {
           </Button>
         </div>
       </div>
+      {marketplace === "HEPSIBURADA" && (
+        <HepsiburadaMetadataImport notify={notify} />
+      )}
       <Confirm
         open={confirmLive}
         onClose={() => setConfirmLive(false)}
@@ -1915,5 +1923,129 @@ function Settings({ notify, setDryRun, marketplace }) {
         confirmLabel="Canlı modu onayla"
       />
     </>
+  );
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      resolve(value.includes(",") ? value.split(",").pop() : value);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function HepsiburadaMetadataImport({ notify }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [error, setError] = useState(null);
+  async function load() {
+    try {
+      const response = await get("/api/hepsiburada/seller-portal-metadata");
+      setData(response.data);
+      setError(null);
+    } catch (e) {
+      setError(e);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+  async function upload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      const contentBase64 = await fileToBase64(file);
+      const response = await post(
+        "/api/hepsiburada/seller-portal-metadata/import",
+        { filename: file.name, contentBase64 },
+      );
+      setSummary(response.data);
+      notify("Hepsiburada ürün Excel'i işlendi");
+      await load();
+    } catch (e) {
+      notify(e.message, "error");
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const latest = data?.latest;
+  return (
+    <div className="panel settings-form">
+      <h2>Hepsiburada ürün metadata Excel'i</h2>
+      <p className="muted">
+        Seller Portal Satış Bilgisi Excel'i yalnız ürün adı, marka ve kategori
+        bilgisini tamamlar; fiyat, stok, komisyon, maliyet veya repricer alanı
+        değiştirmez.
+      </p>
+      {error && <ErrorState error={error} />}
+      <div className="settings-band">
+        <div>
+          <Upload />
+          <section>
+            <strong>
+              {latest
+                ? `Son import: ${date(latest.imported_at)}`
+                : "Henüz import yok"}
+            </strong>
+            <p>
+              {data?.stale
+                ? "Excel 30 günden eski; güncel Seller Portal dosyasını yükleyin."
+                : "Excel güncelliği takip ediliyor."}
+            </p>
+          </section>
+        </div>
+        <Badge tone={data?.stale ? "warning" : "success"}>
+          {data?.stale ? "YENİLEME GEREKİR" : "TAKİPTE"}
+        </Badge>
+      </div>
+      <div className="form-grid">
+        <Field label="Aktif metadata eksik ürün">
+          <input readOnly value={data?.activeMissingMetadata ?? "-"} />
+        </Field>
+        <Field label="Son Excel'de olmayan aktif ürün">
+          <input readOnly value={data?.activeNotInLatestExcel ?? "-"} />
+        </Field>
+      </div>
+      {summary && (
+        <div className="summary-grid">
+          {[
+            ["Satır", summary.rowsTotal],
+            ["Satışta", summary.rowsActiveInExcel],
+            ["Eşleşen", summary.matched],
+            ["Güncellenen", summary.updated],
+            ["Aynı kalan", summary.unchanged],
+            ["Kimlik uyarısı", summary.identityMismatch],
+            ["Excel-only", summary.excelOnly],
+            ["Geçerli GTIN gözlendi", summary.validGtinObserved ?? summary.validGtinAccepted],
+          ].map(([label, value]) => (
+            <div className="metric" key={label}>
+              <span>{label}</span>
+              <strong>{value ?? 0}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="form-actions">
+        <label className={`button ${busy ? "disabled" : ""}`}>
+          <Upload size={18} />
+          {busy ? "Yükleniyor" : "HB ürün Excel'i yükle"}
+          <input
+            type="file"
+            accept=".xlsx"
+            hidden
+            disabled={busy}
+            onChange={upload}
+          />
+        </label>
+      </div>
+    </div>
   );
 }

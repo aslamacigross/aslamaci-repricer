@@ -237,6 +237,7 @@ function systemRoutes({
   repricer,
   health,
   hepsiburada,
+  hepsiburadaSellerPortalMetadata,
   marketplaceRegistry,
   dashboard,
 }) {
@@ -294,11 +295,18 @@ function systemRoutes({
       const marketplace = String(
         req.body.marketplace || "TRENDYOL",
       ).toUpperCase();
+      if (marketplace === "HEPSIBURADA")
+        return res.json({
+          status: "ok",
+          data: await jobService.run("sync-hepsiburada-buybox", {
+            source: "web",
+          }),
+        });
       if (marketplace !== "TRENDYOL")
         throw new AppError(
-          "Hepsiburada buybox bağlantısı credentials bekliyor",
+          "Pazaryeri buybox senkronu desteklenmiyor",
           409,
-          "MARKETPLACE_CREDENTIALS_MISSING",
+          "CAPABILITY_NOT_SUPPORTED",
         );
       res.json({
         status: "ok",
@@ -376,6 +384,78 @@ function systemRoutes({
     asyncRoute(async (req, res) =>
       res.json({ status: "ok", items: await settings.list() }),
     ),
+  );
+  r.get(
+    "/hepsiburada/seller-portal-metadata",
+    asyncRoute(async (req, res) => {
+      if (!hepsiburadaSellerPortalMetadata)
+        throw new AppError(
+          "Hepsiburada Seller Portal metadata servisi hazir degil",
+          409,
+          "HB_SELLER_PORTAL_METADATA_NOT_READY",
+        );
+      res.json({
+        status: "ok",
+        data: await hepsiburadaSellerPortalMetadata.readiness(),
+      });
+    }),
+  );
+  r.post(
+    "/hepsiburada/seller-portal-metadata/import",
+    asyncRoute(async (req, res) => {
+      if (!hepsiburadaSellerPortalMetadata)
+        throw new AppError(
+          "Hepsiburada Seller Portal metadata servisi hazir degil",
+          409,
+          "HB_SELLER_PORTAL_METADATA_NOT_READY",
+        );
+      const filename = String(req.body.filename || "").trim();
+      const contentBase64 = String(req.body.contentBase64 || "").trim();
+      if (!filename.toLowerCase().endsWith(".xlsx"))
+        throw new AppError(
+          "Hepsiburada ürün metadata importu için .xlsx dosyası yükleyin",
+          400,
+          "HB_SELLER_PORTAL_XLSX_REQUIRED",
+        );
+      if (!contentBase64)
+        throw new AppError(
+          "Excel içeriği boş",
+          400,
+          "HB_SELLER_PORTAL_EMPTY_FILE",
+        );
+      const buffer = Buffer.from(contentBase64, "base64");
+      if (!buffer.length || buffer.length > 20 * 1024 * 1024)
+        throw new AppError(
+          "Excel dosya boyutu geçersiz",
+          400,
+          "HB_SELLER_PORTAL_FILE_SIZE_INVALID",
+        );
+      const data = await hepsiburadaSellerPortalMetadata.importWorkbook(
+        buffer,
+        { filename },
+      );
+      await audit.record({
+        actor: req.user.username,
+        action: "HEPSIBURADA_SELLER_PORTAL_METADATA_IMPORTED",
+        entityType: "hepsiburada_seller_portal_import",
+        entityId: String(data.importId),
+        after: {
+          rowsTotal: data.rowsTotal,
+          matched: data.matched,
+          updated: data.updated,
+          identityMismatch: data.identityMismatch,
+          excelOnly: data.excelOnly,
+          activeNotInExcel: data.activeNotInExcel,
+          validGtinAccepted: data.validGtinAccepted,
+          validGtinObserved: data.validGtinObserved,
+          invalidGtin: data.invalidGtin,
+          ambiguousGtin: data.ambiguousGtin,
+        },
+        ip: req.ip,
+        requestId: req.id,
+      });
+      res.json({ status: "ok", data });
+    }),
   );
   r.patch(
     "/settings",

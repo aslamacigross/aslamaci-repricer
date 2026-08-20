@@ -12,10 +12,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 36);
+    assert.equal(initial.rowCount, 38);
     assert.equal(
       initial.rows.at(-1).version,
-      "036_bizim_price_tier_job",
+      "038_hepsiburada_seller_portal_metadata",
     );
 
     const columnsAfterUp = await db.query(`
@@ -42,6 +42,64 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
         "merchant_sku",
       ],
     );
+
+    const sellerPortalMetadataTablesAfterUp = await db.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN (
+          'hepsiburada_seller_portal_imports',
+          'hepsiburada_seller_portal_metadata'
+        )
+      ORDER BY table_name
+    `);
+    assert.deepEqual(
+      sellerPortalMetadataTablesAfterUp.rows.map((row) => row.table_name),
+      [
+        "hepsiburada_seller_portal_imports",
+        "hepsiburada_seller_portal_metadata",
+      ],
+    );
+
+    const buyboxCollectorJobAfterUp = await db.query(
+      "SELECT enabled FROM jobs WHERE name='sync-hepsiburada-buybox'",
+    );
+    assert.equal(buyboxCollectorJobAfterUp.rowCount, 1);
+    assert.equal(buyboxCollectorJobAfterUp.rows[0].enabled, false);
+
+    await migrate("down", db);
+    const afterSellerPortalMetadataDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(afterSellerPortalMetadataDown.rowCount, 37);
+    assert.equal(
+      afterSellerPortalMetadataDown.rows.at(-1).version,
+      "037_hepsiburada_buybox_public_collectors",
+    );
+    const sellerPortalMetadataTablesAfterDown = await db.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN (
+          'hepsiburada_seller_portal_imports',
+          'hepsiburada_seller_portal_metadata'
+        )
+    `);
+    assert.equal(sellerPortalMetadataTablesAfterDown.rowCount, 0);
+
+    await migrate("down", db);
+    const afterBuyboxCollectorDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(afterBuyboxCollectorDown.rowCount, 36);
+    assert.equal(
+      afterBuyboxCollectorDown.rows.at(-1).version,
+      "036_bizim_price_tier_job",
+    );
+    const buyboxCollectorJobAfterDown = await db.query(
+      "SELECT name FROM jobs WHERE name='sync-hepsiburada-buybox'",
+    );
+    assert.equal(buyboxCollectorJobAfterDown.rowCount, 0);
 
     await migrate("down", db);
     const afterBizimTierDown = await db.query(
@@ -76,7 +134,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
       "SELECT version FROM schema_migrations ORDER BY version",
     );
     assert.equal(afterDown.rowCount, 33);
-    assert.equal(afterDown.rows.at(-1).version, "033_hepsiburada_listing_identity");
+    assert.equal(
+      afterDown.rows.at(-1).version,
+      "033_hepsiburada_listing_identity",
+    );
 
     const tariffRowsAfterDown = await db.query(`
       SELECT
@@ -90,10 +151,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 36);
+    assert.equal(afterRoundTrip.rowCount, 38);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "036_bizim_price_tier_job",
+      "038_hepsiburada_seller_portal_metadata",
     );
     const tariffRowsAfterRoundTrip = await db.query(`
       SELECT

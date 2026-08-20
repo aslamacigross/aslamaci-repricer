@@ -59,6 +59,8 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "034_trendyol_august_2026_shipping_tariffs",
       "035_rossmann_market_live_sync",
       "036_bizim_price_tier_job",
+      "037_hepsiburada_buybox_public_collectors",
+      "038_hepsiburada_seller_portal_metadata",
     ],
   );
   const safety = await db.query(
@@ -306,6 +308,20 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       )VALUES('TRENDYOL','INVALID',100)`,
     ),
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedSellerPortalMetadataTables = await db.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_name IN(
+       'hepsiburada_seller_portal_imports',
+       'hepsiburada_seller_portal_metadata'
+     )`,
+  );
+  assert.equal(removedSellerPortalMetadataTables.rowCount, 0);
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedHepsiburadaBuyboxJob = await db.query(
+    "SELECT name FROM jobs WHERE name='sync-hepsiburada-buybox'",
+  );
+  assert.equal(removedHepsiburadaBuyboxJob.rowCount, 0);
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedBizimTierJob = await db.query(
     "SELECT name FROM jobs WHERE name='sync-bizim-price-tiers'",

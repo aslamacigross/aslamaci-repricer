@@ -1,5 +1,8 @@
 const { env } = require("../config/env");
 const { canonicalGtin } = require("../domain/catalog-gtin");
+const {
+  parseHepsiburadaPublicBuyboxHtml,
+} = require("../domain/hepsiburada-buybox");
 
 const DEFAULT_ENDPOINTS = Object.freeze({
   production: {
@@ -332,7 +335,9 @@ function findJsonLdBreadcrumbs(value, names = []) {
   if (typeof value !== "object") return names;
   const type = value["@type"];
   const types = Array.isArray(type) ? type : [type];
-  if (types.some((item) => String(item || "").toLowerCase() === "breadcrumblist")) {
+  if (
+    types.some((item) => String(item || "").toLowerCase() === "breadcrumblist")
+  ) {
     const elements = Array.isArray(value.itemListElement)
       ? value.itemListElement
       : [];
@@ -341,7 +346,8 @@ function findJsonLdBreadcrumbs(value, names = []) {
       if (name) names.push(String(name));
     }
   }
-  for (const nested of Object.values(value)) findJsonLdBreadcrumbs(nested, names);
+  for (const nested of Object.values(value))
+    findJsonLdBreadcrumbs(nested, names);
   return names;
 }
 
@@ -601,7 +607,7 @@ function extractPublicProductLinks(html, identifiers = []) {
     const href = htmlDecode(match[1]);
     const upperHref = href.toUpperCase();
     const matched = [...idSet].some((id) => upperHref.includes(id));
-    if (!matched && !/-PM?-HBC?[0-9A-Z]+/i.test(href)) continue;
+    if (!matched) continue;
     const url = productUrlFromPublicPath(href);
     if (!url || seen.has(url)) continue;
     seen.add(url);
@@ -966,33 +972,45 @@ class HepsiburadaService {
   }
 
   async publicRequest(url, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      options.timeoutMs || Math.min(this.timeoutMs, 6000),
-    );
-    try {
-      const response = await this.fetch(url, {
-        method: "GET",
-        redirect: "follow",
-        headers: {
-          "User-Agent": this.userAgent(),
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-        signal: controller.signal,
-      });
-      const body = await response.text();
-      if (!response.ok) {
-        if (options.diagnostics)
-          return { ok: false, status: response.status, url: response.url, body };
-        return null;
+    const attempts = Math.min(Math.max(Number(options.retries) || 2, 1), 4);
+    let lastResponse = null;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(),
+        options.timeoutMs || Math.min(this.timeoutMs, 6000),
+      );
+      try {
+        const response = await this.fetch(url, {
+          method: "GET",
+          redirect: "follow",
+          headers: {
+            "User-Agent":
+              options.userAgent ||
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+          },
+          signal: controller.signal,
+        });
+        const body = await response.text();
+        lastResponse = {
+          ok: response.ok,
+          status: response.status,
+          url: response.url,
+          body,
+        };
+        if (response.ok) return options.diagnostics ? lastResponse : body;
+        if (![429, 500, 502, 503, 504].includes(response.status)) break;
+      } finally {
+        clearTimeout(timer);
       }
-      if (options.diagnostics)
-        return { ok: true, status: response.status, url: response.url, body };
-      return body;
-    } finally {
-      clearTimeout(timer);
+      if (attempt < attempts - 1)
+        await sleep((options.retryDelayMs || 250) * (attempt + 1));
     }
+    if (options.diagnostics) return lastResponse;
+    return null;
   }
 
   async resolvePublicCatalogMetadata({
@@ -1009,7 +1027,9 @@ class HepsiburadaService {
     ]
       .map(normalizePublicIdentifier)
       .filter(Boolean);
-    if (!identifiers.some((identifier) => /^HBC?[V]?[0-9A-Z]+$/i.test(identifier)))
+    if (
+      !identifiers.some((identifier) => /^HBC?[V]?[0-9A-Z]+$/i.test(identifier))
+    )
       return diagnostics
         ? publicResolutionDiagnostics("UNSUPPORTED_IDENTIFIER")
         : null;
@@ -1035,10 +1055,7 @@ class HepsiburadaService {
           })
         : null;
 
-    const productUrls = [
-      metadata?.url,
-      ...links,
-    ].filter(Boolean);
+    const productUrls = [metadata?.url, ...links].filter(Boolean);
     for (const url of [...new Set(productUrls)].slice(0, 3)) {
       const productResponse = await this.publicRequest(url, { diagnostics });
       const productHtml = diagnostics ? productResponse?.body : productResponse;
@@ -1068,9 +1085,106 @@ class HepsiburadaService {
       : null;
   }
 
+  async fetchPublicBuybox({
+    hbSku,
+    merchantSku,
+    productId,
+    productUrl,
+    diagnostics = false,
+  } = {}) {
+    const identifiers = publicSearchIdentifiers({
+      hbSku,
+      merchantSku,
+      productId,
+    });
+    if (!identifiers.size)
+      return {
+        ok: false,
+        status: "UNSUPPORTED_IDENTIFIER",
+        offers: [],
+      };
+
+    const searchUrl = `https://www.hepsiburada.com/ara?q=${encodeURIComponent(
+      [...identifiers][0],
+    )}`;
+    const searchResponse = await this.publicRequest(searchUrl, {
+      diagnostics: true,
+      timeoutMs: 8000,
+    });
+    if (!searchResponse?.ok)
+      return {
+        ok: false,
+        status: `SEARCH_HTTP_${searchResponse?.status || "NO_RESPONSE"}`,
+        httpStatus: searchResponse?.status || null,
+        url: searchUrl,
+        offers: [],
+      };
+
+    const metadata = parseHepsiburadaPublicSearchHtml(
+      searchResponse.body,
+      identifiers,
+    );
+    const links = extractPublicProductLinks(searchResponse.body, identifiers);
+    const productUrls = [productUrl, metadata?.url, ...links].filter(Boolean);
+    const urls = [...new Set(productUrls)].slice(0, 3);
+    const ownSellerNames = [
+      env.hepsiburadaSellerName,
+      "AŞLAMACI GROSS",
+      "ASLAMACI GROSS",
+    ].filter(Boolean);
+
+    let best = parseHepsiburadaPublicBuyboxHtml(searchResponse.body, {
+      hbSku,
+      merchantSku,
+      productId,
+      ownMerchantId: env.hepsiburadaMerchantId,
+      ownSellerNames,
+    });
+    best.url = searchResponse.url || searchUrl;
+
+    for (const url of urls) {
+      const productResponse = await this.publicRequest(url, {
+        diagnostics: true,
+        timeoutMs: 8000,
+      });
+      if (!productResponse?.ok) {
+        if (!best.ok)
+          best = {
+            ok: false,
+            status: `PRODUCT_HTTP_${productResponse?.status || "NO_RESPONSE"}`,
+            httpStatus: productResponse?.status || null,
+            url,
+            offers: [],
+          };
+        continue;
+      }
+      const parsed = parseHepsiburadaPublicBuyboxHtml(productResponse.body, {
+        hbSku,
+        merchantSku,
+        productId,
+        ownMerchantId: env.hepsiburadaMerchantId,
+        ownSellerNames,
+      });
+      parsed.url = productResponse.url || url;
+      if (parsed.ok) {
+        best = parsed;
+        break;
+      }
+    }
+
+    if (!diagnostics && !best.ok) return best;
+    return {
+      ...best,
+      searchUrl,
+      productUrls: urls,
+    };
+  }
+
   async fetchOrderMetadata({ days = 90, limit = 100 } = {}) {
     const end = new Date();
-    const begin = new Date(end.getTime() - Math.max(Number(days) || 90, 1) * 86400000);
+    const begin = new Date(
+      end.getTime() - Math.max(Number(days) || 90, 1) * 86400000,
+    );
     const payload = await this.listOrders({
       beginDate: begin.toISOString(),
       endDate: end.toISOString(),
@@ -1385,6 +1499,18 @@ class HepsiburadaService {
       `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
         env.hepsiburadaMerchantId,
       )}/sku/${encodeURIComponent(String(sku))}`,
+    );
+  }
+
+  async getBuyboxOrders({ skuList = [] } = {}) {
+    const skus = [...new Set((skuList || []).map(String).filter(Boolean))];
+    if (!skus.length) return { variants: [] };
+    const query = new URLSearchParams({ skuList: skus.slice(0, 10).join(",") });
+    return this.request(
+      `${this.listingBaseUrl}/buybox-orders/merchantid/${encodeURIComponent(
+        env.hepsiburadaMerchantId,
+      )}?${query}`,
+      { method: "GET" },
     );
   }
 
@@ -2057,6 +2183,52 @@ function normalizeCommissionRows(payload) {
   return rows;
 }
 
+function normalizeBuyboxOrders(payload) {
+  const variants = Array.isArray(payload?.variants) ? payload.variants : [];
+  return variants
+    .map((variant) => {
+      const sku = String(
+        variant.sku ||
+          variant.hbSku ||
+          variant.hepsiburadaSku ||
+          variant.merchantSku ||
+          "",
+      ).trim();
+      const orders = (Array.isArray(variant.buyboxOrders)
+        ? variant.buyboxOrders
+        : []
+      )
+        .map((order, index) => {
+          const rank = Number(order.rank ?? order.order ?? order.position);
+          const price = Number(
+            order.price ??
+              order.buyboxPrice ??
+              order.winningPrice ??
+              order.originalPrice,
+          );
+          return {
+            rank: Number.isFinite(rank) && rank > 0 ? rank : index + 1,
+            merchantName: String(
+              order.merchantName || order.seller || order.sellerName || "",
+            ).trim(),
+            merchantId: String(order.merchantId || order.sellerId || "").trim(),
+            price: Number.isFinite(price) && price > 0 ? price : null,
+            originalPrice:
+              Number.isFinite(Number(order.originalPrice)) &&
+              Number(order.originalPrice) > 0
+                ? Number(order.originalPrice)
+                : null,
+            dispatchTime: order.dispatchTime ?? null,
+            merchantRating: order.merchantRating ?? null,
+          };
+        })
+        .filter((order) => order.price);
+      orders.sort((left, right) => left.rank - right.rank);
+      return { sku, buyboxOrders: orders };
+    })
+    .filter((variant) => variant.sku);
+}
+
 module.exports = {
   HepsiburadaService,
   DEFAULT_ENDPOINTS,
@@ -2064,6 +2236,7 @@ module.exports = {
   normalizedEnvironment,
   normalizeRows,
   normalizeCommissionRows,
+  normalizeBuyboxOrders,
   parseHepsiburadaPublicCatalogHtml,
   parseHepsiburadaPublicSearchHtml,
   listingDeactivationSummary,
