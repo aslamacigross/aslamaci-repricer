@@ -769,14 +769,12 @@ class MappingAutomationRepository {
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-         LEFT JOIN LATERAL (
-           SELECT l.file_market_item_id
-           FROM cost_item_file_links l
-           WHERE l.cost_item_code=pcm.cost_item_code
-             AND l.status='APPROVED'
-           ORDER BY l.updated_at DESC NULLS LAST,l.id DESC
-           LIMIT 1
-         ) linked ON TRUE
+         LEFT JOIN (
+           SELECT DISTINCT ON(cost_item_code) cost_item_code,file_market_item_id
+           FROM cost_item_file_links
+           WHERE status='APPROVED'
+           ORDER BY cost_item_code,updated_at DESC NULLS LAST,id DESC
+         ) linked ON linked.cost_item_code=pcm.cost_item_code
          LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
          WHERE p.marketplace=$1
            AND p.product_name IS NOT NULL
@@ -802,14 +800,12 @@ class MappingAutomationRepository {
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-         LEFT JOIN LATERAL (
-           SELECT l.file_market_item_id
-           FROM cost_item_file_links l
-           WHERE l.cost_item_code=pcm.cost_item_code
-             AND l.status='APPROVED'
-           ORDER BY l.updated_at DESC NULLS LAST,l.id DESC
-           LIMIT 1
-         ) linked ON TRUE
+         LEFT JOIN (
+           SELECT DISTINCT ON(cost_item_code) cost_item_code,file_market_item_id
+           FROM cost_item_file_links
+           WHERE status='APPROVED'
+           ORDER BY cost_item_code,updated_at DESC NULLS LAST,id DESC
+         ) linked ON linked.cost_item_code=pcm.cost_item_code
          LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
          WHERE p.marketplace='TRENDYOL'
            AND p.barcode=ANY($1::text[])
