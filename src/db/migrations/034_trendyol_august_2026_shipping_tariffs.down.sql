@@ -1,5 +1,3 @@
-DELETE FROM shipping_tariff_imports
-WHERE marketplace='TRENDYOL' AND source_version='2026-08-10';
-
-DELETE FROM shipping_costs WHERE marketplace='TRENDYOL';
-DELETE FROM shipping_barems WHERE marketplace='TRENDYOL';
+-- Matching no-op for the Hepsiburada parity branch. Do not delete existing
+-- TRENDYOL tariff data when rolling this migration marker back.
+SELECT 1;

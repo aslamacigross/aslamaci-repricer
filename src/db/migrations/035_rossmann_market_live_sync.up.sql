@@ -4,7 +4,7 @@ INSERT INTO jobs(
   'sync-rossmann-market-prices',
   'Rossmann public elastic kataloğundan Rossmann Card fiyat öncelikli maliyet havuzunu yeniler',
   1440,
-  TRUE,
+  FALSE,
   'DAILY',
   '00:00',
   'Europe/Istanbul'

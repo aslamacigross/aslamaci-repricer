@@ -4,7 +4,7 @@ INSERT INTO jobs(
   'sync-bizim-price-tiers',
   'Bizim Toptan available ürün detaylarından quantity price tier doğrulamasını rate-limit dostu yeniler',
   1440,
-  TRUE,
+  FALSE,
   'DAILY',
   '01:30',
   'Europe/Istanbul'

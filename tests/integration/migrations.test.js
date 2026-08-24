@@ -103,7 +103,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT enabled,schedule_minutes,schedule_type,daily_at FROM jobs WHERE name='sync-rossmann-market-prices'",
   );
   assert.equal(rossmannMarketJob.rowCount, 1);
-  assert.equal(rossmannMarketJob.rows[0].enabled, true);
+  assert.equal(rossmannMarketJob.rows[0].enabled, false);
   assert.equal(Number(rossmannMarketJob.rows[0].schedule_minutes), 1440);
   assert.equal(rossmannMarketJob.rows[0].schedule_type, "DAILY");
   assert.equal(rossmannMarketJob.rows[0].daily_at, "00:00");
@@ -111,7 +111,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     "SELECT enabled,schedule_minutes,schedule_type,daily_at FROM jobs WHERE name='sync-bizim-price-tiers'",
   );
   assert.equal(bizimTierJob.rowCount, 1);
-  assert.equal(bizimTierJob.rows[0].enabled, true);
+  assert.equal(bizimTierJob.rows[0].enabled, false);
   assert.equal(Number(bizimTierJob.rows[0].schedule_minutes), 1440);
   assert.equal(bizimTierJob.rows[0].schedule_type, "DAILY");
   assert.equal(bizimTierJob.rows[0].daily_at, "01:30");
@@ -134,11 +134,11 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   const trendyolShipping = await db.query(
     "SELECT COUNT(*)::int count FROM shipping_costs WHERE marketplace='TRENDYOL'",
   );
-  assert.equal(trendyolShipping.rows[0].count, 4210);
+  assert.equal(trendyolShipping.rows[0].count, 0);
   const trendyolBarems = await db.query(
     "SELECT COUNT(*)::int count FROM shipping_barems WHERE marketplace='TRENDYOL'",
   );
-  assert.equal(trendyolBarems.rows[0].count, 14);
+  assert.equal(trendyolBarems.rows[0].count, 0);
   const historyJob = await db.query(
     "SELECT enabled FROM jobs WHERE name='backfill-trendyol-finance-history'",
   );
@@ -430,5 +430,233 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
         OR (table_name='product_settings' AND column_name='max_single_change_pct')`,
   );
   assert.equal(removedColumns.rowCount, 0);
+  await db.end();
+});
+
+test("deploy-safe HB migrations idempotent calistiginda Trendyol datasini degistirmez", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => value.length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+
+  await migrate("up", db, { compatibility: "pg-mem" });
+
+  await db.query(
+    `INSERT INTO shipping_costs(
+       marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate
+     )VALUES('TRENDYOL',1,'TRENDYOL_SENTINEL_CARRIER',11.11,13.33,20)`,
+  );
+  await db.query(
+    `INSERT INTO shipping_barems(
+       marketplace,min_basket,max_basket,barem_name,carrier,
+       cost_ex_vat,cost_inc_vat,vat_rate
+     )VALUES('TRENDYOL',0,199.99,'PROD_SENTINEL','TRENDYOL_SENTINEL_CARRIER',22.22,26.66,20)`,
+  );
+  await db.query(
+    `INSERT INTO packaging_rules(
+       marketplace,min_desi,max_desi,packaging_cost,note
+     )VALUES('TRENDYOL',0,5,3.25,'prod-packaging-sentinel')`,
+  );
+  await db.query(
+    `INSERT INTO cost_items(
+       item_code,item_name,unit_cost,unit_desi,price_source,source_checked_at
+     )VALUES('MANUAL_SENTINEL','Manual Sentinel',77.77,0.5,'MANUAL','2026-01-01T00:00:00Z')`,
+  );
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,brand,category_name,commission_rate,
+       my_price,stock_quantity,is_active,needs_cost_mapping,data_status,
+       calculated_product_cost,min_price,auto_update
+     )VALUES(
+       'TRENDYOL','TY-SENTINEL','Trendyol Sentinel','Sentinel','Kategori',
+       17,199,10,TRUE,FALSE,'COMPLETE',77.77,150,FALSE
+     )`,
+  );
+  await db.query(
+    `INSERT INTO product_cost_mappings(
+       marketplace,barcode,cost_item_code,quantity,effective_unit_cost
+     )VALUES('TRENDYOL','TY-SENTINEL','MANUAL_SENTINEL',1,77.77)`,
+  );
+  await db.query(
+    `INSERT INTO jobs(name,description,schedule_minutes,enabled,schedule_type,daily_at,schedule_timezone)
+     VALUES
+       ('sync-rossmann-market-prices','pre-existing disabled Rossmann job',1440,FALSE,'DAILY','00:00','Europe/Istanbul'),
+       ('sync-bizim-price-tiers','pre-existing disabled Bizim tier job',1440,FALSE,'DAILY','01:30','Europe/Istanbul')
+     ON CONFLICT(name) DO UPDATE SET enabled=FALSE`,
+  );
+
+  const before = {
+    shippingCosts: (
+      await db.query(
+        `SELECT marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate
+         FROM shipping_costs WHERE marketplace='TRENDYOL' ORDER BY carrier,desi_kg`,
+      )
+    ).rows,
+    shippingBarems: (
+      await db.query(
+        `SELECT marketplace,min_basket,max_basket,barem_name,carrier,cost_ex_vat,cost_inc_vat,vat_rate
+         FROM shipping_barems WHERE marketplace='TRENDYOL' ORDER BY carrier,min_basket`,
+      )
+    ).rows,
+    packagingRules: (
+      await db.query(
+        `SELECT marketplace,min_desi,max_desi,packaging_cost,note
+         FROM packaging_rules WHERE marketplace='TRENDYOL' ORDER BY note`,
+      )
+    ).rows,
+    costItems: (
+      await db.query(
+        `SELECT item_code,item_name,unit_cost,unit_desi,price_source,source_checked_at
+         FROM cost_items WHERE item_code='MANUAL_SENTINEL'`,
+      )
+    ).rows,
+    products: (
+      await db.query(
+        `SELECT marketplace,barcode,product_name,brand,category_name,commission_rate,
+                my_price,stock_quantity,is_active,needs_cost_mapping,data_status,
+                calculated_product_cost,min_price,auto_update
+         FROM products WHERE marketplace='TRENDYOL' AND barcode='TY-SENTINEL'`,
+      )
+    ).rows,
+    mappings: (
+      await db.query(
+        `SELECT marketplace,barcode,cost_item_code,quantity,effective_unit_cost
+         FROM product_cost_mappings
+         WHERE marketplace='TRENDYOL' AND barcode='TY-SENTINEL'`,
+      )
+    ).rows,
+  };
+
+  await migrate("up", db, { compatibility: "pg-mem" });
+
+  assert.deepEqual(
+    (
+      await db.query(
+        `SELECT marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat,vat_rate
+         FROM shipping_costs WHERE marketplace='TRENDYOL' ORDER BY carrier,desi_kg`,
+      )
+    ).rows,
+    before.shippingCosts,
+  );
+  assert.deepEqual(
+    (
+      await db.query(
+        `SELECT marketplace,min_basket,max_basket,barem_name,carrier,cost_ex_vat,cost_inc_vat,vat_rate
+         FROM shipping_barems WHERE marketplace='TRENDYOL' ORDER BY carrier,min_basket`,
+      )
+    ).rows,
+    before.shippingBarems,
+  );
+  assert.deepEqual(
+    (
+      await db.query(
+        `SELECT marketplace,min_desi,max_desi,packaging_cost,note
+         FROM packaging_rules WHERE marketplace='TRENDYOL' ORDER BY note`,
+      )
+    ).rows,
+    before.packagingRules,
+  );
+  assert.deepEqual(
+    (
+      await db.query(
+        `SELECT item_code,item_name,unit_cost,unit_desi,price_source,source_checked_at
+         FROM cost_items WHERE item_code='MANUAL_SENTINEL'`,
+      )
+    ).rows,
+    before.costItems,
+  );
+  assert.deepEqual(
+    (
+      await db.query(
+        `SELECT marketplace,barcode,product_name,brand,category_name,commission_rate,
+                my_price,stock_quantity,is_active,needs_cost_mapping,data_status,
+                calculated_product_cost,min_price,auto_update
+         FROM products WHERE marketplace='TRENDYOL' AND barcode='TY-SENTINEL'`,
+      )
+    ).rows,
+    before.products,
+  );
+  assert.deepEqual(
+    (
+      await db.query(
+        `SELECT marketplace,barcode,cost_item_code,quantity,effective_unit_cost
+         FROM product_cost_mappings
+         WHERE marketplace='TRENDYOL' AND barcode='TY-SENTINEL'`,
+      )
+    ).rows,
+    before.mappings,
+  );
+
+  const manualReviewState = (
+    await db.query(
+      `SELECT manual_review_last_confirmed_at,manual_review_next_due_at,
+              manual_review_status
+       FROM cost_items WHERE item_code='MANUAL_SENTINEL'`,
+    )
+  ).rows[0];
+  assert.equal(manualReviewState.manual_review_last_confirmed_at, null);
+  assert.equal(manualReviewState.manual_review_next_due_at, null);
+  assert.equal(manualReviewState.manual_review_status, "OK");
+
+  const supplierJobs = await db.query(
+    `SELECT name,enabled FROM jobs
+     WHERE name IN('sync-rossmann-market-prices','sync-bizim-price-tiers')
+     ORDER BY name`,
+  );
+  assert.deepEqual(
+    supplierJobs.rows.map((row) => [row.name, row.enabled]),
+    [
+      ["sync-bizim-price-tiers", false],
+      ["sync-rossmann-market-prices", false],
+    ],
+  );
+
+  const hbColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='products'
+       AND column_name IN(
+         'merchant_sku','hb_sku','listing_id','catalog_gtin',
+         'catalog_gtin_source','buybox_seller','second_seller',
+         'third_seller','seller_count','buybox_source',
+         'product_name_source','brand_source','category_name_source',
+         'metadata_refreshed_at'
+       )`,
+  );
+  assert.equal(hbColumns.rowCount, 14);
+  const hbTables = await db.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema='public'
+       AND table_name IN(
+       'hepsiburada_seller_portal_imports',
+       'hepsiburada_seller_portal_metadata'
+     )`,
+  );
+  assert.equal(hbTables.rowCount, 2);
+  const hbJobs = await db.query(
+    `SELECT name,enabled FROM jobs
+     WHERE name IN(
+       'sync-hepsiburada-products',
+       'sync-hepsiburada-buybox',
+       'generate-hepsiburada-repricer-actions'
+     )
+     ORDER BY name`,
+  );
+  assert.deepEqual(
+    hbJobs.rows.map((row) => [row.name, row.enabled]),
+    [
+      ["generate-hepsiburada-repricer-actions", false],
+      ["sync-hepsiburada-buybox", false],
+      ["sync-hepsiburada-products", false],
+    ],
+  );
+
   await db.end();
 });
