@@ -349,6 +349,170 @@ test("tedarikci importu etkilenen HB ve Trendyol barkodlarini marketplace ile re
   ]);
 });
 
+test("HB Seller Portal metadata source category_id ve image olmadan mapping onerisi uretebilir", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HBCV0000KAKAO",
+        merchant_sku: "HBCV0000KAKAO",
+        hb_sku: "HBCV0000KAKAO",
+        product_name: "Ülker Toz Kakao 1 kg",
+        product_name_source: "HB_SELLER_PORTAL_EXPORT",
+        brand: "Ülker",
+        brand_source: "HB_SELLER_PORTAL_EXPORT",
+        category_id: null,
+        category_name: "Kakao",
+        category_name_source: "HB_SELLER_PORTAL_EXPORT",
+        product_image_url: null,
+        marketplace_catalog_barcode: "HBCV0000KAKAO",
+        catalog_gtin: null,
+        catalog_gtin_source: null,
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 901,
+        product_name: "Ülker Toz Kakao 1 kg",
+        normalized_name: "ulker toz kakao 1 kg",
+        brand: "Ülker",
+        current_price: 899,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+    saveSuggestions: async (rows) => {
+      saved.push(...rows);
+      return {
+        created: rows.length,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        skippedDuplicates: 0,
+        skippedSamePending: 0,
+        items: rows,
+      };
+    },
+  });
+
+  const result = await service.generate({
+    marketplace: "HEPSIBURADA",
+    limit: 20,
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].marketplace, "HEPSIBURADA");
+  assert.equal(saved[0].barcode, "HBCV0000KAKAO");
+  assert.equal(saved[0].items[0].file_market_item_id, 901);
+});
+
+test("HB merchantSku ve hbSku platform kimligi GTIN olmadan mapping onerisine engel olmaz", async () => {
+  const { service, saved } = fixture({
+    targetProducts: async () => [
+      {
+        marketplace: "HEPSIBURADA",
+        barcode: "HBCV0000KAKAO",
+        merchant_sku: "HBCV0000KAKAO",
+        hb_sku: "HBCV0000KAKAO",
+        product_name: "Ülker Toz Kakao 1 kg",
+        brand: "Ülker",
+        category_id: null,
+        category_name: "Kakao",
+        marketplace_catalog_barcode: "HBCV0000KAKAO",
+        catalog_gtin: null,
+        catalog_gtin_source: null,
+        data_status: "MAPPING_MISSING",
+        is_active: true,
+      },
+    ],
+    trainingRows: async () => [],
+    fileItemsForMatching: async () => [
+      {
+        id: 902,
+        product_name: "Ülker Toz Kakao 1 kg",
+        normalized_name: "ulker toz kakao 1 kg",
+        brand: "Ülker",
+        current_price: 899,
+        supplier_code: "BIZIM_MARKET",
+        estimated_unit_desi: 1,
+      },
+    ],
+    saveSuggestions: async (rows) => {
+      saved.push(...rows);
+      return {
+        created: rows.length,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        skippedDuplicates: 0,
+        skippedSamePending: 0,
+        items: rows,
+      };
+    },
+  });
+
+  const result = await service.generate({
+    marketplace: "HEPSIBURADA",
+    limit: 20,
+  });
+
+  assert.equal(result.created, 1);
+  assert.equal(saved[0].marketplace, "HEPSIBURADA");
+  assert.equal(saved[0].barcode, "HBCV0000KAKAO");
+  assert.equal(saved[0].source_type, "FILE_DIRECT_COST_ITEM");
+});
+
+test("HB toplu mapping apply yalniz uygulanan marketplace icin CostEngine calistirir", async () => {
+  const suggestion = {
+    id: 77,
+    marketplace: "HEPSIBURADA",
+    barcode: "HB-APPLY",
+    status: "APPROVED",
+    updated_at: "2026-08-23T00:00:00.000Z",
+    fingerprint: "hb-apply-fingerprint",
+    update_file_price: false,
+    source_type: "FILE_DIRECT_COST_ITEM",
+    source_barcode: null,
+    algorithm_version: "test",
+    items: [
+      {
+        cost_item_code: "HB_COST",
+        quantity: 1,
+        current_unit_cost: 50,
+        suggested_unit_cost: 50,
+        unit_desi: 1,
+      },
+    ],
+  };
+  const recalculated = [];
+  const applied = [];
+  const service = new MappingAutomationService({
+    repository: {
+      getSuggestionsByIds: async () => [suggestion],
+      withTransaction: async (work) => work({}),
+      markApplied: async (_client, item) => {
+        applied.push([item.marketplace, item.barcode]);
+        return { applied: true, barcode: item.barcode };
+      },
+    },
+    costs: { validateMappings: async () => ({ valid: true, errors: [] }) },
+    costEngine: {
+      recalculate: async (barcode, queryable, marketplace) => {
+        recalculated.push([barcode, marketplace]);
+        return { processed: 1 };
+      },
+    },
+  });
+  const token = service.previewToken([suggestion]);
+
+  const result = await service.bulkApply([77], token, "admin");
+
+  assert.equal(result.applied, 1);
+  assert.deepEqual(applied, [["HEPSIBURADA", "HB-APPLY"]]);
+  assert.deepEqual(recalculated, [[undefined, "HEPSIBURADA"]]);
+});
+
 test("Bizim base sync PDP tier jobundan bağımsız catalog satırlarını import eder", async () => {
   let importedSupplier;
   let importedRows;

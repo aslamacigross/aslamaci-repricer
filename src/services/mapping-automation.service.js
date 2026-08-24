@@ -3672,7 +3672,15 @@ class MappingAutomationService {
           );
         applied.push(result);
       }
-      await this.costEngine.recalculate(undefined, client);
+      const appliedMarketplaces = [
+        ...new Set(
+          suggestions.map((suggestion) =>
+            normalizeMarketplace(suggestion.marketplace),
+          ),
+        ),
+      ];
+      for (const marketplace of appliedMarketplaces)
+        await this.costEngine.recalculate(undefined, client, marketplace);
       return { applied: applied.length, items: applied };
     });
   }

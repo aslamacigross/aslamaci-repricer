@@ -225,7 +225,119 @@ test("File fiyatından üretilen öneri onay ve önizleme sonrası atomik uygula
   await db.end();
 });
 
-test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyetini günceller", async () => {
+test("Hepsiburada onayli mapping apply marketplace scoped kalir ve Trendyol urune sizmaz", async () => {
+  const memory = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  memory.public.registerFunction({
+    name: "hashtext",
+    args: ["text"],
+    returns: "integer",
+    implementation: (value) => String(value || "").length,
+  });
+  const adapter = memory.adapters.createPg();
+  const db = new adapter.Pool();
+  await migrate("up", db, { compatibility: "pg-mem" });
+  const withTransaction = async (work) => {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  await db.query(
+    `INSERT INTO products(
+      marketplace,barcode,product_name,brand,is_active,data_status,
+      stock_quantity,my_price,commission_rate
+    )VALUES
+      ('HEPSIBURADA','SAME-CODE','Actisoft Çamaşır Suyu 1000 ml',
+       'Actisoft',TRUE,'MAPPING_MISSING',10,120,17),
+      ('TRENDYOL','SAME-CODE','Trendyol Aynı Kod Ürünü',
+       'Actisoft',TRUE,'MAPPING_MISSING',10,120,17)`,
+  );
+  await db.query(
+    `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi)
+     VALUES('ACTISOFT_CAMASIR_SUYU_1000ML','Actisoft Çamaşır Suyu 1000 ml',55,1)`,
+  );
+  const suggestion = (
+    await db.query(
+      `INSERT INTO mapping_suggestions(
+        marketplace,barcode,status,confidence,base_confidence,confidence_band,
+        learning_key,algorithm_version,source_type,evidence,product_snapshot,
+        fingerprint,reviewed_by,reviewed_at
+      )VALUES(
+        'HEPSIBURADA','SAME-CODE','APPROVED',0.92,0.92,'HIGH',
+        'HEPSIBURADA:actisoft-camasir-suyu','test','FILE_DIRECT_COST_ITEM',
+        '{}'::jsonb,'{}'::jsonb,'hb-same-code','admin',NOW()
+      ) RETURNING id`,
+    )
+  ).rows[0];
+  await db.query(
+    `INSERT INTO mapping_suggestion_items(
+      suggestion_id,cost_item_code,quantity,current_unit_cost,
+      suggested_unit_cost,unit_desi
+    )VALUES($1,'ACTISOFT_CAMASIR_SUYU_1000ML',1,55,55,1)`,
+    [suggestion.id],
+  );
+
+  const recalculated = [];
+  const service = new MappingAutomationService({
+    repository: new MappingAutomationRepository(db, withTransaction),
+    costs: new CostRepository(db, withTransaction),
+    costEngine: {
+      recalculate: async (barcode, queryable, marketplace) => {
+        recalculated.push([barcode, marketplace]);
+        await queryable.query(
+          `UPDATE products SET needs_cost_mapping=FALSE,data_status='COMPLETE'
+           WHERE marketplace=$1 AND barcode='SAME-CODE'`,
+          [marketplace],
+        );
+        return { processed: 1 };
+      },
+    },
+  });
+
+  const preview = await service.bulkPreview([suggestion.id]);
+  const applied = await service.bulkApply([suggestion.id], preview.token, "admin");
+
+  assert.equal(applied.applied, 1);
+  assert.deepEqual(recalculated, [[undefined, "HEPSIBURADA"]]);
+  const mappings = await db.query(
+    `SELECT marketplace,barcode,cost_item_code,quantity
+     FROM product_cost_mappings
+     WHERE barcode='SAME-CODE'
+     ORDER BY marketplace`,
+  );
+  assert.deepEqual(
+    mappings.rows.map((row) => [
+      row.marketplace,
+      row.barcode,
+      row.cost_item_code,
+      Number(row.quantity),
+    ]),
+    [["HEPSIBURADA", "SAME-CODE", "ACTISOFT_CAMASIR_SUYU_1000ML", 1]],
+  );
+  const ty = (
+    await db.query(
+      `SELECT data_status,needs_cost_mapping
+       FROM products WHERE marketplace='TRENDYOL' AND barcode='SAME-CODE'`,
+    )
+  ).rows[0];
+  assert.equal(ty.data_status, "MAPPING_MISSING");
+  assert.equal(ty.needs_cost_mapping, true);
+
+  await db.end();
+});
+
+test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyetini marketplace bazinda günceller", async () => {
   const memory = newDb({
     autoCreateForeignKeyIndices: true,
     noAstCoverageCheck: true,
@@ -260,6 +372,9 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
     )VALUES(
       'TRENDYOL','HSTOBA6202101','Teno Ekonomik Peçete 100lü X 32 Adet',
       'Teno','123',TRUE,'COMPLETE',10,999,17
+    ),(
+      'HEPSIBURADA','HB-TENO-PECETE','Teno Ekonomik Peçete 100lü X 32 Adet',
+      'Teno','123',TRUE,'COMPLETE',10,999,17
     )`,
   );
   await db.query(
@@ -286,7 +401,9 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
   await db.query(
     `INSERT INTO product_cost_mappings(
       marketplace,barcode,cost_item_code,quantity
-    )VALUES('TRENDYOL','HSTOBA6202101','BIZIM_TENO_PECETE_100LU',6)`,
+    )VALUES
+      ('TRENDYOL','HSTOBA6202101','BIZIM_TENO_PECETE_100LU',6),
+      ('HEPSIBURADA','HB-TENO-PECETE','BIZIM_TENO_PECETE_100LU',6)`,
   );
 
   const repository = new MappingAutomationRepository(db, withTransaction);
@@ -295,8 +412,8 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
     repository,
     costs: new CostRepository(db, withTransaction),
     costEngine: {
-      recalculate: async (barcode) => {
-        recalculated.push(barcode);
+      recalculate: async (barcode, queryable, marketplace) => {
+        recalculated.push([barcode, marketplace]);
         return { processed: 1 };
       },
     },
@@ -311,8 +428,17 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
     },
   );
 
-  assert.deepEqual(updated.recalculated_barcodes, ["HSTOBA6202101"]);
-  assert.deepEqual(recalculated, ["HSTOBA6202101"]);
+  assert.deepEqual(updated.recalculated_barcodes.sort(), [
+    "HB-TENO-PECETE",
+    "HSTOBA6202101",
+  ]);
+  assert.deepEqual(
+    recalculated.sort((left, right) => left[0].localeCompare(right[0])),
+    [
+      ["HB-TENO-PECETE", "HEPSIBURADA"],
+      ["HSTOBA6202101", "TRENDYOL"],
+    ],
+  );
   const cost = await db.query(
     `SELECT unit_cost,previous_unit_cost,price_source FROM cost_items
      WHERE item_code='BIZIM_TENO_PECETE_100LU'`,
@@ -322,11 +448,18 @@ test("Bizim çoklu alım fiyatı sonradan eklenince uygulanmış mapping maliyet
   const mapping = await db.query(
     `SELECT effective_unit_cost,supplier_price_tier
      FROM product_cost_mappings
-     WHERE marketplace='TRENDYOL' AND barcode='HSTOBA6202101'
-       AND cost_item_code='BIZIM_TENO_PECETE_100LU'`,
+     WHERE cost_item_code='BIZIM_TENO_PECETE_100LU'
+     ORDER BY marketplace`,
   );
-  assert.equal(Number(mapping.rows[0].effective_unit_cost), 230);
-  assert.equal(Number(mapping.rows[0].supplier_price_tier.unit_price), 230);
+  assert.equal(mapping.rowCount, 2);
+  assert.deepEqual(
+    mapping.rows.map((row) => Number(row.effective_unit_cost)),
+    [230, 230],
+  );
+  assert.deepEqual(
+    mapping.rows.map((row) => Number(row.supplier_price_tier.unit_price)),
+    [230, 230],
+  );
   assert.equal(Number(updated.tier_price_updates[0].quantity), 6);
   assert.equal(Number(updated.tier_price_updates[0].min_quantity), 6);
 
