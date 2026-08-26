@@ -27,12 +27,15 @@ test("urun filtreleri kategori adi, marka ve repricer modunu birlikte uygular", 
   for (const call of calls) {
     assert.match(call.sql, /p\.category_name ILIKE/);
     assert.match(call.sql, /p\.brand ILIKE/);
+    assert.match(call.sql, /p\.marketplace_product_id ILIKE/);
+    assert.match(call.sql, /COALESCE\(p\.archived,FALSE\)=FALSE/);
     assert.match(call.sql, /product_settings psf/);
     assert.match(call.sql, /p\.needs_cost_mapping=TRUE/);
     assert.ok(call.params.includes("%Yumuşatıcı%"));
     assert.ok(call.params.includes("%Actisoft%"));
     assert.ok(call.params.includes("MONITOR"));
   }
+  assert.match(calls[1].sql, /ORDER BY NULLIF\(p\.product_name,''\)/);
 });
 
 test("toplu ayar onizlemesi hedef urun risklerini sayar", async () => {

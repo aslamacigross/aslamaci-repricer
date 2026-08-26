@@ -25,12 +25,31 @@ const env = {
     process.env.HB_ENV ||
     "production"
   ).toLowerCase(),
-  hepsiburadaMerchantId: process.env.HB_MERCHANT_ID || "",
-  hepsiburadaUsername: process.env.HB_USERNAME || "",
-  hepsiburadaPassword: process.env.HB_PASSWORD || "",
-  hepsiburadaIntegratorKey: process.env.HB_INTEGRATOR_KEY || "",
+  hepsiburadaMerchantId:
+    process.env.HEPSIBURADA_MERCHANT_ID || process.env.HB_MERCHANT_ID || "",
+  hepsiburadaUsername:
+    process.env.HEPSIBURADA_USERNAME || process.env.HB_USERNAME || "",
+  hepsiburadaPassword:
+    process.env.HEPSIBURADA_PASSWORD ||
+    process.env.HEPSIBURADA_SECRET_KEY ||
+    process.env.HB_PASSWORD ||
+    "",
+  hepsiburadaIntegratorKey:
+    process.env.HEPSIBURADA_INTEGRATOR_KEY ||
+    process.env.HB_INTEGRATOR_KEY ||
+    "",
   hepsiburadaUserAgent:
     process.env.HEPSIBURADA_USER_AGENT || process.env.HB_USER_AGENT || "",
+  hepsiburadaSellerName:
+    process.env.HEPSIBURADA_SELLER_NAME || process.env.HB_SELLER_NAME || "",
+  hepsiburadaWebhookUsername:
+    process.env.HEPSIBURADA_WEBHOOK_USERNAME ||
+    process.env.HB_WEBHOOK_USERNAME ||
+    "",
+  hepsiburadaWebhookPassword:
+    process.env.HEPSIBURADA_WEBHOOK_PASSWORD ||
+    process.env.HB_WEBHOOK_PASSWORD ||
+    "",
   hepsiburadaOrderBaseUrl:
     process.env.HB_ORDER_BASE_URL ||
     process.env.HEPSIBURADA_ORDER_BASE_URL ||
@@ -47,6 +66,16 @@ const env = {
     process.env.HEPSIBURADA_MUTATIONS_ENABLED ||
       process.env.HB_MUTATIONS_ENABLED,
     false,
+  ),
+  hepsiburadaPriceUpdatesEnabled: bool(
+    process.env.HEPSIBURADA_PRICE_UPDATES_ENABLED ||
+      process.env.HB_PRICE_UPDATES_ENABLED,
+    false,
+  ),
+  hepsiburadaPublicMetadataLookupLimit: number(
+    process.env.HEPSIBURADA_PUBLIC_METADATA_LOOKUP_LIMIT ||
+      process.env.HB_PUBLIC_METADATA_LOOKUP_LIMIT,
+    50,
   ),
   adminUsername: process.env.ADMIN_USERNAME || "admin",
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",
@@ -68,7 +97,7 @@ const env = {
     process.env.GLOBAL_MAX_DAILY_DECREASE_PCT,
     5,
   ),
-  minPriceChangeTl: number(process.env.MIN_PRICE_CHANGE_TL, 0.1),
+  minPriceChangeTl: number(process.env.MIN_PRICE_CHANGE_TL, 5),
   logRetentionDays: number(process.env.LOG_RETENTION_DAYS, 90),
   skipMigrations: bool(process.env.SKIP_MIGRATIONS, false),
   productPublishingEnabled: bool(process.env.PRODUCT_PUBLISHING_ENABLED, false),
@@ -106,6 +135,8 @@ function validateEnv() {
     errors.push("HEPSIBURADA_ENV sit veya production olmali");
   if (env.hepsiburadaMutationsEnabled)
     errors.push("HEPSIBURADA_MUTATIONS_ENABLED false kalmali");
+  if (env.hepsiburadaPriceUpdatesEnabled)
+    errors.push("HEPSIBURADA_PRICE_UPDATES_ENABLED false kalmali");
   if (errors.length)
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }

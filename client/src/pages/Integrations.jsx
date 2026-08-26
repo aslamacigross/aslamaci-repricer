@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Cable,
   CheckCircle2,
@@ -65,10 +65,31 @@ function adapterLabel(value) {
   );
 }
 
+function runtimeEnvironment(item) {
+  return String(item?.runtime?.environment || "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function Integrations({ notify }) {
   const remote = useRemote(() => get("/api/integrations"), []);
   const [selected, setSelected] = useState(null);
   const [testing, setTesting] = useState("");
+  const [sitTests, setSitTests] = useState(null);
+  const [sitPreview, setSitPreview] = useState(null);
+  const [sitRunResult, setSitRunResult] = useState(null);
+  const [hbCatalogDiagnostic, setHbCatalogDiagnostic] = useState(null);
+  const [hbCatalogLoading, setHbCatalogLoading] = useState(false);
+  const [sitLoading, setSitLoading] = useState(false);
+  const [sitInput, setSitInput] = useState({
+    merchantSku: "8660891646397",
+    hbSku: "HBV000010LWPR",
+    productName: "Aşlamacı ERP SIT Test Ürünü",
+    price: "1000",
+    stock: "20000",
+    packageNumber: "",
+    packageAction: "deliver_flow",
+  });
 
   async function testConnection(item) {
     setTesting(item.code);
@@ -82,6 +103,79 @@ export default function Integrations({ notify }) {
       remote.reload();
     }
   }
+
+  async function loadSitTests() {
+    setSitLoading(true);
+    try {
+      const response = await get("/api/integrations/hepsiburada/sit-tests");
+      setSitTests(response.data);
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setSitLoading(false);
+    }
+  }
+
+  async function previewSitStep(step) {
+    setSitLoading(true);
+    try {
+      const response = await post(
+        `/api/integrations/hepsiburada/sit-tests/${step}/preview`,
+      );
+      setSitPreview(response.data);
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setSitLoading(false);
+    }
+  }
+
+  async function runSitStep(step) {
+    setSitLoading(true);
+    try {
+      const response = await post(
+        `/api/integrations/hepsiburada/sit-tests/${step}/run`,
+        sitInput,
+      );
+      setSitRunResult(response.data);
+      notify("Hepsiburada SIT adımı çalıştırıldı");
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setSitLoading(false);
+    }
+  }
+
+  async function runHepsiburadaCatalogDiagnostic() {
+    setHbCatalogLoading(true);
+    try {
+      const response = await post(
+        "/api/integrations/hepsiburada/catalog-diagnostics",
+        {
+          merchantSku: sitInput.merchantSku,
+          hbSku: sitInput.hbSku,
+        },
+      );
+      setHbCatalogDiagnostic(response.data);
+      notify("Hepsiburada katalog teşhisi tamamlandı");
+    } catch (error) {
+      notify(error.message, "warning");
+    } finally {
+      setHbCatalogLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setSitTests(null);
+    setSitPreview(null);
+    setSitRunResult(null);
+    setHbCatalogDiagnostic(null);
+    if (
+      selected?.code === "HEPSIBURADA" &&
+      runtimeEnvironment(selected) === "sit"
+    )
+      loadSitTests();
+  }, [selected?.code, selected?.runtime?.environment]);
 
   if (remote.loading) return <Loading />;
   if (remote.error)
@@ -259,6 +353,265 @@ export default function Integrations({ notify }) {
                 ))}
               </dl>
             </section>
+            {selected.code === "HEPSIBURADA" && (
+              <section>
+                <h3>Hepsiburada katalog teşhisi</h3>
+                <p className="muted">
+                  Canlı ürün adı, marka, kategori ve görsel datasının hangi
+                  Hepsiburada endpointinden gelip gelmediğini kontrol eder.
+                </p>
+                <div className="detail-grid">
+                  <label>
+                    <dt>Satıcı stok kodu / Merchant SKU</dt>
+                    <input
+                      value={sitInput.merchantSku}
+                      onChange={(event) =>
+                        setSitInput((current) => ({
+                          ...current,
+                          merchantSku: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <dt>Hepsiburada SKU / Platform ID</dt>
+                    <input
+                      value={sitInput.hbSku}
+                      onChange={(event) =>
+                        setSitInput((current) => ({
+                          ...current,
+                          hbSku: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+                <Button
+                  icon={RefreshCw}
+                  disabled={hbCatalogLoading}
+                  onClick={runHepsiburadaCatalogDiagnostic}
+                >
+                  {hbCatalogLoading ? "Kontrol ediliyor" : "Katalog teşhisi"}
+                </Button>
+                {hbCatalogDiagnostic && (
+                  <div className="integration-warning">
+                    <ShieldCheck size={17} />
+                    <span>
+                      Teşhis sonucu
+                      <pre>{JSON.stringify(hbCatalogDiagnostic, null, 2)}</pre>
+                    </span>
+                  </div>
+                )}
+              </section>
+            )}
+            {selected.code === "HEPSIBURADA" &&
+              runtimeEnvironment(selected) === "sit" && (
+                <section>
+                  <h3>Hepsiburada SIT test merkezi</h3>
+                  {!sitTests ? (
+                    <Button
+                      variant="secondary"
+                      icon={RefreshCw}
+                      disabled={sitLoading}
+                      onClick={loadSitTests}
+                    >
+                      Test durumunu yükle
+                    </Button>
+                  ) : (
+                    <>
+                      <dl className="detail-grid">
+                        <div>
+                          <dt>Ortam</dt>
+                          <dd>{sitTests.safety?.environment}</dd>
+                        </div>
+                        <div>
+                          <dt>SIT kilidi</dt>
+                          <dd>
+                            {sitTests.safety?.sitOnly ? "Doğru" : "Eksik"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Mutasyon kilidi</dt>
+                          <dd>
+                            {sitTests.safety?.mutationsLocked
+                              ? "Kapalı ve güvenli"
+                              : "Açık görünüyor"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Webhook URL</dt>
+                          <dd>
+                            {sitTests.safety?.publicWebhookUrl || "Eksik"}
+                          </dd>
+                        </div>
+                      </dl>
+                      {Boolean(sitTests.blockedReasons?.length) && (
+                        <div className="integration-warning">
+                          <CircleOff size={17} />
+                          <span>{sitTests.blockedReasons.join(", ")}</span>
+                        </div>
+                      )}
+                      <div className="detail-grid">
+                        <label>
+                          <dt>Satıcı stok kodu / Merchant SKU</dt>
+                          <input
+                            value={sitInput.merchantSku}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                merchantSku: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <dt>Hepsiburada SKU / Platform ID</dt>
+                          <input
+                            value={sitInput.hbSku}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                hbSku: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <dt>Test ürün adı</dt>
+                          <input
+                            value={sitInput.productName}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                productName: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <dt>Test fiyatı</dt>
+                          <input
+                            value={sitInput.price}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                price: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <dt>Test stoku</dt>
+                          <input
+                            value={sitInput.stock}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                stock: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <dt>Paket no</dt>
+                          <input
+                            placeholder="Boşsa ilk SIT paketi"
+                            value={sitInput.packageNumber}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                packageNumber: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <dt>Paket statü akışı</dt>
+                          <select
+                            value={sitInput.packageAction}
+                            onChange={(event) =>
+                              setSitInput((current) => ({
+                                ...current,
+                                packageAction: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="deliver_flow">
+                              Kargoda → teslim edildi
+                            </option>
+                            <option value="undeliver_flow">
+                              Kargoda → teslim edilemedi
+                            </option>
+                            <option value="intransit">Sadece kargoda</option>
+                            <option value="deliver">
+                              Sadece teslim edildi
+                            </option>
+                            <option value="undeliver">
+                              Sadece teslim edilemedi
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="capability-list">
+                        {(sitTests.steps || []).map((step) => (
+                          <div key={step.code}>
+                            {step.status === "BLOCKED" ? (
+                              <CircleOff size={17} />
+                            ) : (
+                              <CheckCircle2 size={17} />
+                            )}
+                            <span>
+                              <strong>{step.title}</strong>
+                              <small>{step.description}</small>
+                            </span>
+                            <Badge
+                              tone={
+                                step.status === "READY" ||
+                                step.status === "DRY_RUN_READY"
+                                  ? "success"
+                                  : "warning"
+                              }
+                            >
+                              {step.status}
+                            </Badge>
+                            <Button
+                              variant="secondary"
+                              disabled={sitLoading || step.status === "BLOCKED"}
+                              onClick={() => previewSitStep(step.code)}
+                            >
+                              Önizle
+                            </Button>
+                            <Button
+                              disabled={sitLoading || step.status === "BLOCKED"}
+                              onClick={() => runSitStep(step.code)}
+                            >
+                              SIT'te çalıştır
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {sitPreview && (
+                    <div className="integration-warning">
+                      <ShieldCheck size={17} />
+                      <span>
+                        {sitPreview.message}
+                        <pre>{JSON.stringify(sitPreview.preview, null, 2)}</pre>
+                      </span>
+                    </div>
+                  )}
+                  {sitRunResult && (
+                    <div className="integration-warning">
+                      <CheckCircle2 size={17} />
+                      <span>
+                        SIT sonucu
+                        <pre>{JSON.stringify(sitRunResult, null, 2)}</pre>
+                      </span>
+                    </div>
+                  )}
+                </section>
+              )}
           </div>
         )}
       </Drawer>

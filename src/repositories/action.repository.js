@@ -151,6 +151,91 @@ class ActionRepository {
     ).rows[0];
   }
 
+  async findPendingIncreaseProbe(barcode, marketplace = "TRENDYOL") {
+    return (
+      await this.db.query(
+        `SELECT ra.id,ra.status FROM repricer_actions ra
+         WHERE ra.marketplace=$1 AND ra.barcode=$2
+           AND ra.action='FIYAT_ARTIR' AND ra.rank_before=1
+           AND ra.status IN('PENDING','APPROVED','SENDING','AWAITING_RESULT','SENT','SUCCESS')
+           AND ra.created_at>NOW()-INTERVAL '30 minutes'
+           AND NOT EXISTS(
+             SELECT 1 FROM price_change_outcomes pco
+             WHERE pco.action_id=ra.id AND pco.elapsed_minutes=5
+           )
+         ORDER BY ra.created_at DESC LIMIT 1`,
+        [String(marketplace).toUpperCase(), barcode],
+      )
+    ).rows[0];
+  }
+
+  async createBuyboxRecovery(action) {
+    return this.withTransaction(async (client) => {
+      const original = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [action.id],
+        )
+      ).rows[0];
+      if (
+        !original ||
+        Number(original.rank_before) !== 1 ||
+        Number(original.proposed_price) <= Number(original.old_price) ||
+        !["SUCCESS", "AWAITING_RESULT", "SENT"].includes(original.status)
+      )
+        return null;
+      const existing = await this.findReversal(original.id, client);
+      if (existing) return existing;
+      const open = await this.findOpen(
+        original.barcode,
+        client,
+        null,
+        original.marketplace,
+      );
+      if (open) return null;
+      const product = (
+        await client.query(
+          "SELECT my_price,min_price FROM products WHERE marketplace=$1 AND barcode=$2 FOR UPDATE",
+          [original.marketplace, original.barcode],
+        )
+      ).rows[0];
+      if (
+        !product ||
+        Number(product.my_price) !== Number(original.applied_price || original.proposed_price) ||
+        Number(original.old_price) < Number(product.min_price || 0)
+      )
+        return null;
+      return this.create(
+        {
+          marketplace: original.marketplace,
+          barcode: original.barcode,
+          product_name: original.product_name,
+          old_price: product.my_price,
+          proposed_price: original.old_price,
+          action: "FIYAT_DUSUR",
+          strategy: original.strategy,
+          reason: "Buybox kaybı sonrası son doğrulanmış fiyata otomatik dönüş",
+          status: "PENDING",
+          source: "AUTO",
+          idempotency_key: `buybox-recovery:${original.id}:${original.old_price}`,
+          min_price: product.min_price,
+          buybox_before: original.buybox_after,
+          rank_before: original.rank_after,
+          second_price: original.second_price,
+          third_price: original.third_price,
+          expected_profit: original.net_profit_before,
+          expected_margin: original.expected_margin,
+          safety_checks: { automaticRecovery: true, revertsActionId: original.id },
+          expires_at: new Date(Date.now() + 15 * 60000).toISOString(),
+          net_profit_before: original.expected_profit,
+          target_rank: 1,
+          reverts_action_id: original.id,
+        },
+        client,
+      );
+    });
+  }
+
   async create(input, client = this.db) {
     return (
       await client.query(
@@ -209,11 +294,15 @@ class ActionRepository {
         `SELECT ra.*,p.buybox_price buybox_after,p.rank rank_after,p.calculated_net_profit profit_after
       FROM repricer_actions ra JOIN products p ON p.marketplace=ra.marketplace AND p.barcode=ra.barcode
       WHERE ra.status IN('SENT','AWAITING_RESULT','SUCCESS')
-      AND ($2::bigint IS NULL OR ra.id=$2)
+      AND ($3::bigint IS NULL OR ra.id=$3::bigint)
       AND ra.verified_at IS NOT NULL
-      AND ra.sent_at<=NOW()-($1||' minutes')::interval
-      AND NOT EXISTS(SELECT 1 FROM price_change_outcomes pco WHERE pco.action_id=ra.id AND pco.elapsed_minutes=$1)`,
-        [elapsedMinutes, actionId],
+      AND ra.sent_at<=NOW()-(($1::text||' minutes')::interval)
+      AND NOT EXISTS(SELECT 1 FROM price_change_outcomes pco WHERE pco.action_id=ra.id AND pco.elapsed_minutes=$2::integer)`,
+        [
+          String(elapsedMinutes),
+          elapsedMinutes,
+          actionId == null ? null : String(actionId),
+        ],
       )
     ).rows;
   }

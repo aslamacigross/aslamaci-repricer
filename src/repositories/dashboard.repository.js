@@ -1,3 +1,96 @@
+const systemNumericSettingSql = (key) =>
+  `(SELECT NULLIF(ss.value #>> '{}','null')::numeric FROM system_settings ss WHERE ss.key='${key}')`;
+
+const productSettingNumericSql = (alias, key) =>
+  `(SELECT ps.${key}
+     FROM product_settings ps
+     WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode)`;
+
+const learningNumericSql = (alias, key) =>
+  `(SELECT rl.${key}
+     FROM repricer_learning rl
+     WHERE rl.marketplace=${alias}.marketplace AND rl.barcode=${alias}.barcode)`;
+
+const strategyFactorSql = (alias) =>
+  `(CASE COALESCE(
+    (SELECT ps.strategy
+     FROM product_settings ps
+     WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode),
+    'Normal'
+  )
+    WHEN 'Temkinli' THEN 0.75
+    WHEN 'Agresif' THEN 1.5
+    WHEN 'Buybox Odaklı' THEN 1.25
+    ELSE 1
+  END)`;
+
+const basePriceCutSql = (alias) =>
+  `COALESCE(
+    (SELECT ps.price_cut_tl
+     FROM product_settings ps
+     WHERE ps.marketplace=${alias}.marketplace AND ps.barcode=${alias}.barcode),
+    ${systemNumericSettingSql("default_price_cut_tl")},
+    5
+  )`;
+
+const effectivePriceCutSql = (alias) =>
+  `LEAST(
+    GREATEST(
+      GREATEST(${basePriceCutSql(alias)}, COALESCE(${learningNumericSql(alias, "learned_price_cut_tl")},0))
+        * ${strategyFactorSql(alias)},
+      COALESCE(${productSettingNumericSql(alias, "min_undercut_tl")},0.1)
+    ),
+    COALESCE(${productSettingNumericSql(alias, "max_undercut_tl")},75)
+  )`;
+
+const sellableSql = (alias) =>
+  `${alias}.is_active=TRUE AND ${alias}.stock_quantity>0`;
+
+const buyboxDataValidSql = (alias) =>
+  `${alias}.buybox_price>0 AND ${alias}.rank IS NOT NULL
+    AND ${alias}.buybox_updated_at IS NOT NULL
+    AND ${alias}.buybox_updated_at>=NOW()-INTERVAL '20 minutes'`;
+
+const rankPriceConsistentSql = (alias) =>
+  `(CASE
+    WHEN ${alias}.rank=2 THEN ${alias}.second_price>0 AND ABS(${alias}.second_price-${alias}.my_price)<=0.01
+    WHEN ${alias}.rank=3 THEN ${alias}.third_price>0 AND ABS(${alias}.third_price-${alias}.my_price)<=0.01
+    ELSE TRUE
+  END)`;
+
+const buyboxActionableSql = (alias) =>
+  `COALESCE(${alias}.has_multiple_seller,TRUE)=TRUE
+    AND ${alias}.rank>1
+    AND ${buyboxDataValidSql(alias)}
+    AND ${alias}.data_complete=TRUE
+    AND NOT (${alias}.my_price<${alias}.buybox_price AND NOT ${rankPriceConsistentSql(alias)})
+    AND ${alias}.buybox_price>${alias}.min_price
+    AND (
+      ${alias}.min_price<=GREATEST(${alias}.buybox_price-${effectivePriceCutSql(alias)},0)
+      OR (${rankPriceConsistentSql(alias)} AND ${alias}.min_price<${alias}.my_price)
+    )`;
+
+const buyboxUnavailableSql = (alias) =>
+  `COALESCE(${alias}.has_multiple_seller,TRUE)=TRUE
+    AND ${alias}.rank>1
+    AND ${buyboxDataValidSql(alias)}
+    AND NOT (${buyboxActionableSql(alias)})`;
+
+const buyboxReasonCodeSql = (alias) =>
+  `CASE
+    WHEN COALESCE(${alias}.has_multiple_seller,FALSE)=FALSE THEN 'SOLE_SELLER'
+    WHEN ${alias}.rank IS NULL OR ${alias}.buybox_price<=0 THEN 'BUYBOX_MISSING'
+    WHEN ${alias}.buybox_updated_at IS NULL OR ${alias}.buybox_updated_at<NOW()-INTERVAL '20 minutes' THEN 'BUYBOX_STALE'
+    WHEN ${alias}.is_active<>TRUE THEN 'PRODUCT_INACTIVE'
+    WHEN ${alias}.stock_quantity<=0 THEN 'OUT_OF_STOCK'
+    WHEN ${alias}.data_complete<>TRUE THEN 'COST_INCOMPLETE'
+    WHEN COALESCE(${alias}.auto_update,FALSE)<>TRUE THEN 'AUTO_UPDATE_DISABLED'
+    WHEN ${alias}.rank>1 AND ${alias}.my_price<${alias}.buybox_price AND NOT ${rankPriceConsistentSql(alias)} THEN 'RANK_PRICE_INCONSISTENT'
+    WHEN ${alias}.rank>1 AND ${alias}.buybox_price<=${alias}.min_price THEN 'MIN_PRICE_LIMIT'
+    WHEN ${alias}.rank>1 AND NOT (${buyboxActionableSql(alias)}) THEN 'MIN_PRICE_LIMIT'
+    ELSE NULL
+  END`;
+
 class DashboardRepository {
   constructor(db) {
     this.db = db;
@@ -38,11 +131,11 @@ class DashboardRepository {
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND calculated_shipping_cost<=0)::int missing_shipping,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND calculated_net_profit<0)::int loss_products,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND min_price>0 AND my_price<min_price)::int below_minimum,
-        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank=1)::int buybox_owned,
-        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1)::int buybox_outside,
-        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND rank IS DISTINCT FROM 1 AND data_complete=TRUE
-          AND buybox_price>0 AND min_price<=buybox_price)::int buybox_available,
-        COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND (buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes'))::int stale_buybox,
+        COUNT(*) FILTER(WHERE ${sellableSql("products")} AND COALESCE(has_multiple_seller,FALSE)=FALSE)::int buybox_single_seller,
+        COUNT(*) FILTER(WHERE ${sellableSql("products")} AND COALESCE(has_multiple_seller,TRUE)=TRUE AND rank=1 AND ${buyboxDataValidSql("products")})::int buybox_owned,
+        COUNT(*) FILTER(WHERE ${sellableSql("products")} AND ${buyboxActionableSql("products")})::int buybox_available,
+        COUNT(*) FILTER(WHERE ${sellableSql("products")} AND ${buyboxUnavailableSql("products")})::int buybox_unavailable,
+        COUNT(*) FILTER(WHERE ${sellableSql("products")} AND COALESCE(has_multiple_seller,TRUE)=TRUE AND (rank IS NULL OR buybox_price<=0 OR buybox_updated_at IS NULL OR buybox_updated_at<NOW()-INTERVAL '20 minutes'))::int stale_buybox,
         COUNT(*) FILTER(WHERE is_active=TRUE AND stock_quantity>0 AND auto_update)::int auto_update_enabled,
         ROUND(AVG(calculated_net_margin)::numeric,2) average_margin,
         (SELECT COUNT(*)::int FROM repricer_actions WHERE marketplace=$1 AND created_at>NOW()-INTERVAL '24 hours') actions_24h,
@@ -52,9 +145,12 @@ class DashboardRepository {
         [normalizedMarketplace],
       ),
       this.db.query(
-        `SELECT COALESCE(category_name,'Kategori Yok') name,COUNT(*)::int count,
-        ROUND(AVG(calculated_net_margin)::numeric,2) margin FROM products WHERE marketplace=$1
-        GROUP BY category_name ORDER BY count DESC LIMIT 12`,
+        `SELECT COALESCE(NULLIF(TRIM(category_name),''),'Kategori Yok') name,COUNT(*)::int count,
+        ROUND(AVG(calculated_net_margin)::numeric,2) margin
+        FROM products
+        WHERE marketplace=$1 AND is_active=TRUE AND stock_quantity>0
+        GROUP BY COALESCE(NULLIF(TRIM(category_name),''),'Kategori Yok')
+        ORDER BY count DESC LIMIT 12`,
         [normalizedMarketplace],
       ),
       this.db.query(
@@ -169,7 +265,7 @@ class DashboardRepository {
     const normalizedMarketplace = String(
       marketplace || "TRENDYOL",
     ).toUpperCase();
-    const sellableProduct = "p.is_active=TRUE AND p.stock_quantity>0";
+    const sellableProduct = sellableSql("p");
     const productMetrics = {
       total_products: "TRUE",
       active_products: "p.is_active=TRUE",
@@ -183,10 +279,11 @@ class DashboardRepository {
       missing_shipping: `${sellableProduct} AND p.calculated_shipping_cost<=0`,
       loss_products: `${sellableProduct} AND p.calculated_net_profit<0`,
       below_minimum: `${sellableProduct} AND p.min_price>0 AND p.my_price<p.min_price`,
-      buybox_owned: `${sellableProduct} AND p.rank=1`,
-      buybox_available: `${sellableProduct} AND p.rank IS DISTINCT FROM 1 AND p.data_complete=TRUE AND p.buybox_price>0 AND p.min_price<=p.buybox_price`,
-      buybox_outside: `${sellableProduct} AND p.rank IS DISTINCT FROM 1`,
-      stale_buybox: `${sellableProduct} AND (p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes')`,
+      buybox_single_seller: `${sellableProduct} AND COALESCE(p.has_multiple_seller,FALSE)=FALSE`,
+      buybox_owned: `${sellableProduct} AND COALESCE(p.has_multiple_seller,TRUE)=TRUE AND p.rank=1 AND ${buyboxDataValidSql("p")}`,
+      buybox_available: `${sellableProduct} AND ${buyboxActionableSql("p")}`,
+      buybox_unavailable: `${sellableProduct} AND ${buyboxUnavailableSql("p")}`,
+      stale_buybox: `${sellableProduct} AND COALESCE(p.has_multiple_seller,TRUE)=TRUE AND (p.rank IS NULL OR p.buybox_price<=0 OR p.buybox_updated_at IS NULL OR p.buybox_updated_at<NOW()-INTERVAL '20 minutes')`,
       auto_update_enabled: `${sellableProduct} AND p.auto_update=TRUE`,
     };
     const actionMetrics = {
@@ -199,12 +296,14 @@ class DashboardRepository {
     if (productMetrics[metric]) {
       const data = await this.db.query(
         `SELECT p.barcode,p.product_name,p.brand,p.category_name,p.is_active,
-          p.stock_quantity,p.my_price,p.buybox_price,p.rank,p.min_price,
+          p.stock_quantity,p.my_price,p.buybox_price,p.second_price,p.third_price,
+          p.rank,p.has_multiple_seller,p.min_price,
           p.calculated_net_profit,p.calculated_net_margin,p.data_status,
           p.auto_update,p.buybox_updated_at,p.needs_cost_mapping,
           p.calculated_product_cost,p.desi,p.calculated_shipping_cost,
           p.packaging_cost,p.service_fee,p.commission_rate,
           COALESCE(mt.mapping_count,0)::int AS mapping_count,
+          ${buyboxReasonCodeSql("p")} AS buybox_reason_code,
           CASE
             WHEN COALESCE(mt.mapping_count,0)=0 THEN 'Mapping reçetesi yok'
             WHEN p.calculated_product_cost<=0 THEN 'Ürün maliyeti hesaplanmadı'

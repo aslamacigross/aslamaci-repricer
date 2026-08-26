@@ -30,8 +30,43 @@ async function migrate(direction = "up", database = pool, options = {}) {
     try {
       await client.query("BEGIN");
       let sql = fs.readFileSync(path.join(directory, file), "utf8");
-      if (options.compatibility === "pg-mem")
+      if (options.compatibility === "pg-mem") {
         sql = sql.replaceAll(" NOT VALID", "");
+        sql = sql.replaceAll(
+          "manual_review_interval_days || ' days'",
+          "manual_review_interval_days::text || ' days'",
+        );
+        sql = sql.replace(
+          /UPDATE marketplace_registry\s+SET capabilities=JSONB_SET\(\s+COALESCE\(capabilities,'\{}'::jsonb\),\s+'\{supportsCommissionApi\}',\s+'true'::jsonb,\s+TRUE\s+\),\s+updated_at=NOW\(\)\s+WHERE code='HEPSIBURADA';/g,
+          `UPDATE marketplace_registry
+SET capabilities='{"supportsCatalogSearch":false,"supportsCatalogProductRead":true,"supportsExistingCatalogOfferCreate":false,"supportsNewProductCreate":false,"supportsCategorySync":false,"supportsAttributeSync":false,"supportsBrandSync":false,"supportsCommissionApi":true,"supportsBuybox":false,"supportsContentUpdate":false,"supportsImageUpdate":false,"supportsVideo":false,"supportsOrders":true,"supportsFinancialTransactions":false,"supportsPriceUpdate":false,"supportsInventoryUpdate":false,"supportsBatchStatus":false,"supportsListingVerification":false}'::jsonb,
+    updated_at=NOW()
+WHERE code='HEPSIBURADA';`,
+        );
+        sql = sql.replace(
+          /UPDATE marketplace_registry\s+SET capabilities=JSONB_SET\(\s+COALESCE\(capabilities,'\{}'::jsonb\),\s+'\{supportsCommissionApi\}',\s+'false'::jsonb,\s+TRUE\s+\),\s+updated_at=NOW\(\)\s+WHERE code='HEPSIBURADA';/g,
+          `UPDATE marketplace_registry
+SET capabilities='{"supportsCatalogSearch":false,"supportsCatalogProductRead":true,"supportsExistingCatalogOfferCreate":false,"supportsNewProductCreate":false,"supportsCategorySync":false,"supportsAttributeSync":false,"supportsBrandSync":false,"supportsCommissionApi":false,"supportsBuybox":false,"supportsContentUpdate":false,"supportsImageUpdate":false,"supportsVideo":false,"supportsOrders":true,"supportsFinancialTransactions":false,"supportsPriceUpdate":false,"supportsInventoryUpdate":false,"supportsBatchStatus":false,"supportsListingVerification":false}'::jsonb,
+    updated_at=NOW()
+WHERE code='HEPSIBURADA';`,
+        );
+        if (version === "034_trendyol_august_2026_shipping_tariffs") {
+          sql = sql.replace(
+            "DROP INDEX IF EXISTS shipping_barems_min_basket_max_basket_carrier_key;",
+            `DROP INDEX IF EXISTS shipping_barems_min_basket_max_basket_carrier_key;
+ALTER TABLE shipping_barems DROP CONSTRAINT IF EXISTS shipping_barems_pkey;`,
+          );
+          sql = sql.replace(
+            "DELETE FROM shipping_costs WHERE marketplace='TRENDYOL';",
+            `UPDATE shipping_barems
+SET min_basket=min_basket+100000,
+    max_basket=max_basket+100000
+WHERE marketplace='HEPSIBURADA';
+
+DELETE FROM shipping_costs WHERE marketplace='TRENDYOL';`,
+          );
+        }
+      }
       await client.query(sql);
       if (direction === "up") {
         await client.query(

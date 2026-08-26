@@ -57,6 +57,41 @@ function normalizeCostItemRows(rows) {
     return item;
   });
 }
+
+function validatePackagingRule(input) {
+  const scope = String(input.rule_scope || "DESI").toUpperCase();
+  if (!["DESI", "BARCODE", "PRODUCT_NAME", "CATEGORY", "BRAND"].includes(scope))
+    throw new AppError(
+      "Ambalaj eşleşme türü geçersiz",
+      400,
+      "VALIDATION_ERROR",
+    );
+  numeric(requireFields(input, ["packaging_cost"]), ["packaging_cost"]);
+  positive(input, ["packaging_cost"], { allowZero: true });
+  if (!String(input.profile_name || input.note || "").trim())
+    throw new AppError("Profil adı gerekli", 400, "VALIDATION_ERROR");
+  if (scope === "DESI") {
+    numeric(requireFields(input, ["min_desi", "max_desi"]), [
+      "min_desi",
+      "max_desi",
+    ]);
+    positive(input, ["min_desi"], { allowZero: true });
+    positive(input, ["max_desi"]);
+    if (Number(input.max_desi) <= Number(input.min_desi))
+      throw new AppError(
+        "Maksimum desi minimumdan büyük olmalı",
+        400,
+        "VALIDATION_ERROR",
+      );
+  } else if (!String(input.match_value || "").trim()) {
+    throw new AppError("Eşleşme değeri gerekli", 400, "VALIDATION_ERROR");
+  }
+  if (input.priority !== undefined) {
+    numeric(input, ["priority"]);
+    positive(input, ["priority"], { allowZero: true });
+  }
+  return input;
+}
 function costsRoutes({
   costs,
   costEngine,
@@ -124,6 +159,96 @@ function costsRoutes({
         data: await costs.duplicateCostItemCandidates(req.query),
       }),
     ),
+  );
+  r.get(
+    "/cost-items/manual-review",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costs.manualCostReviewQueue(req.query),
+      }),
+    ),
+  );
+  r.post(
+    "/cost-items/manual-review/:id/confirm",
+    asyncRoute(async (req, res) => {
+      const data = await costs.confirmManualCostReview(req.params.id, req.body);
+      if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await recalculateAllMarketplaces();
+      await logged(
+        req,
+        "COST_ITEM_MANUAL_REVIEW_CONFIRMED",
+        "cost_item",
+        data.id,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.patch(
+    "/cost-items/manual-review/:id",
+    asyncRoute(async (req, res) => {
+      numeric(requireFields(req.body, ["unit_cost"]), [
+        "unit_cost",
+        "unit_desi",
+      ]);
+      positive(req.body, ["unit_cost"]);
+      if (req.body.unit_desi !== undefined)
+        positive(req.body, ["unit_desi"], { allowZero: true });
+      const data = await costs.updateManualCostReview(req.params.id, req.body);
+      if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await recalculateAllMarketplaces();
+      await logged(
+        req,
+        "COST_ITEM_MANUAL_REVIEW_UPDATED",
+        "cost_item",
+        data.id,
+        null,
+        data,
+      );
+      res.json({ status: "ok", data });
+    }),
+  );
+  r.post(
+    "/cost-items/manual-review/:id/link-supplier",
+    asyncRoute(async (req, res) => {
+      const supplierItemId = Number(req.body.supplierItemId);
+      if (!Number.isFinite(supplierItemId) || supplierItemId <= 0)
+        throw new AppError(
+          "Canlı tedarikçi ürünü seçilmeli",
+          400,
+          "VALIDATION_ERROR",
+        );
+      const data = await costs.linkManualCostToSupplierItem(
+        req.params.id,
+        supplierItemId,
+        {
+          actor: req.user.username,
+          note: req.body.note,
+          intervalDays: req.body.intervalDays,
+        },
+      );
+      if (!data) throw new AppError("Maliyet kalemi bulunamadı", 404);
+      await recalculateAllMarketplaces();
+      await logged(
+        req,
+        "COST_ITEM_SUPPLIER_LINKED",
+        "cost_item",
+        data.costItem.id,
+        null,
+        {
+          costItem: data.costItem,
+          supplierItem: {
+            id: data.supplierItem.id,
+            supplier_code: data.supplierItem.supplier_code,
+            product_name: data.supplierItem.product_name,
+            current_price: data.supplierItem.current_price,
+          },
+        },
+      );
+      res.json({ status: "ok", data });
+    }),
   );
   r.get(
     "/cost-items/desi-review",
@@ -336,11 +461,28 @@ function costsRoutes({
   r.post(
     "/commissions/bulk",
     asyncRoute(async (req, res) => {
-      throw new AppError(
-        "Komisyon verisi Trendyol API'den gelir; manuel toplu giriş kapalı.",
-        410,
-        "COMMISSION_MANUAL_WRITE_DISABLED",
+      const marketplace = String(
+        req.body.marketplace || req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace === "TRENDYOL")
+        throw new AppError(
+          "Trendyol komisyon verisi API'den gelir; manuel toplu giriş kapalı.",
+          410,
+          "COMMISSION_MANUAL_WRITE_DISABLED",
+        );
+      const data = await costs.saveCommissions(req.body.rows, marketplace);
+      await costEngine.recalculate(undefined, undefined, marketplace);
+      await logged(
+        req,
+        "COMMISSIONS_BULK_UPSERTED",
+        "commission",
+        marketplace,
+        null,
+        {
+          processed: data.updated,
+        },
       );
+      res.json({ status: "ok", data });
     }),
   );
   r.delete(
@@ -385,21 +527,55 @@ function costsRoutes({
   r.post(
     "/commissions",
     asyncRoute(async (req, res) => {
-      throw new AppError(
-        "Komisyon verisi Trendyol API'den gelir; manuel giriş kapalı.",
-        410,
-        "COMMISSION_MANUAL_WRITE_DISABLED",
+      const marketplace = String(
+        req.body.marketplace || req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace === "TRENDYOL")
+        throw new AppError(
+          "Trendyol komisyon verisi API'den gelir; manuel giriş kapalı.",
+          410,
+          "COMMISSION_MANUAL_WRITE_DISABLED",
+        );
+      const data = await costs.saveCommission({ ...req.body, marketplace });
+      await costEngine.recalculate(undefined, undefined, marketplace);
+      await logged(
+        req,
+        "COMMISSION_CREATED",
+        "commission",
+        data.category_id,
+        null,
+        data,
       );
+      res.status(201).json({ status: "ok", data });
     }),
   );
   r.patch(
     "/commissions/:categoryId",
     asyncRoute(async (req, res) => {
-      throw new AppError(
-        "Komisyon verisi Trendyol API'den gelir; manuel güncelleme kapalı.",
-        410,
-        "COMMISSION_MANUAL_WRITE_DISABLED",
+      const marketplace = String(
+        req.body.marketplace || req.query.marketplace || "TRENDYOL",
+      ).toUpperCase();
+      if (marketplace === "TRENDYOL")
+        throw new AppError(
+          "Trendyol komisyon verisi API'den gelir; manuel güncelleme kapalı.",
+          410,
+          "COMMISSION_MANUAL_WRITE_DISABLED",
+        );
+      const data = await costs.saveCommission({
+        ...req.body,
+        marketplace,
+        category_id: req.params.categoryId,
+      });
+      await costEngine.recalculate(undefined, undefined, marketplace);
+      await logged(
+        req,
+        "COMMISSION_UPDATED",
+        "commission",
+        data.category_id,
+        null,
+        data,
       );
+      res.json({ status: "ok", data });
     }),
   );
   r.get(
@@ -425,7 +601,26 @@ function costsRoutes({
       const data = await shippingTariff.importHepsiburada({
         force: req.body.force === true,
       });
-      await costEngine.recalculate(undefined, undefined, "HEPSIBURADA");
+      try {
+        const recalculation = await costEngine.recalculate(
+          undefined,
+          undefined,
+          "HEPSIBURADA",
+        );
+        data.metadata = {
+          ...(data.metadata || {}),
+          recalculation: { ok: true, ...recalculation },
+        };
+      } catch (error) {
+        data.metadata = {
+          ...(data.metadata || {}),
+          recalculation: {
+            ok: false,
+            code: error.code || "HEPSIBURADA_RECALCULATION_FAILED",
+            message: error.message,
+          },
+        };
+      }
       await logged(
         req,
         "HEPSIBURADA_SHIPPING_IMPORTED",
@@ -643,18 +838,7 @@ function costsRoutes({
   r.post(
     "/packaging-rules",
     asyncRoute(async (req, res) => {
-      numeric(
-        requireFields(req.body, ["min_desi", "max_desi", "packaging_cost"]),
-        ["min_desi", "max_desi", "packaging_cost"],
-      );
-      positive(req.body, ["min_desi", "packaging_cost"], { allowZero: true });
-      positive(req.body, ["max_desi"]);
-      if (Number(req.body.max_desi) <= Number(req.body.min_desi))
-        throw new AppError(
-          "Maksimum desi minimumdan büyük olmalı",
-          400,
-          "VALIDATION_ERROR",
-        );
+      validatePackagingRule(req.body);
       const data = await costs.savePackaging(req.body);
       await costEngine.recalculate(undefined, undefined, data.marketplace);
       await logged(
@@ -671,18 +855,7 @@ function costsRoutes({
   r.patch(
     "/packaging-rules/:id",
     asyncRoute(async (req, res) => {
-      numeric(
-        requireFields(req.body, ["min_desi", "max_desi", "packaging_cost"]),
-        ["min_desi", "max_desi", "packaging_cost"],
-      );
-      positive(req.body, ["min_desi", "packaging_cost"], { allowZero: true });
-      positive(req.body, ["max_desi"]);
-      if (Number(req.body.max_desi) <= Number(req.body.min_desi))
-        throw new AppError(
-          "Maksimum desi minimumdan büyük olmalı",
-          400,
-          "VALIDATION_ERROR",
-        );
+      validatePackagingRule(req.body);
       const data = await costs.savePackaging(req.body, req.params.id);
       if (!data) throw new AppError("Ambalaj kuralı bulunamadı", 404);
       await costEngine.recalculate(undefined, undefined, data.marketplace);

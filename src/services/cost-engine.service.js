@@ -55,6 +55,8 @@ class CostEngineService {
           COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) total_desi,
           COALESCE(sb.cost_inc_vat,sc.cost_inc_vat,0) shipping_cost,
           COALESCE(pr.packaging_cost,0) packaging_cost,
+          pr.id packaging_rule_id,pr.profile_name packaging_profile_name,
+          pr.rule_scope packaging_rule_source,
           COALESCE(mt.orphan_count,0) orphan_count,COALESCE(mt.mapping_count,0) mapping_count,
           COALESCE(mt.incomplete_cost_count,0) incomplete_cost_count,
           (pr.id IS NOT NULL) packaging_rule_found
@@ -71,14 +73,25 @@ class CostEngineService {
         ) sc ON sb.id IS NULL
         LEFT JOIN LATERAL(
           SELECT * FROM packaging_rules x WHERE x.marketplace=p.marketplace
-            AND COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) BETWEEN x.min_desi AND x.max_desi
-          ORDER BY x.min_desi DESC LIMIT 1
+            AND COALESCE(x.active,TRUE)=TRUE AND(
+              (x.rule_scope='BARCODE' AND UPPER(x.match_value)=UPPER(p.barcode)) OR
+              (x.rule_scope='PRODUCT_NAME' AND p.product_name ILIKE '%'||x.match_value||'%') OR
+              (x.rule_scope='CATEGORY' AND p.category_name ILIKE '%'||x.match_value||'%') OR
+              (x.rule_scope='BRAND' AND p.brand ILIKE '%'||x.match_value||'%') OR
+              (x.rule_scope='DESI' AND COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) BETWEEN x.min_desi AND x.max_desi)
+            )
+          ORDER BY CASE x.rule_scope WHEN 'BARCODE' THEN 5 WHEN 'PRODUCT_NAME' THEN 4
+            WHEN 'CATEGORY' THEN 3 WHEN 'BRAND' THEN 2 ELSE 1 END DESC,
+            x.priority DESC,x.id DESC LIMIT 1
         ) pr ON TRUE
         WHERE p.marketplace=$3 ${filter}
       )
       UPDATE products p SET
         calculated_product_cost=c.product_cost,desi=c.total_desi,calculated_shipping_cost=c.shipping_cost,
         packaging_cost=c.packaging_cost,service_fee=COALESCE(p.service_fee,$2),
+        packaging_rule_id=c.packaging_rule_id,
+        packaging_profile_name=c.packaging_profile_name,
+        packaging_rule_source=c.packaging_rule_source,
         calculated_total_cost=c.product_cost+c.shipping_cost+c.packaging_cost+COALESCE(p.service_fee,$2)+COALESCE(p.target_profit,0),
         calculated_min_price=CASE WHEN p.commission_rate>0 AND p.commission_rate<100 THEN
           ROUND((c.product_cost+c.shipping_cost+c.packaging_cost+COALESCE(p.service_fee,$2)+COALESCE(p.target_profit,0))/(1-p.commission_rate/100),2) ELSE 0 END,

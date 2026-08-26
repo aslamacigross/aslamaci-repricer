@@ -28,7 +28,7 @@ function fixture(status = "APPROVED") {
     data_complete: true,
     commission_rate: 17,
     buybox_price: 950,
-    second_price: 949,
+    second_price: 944,
     third_price: 960,
     rank: 2,
     buybox_updated_at: new Date(),
@@ -242,7 +242,7 @@ test("Trendyol kabul yaniti urun fiyatini dogrulama olmadan kesinlestirmez", asy
 test("Trendyol guncel fiyati beklenen fiyatla uyusmazsa gonderim engellenir", async () => {
   const { action, product } = fixture();
   let apiCalls = 0;
-  let failedStatus;
+  let staleStatus;
   let preflight;
   const actions = {
     findOpen: async () => null,
@@ -251,7 +251,7 @@ test("Trendyol guncel fiyati beklenen fiyatla uyusmazsa gonderim engellenir", as
       preflight = price;
     },
     updateStatus: async (id, status) => {
-      if (status === "FAILED") failedStatus = status;
+      if (status === "STALE") staleStatus = status;
       return { ...action, status };
     },
   };
@@ -292,7 +292,7 @@ test("Trendyol guncel fiyati beklenen fiyatla uyusmazsa gonderim engellenir", as
   );
   assert.equal(preflight, 945);
   assert.equal(apiCalls, 0);
-  assert.equal(failedStatus, "FAILED");
+  assert.equal(staleStatus, "STALE");
 });
 
 test("manuel aksiyon otomatik repricer kapaliyken dry-run olarak islenebilir", async () => {

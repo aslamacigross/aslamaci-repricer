@@ -28,6 +28,59 @@ test("aynı marka kategori ve reçete için stabil öğrenme anahtarı üretir",
   assert.equal(first.length, 64);
 });
 
+test("Hepsiburada öğrenme anahtarı Trendyol geçmişinden ayrıdır", () => {
+  const shared = {
+    product_snapshot: { brand: "Actisoft", category_id: "123" },
+    items: [{ cost_item_code: "ACTISOFT_MENEKSE_1500ML" }],
+  };
+  const trendyol = buildMappingLearningKey({
+    ...shared,
+    marketplace: "TRENDYOL",
+  });
+  const hepsiburada = buildMappingLearningKey({
+    ...shared,
+    marketplace: "HEPSIBURADA",
+  });
+
+  assert.notEqual(trendyol, hepsiburada);
+  assert.equal(
+    hepsiburada,
+    buildMappingLearningKey({ ...shared, marketplace: "hepsiburada" }),
+  );
+});
+
+test("Trendyol onay veya ret profili Hepsiburada guvenine uygulanmaz", () => {
+  const baseConfidence = 0.72;
+  const trendyolProfile = mappingLearningAdjustment(baseConfidence, {
+    accepted_count: 20,
+    rejected_count: 0,
+  });
+  const hepsiburadaWithoutOwnProfile = mappingLearningAdjustment(
+    baseConfidence,
+    undefined,
+  );
+
+  assert.ok(trendyolProfile.confidence > baseConfidence);
+  assert.equal(hepsiburadaWithoutOwnProfile.confidence, baseConfidence);
+  assert.equal(hepsiburadaWithoutOwnProfile.adjustment, 0);
+});
+
+test("Hepsiburada onay veya ret profili Trendyol guvenine uygulanmaz", () => {
+  const baseConfidence = 0.72;
+  const hepsiburadaProfile = mappingLearningAdjustment(baseConfidence, {
+    accepted_count: 0,
+    rejected_count: 20,
+  });
+  const trendyolWithoutOwnProfile = mappingLearningAdjustment(
+    baseConfidence,
+    undefined,
+  );
+
+  assert.ok(hepsiburadaProfile.confidence < baseConfidence);
+  assert.equal(trendyolWithoutOwnProfile.confidence, baseConfidence);
+  assert.equal(trendyolWithoutOwnProfile.adjustment, 0);
+});
+
 test("tekrarlanan onaylar güveni yükseltir, retler düşürür", () => {
   const accepted = mappingLearningAdjustment(0.75, {
     accepted_count: 12,

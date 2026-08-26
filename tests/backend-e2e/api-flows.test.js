@@ -129,7 +129,10 @@ test("gercek Express ve gecici PostgreSQL kritik dry-run akislari", async () => 
     );
     await db.query(
       `INSERT INTO shipping_costs(marketplace,desi_kg,carrier,cost_ex_vat,cost_inc_vat)
-       VALUES('TRENDYOL',3,'TEX',80,96)`,
+       VALUES('TRENDYOL',3,'TEX',80,96)
+       ON CONFLICT(marketplace,desi_kg,carrier)DO UPDATE SET
+         cost_ex_vat=EXCLUDED.cost_ex_vat,
+         cost_inc_vat=EXCLUDED.cost_inc_vat`,
     );
     await db.query(
       `INSERT INTO packaging_rules(marketplace,min_desi,max_desi,packaging_cost)

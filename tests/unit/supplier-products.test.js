@@ -7,7 +7,17 @@ const {
   parsePriceTiersFromText,
   priceTierForQuantity,
   roundProductDesi,
+  supplier,
 } = require("../../src/domain/supplier-products");
+
+test("ROSSMANN geçerli canlı tedarikçi kodudur", () => {
+  assert.deepEqual(supplier("ROSSMANN"), {
+    code: "ROSSMANN",
+    label: "Rossmann",
+    shortLabel: "Rossmann",
+    liveSync: true,
+  });
+});
 
 test("tekli hafif üründe kesirli birim desiyi korur", () => {
   assert.deepEqual(estimatePackageDesi("Çikolata 25 g"), {

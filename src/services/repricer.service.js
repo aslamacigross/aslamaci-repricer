@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
-const { roundMoney } = require("../utils/numbers");
+const { roundMoney, parseBoolean } = require("../utils/numbers");
 const { env } = require("../config/env");
 const { AppError } = require("../utils/errors");
 
@@ -37,11 +37,11 @@ class RepricerService {
 
   ensureSupportedMarketplace(marketplace) {
     const normalized = String(marketplace || "TRENDYOL").toUpperCase();
-    if (normalized !== "TRENDYOL")
+    if (!["TRENDYOL", "HEPSIBURADA"].includes(normalized))
       throw new AppError(
-        "Hepsiburada repricer bağlantısı credentials bekliyor",
+        `${normalized} repricer bağlantısı desteklenmiyor`,
         409,
-        "MARKETPLACE_CREDENTIALS_MISSING",
+        "MARKETPLACE_NOT_SUPPORTED",
       );
     return normalized;
   }
@@ -60,7 +60,7 @@ class RepricerService {
     return (
       await this.db.query(
         `SELECT p.*,
-      CASE WHEN COALESCE(rl.paused,FALSE) THEN 'Kâr Koru' ELSE COALESCE(ps.strategy,'Manuel') END strategy,
+      COALESCE(ps.strategy,'Manuel') strategy,
       ps.price_cut_tl,ps.max_increase_tl,ps.max_single_change_pct,ps.max_daily_change_pct,
       ps.minimum_profit_tl,
       COALESCE(ps.minimum_profit_pct,0)minimum_profit_pct,
@@ -101,8 +101,11 @@ class RepricerService {
           product.target_profit ??
           global.defaultTargetProfit,
         auto_update: product.setting_auto_update,
+        // The global unlimited switch is a safety-wide override. A legacy
+        // product-level cap must not silently turn an unlimited pilot into KORU.
         unlimited_increase:
-          product.unlimited_increase ?? global.unlimitedIncrease,
+          parseBoolean(global.unlimitedIncrease) ||
+          parseBoolean(product.unlimited_increase),
       };
       const proposal = proposePrice(product, settings);
       const today = await this.actions.todayStats(
@@ -140,6 +143,33 @@ class RepricerService {
     for (const preview of previews) {
       if (preview.action === "KORU") continue;
       try {
+        const automatic = source === "AUTO" || source === "JOB";
+        const blockingSafetyFailures = (preview.blockedReasons || []).filter(
+          (code) => !["DRY_RUN", "GLOBAL_REPRICER_DISABLED"].includes(code),
+        );
+        if (automatic && blockingSafetyFailures.length) {
+          skipped.push({
+            barcode: preview.barcode,
+            reason: "SAFETY_BLOCKED",
+            blockedReasons: blockingSafetyFailures,
+          });
+          continue;
+        }
+        if (preview.action === "FIYAT_ARTIR" && preview.rank === 1) {
+          const probe = await this.actions.findPendingIncreaseProbe(
+            preview.barcode,
+            normalizedMarketplace,
+          );
+          if (probe) {
+            skipped.push({
+              barcode: preview.barcode,
+              reason: "BUYBOX_INCREASE_OUTCOME_PENDING",
+              actionId: probe.id,
+              status: probe.status,
+            });
+            continue;
+          }
+        }
         const open = await this.actions.findOpen(
           preview.barcode,
           this.db,
@@ -260,7 +290,8 @@ class RepricerService {
         global.defaultTargetProfit,
       auto_update: product.setting_auto_update,
       unlimited_increase:
-        product.unlimited_increase ?? global.unlimitedIncrease,
+        parseBoolean(global.unlimitedIncrease) ||
+        parseBoolean(product.unlimited_increase),
     };
     const safety = safetyCheck({
       product,

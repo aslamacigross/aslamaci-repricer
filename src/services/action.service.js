@@ -1,7 +1,7 @@
 const { AppError } = require("../utils/errors");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
-const { roundMoney } = require("../utils/numbers");
+const { roundMoney, parseBoolean } = require("../utils/numbers");
 
 class ActionService {
   constructor({
@@ -332,6 +332,10 @@ class ActionService {
         learned_price_cut_tl: product.learning?.learned_price_cut_tl,
         learned_max_increase_tl: product.learning?.learned_max_increase_tl,
         learning_paused: product.learning?.paused,
+        // Keep the final apply-time safety gate aligned with preview/generate.
+        unlimited_increase:
+          parseBoolean(global.unlimitedIncrease) ||
+          parseBoolean(settings.unlimited_increase),
       };
       const proposal = proposePrice(product, effectiveSettings);
       proposal.proposedPrice = Number(locked.proposed_price);
@@ -359,6 +363,7 @@ class ActionService {
         global,
         proposal,
         manual: ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(locked.source),
+        automaticRecovery: Boolean(locked.reverts_action_id),
         today: {
           actionCount: today.action_count,
           dayStartPrice: today.day_start_price,
@@ -474,16 +479,19 @@ class ActionService {
       });
       return updated;
     } catch (error) {
-      await this.actions.updateStatus(id, "FAILED", {
+      const stale = ["PRICE_MISMATCH", "MARKET_PRICE_MISMATCH"].includes(
+        error.code,
+      );
+      await this.actions.updateStatus(id, stale ? "STALE" : "FAILED", {
         actor,
         error: error.message,
       });
       await this.audit.record({
         actor,
-        action: "PRICE_ACTION_FAILED",
+        action: stale ? "PRICE_ACTION_STALE" : "PRICE_ACTION_FAILED",
         entityType: "repricer_action",
         entityId: String(id),
-        after: { error: error.message },
+        after: { code: error.code || "PRICE_ACTION_FAILED" },
       });
       throw error;
     }

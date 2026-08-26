@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Check,
   DatabaseZap,
+  ExternalLink,
   Eye,
   FileUp,
   Pencil,
   Play,
   RefreshCw,
   Sparkles,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { get, patch, post } from "../lib/api";
@@ -48,6 +50,7 @@ const supplierDefinitions = {
     liveSync: true,
   },
   BIM: { label: "BİM", shortLabel: "BİM", liveSync: true },
+  ROSSMANN: { label: "Rossmann", shortLabel: "Rossmann", liveSync: true },
   OTHER: {
     label: "Diğer maliyet havuzu",
     shortLabel: "Diğer",
@@ -72,7 +75,36 @@ const reasonLabels = {
   SIZE_MATCH: "Gramaj / hacim eşleşiyor",
   SIZE_MISMATCH: "Gramaj / hacim farklı",
   CATEGORY_MATCH: "Kategori eşleşiyor",
+  HEPSIBURADA_LOW_CONFIDENCE_REVIEW: "Düşük güvenli manuel inceleme adayı",
 };
+
+function productLabel(marketplace) {
+  return marketplace === "HEPSIBURADA" ? "Hepsiburada ürünü" : "Trendyol ürünü";
+}
+
+function identifierLabel(marketplace) {
+  return marketplace === "HEPSIBURADA" ? "Satıcı stok kodu" : "Barkod";
+}
+
+function productSearchPlaceholder(marketplace) {
+  return `${identifierLabel(marketplace)} veya ${productLabel(marketplace)} ara`;
+}
+
+function sourceTypeLabel(row) {
+  if (hasVariantPrice(row)) return "Eski mapping + kardeş varyant";
+
+  return (
+    {
+      MANUAL_HISTORY_AND_FILE: "Geçmiş karar + tedarikçi fiyatı",
+      MANUAL_HISTORY: "Geçmiş karar",
+      FILE_MARKET: "Tedarikçi fiyatı",
+      FILE_DIRECT_COST_ITEM: "Doğrudan tedarikçi eşleşmesi",
+      FILE_COMPOSITE_COST_ITEMS: "Tedarikçi karma reçetesi",
+      FILE_MULTI_VARIANT_COST_ITEMS: "Tedarikçi varyant reçetesi",
+      COST_ITEM_CATALOG: "Maliyet kataloğu",
+    }[row.source_type] || "Maliyet kataloğu"
+  );
+}
 
 function confidenceTone(band) {
   if (band === "HIGH") return "success";
@@ -85,6 +117,28 @@ function statusTone(status) {
   if (status === "APPROVED") return "info";
   if (status === "PENDING") return "warning";
   return "danger";
+}
+
+function itemLiveSupplier(item, fallbackSupplierCode) {
+  if (item.file_market_item_id)
+    return {
+      connected: true,
+      direct: true,
+      code: item.supplier_code || fallbackSupplierCode,
+      productName: item.supplier_product_name || item.file_product_name,
+      currentPrice: item.supplier_current_price || item.file_current_price,
+      lastSeenAt: item.supplier_last_seen_at || item.file_last_seen_at,
+    };
+  if (item.linked_supplier_item_id)
+    return {
+      connected: true,
+      direct: false,
+      code: item.linked_supplier_code || fallbackSupplierCode,
+      productName: item.linked_supplier_product_name,
+      currentPrice: item.linked_supplier_current_price,
+      lastSeenAt: item.linked_supplier_last_seen_at,
+    };
+  return { connected: false, code: item.supplier_code || fallbackSupplierCode };
 }
 
 function formatMappingError(error) {
@@ -182,22 +236,31 @@ function diagnosticRegenerateMessage(barcode, data = {}) {
   };
 }
 
-export default function MappingSuggestions({ view, notify }) {
+export default function MappingSuggestions({
+  view,
+  notify,
+  marketplace = "TRENDYOL",
+}) {
   if (view === "file")
     return <SupplierPricePool supplierCode="FILE_MARKET" notify={notify} />;
   if (view === "bizim")
     return <SupplierPricePool supplierCode="BIZIM_MARKET" notify={notify} />;
   if (view === "bim")
     return <SupplierPricePool supplierCode="BIM" notify={notify} />;
+  if (view === "rossmann")
+    return <SupplierPricePool supplierCode="ROSSMANN" notify={notify} />;
   if (view === "other")
     return <SupplierPricePool supplierCode="OTHER" notify={notify} />;
-  if (view === "learning") return <MappingLearningHistory />;
-  if (view === "diagnostics") return <MappingDiagnostics notify={notify} />;
-  if (view === "manual-costs") return <ManualCostQueue notify={notify} />;
-  return <SuggestionQueue notify={notify} />;
+  if (view === "learning")
+    return <MappingLearningHistory marketplace={marketplace} />;
+  if (view === "diagnostics")
+    return <MappingDiagnostics notify={notify} marketplace={marketplace} />;
+  if (view === "manual-costs")
+    return <ManualCostQueue notify={notify} marketplace={marketplace} />;
+  return <SuggestionQueue notify={notify} marketplace={marketplace} />;
 }
 
-function ManualCostQueue({ notify }) {
+function ManualCostQueue({ notify, marketplace = "TRENDYOL" }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -210,6 +273,7 @@ function ManualCostQueue({ notify }) {
     setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      params.set("marketplace", marketplace);
       if (search) params.set("search", search);
       const response = await get(`/api/manual-cost-queue?${params}`);
       setResult(response.data);
@@ -224,12 +288,12 @@ function ManualCostQueue({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, page]);
-  useEffect(() => setPage(1), [search]);
+  }, [search, page, marketplace]);
+  useEffect(() => setPage(1), [search, marketplace]);
 
   const columns = [
-    { key: "barcode", label: "Barkod" },
-    { key: "product_name", label: "Trendyol ürünü", width: 320 },
+    { key: "barcode", label: identifierLabel(marketplace) },
+    { key: "product_name", label: productLabel(marketplace), width: 320 },
     { key: "brand", label: "Marka" },
     { key: "category_name", label: "Kategori" },
     { key: "data_status", label: "Veri durumu", badge: true },
@@ -298,6 +362,7 @@ function ManualCostQueue({ notify }) {
       />
       <ManualCostDrawer
         item={editing}
+        marketplace={marketplace}
         onClose={() => setEditing(null)}
         onSaved={async () => {
           setEditing(null);
@@ -309,7 +374,13 @@ function ManualCostQueue({ notify }) {
   );
 }
 
-function ManualCostDrawer({ item, onClose, onSaved, notify }) {
+function ManualCostDrawer({
+  item,
+  marketplace = "TRENDYOL",
+  onClose,
+  onSaved,
+  notify,
+}) {
   const [form, setForm] = useState({
     item_name: "",
     unit_cost: "",
@@ -344,6 +415,7 @@ function ManualCostDrawer({ item, onClose, onSaved, notify }) {
         unit_cost: Number(form.unit_cost),
         unit_desi: Number(form.unit_desi),
         quantity: Number(form.quantity),
+        marketplace,
       });
       notify?.("Manuel maliyet ve mapping oluşturuldu");
       await onSaved();
@@ -442,7 +514,7 @@ function diagnosisTone(code) {
   return "neutral";
 }
 
-function MappingDiagnostics({ notify }) {
+function MappingDiagnostics({ notify, marketplace = "TRENDYOL" }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -454,7 +526,7 @@ function MappingDiagnostics({ notify }) {
     setError(null);
     try {
       const response = await get(
-        "/api/mapping-suggestions/diagnostics?limit=1000",
+        `/api/mapping-suggestions/diagnostics?limit=1000&marketplace=${encodeURIComponent(marketplace)}`,
       );
       setData(response.data);
     } catch (nextError) {
@@ -467,7 +539,7 @@ function MappingDiagnostics({ notify }) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [marketplace]);
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -492,7 +564,7 @@ function MappingDiagnostics({ notify }) {
     try {
       const response = await post(
         `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/regenerate`,
-        {},
+        { marketplace },
       );
       const message = diagnosticRegenerateMessage(row.barcode, response.data);
       notify?.(message.text, message.tone);
@@ -510,6 +582,7 @@ function MappingDiagnostics({ notify }) {
       await post(
         `/api/mapping-suggestions/diagnostics/${encodeURIComponent(row.barcode)}/manual-cost`,
         {
+          marketplace,
           reason: `Teşhis ekranından manuel maliyet kuyruğuna alındı: ${
             row.diagnosis_label || row.diagnosis
           }`,
@@ -525,8 +598,8 @@ function MappingDiagnostics({ notify }) {
   }
 
   const columns = [
-    { key: "barcode", label: "Barkod" },
-    { key: "product_name", label: "Trendyol ürünü", width: 320 },
+    { key: "barcode", label: identifierLabel(marketplace) },
+    { key: "product_name", label: productLabel(marketplace), width: 320 },
     { key: "brand", label: "Marka" },
     {
       key: "diagnosis_label",
@@ -660,7 +733,7 @@ function learningImpact(value) {
   })} puan`;
 }
 
-function MappingLearningHistory() {
+function MappingLearningHistory({ marketplace = "TRENDYOL" }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -671,6 +744,7 @@ function MappingLearningHistory() {
     setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      params.set("marketplace", marketplace);
       if (search) params.set("search", search);
       if (decision) params.set("decision", decision);
       setResult((await get(`/api/mapping-learning/feedback?${params}`)).data);
@@ -682,9 +756,9 @@ function MappingLearningHistory() {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, decision, page]);
+  }, [search, decision, page, marketplace]);
 
-  useEffect(() => setPage(1), [search, decision]);
+  useEffect(() => setPage(1), [search, decision, marketplace]);
 
   const columns = useMemo(
     () => [
@@ -693,8 +767,8 @@ function MappingLearningHistory() {
         label: "Tarih",
         render: (row) => date(row.created_at),
       },
-      { key: "barcode", label: "Barkod" },
-      { key: "product_name", label: "Trendyol ürünü", width: 320 },
+      { key: "barcode", label: identifierLabel(marketplace) },
+      { key: "product_name", label: productLabel(marketplace), width: 320 },
       {
         key: "decision",
         label: "Karar",
@@ -730,7 +804,7 @@ function MappingLearningHistory() {
       { key: "actor", label: "Kullanıcı" },
       { key: "reason", label: "Ret notu", width: 260 },
     ],
-    [],
+    [marketplace],
   );
 
   return (
@@ -740,7 +814,7 @@ function MappingLearningHistory() {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Barkod veya Trendyol ürünü ara"
+            placeholder={productSearchPlaceholder(marketplace)}
           />
           <select
             value={decision}
@@ -789,7 +863,7 @@ function MappingLearningHistory() {
   );
 }
 
-function SuggestionQueue({ notify }) {
+function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -810,6 +884,7 @@ function SuggestionQueue({ notify }) {
     setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      params.set("marketplace", marketplace);
       if (search) params.set("search", search);
       if (status) params.set("status", status);
       if (confidence) params.set("confidenceBand", confidence);
@@ -827,19 +902,36 @@ function SuggestionQueue({ notify }) {
   useEffect(() => {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
-  }, [search, status, confidence, supplierCode, page]);
+  }, [search, status, confidence, supplierCode, page, marketplace]);
 
-  useEffect(() => setPage(1), [search, status, confidence, supplierCode]);
+  useEffect(
+    () => setPage(1),
+    [search, status, confidence, supplierCode, marketplace],
+  );
 
   async function generate() {
     setGenerating(true);
     try {
       const response = await post("/api/mapping-suggestions/generate", {
         limit: 1000,
+        marketplace,
       });
       const data = response.data;
+      const openText = data.skippedOpen
+        ? `, ${data.skippedOpen} üründe açık/onaylı öneri atlandı`
+        : "";
+      const conflictText = data.skippedConflicts
+        ? `, ${data.skippedConflicts} üründe DB çakışması atlandı`
+        : "";
+      const scopeText =
+        data.recipeScoped !== undefined
+          ? ` (${data.recipeScoped} geçmiş reçete, ${data.catalogBarcodeScoped || 0} katalog barkodu, ${data.supplierScoped || 0} tedarikçi havuzu, ${data.costCatalogScoped || 0} maliyet kataloğu eşleşmesi)`
+          : "";
+      const poolText = Number.isFinite(Number(data.filePoolSize))
+        ? `, ${data.filePoolSize} tedarikçi ürünü karşılaştırıldı`
+        : "";
       notify(
-        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} ürün tedarikçi kapsamındaydı, ${data.withoutCandidate || 0} üründe uygun aday kalmadı, ${data.withoutFileSupport || 0} üründe fiyat desteği yok`,
+        `${data.created} yeni öneri üretildi; ${data.processed} ürün tarandı, ${data.scoped} ürün öneri kapsamındaydı${scopeText}, ${data.withoutCandidate || 0} üründe uygun aday kalmadı, ${data.withoutFileSupport || 0} üründe fiyat desteği yok${poolText}${openText}${conflictText}`,
       );
       setStatus("PENDING");
       await load();
@@ -900,8 +992,8 @@ function SuggestionQueue({ notify }) {
         exportable: false,
         render: (row) => <ProductImage product={row} />,
       },
-      { key: "barcode", label: "Barkod" },
-      { key: "product_name", label: "Trendyol ürünü", width: 300 },
+      { key: "barcode", label: identifierLabel(marketplace) },
+      { key: "product_name", label: productLabel(marketplace), width: 300 },
       {
         key: "mapping",
         label: "Önerilen eşleşme",
@@ -948,7 +1040,7 @@ function SuggestionQueue({ notify }) {
       },
       {
         key: "supplier_code",
-        label: "Kaynak",
+        label: "Tedarikçi",
         render: (row) => supplierDefinition(row.supplier_code).shortLabel,
       },
       {
@@ -965,17 +1057,8 @@ function SuggestionQueue({ notify }) {
       },
       {
         key: "source_type",
-        label: "Kaynak",
-        render: (row) =>
-          hasVariantPrice(row)
-            ? "Eski mapping + kardeş varyant"
-            : row.source_type === "MANUAL_HISTORY_AND_FILE"
-              ? "Eski mapping + tedarikçi"
-              : row.source_type === "MANUAL_HISTORY"
-                ? "Eski mapping"
-                : row.source_type === "FILE_MARKET"
-                  ? "Tedarikçi + maliyet kataloğu"
-                  : "Maliyet kataloğu",
+        label: "Eşleşme kaynağı",
+        render: sourceTypeLabel,
       },
       {
         key: "status",
@@ -1019,7 +1102,7 @@ function SuggestionQueue({ notify }) {
         ),
       },
     ],
-    [],
+    [marketplace],
   );
 
   return (
@@ -1029,7 +1112,7 @@ function SuggestionQueue({ notify }) {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Barkod veya Trendyol ürünü ara"
+            placeholder={productSearchPlaceholder(marketplace)}
           />
           <select
             value={status}
@@ -1270,22 +1353,37 @@ function SuggestionDrawer({
         <section>
           <h3>Önerilen maliyet reçetesi</h3>
           <div className="suggestion-items">
-            {suggestion.items.map((item, index) => (
-              <div key={item.id || `${item.cost_item_code}:${index}`}>
-                <div className="suggestion-item-heading">
-                  <strong>{item.item_name || item.cost_item_code}</strong>
-                  <Badge tone={item.file_market_item_id ? "info" : "neutral"}>
-                    {item.file_market_item_id
-                      ? evidence.fileMatches?.find(
-                          (match) =>
-                            match.costItemCode === item.cost_item_code &&
-                            match.priceMode === "SIBLING_VARIANT",
-                        )
-                        ? "Varyant fiyatından türetildi"
-                        : `${supplierDefinition(item.supplier_code || suggestion.supplier_code).shortLabel} fiyatı bulundu`
-                      : "Mevcut fiyat"}
-                  </Badge>
-                </div>
+            {suggestion.items.map((item, index) => {
+              const liveSupplier = itemLiveSupplier(
+                item,
+                suggestion.supplier_code,
+              );
+              return (
+                <div key={item.id || `${item.cost_item_code}:${index}`}>
+                  <div className="suggestion-item-heading">
+                    <strong>{item.item_name || item.cost_item_code}</strong>
+                    <Badge
+                      tone={
+                        item.file_market_item_id
+                          ? "info"
+                          : liveSupplier.connected
+                            ? "success"
+                            : "neutral"
+                      }
+                    >
+                      {item.file_market_item_id
+                        ? evidence.fileMatches?.find(
+                            (match) =>
+                              match.costItemCode === item.cost_item_code &&
+                              match.priceMode === "SIBLING_VARIANT",
+                          )
+                          ? "Varyant fiyatından türetildi"
+                          : `${supplierDefinition(item.supplier_code || suggestion.supplier_code).shortLabel} fiyatı bulundu`
+                        : liveSupplier.connected
+                          ? `${supplierDefinition(liveSupplier.code).shortLabel} canlı bağlantılı`
+                          : "Mevcut fiyat"}
+                    </Badge>
+                  </div>
                 <div className="form-grid">
                   <Field label="Cost Code">
                     <input
@@ -1345,11 +1443,20 @@ function SuggestionDrawer({
                       item.file_product_name ||
                       "Eşleşme yok"}
                   </b>
+                  <span>Canlı bağlantı</span>
+                  <b>
+                    {liveSupplier.connected
+                      ? `${supplierDefinition(liveSupplier.code).label} · ${liveSupplier.productName || "Tedarikçi ürünü"}`
+                      : "Yok"}
+                  </b>
                   <span>Güncel tedarikçi fiyatı</span>
                   <b>
-                    {item.supplier_current_price || item.file_current_price
+                    {liveSupplier.currentPrice ||
+                    item.supplier_current_price ||
+                    item.file_current_price
                       ? money(
-                          item.supplier_current_price ||
+                          liveSupplier.currentPrice ||
+                            item.supplier_current_price ||
                             item.file_current_price,
                         )
                       : "-"}
@@ -1374,7 +1481,8 @@ function SuggestionDrawer({
                   </b>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
         {suggestion.items.some((item) => item.file_market_item_id) && (
@@ -1573,6 +1681,7 @@ function parseSupplierImport(text) {
 function SupplierPricePool({ supplierCode, notify }) {
   const definition = supplierDefinition(supplierCode);
   const supportsBulkPrices = supplierCode === "BIZIM_MARKET";
+  const canEditBulkPrices = false;
   const [result, setResult] = useState(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -1583,6 +1692,8 @@ function SupplierPricePool({ supplierCode, notify }) {
   const [saving, setSaving] = useState(false);
   const [syncingLive, setSyncingLive] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [duplicates, setDuplicates] = useState(null);
+  const [mergingDuplicate, setMergingDuplicate] = useState("");
 
   async function load() {
     setLoading(true);
@@ -1594,6 +1705,10 @@ function SupplierPricePool({ supplierCode, notify }) {
         `/api/supplier-price-pools/${supplierCode}/items?${params}`,
       );
       setResult(response.data);
+      const duplicateResponse = await get(
+        `/api/supplier-price-pools/${supplierCode}/duplicates`,
+      );
+      setDuplicates(duplicateResponse.data);
     } catch (nextError) {
       setError(nextError);
     } finally {
@@ -1646,11 +1761,50 @@ function SupplierPricePool({ supplierCode, notify }) {
     }
   }
 
+  async function mergeDuplicateGroup(group) {
+    const key = group.normalized_name;
+    setMergingDuplicate(key);
+    try {
+      const response = await post(
+        `/api/supplier-price-pools/${supplierCode}/duplicates/merge`,
+        { normalizedName: key },
+      );
+      notify(
+        `${definition.shortLabel} mükerrer kaydı birleştirildi; ${response.data.movedLinks} maliyet bağlantısı güncel satıra taşındı`,
+        "success",
+      );
+      await load();
+    } catch (nextError) {
+      notify(nextError.message, "error");
+    } finally {
+      setMergingDuplicate("");
+    }
+  }
+
   const columns = [
     {
       key: "product_name",
       label: `${definition.shortLabel} ürünü`,
       width: 330,
+    },
+    {
+      key: "source_url",
+      label: "Canlı bağlantı",
+      exportable: false,
+      render: (row) =>
+        row.source_url ? (
+          <a
+            className="inline-link"
+            href={row.source_url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <ExternalLink size={14} /> Aç
+          </a>
+        ) : (
+          "-"
+        ),
     },
     { key: "brand", label: "Marka" },
     {
@@ -1658,6 +1812,29 @@ function SupplierPricePool({ supplierCode, notify }) {
       label: "Güncel fiyat",
       render: (row) => money(row.current_price),
     },
+    ...(supplierCode === "ROSSMANN"
+      ? [
+          {
+            key: "effective_price_type",
+            label: "Fiyat tipi",
+            render: (row) => (
+              <Badge
+                tone={
+                  row.raw_data?.effective_price_type === "ROSSMANN_CARD"
+                    ? "success"
+                    : "info"
+                }
+              >
+                {row.raw_data?.effective_price_type === "ROSSMANN_CARD"
+                  ? "Rossmann Card"
+                  : row.raw_data?.effective_price_type === "SALE"
+                    ? "Normal indirim"
+                    : "Normal fiyat"}
+              </Badge>
+            ),
+          },
+        ]
+      : []),
     ...(supportsBulkPrices
       ? [
           {
@@ -1665,6 +1842,18 @@ function SupplierPricePool({ supplierCode, notify }) {
             label: "Çoklu fiyat",
             render: (row) => {
               const tiers = priceTiers(row);
+              if (!canEditBulkPrices)
+                return (
+                  <div className="supplier-tier-readonly">
+                    <span>{tiers.length ? priceTierSummary(row) : "Tek fiyat"}</span>
+                    <Badge tone="info">
+                      {row.raw_data?.price_tiers_source ===
+                      "BIZIM_PRODUCT_DETAIL"
+                        ? "Bizim Toptan'dan otomatik"
+                        : "Otomatik"}
+                    </Badge>
+                  </div>
+                );
               return (
                 <button
                   type="button"
@@ -1733,7 +1922,7 @@ function SupplierPricePool({ supplierCode, notify }) {
         </Badge>
       ),
     },
-    ...(supportsBulkPrices
+    ...(supportsBulkPrices && canEditBulkPrices
       ? [
           {
             key: "ops",
@@ -1791,6 +1980,37 @@ function SupplierPricePool({ supplierCode, notify }) {
           </p>
         </div>
       </div>
+      {duplicates?.items?.length > 0 && (
+        <div className="info-banner warning">
+          <TriangleAlert />
+          <div>
+            <strong>
+              {duplicates.items.length} mükerrer {definition.shortLabel} ürünü
+              bulundu
+            </strong>
+            <p>
+              Eski kayıtların bağlı maliyet kalemleri güncel havuz satırına
+              taşınır; eski satırlar silinmeden gizli “MERGED” durumuna alınır.
+            </p>
+            <div className="inline-actions">
+              {duplicates.items.slice(0, 3).map((group, index) => (
+                <Button
+                  key={
+                    group.normalized_name || group.canonical_item_id || index
+                  }
+                  variant="secondary"
+                  disabled={mergingDuplicate === group.normalized_name}
+                  onClick={() => mergeDuplicateGroup(group)}
+                >
+                  {mergingDuplicate === group.normalized_name
+                    ? "Birleştiriliyor"
+                    : `${group.canonical_product_name} (${group.total_link_count} bağlantı)`}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {loading && !result ? (
         <Loading />
       ) : error ? (
@@ -1801,7 +2021,9 @@ function SupplierPricePool({ supplierCode, notify }) {
             columns={columns}
             rows={result.items}
             columnVisibilityKey={`supplier-price-pool-${supplierCode}`}
-            onRowClick={supportsBulkPrices ? setEditing : undefined}
+            onRowClick={
+              supportsBulkPrices && canEditBulkPrices ? setEditing : undefined
+            }
           />
           <Pagination
             page={result.page}
@@ -1844,7 +2066,7 @@ function SupplierPricePool({ supplierCode, notify }) {
           </Button>
         </footer>
       </Modal>
-      {supportsBulkPrices && (
+      {supportsBulkPrices && canEditBulkPrices && (
         <SupplierPriceDrawer
           item={editing}
           supplierCode={supplierCode}

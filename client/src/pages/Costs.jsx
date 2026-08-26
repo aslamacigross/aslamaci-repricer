@@ -16,6 +16,7 @@ import {
   SearchCheck,
   PencilLine,
   Truck,
+  CheckCircle2,
 } from "lucide-react";
 import { get, post, patch, del } from "../lib/api";
 import DataTable, { money, percent, date } from "../components/DataTable";
@@ -42,13 +43,24 @@ const titles = {
   ],
   commissions: [
     "Komisyonlar",
-    "Pazaryeri API kaynaklı kategori komisyon raporu",
+    "Kategori komisyonlarını pazaryeri bazında yönetin",
   ],
   shipping: [
     "Kargo & Ambalaj",
     "KDV hariç tarifeler, sepet baremleri ve ambalaj kuralları",
   ],
 };
+
+function supplierLabel(code) {
+  return (
+    {
+      FILE_MARKET: "File",
+      BIZIM_MARKET: "Bizim",
+      BIM: "BİM",
+      ROSSMANN: "Rossmann",
+    }[code] || code || "Tedarikçi"
+  );
+}
 
 function parseBulkRows(text, mode) {
   return String(text || "")
@@ -116,6 +128,7 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
     [search, setSearch] = useState(""),
     [error, setError] = useState(null),
     [editing, setEditing] = useState(null),
+    [costView, setCostView] = useState("items"),
     [mappingView, setMappingView] = useState("manual"),
     [shippingQuery, setShippingQuery] = useState({
       marketplace,
@@ -183,6 +196,7 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         actions={
           <>
             {mode !== "commissions" &&
+              !(mode === "costs" && costView !== "items") &&
               !(mode === "mappings" && mappingView !== "manual") && (
                 <Button
                   icon={Plus}
@@ -204,13 +218,14 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         }
       />
       {mode === "mappings" && marketplace === "HEPSIBURADA" && (
-        <div className="info-banner warning">
-          <TriangleAlert />
+        <div className="info-banner">
+          <Sparkles />
           <div>
-            <strong>Hepsiburada ürün kataloğu bağlantısı bekleniyor</strong>
+            <strong>Hepsiburada mapping çalışma alanı</strong>
             <p>
-              Mapping çalışma alanı hazır. Credentials ile ürünler alındığında
-              Hepsiburada reçeteleri burada Trendyol'dan bağımsız yönetilecek.
+              Ürün sync sonrası Hepsiburada barkodları burada Trendyol'dan
+              bağımsız maplenir; maliyet havuzları ortaktır, ürün reçetesi ve
+              minimum fiyat pazaryerine özeldir.
             </p>
           </div>
         </div>
@@ -223,58 +238,76 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
           >
             <GitBranch /> Mevcut mappingler
           </button>
-          {marketplace === "TRENDYOL" && (
-            <>
-              <button
-                className={mappingView === "suggestions" ? "active" : ""}
-                onClick={() => setMappingView("suggestions")}
-              >
-                <Sparkles /> Akıllı öneriler
-              </button>
-              <button
-                className={mappingView === "file" ? "active" : ""}
-                onClick={() => setMappingView("file")}
-              >
-                <Store /> File fiyat havuzu
-              </button>
-              <button
-                className={mappingView === "bizim" ? "active" : ""}
-                onClick={() => setMappingView("bizim")}
-              >
-                <Store /> Bizim Toptan havuzu
-              </button>
-              <button
-                className={mappingView === "bim" ? "active" : ""}
-                onClick={() => setMappingView("bim")}
-              >
-                <Store /> BİM havuzu
-              </button>
-              <button
-                className={mappingView === "other" ? "active" : ""}
-                onClick={() => setMappingView("other")}
-              >
-                <Store /> Diğer maliyet havuzu
-              </button>
-              <button
-                className={mappingView === "diagnostics" ? "active" : ""}
-                onClick={() => setMappingView("diagnostics")}
-              >
-                <SearchCheck /> Teşhis
-              </button>
-              <button
-                className={mappingView === "manual-costs" ? "active" : ""}
-                onClick={() => setMappingView("manual-costs")}
-              >
-                <PencilLine /> Manuel bekleyenler
-              </button>
-              <button
-                className={mappingView === "learning" ? "active" : ""}
-                onClick={() => setMappingView("learning")}
-              >
-                <BrainCircuit /> Karar geçmişi
-              </button>
-            </>
-          )}
+          <button
+            className={mappingView === "suggestions" ? "active" : ""}
+            onClick={() => setMappingView("suggestions")}
+          >
+            <Sparkles /> Akıllı öneriler
+          </button>
+          <button
+            className={mappingView === "file" ? "active" : ""}
+            onClick={() => setMappingView("file")}
+          >
+            <Store /> File fiyat havuzu
+          </button>
+          <button
+            className={mappingView === "bizim" ? "active" : ""}
+            onClick={() => setMappingView("bizim")}
+          >
+            <Store /> Bizim Toptan havuzu
+          </button>
+          <button
+            className={mappingView === "bim" ? "active" : ""}
+            onClick={() => setMappingView("bim")}
+          >
+            <Store /> BİM havuzu
+          </button>
+          <button
+            className={mappingView === "rossmann" ? "active" : ""}
+            onClick={() => setMappingView("rossmann")}
+          >
+            <Store /> Rossmann havuzu
+          </button>
+          <button
+            className={mappingView === "other" ? "active" : ""}
+            onClick={() => setMappingView("other")}
+          >
+            <Store /> Diğer maliyet havuzu
+          </button>
+          <button
+            className={mappingView === "diagnostics" ? "active" : ""}
+            onClick={() => setMappingView("diagnostics")}
+          >
+            <SearchCheck /> Teşhis
+          </button>
+          <button
+            className={mappingView === "manual-costs" ? "active" : ""}
+            onClick={() => setMappingView("manual-costs")}
+          >
+            <PencilLine /> Manuel bekleyenler
+          </button>
+          <button
+            className={mappingView === "learning" ? "active" : ""}
+            onClick={() => setMappingView("learning")}
+          >
+            <BrainCircuit /> Karar geçmişi
+          </button>
+        </div>
+      )}
+      {mode === "costs" && (
+        <div className="tabs page-tabs mapping-tabs">
+          <button
+            className={costView === "items" ? "active" : ""}
+            onClick={() => setCostView("items")}
+          >
+            <Store /> Maliyet kalemleri
+          </button>
+          <button
+            className={costView === "review" ? "active" : ""}
+            onClick={() => setCostView("review")}
+          >
+            <CheckCircle2 /> Kontrol zamanı
+          </button>
         </div>
       )}
       {error ? (
@@ -295,6 +328,8 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
           query={shippingQuery}
           setQuery={setShippingQuery}
         />
+      ) : mode === "costs" && costView === "review" ? (
+        <ManualCostReview notify={notify} />
       ) : (
         <ResourceTable
           mode={mode}
@@ -309,6 +344,330 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         />
       )}
     </>
+  );
+}
+
+function ManualCostReview({ notify }) {
+  const [data, setData] = useState(null),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState(null),
+    [editing, setEditing] = useState(null);
+  const limit = 50;
+  async function load(nextPage = page, nextSearch = search) {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        limit: String(limit),
+        search: nextSearch,
+      });
+      setData((await get(`/api/cost-items/manual-review?${params}`)).data);
+    } catch (loadError) {
+      setError(loadError);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load(1, search);
+  }, []);
+  function updateSearch(value) {
+    setSearch(value);
+    setPage(1);
+    load(1, value);
+  }
+  function changePage(nextPage) {
+    setPage(nextPage);
+    load(nextPage, search);
+  }
+  const rows = data?.items || [];
+  const columns = [
+    { key: "item_code", label: "Cost Code" },
+    { key: "item_name", label: "Maliyet kalemi" },
+    {
+      key: "unit_cost",
+      label: "Birim maliyet",
+      render: (row) => money(row.unit_cost),
+    },
+    { key: "unit_desi", label: "Birim desi" },
+    {
+      key: "price_source",
+      label: "Kaynak",
+      render: (row) => row.price_source || "MANUAL",
+    },
+    {
+      key: "supplier_candidate",
+      label: "Canlı aday",
+      render: (row) =>
+        row.supplier_candidate ? (
+          <Badge tone="info">
+            {supplierLabel(row.supplier_candidate.supplier_code)}
+          </Badge>
+        ) : (
+          "-"
+        ),
+    },
+    { key: "product_count", label: "Kullanım" },
+    {
+      key: "source_checked_at",
+      label: "Son kontrol",
+      render: (row) => date(row.source_checked_at || row.updated_at),
+    },
+    {
+      key: "manual_review_next_due_at",
+      label: "Sonraki kontrol",
+      render: (row) => date(row.manual_review_next_due_at),
+    },
+    {
+      key: "due",
+      label: "Durum",
+      render: (row) => (
+        <Badge tone={row.due ? "warning" : "success"}>
+          {row.due ? "Kontrol et" : "Güncel"}
+        </Badge>
+      ),
+    },
+  ];
+  if (error) return <ErrorState error={error} retry={() => load()} />;
+  return (
+    <>
+      <div className="info-banner">
+        <CheckCircle2 />
+        <div>
+          <strong>Manuel maliyet hatırlatıcısı</strong>
+          <p>
+            Canlı File, Bizim veya BİM linki olmayan maliyetler ayda bir burada
+            görünür. Fiyat değişmediyse aynı kalsın; değiştiyse yeni fiyatı
+            girin, sistem minimum fiyatları yeniden hesaplar.
+          </p>
+        </div>
+      </div>
+      <div className="filters">
+        <SearchInput
+          value={search}
+          onChange={updateSearch}
+          placeholder="Cost code veya maliyet kalemi ara"
+        />
+        <IconButton icon={RefreshCw} label="Yenile" onClick={() => load()} />
+      </div>
+      {loading && !data ? (
+        <Loading />
+      ) : (
+        <div className="panel table-panel">
+          <DataTable
+            columns={columns}
+            rows={rows}
+            exportRows={rows}
+            columnVisibilityKey="manual-cost-review"
+            exportFileName="manuel-maliyet-kontrol"
+            onRowClick={(row) => setEditing(row)}
+          />
+          <Pagination
+            page={data?.page || page}
+            total={data?.total || 0}
+            limit={data?.limit || limit}
+            onChange={changePage}
+          />
+        </div>
+      )}
+      <ManualCostReviewModal
+        value={editing}
+        onClose={() => setEditing(null)}
+        notify={notify}
+        onSaved={() => {
+          setEditing(null);
+          load();
+        }}
+      />
+    </>
+  );
+}
+
+function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
+  const [form, setForm] = useState(value || {}),
+    [saving, setSaving] = useState(false);
+  useEffect(() => setForm(value || {}), [value]);
+  if (!value) return null;
+  const set = (key, nextValue) => setForm({ ...form, [key]: nextValue });
+  async function confirmSame() {
+    setSaving(true);
+    try {
+      await post(`/api/cost-items/manual-review/${value.id}/confirm`, {
+        note: form.manual_review_note,
+        intervalDays: form.manual_review_interval_days || 30,
+      });
+      notify("Maliyet aynı kaldı olarak işaretlendi");
+      onSaved();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function updateCost() {
+    setSaving(true);
+    try {
+      await patch(`/api/cost-items/manual-review/${value.id}`, {
+        unit_cost: Number(form.unit_cost),
+        unit_desi:
+          form.unit_desi === "" || form.unit_desi === undefined
+            ? undefined
+            : Number(form.unit_desi),
+        note: form.manual_review_note,
+        intervalDays: form.manual_review_interval_days || 30,
+      });
+      notify("Maliyet güncellendi ve minimum fiyatlar yeniden hesaplandı");
+      onSaved();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function linkSupplierCandidate() {
+    if (!value.supplier_candidate?.id) return;
+    setSaving(true);
+    try {
+      await post(`/api/cost-items/manual-review/${value.id}/link-supplier`, {
+        supplierItemId: value.supplier_candidate.id,
+        note:
+          form.manual_review_note ||
+          `${value.supplier_candidate.product_name} canlı havuzuna bağlandı`,
+        intervalDays: form.manual_review_interval_days || 30,
+      });
+      notify("Maliyet kalemi canlı tedarikçi havuzuna bağlandı");
+      onSaved();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  const sampleProducts = Array.isArray(value.sample_products)
+    ? value.sample_products.filter(Boolean)
+    : [];
+  const supplierCandidate = value.supplier_candidate;
+  return (
+    <Modal open onClose={onClose} title="Manuel maliyet kontrolü">
+      <div className="modal-body form-grid">
+        <Field label="Cost Code">
+          <input value={form.item_code || ""} disabled />
+        </Field>
+        <Field label="Maliyet kalemi">
+          <input value={form.item_name || ""} disabled />
+        </Field>
+        <Field label="Birim maliyet">
+          <input
+            type="number"
+            step="0.01"
+            value={form.unit_cost || ""}
+            onChange={(event) => set("unit_cost", event.target.value)}
+          />
+        </Field>
+        <Field label="Birim desi">
+          <input
+            type="number"
+            step="0.01"
+            value={form.unit_desi ?? ""}
+            onChange={(event) => set("unit_desi", event.target.value)}
+          />
+        </Field>
+        <Field label="Kontrol aralığı (gün)">
+          <input
+            type="number"
+            min="1"
+            max="365"
+            value={form.manual_review_interval_days || 30}
+            onChange={(event) =>
+              set("manual_review_interval_days", Number(event.target.value))
+            }
+          />
+        </Field>
+        <Field label="Not">
+          <input
+            value={form.manual_review_note || ""}
+            onChange={(event) => set("manual_review_note", event.target.value)}
+            placeholder="Örn. tedarikçide kontrol edildi"
+          />
+        </Field>
+      </div>
+      {supplierCandidate && (
+        <div className="modal-body">
+          <div className="info-banner">
+            <Store />
+            <div>
+              <strong>Canlı tedarikçi havuzunda aday bulundu</strong>
+              <p>
+                {supplierCandidate.product_name} ·{" "}
+                {money(supplierCandidate.current_price)} ·{" "}
+                {supplierLabel(supplierCandidate.supplier_code)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="modal-body resource-context">
+        <section>
+          <h3>Kullanıldığı ürünler ({value.product_count || 0})</h3>
+          {sampleProducts.length ? (
+            <div className="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pazaryeri</th>
+                    <th>Barkod</th>
+                    <th>Ürün</th>
+                    <th>Adet</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleProducts.slice(0, 30).map((item) => (
+                    <tr key={`${item.marketplace}:${item.barcode}`}>
+                      <td>{item.marketplace}</td>
+                      <td>{item.barcode}</td>
+                      <td>{item.product_name || "-"}</td>
+                      <td>{item.quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p>Bu maliyet kalemi henüz aktif bir mapping içinde görünmüyor.</p>
+          )}
+        </section>
+      </div>
+      <footer className="modal-actions">
+        <span />
+        <Button variant="secondary" onClick={onClose}>
+          Vazgeç
+        </Button>
+        <Button
+          variant="secondary"
+          icon={CheckCircle2}
+          onClick={confirmSame}
+          disabled={saving}
+        >
+          Aynı kalsın
+        </Button>
+        {supplierCandidate && (
+          <Button
+            variant="secondary"
+            icon={Store}
+            onClick={linkSupplierCandidate}
+            disabled={saving}
+          >
+            Canlı havuza bağla
+          </Button>
+        )}
+        <Button icon={Save} onClick={updateCost} disabled={saving}>
+          Fiyatı güncelle
+        </Button>
+      </footer>
+    </Modal>
   );
 }
 function ResourceTable({
@@ -368,6 +727,18 @@ function ResourceTable({
           },
           { key: "unit_desi", label: "Birim desi" },
           { key: "unit", label: "Birim" },
+          {
+            key: "live_supplier_code",
+            label: "Canlı bağlantı",
+            render: (r) =>
+              r.live_supplier_item_id ? (
+                <Badge tone="success">
+                  {supplierLabel(r.live_supplier_code)} canlı
+                </Badge>
+              ) : (
+                <Badge tone="warning">Sabit/manual</Badge>
+              ),
+          },
           { key: "product_count", label: "Kullanım" },
         ]
       : mode === "mappings"
@@ -520,13 +891,14 @@ function ResourceTable({
           <TriangleAlert />
           <div>
             <strong>
-              Komisyon verisi{" "}
-              {marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} API'den
-              gelir
+              {marketplace === "TRENDYOL"
+                ? "Trendyol komisyon verisi API'den gelir"
+                : "Hepsiburada komisyon verisi resmi API'den gelir"}
             </strong>
             <p>
-              Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası
-              seçili pazaryerinden gelen ürün verileriyle güncellenir.
+              {marketplace === "TRENDYOL"
+                ? "Bu ekranda manuel komisyon girilmez. Oranlar ürün sync sonrası Trendyol ürün verileriyle güncellenir."
+                : "Oranlar ürün sync sırasında Hepsiburada Komisyon Bilgisi Sorgulama servisiyle güncellenir. API'nin oran döndürmediği ürünler güvenlik amacıyla eksik kalır ve repricer tarafından değiştirilmez."}
             </p>
           </div>
         </div>
@@ -631,11 +1003,13 @@ function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
       if (value.bulk) {
         const rows = parseBulkRows(form.text, mode).map((row) => ({
           ...row,
-          ...(mode === "mappings" ? { marketplace } : {}),
+          ...(["mappings", "commissions"].includes(mode)
+            ? { marketplace }
+            : {}),
         }));
         if (mode === "costs") await post("/api/cost-items/bulk", { rows });
         else if (mode === "commissions")
-          await post("/api/commissions/bulk", { rows });
+          await post("/api/commissions/bulk", { rows, marketplace });
         else {
           if (!preview || previewText !== (form.text || ""))
             throw new Error("Güncel satırları önce önizleyin");
@@ -665,7 +1039,9 @@ function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
         const path = value.category_id
           ? `/api/commissions/${value.category_id}`
           : "/api/commissions";
-        await (value.category_id ? patch(path, form) : post(path, form));
+        await (value.category_id
+          ? patch(path, { ...form, marketplace })
+          : post(path, { ...form, marketplace }));
       }
       notify("Kayıt başarıyla kaydedildi");
       onSaved();
@@ -821,6 +1197,21 @@ function ResourceModal({ mode, value, onClose, onSaved, notify, marketplace }) {
                   onChange={(e) => set("note", e.target.value)}
                 />
               </Field>
+              <div className="info-banner" style={{ gridColumn: "1 / -1" }}>
+                <Store />
+                <div>
+                  <strong>
+                    {value.live_supplier_item_id
+                      ? "Canlı tedarikçi bağlantısı var"
+                      : "Canlı tedarikçi bağlantısı yok"}
+                  </strong>
+                  <p>
+                    {value.live_supplier_item_id
+                      ? `${supplierLabel(value.live_supplier_code)} · ${value.live_supplier_product_name || "Tedarikçi ürünü"} · ${money(value.live_supplier_current_price)}`
+                      : "Bu kalem sabit/manual maliyetle hesaplanır; tedarikçi havuzu fiyatı değişirse otomatik güncellenmez."}
+                  </p>
+                </div>
+              </div>
             </>
           )}
           {mode === "mappings" && (
@@ -1018,12 +1409,17 @@ function Shipping({
     setImportingTariff(true);
     try {
       const result = await post("/api/shipping/hepsiburada/import", {
-        force: false,
+        force: pagination.total > 0,
       });
+      const recalculation = result.data?.metadata?.recalculation;
+      const message = result.data?.metadata?.skipped
+        ? "Hepsiburada tarifesi zaten yüklü"
+        : `${Number(result.data?.successful || 0).toLocaleString("tr-TR")} Hepsiburada tarifesi yüklendi`;
       notify(
-        result.data?.metadata?.skipped
-          ? "Hepsiburada tarifesi zaten yüklü"
-          : `${Number(result.data?.successful || 0).toLocaleString("tr-TR")} Hepsiburada tarifesi yüklendi`,
+        recalculation?.ok === false
+          ? `${message}; maliyet yeniden hesaplama uyarısı: ${recalculation.code || recalculation.message}`
+          : message,
+        recalculation?.ok === false ? "warning" : "success",
       );
       await reload();
     } catch (error) {
@@ -1078,14 +1474,44 @@ function Shipping({
       ],
     ],
     packaging: [
-      "Ambalaj kuralları",
+      "Ambalaj profilleri",
       [
-        { key: "min_desi", label: "Min desi" },
-        { key: "max_desi", label: "Maks desi" },
+        { key: "profile_name", label: "Profil" },
+        {
+          key: "rule_scope",
+          label: "Eşleşme türü",
+          render: (r) =>
+            ({
+              BARCODE: "Barkod",
+              PRODUCT_NAME: "Ürün adı",
+              CATEGORY: "Kategori",
+              BRAND: "Marka",
+              DESI: "Eski desi",
+            })[r.rule_scope || "DESI"],
+        },
+        {
+          key: "match_value",
+          label: "Eşleşme",
+          render: (r) =>
+            (r.rule_scope || "DESI") === "DESI"
+              ? `${r.min_desi}–${r.max_desi} desi`
+              : r.match_value,
+        },
+        { key: "packaging_type", label: "Ambalaj tipi" },
         {
           key: "packaging_cost",
-          label: "Ambalaj",
+          label: "Maliyet",
           render: (r) => money(r.packaging_cost),
+        },
+        { key: "priority", label: "Öncelik" },
+        {
+          key: "active",
+          label: "Durum",
+          render: (r) => (
+            <Badge tone={r.active === false ? "neutral" : "success"}>
+              {r.active === false ? "Pasif" : "Aktif"}
+            </Badge>
+          ),
         },
         { key: "note", label: "Not" },
       ],
@@ -1172,14 +1598,18 @@ function Shipping({
             </p>
           )}
         </div>
-        {query.marketplace === "HEPSIBURADA" && pagination.total === 0 && (
+        {query.marketplace === "HEPSIBURADA" && (
           <Button
             icon={Upload}
             variant="secondary"
             onClick={importHepsiburadaTariff}
             disabled={importingTariff}
           >
-            {importingTariff ? "Yükleniyor" : "Tarifeyi yükle"}
+            {importingTariff
+              ? "Yükleniyor"
+              : pagination.total > 0
+                ? "Tarifeyi yenile"
+                : "Tarifeyi yükle"}
           </Button>
         )}
       </div>
@@ -1203,7 +1633,8 @@ function Shipping({
           <div>
             <h2>Kargo maliyeti hesapla</h2>
             <p>
-              Sepet baremi, desi tarifesi ve ambalaj kuralı birlikte uygulanır.
+              Kargo desiye göre; ambalaj barkod, ürün adı, kategori veya marka
+              profiline göre hesaplanır.
             </p>
           </div>
         </div>
@@ -1307,9 +1738,22 @@ function Shipping({
   );
 }
 function ShippingModal({ value, type, onClose, notify, onSaved }) {
-  const [form, setForm] = useState(value || {}),
+  const initial =
+    (value?.type || type) === "packaging" && !value?.id
+      ? {
+          ...value,
+          rule_scope: "PRODUCT_NAME",
+          packaging_type: "STANDARD",
+          profile_name: "",
+          match_value: "",
+          packaging_cost: 0,
+          priority: 100,
+          active: true,
+        }
+      : value || {};
+  const [form, setForm] = useState(initial),
     [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => setForm(value || {}), [value]);
+  useEffect(() => setForm(initial), [value, type]);
   if (!value) return null;
   const actual = value.type || type;
   const set = (k, v) => setForm({ ...form, [k]: v });
@@ -1417,19 +1861,67 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
         )}
         {actual === "packaging" && (
           <>
-            <Field label="Min desi">
+            <Field label="Profil adı">
               <input
-                type="number"
-                value={form.min_desi || 0}
-                onChange={(e) => set("min_desi", Number(e.target.value))}
+                value={form.profile_name || ""}
+                placeholder="Örn. Yumuşatıcı koli + balon"
+                onChange={(e) => set("profile_name", e.target.value)}
               />
             </Field>
-            <Field label="Maks desi">
-              <input
-                type="number"
-                value={form.max_desi || 0}
-                onChange={(e) => set("max_desi", Number(e.target.value))}
-              />
+            <Field label="Eşleşme türü">
+              <select
+                value={form.rule_scope || "DESI"}
+                onChange={(e) => set("rule_scope", e.target.value)}
+              >
+                <option value="BARCODE">Barkod istisnası</option>
+                <option value="PRODUCT_NAME">Ürün adında geçiyorsa</option>
+                <option value="CATEGORY">Kategori adında geçiyorsa</option>
+                <option value="BRAND">Marka eşleşiyorsa</option>
+                <option value="DESI">Eski desi kuralı</option>
+              </select>
+            </Field>
+            {(form.rule_scope || "DESI") === "DESI" ? (
+              <>
+                <Field label="Min desi">
+                  <input
+                    type="number"
+                    value={form.min_desi || 0}
+                    onChange={(e) => set("min_desi", Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="Maks desi">
+                  <input
+                    type="number"
+                    value={form.max_desi || 0}
+                    onChange={(e) => set("max_desi", Number(e.target.value))}
+                  />
+                </Field>
+              </>
+            ) : (
+              <Field label="Eşleşme değeri">
+                <input
+                  value={form.match_value || ""}
+                  placeholder={
+                    form.rule_scope === "BARCODE"
+                      ? "Ürün barkodu"
+                      : "Ürün adında/kategoride aranacak ifade"
+                  }
+                  onChange={(e) => set("match_value", e.target.value)}
+                />
+              </Field>
+            )}
+            <Field label="Ambalaj tipi">
+              <select
+                value={form.packaging_type || "STANDARD"}
+                onChange={(e) => set("packaging_type", e.target.value)}
+              >
+                <option value="MAILER">Kargo poşeti</option>
+                <option value="BOX">Koli</option>
+                <option value="BOX_BUBBLE">Koli + balonlu koruma</option>
+                <option value="BUBBLE">Balonlu koruma</option>
+                <option value="STANDARD">Standart koruma</option>
+                <option value="LEGACY_DESI">Eski desi kuralı</option>
+              </select>
             </Field>
             <Field label="Maliyet">
               <input
@@ -1437,6 +1929,30 @@ function ShippingModal({ value, type, onClose, notify, onSaved }) {
                 step="0.01"
                 value={form.packaging_cost || 0}
                 onChange={(e) => set("packaging_cost", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Öncelik">
+              <input
+                type="number"
+                min="0"
+                value={form.priority || 0}
+                onChange={(e) => set("priority", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Durum">
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={form.active !== false}
+                  onChange={(e) => set("active", e.target.checked)}
+                />
+                <span>Aktif</span>
+              </label>
+            </Field>
+            <Field label="Not">
+              <input
+                value={form.note || ""}
+                onChange={(e) => set("note", e.target.value)}
               />
             </Field>
           </>

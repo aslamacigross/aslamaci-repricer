@@ -28,9 +28,21 @@ class CostRepository {
   async listCostItems() {
     return (
       await this.db.query(
-        `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count
-       FROM cost_items ci LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
-       GROUP BY ci.id ORDER BY ci.item_name`,
+        `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count,
+                link.file_market_item_id AS live_supplier_item_id,
+                supplier_item.supplier_code AS live_supplier_code,
+                supplier_item.product_name AS live_supplier_product_name,
+                supplier_item.current_price AS live_supplier_current_price,
+                supplier_item.last_seen_at AS live_supplier_last_seen_at,
+                link.approved_at AS live_supplier_approved_at
+       FROM cost_items ci
+       LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+       LEFT JOIN cost_item_file_links link
+         ON link.cost_item_code=ci.item_code AND link.status='APPROVED'
+       LEFT JOIN file_market_items supplier_item
+         ON supplier_item.id=link.file_market_item_id
+       GROUP BY ci.id,link.file_market_item_id,link.approved_at,supplier_item.id
+       ORDER BY ci.item_name`,
       )
     ).rows;
   }
@@ -112,7 +124,14 @@ class CostRepository {
     if (id)
       return (
         await this.db.query(
-          `UPDATE cost_items SET item_code=$1,item_name=$2,unit_cost=$3,unit_desi=$4,unit=$5,note=$6,updated_at=NOW()
+          `UPDATE cost_items
+           SET item_code=$1,item_name=$2,unit_cost=$3,unit_desi=$4,unit=$5,note=$6,
+               previous_unit_cost=CASE WHEN unit_cost IS DISTINCT FROM $3 THEN unit_cost ELSE previous_unit_cost END,
+               source_checked_at=NOW(),
+               manual_review_last_confirmed_at=NOW(),
+               manual_review_next_due_at=NOW() + (COALESCE(manual_review_interval_days,30) || ' days')::interval,
+               manual_review_status='OK',
+               updated_at=NOW()
        WHERE id=$7 RETURNING *`,
           [
             input.item_code,
@@ -127,8 +146,13 @@ class CostRepository {
       ).rows[0];
     return (
       await this.db.query(
-        `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,unit,note)
-       VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
+        `INSERT INTO cost_items(
+           item_code,item_name,unit_cost,unit_desi,unit,note,
+           price_source,source_checked_at,manual_review_last_confirmed_at,
+           manual_review_next_due_at,manual_review_status
+         )
+       VALUES($1,$2,$3,$4,$5,$6,'MANUAL',NOW(),NOW(),NOW() + INTERVAL '30 days','OK')
+       RETURNING *`,
         [
           input.item_code,
           input.item_name,
@@ -147,11 +171,23 @@ class CostRepository {
       for (const row of rows) {
         const saved = (
           await client.query(
-            `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi,unit,note)
-             VALUES($1,$2,$3,$4,$5,$6)
+            `INSERT INTO cost_items(
+               item_code,item_name,unit_cost,unit_desi,unit,note,
+               price_source,source_checked_at,manual_review_last_confirmed_at,
+               manual_review_next_due_at,manual_review_status
+             )
+             VALUES($1,$2,$3,$4,$5,$6,'MANUAL',NOW(),NOW(),NOW() + INTERVAL '30 days','OK')
              ON CONFLICT(item_code)DO UPDATE SET
                item_name=EXCLUDED.item_name,unit_cost=EXCLUDED.unit_cost,
                unit_desi=EXCLUDED.unit_desi,unit=EXCLUDED.unit,note=EXCLUDED.note,
+               previous_unit_cost=CASE
+                 WHEN cost_items.unit_cost IS DISTINCT FROM EXCLUDED.unit_cost THEN cost_items.unit_cost
+                 ELSE cost_items.previous_unit_cost
+               END,
+               source_checked_at=NOW(),
+               manual_review_last_confirmed_at=NOW(),
+               manual_review_next_due_at=NOW() + (COALESCE(cost_items.manual_review_interval_days,30) || ' days')::interval,
+               manual_review_status='OK',
                updated_at=NOW()
              RETURNING *`,
             [
@@ -167,6 +203,264 @@ class CostRepository {
         items.push(saved);
       }
       return { processed: items.length, items };
+    });
+  }
+
+  async manualCostReviewQueue({
+    search,
+    page = 1,
+    limit = 100,
+    days = 30,
+    includeOk = false,
+  } = {}) {
+    const safePage = Math.max(Number(page) || 1, 1);
+    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    const safeDays = Math.min(Math.max(Number(days) || 30, 1), 365);
+    const offset = (safePage - 1) * safeLimit;
+    const params = [safeDays];
+    const where = [
+      "$1::int > 0",
+      `NOT EXISTS (
+        SELECT 1
+        FROM cost_item_file_links link
+        JOIN file_market_items supplier_item ON supplier_item.id=link.file_market_item_id
+        WHERE link.cost_item_code=ci.item_code
+          AND link.status='APPROVED'
+          AND supplier_item.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN')
+      )`,
+    ];
+    if (!["true", true, "1", 1].includes(includeOk)) {
+      where.push(
+        `(ci.manual_review_next_due_at IS NULL
+          OR ci.manual_review_next_due_at <= NOW()
+          OR ci.source_checked_at IS NULL
+          OR ci.source_checked_at <= NOW() - ($1::int || ' days')::interval)`,
+      );
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(ci.item_code ILIKE $${params.length} OR ci.item_name ILIKE $${params.length})`,
+      );
+    }
+    const whereSql = where.join(" AND ");
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS count FROM cost_items ci WHERE ${whereSql}`,
+        params,
+      )
+    ).rows[0].count;
+    params.push(safeLimit, offset);
+    const rows = (
+      await this.db.query(
+        `SELECT ci.*,
+                COUNT(DISTINCT pcm.marketplace || ':' || pcm.barcode)::int AS product_count,
+                COALESCE(
+                  JSON_AGG(
+                    DISTINCT JSONB_BUILD_OBJECT(
+                      'marketplace', pcm.marketplace,
+                      'barcode', pcm.barcode,
+                      'product_name', p.product_name,
+                      'quantity', pcm.quantity
+                    )
+                  ) FILTER (WHERE pcm.barcode IS NOT NULL),
+                  '[]'
+                ) AS sample_products,
+                COALESCE(ci.manual_review_next_due_at, ci.source_checked_at + ($1::int || ' days')::interval) <= NOW()
+                  OR ci.source_checked_at IS NULL AS due,
+                FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(ci.source_checked_at, ci.updated_at, NOW()))) / 86400)::int AS days_since_check,
+                MAX(supplier_candidate.candidate::text)::jsonb AS supplier_candidate
+         FROM cost_items ci
+         LEFT JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+         LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
+         LEFT JOIN LATERAL (
+           SELECT JSONB_BUILD_OBJECT(
+             'id', f.id,
+             'supplier_code', f.supplier_code,
+             'product_name', f.product_name,
+             'current_price', f.current_price,
+             'estimated_unit_desi', f.estimated_unit_desi,
+             'last_seen_at', f.last_seen_at,
+             'availability', f.availability
+           ) AS candidate
+           FROM file_market_items f
+           CROSS JOIN LATERAL (
+             SELECT COUNT(*)::int AS count
+             FROM REGEXP_SPLIT_TO_TABLE(
+               REGEXP_REPLACE(
+                 TRANSLATE(
+                   LOWER(ci.item_code || ' ' || ci.item_name),
+                   'çğıöşüÇĞİÖŞÜ',
+                   'cgiosucgiosu'
+                 ),
+                 '[^a-z0-9]+',
+                 ' ',
+                 'g'
+               ),
+               '\\s+'
+             ) AS cost_token
+             WHERE LENGTH(cost_token)>2
+               AND cost_token NOT IN (
+                 'adet','birim','file','market','bizim','bim','diger',
+                 'urun','paket','set','icin','ile','suyu','sivi'
+               )
+               AND f.normalized_name ILIKE '%' || cost_token || '%'
+           ) token_match
+           WHERE f.supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN')
+             AND f.availability='AVAILABLE'
+             AND (
+               f.normalized_name ILIKE '%' || REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') || '%'
+               OR REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') ILIKE '%' || f.normalized_name || '%'
+               OR LOWER(f.product_name) ILIKE '%' || LOWER(ci.item_name) || '%'
+               OR LOWER(ci.item_name) ILIKE '%' || LOWER(f.product_name) || '%'
+               OR token_match.count >= 2
+             )
+           ORDER BY
+             token_match.count DESC,
+             CASE
+               WHEN f.normalized_name ILIKE '%' || REGEXP_REPLACE(LOWER(ci.item_code),'[^a-z0-9]+','%','g') || '%' THEN 0
+               ELSE 1
+             END,
+             f.last_seen_at DESC
+           LIMIT 1
+         ) supplier_candidate ON TRUE
+         WHERE ${whereSql}
+         GROUP BY ci.id
+         ORDER BY due DESC, ci.manual_review_next_due_at NULLS FIRST, ci.item_name
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return {
+      items: rows,
+      page: safePage,
+      limit: safeLimit,
+      total,
+      due_count: rows.filter((row) => row.due).length,
+    };
+  }
+
+  async confirmManualCostReview(id, { note, intervalDays = 30 } = {}) {
+    const safeInterval = Math.min(Math.max(Number(intervalDays) || 30, 1), 365);
+    return (
+      await this.db.query(
+        `UPDATE cost_items
+         SET source_checked_at=NOW(),
+             manual_review_last_confirmed_at=NOW(),
+             manual_review_next_due_at=NOW() + ($2::int || ' days')::interval,
+             manual_review_interval_days=$2,
+             manual_review_status='OK',
+             manual_review_note=$3,
+             updated_at=NOW()
+         WHERE id=$1
+         RETURNING *`,
+        [id, safeInterval, String(note || "").trim()],
+      )
+    ).rows[0];
+  }
+
+  async updateManualCostReview(
+    id,
+    { unit_cost, unit_desi, note, intervalDays = 30 } = {},
+  ) {
+    const safeInterval = Math.min(Math.max(Number(intervalDays) || 30, 1), 365);
+    return (
+      await this.db.query(
+        `UPDATE cost_items
+         SET previous_unit_cost=CASE WHEN unit_cost IS DISTINCT FROM $2 THEN unit_cost ELSE previous_unit_cost END,
+             unit_cost=$2,
+             unit_desi=COALESCE($3, unit_desi),
+             source_checked_at=NOW(),
+             manual_review_last_confirmed_at=NOW(),
+             manual_review_next_due_at=NOW() + ($4::int || ' days')::interval,
+             manual_review_interval_days=$4,
+             manual_review_status='OK',
+             manual_review_note=$5,
+             updated_at=NOW()
+         WHERE id=$1
+         RETURNING *`,
+        [
+          id,
+          unit_cost,
+          unit_desi === undefined || unit_desi === "" ? null : unit_desi,
+          safeInterval,
+          String(note || "").trim(),
+        ],
+      )
+    ).rows[0];
+  }
+
+  async linkManualCostToSupplierItem(
+    id,
+    supplierItemId,
+    { actor, note, intervalDays = 30 } = {},
+  ) {
+    const safeInterval = Math.min(Math.max(Number(intervalDays) || 30, 1), 365);
+    return this.withTransaction(async (client) => {
+      const costItem = (
+        await client.query("SELECT * FROM cost_items WHERE id=$1 FOR UPDATE", [
+          id,
+        ])
+      ).rows[0];
+      if (!costItem) return null;
+      const supplierItem = (
+        await client.query(
+          `SELECT * FROM file_market_items
+           WHERE id=$1 AND supplier_code IN ('FILE_MARKET','BIZIM_MARKET','BIM','ROSSMANN')`,
+          [supplierItemId],
+        )
+      ).rows[0];
+      if (!supplierItem)
+        throw new AppError(
+          "Canlı tedarikçi ürünü bulunamadı",
+          404,
+          "SUPPLIER_ITEM_NOT_FOUND",
+        );
+      await client.query(
+        `INSERT INTO cost_item_file_links(
+           cost_item_code,file_market_item_id,confidence,status,approved_by,approved_at
+         )VALUES($1,$2,0.90000,'APPROVED',$3,NOW())
+         ON CONFLICT(cost_item_code)DO UPDATE SET
+           file_market_item_id=EXCLUDED.file_market_item_id,
+           confidence=EXCLUDED.confidence,
+           status='APPROVED',
+           approved_by=EXCLUDED.approved_by,
+           approved_at=NOW(),
+           updated_at=NOW()`,
+        [costItem.item_code, supplierItem.id, actor || null],
+      );
+      const updated = (
+        await client.query(
+          `UPDATE cost_items
+           SET previous_unit_cost=CASE WHEN unit_cost<>$2 THEN unit_cost ELSE previous_unit_cost END,
+               unit_cost=$2,
+               unit_desi=CASE
+                 WHEN COALESCE(unit_desi,0)<=0 AND $3::numeric IS NOT NULL AND $3::numeric>0
+                 THEN $3::numeric
+                 ELSE unit_desi
+               END,
+               price_source=$4,
+               source_checked_at=COALESCE($5,NOW()),
+               manual_review_last_confirmed_at=NOW(),
+               manual_review_next_due_at=NOW() + ($6::int || ' days')::interval,
+               manual_review_interval_days=$6,
+               manual_review_status='OK',
+               manual_review_note=$7,
+               updated_at=NOW()
+           WHERE id=$1
+           RETURNING *`,
+          [
+            costItem.id,
+            supplierItem.current_price,
+            supplierItem.estimated_unit_desi,
+            supplierItem.supplier_code,
+            supplierItem.last_seen_at,
+            safeInterval,
+            String(note || "").trim(),
+          ],
+        )
+      ).rows[0];
+      return { costItem: updated, supplierItem };
     });
   }
 
@@ -570,10 +864,11 @@ class CostRepository {
   }
 
   async saveCommission(input) {
+    const marketplace = String(input.marketplace || "TRENDYOL").toUpperCase();
     const row = (
       await this.db.query(
         `INSERT INTO commission_rules(marketplace,category_id,category_name,commission_rate,note,updated_at)
-       VALUES('TRENDYOL',$1,$2,$3,$4,NOW()) ON CONFLICT(marketplace,category_id)
+       VALUES($5,$1,$2,$3,$4,NOW()) ON CONFLICT(marketplace,category_id)
        DO UPDATE SET category_name=EXCLUDED.category_name,commission_rate=EXCLUDED.commission_rate,note=EXCLUDED.note,updated_at=NOW()
        RETURNING *`,
         [
@@ -581,6 +876,7 @@ class CostRepository {
           input.category_name,
           input.commission_rate,
           input.note,
+          marketplace,
         ],
       )
     ).rows[0];
@@ -589,6 +885,7 @@ class CostRepository {
          commission_rate=$1,
          base_commission_rate=$1,
          special_commission_active=CASE
+           WHEN marketplace<>'TRENDYOL' THEN FALSE
            WHEN trendyol_commission_rate IS NOT NULL
              AND trendyol_commission_rate > 0
              AND $1::numeric > 0
@@ -597,6 +894,7 @@ class CostRepository {
            ELSE FALSE
          END,
          special_commission_note=CASE
+           WHEN marketplace<>'TRENDYOL' THEN NULL
            WHEN trendyol_commission_rate IS NOT NULL
              AND trendyol_commission_rate > 0
              AND $1::numeric > 0
@@ -605,13 +903,14 @@ class CostRepository {
            ELSE NULL
          END,
          updated_at=NOW()
-       WHERE marketplace='TRENDYOL' AND category_id=$2`,
-      [input.commission_rate, input.category_id],
+       WHERE marketplace=$3 AND category_id=$2`,
+      [input.commission_rate, input.category_id, marketplace],
     );
     return row;
   }
 
-  async saveCommissions(rows) {
+  async saveCommissions(rows, marketplace = "TRENDYOL") {
+    const selectedMarketplace = String(marketplace || "TRENDYOL").toUpperCase();
     if (!Array.isArray(rows) || !rows.length)
       throw new AppError("Komisyon listesi boş", 400, "EMPTY_COMMISSION_LIST");
     const seen = new Set();
@@ -638,7 +937,7 @@ class CostRepository {
         await client.query(
           `INSERT INTO commission_rules(
             marketplace,category_id,category_name,commission_rate,note,updated_at
-          )VALUES('TRENDYOL',$1,$2,$3,$4,NOW())
+          )VALUES($5,$1,$2,$3,$4,NOW())
           ON CONFLICT(marketplace,category_id)DO UPDATE SET
             category_name=EXCLUDED.category_name,
             commission_rate=EXCLUDED.commission_rate,
@@ -648,6 +947,7 @@ class CostRepository {
             row.category_name || "",
             Number(row.commission_rate),
             row.note || null,
+            selectedMarketplace,
           ],
         );
         await client.query(
@@ -655,6 +955,7 @@ class CostRepository {
              commission_rate=$1,
              base_commission_rate=$1,
              special_commission_active=CASE
+               WHEN marketplace<>'TRENDYOL' THEN FALSE
                WHEN trendyol_commission_rate IS NOT NULL
                  AND trendyol_commission_rate > 0
                  AND $1::numeric > 0
@@ -663,6 +964,7 @@ class CostRepository {
                ELSE FALSE
              END,
              special_commission_note=CASE
+               WHEN marketplace<>'TRENDYOL' THEN NULL
                WHEN trendyol_commission_rate IS NOT NULL
                  AND trendyol_commission_rate > 0
                  AND $1::numeric > 0
@@ -671,8 +973,8 @@ class CostRepository {
                ELSE NULL
              END,
              updated_at=NOW()
-           WHERE marketplace='TRENDYOL' AND category_id=$2`,
-          [Number(row.commission_rate), categoryId],
+           WHERE marketplace=$3 AND category_id=$2`,
+          [Number(row.commission_rate), categoryId, selectedMarketplace],
         );
       }
       return { updated: rows.length };
@@ -690,7 +992,9 @@ class CostRepository {
         [marketplace],
       ),
       this.db.query(
-        "SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi",
+        `SELECT * FROM packaging_rules WHERE marketplace=$1
+         ORDER BY CASE rule_scope WHEN 'BARCODE' THEN 1 WHEN 'PRODUCT_NAME' THEN 2
+           WHEN 'CATEGORY' THEN 3 WHEN 'BRAND' THEN 4 ELSE 5 END,priority DESC,min_desi`,
         [marketplace],
       ),
     ]);
@@ -755,7 +1059,9 @@ class CostRepository {
         [normalizedMarketplace],
       ),
       this.db.query(
-        "SELECT * FROM packaging_rules WHERE marketplace=$1 ORDER BY min_desi",
+        `SELECT * FROM packaging_rules WHERE marketplace=$1
+         ORDER BY CASE rule_scope WHEN 'BARCODE' THEN 1 WHEN 'PRODUCT_NAME' THEN 2
+           WHEN 'CATEGORY' THEN 3 WHEN 'BRAND' THEN 4 ELSE 5 END,priority DESC,min_desi`,
         [normalizedMarketplace],
       ),
     ]);
@@ -883,42 +1189,55 @@ class CostRepository {
   }
   async savePackaging(input, id) {
     const marketplace = String(input.marketplace || "TRENDYOL").toUpperCase();
-    const overlap = await this.db.query(
-      `SELECT id FROM packaging_rules WHERE marketplace=$1
-       AND ($4::bigint IS NULL OR id<>$4)
-       AND NOT($3<=min_desi OR $2>=max_desi) LIMIT 1`,
-      [marketplace, input.min_desi, input.max_desi, id || null],
-    );
-    if (overlap.rowCount)
-      throw new AppError(
-        "Ambalaj desi aralığı mevcut kuralla çakışıyor",
-        409,
-        "OVERLAPPING_PACKAGING_RULE",
+    const scope = String(input.rule_scope || "DESI").toUpperCase();
+    const matchValue =
+      scope === "DESI" ? null : String(input.match_value || "").trim();
+    const minDesi = scope === "DESI" ? Number(input.min_desi) : 0;
+    const maxDesi = scope === "DESI" ? Number(input.max_desi) : 999;
+    if (scope === "DESI") {
+      const overlap = await this.db.query(
+        `SELECT id FROM packaging_rules WHERE marketplace=$1 AND rule_scope='DESI'
+         AND ($4::bigint IS NULL OR id<>$4)
+         AND NOT($3<=min_desi OR $2>=max_desi) LIMIT 1`,
+        [marketplace, minDesi, maxDesi, id || null],
       );
+      if (overlap.rowCount)
+        throw new AppError(
+          "Ambalaj desi aralığı mevcut kuralla çakışıyor",
+          409,
+          "OVERLAPPING_PACKAGING_RULE",
+        );
+    }
+    const params = [
+      marketplace,
+      minDesi,
+      maxDesi,
+      input.packaging_cost,
+      input.note || null,
+      String(input.profile_name || input.note || "Ambalaj profili").trim(),
+      String(input.packaging_type || "STANDARD").toUpperCase(),
+      scope,
+      matchValue,
+      Number(input.priority || 0),
+      input.active !== false,
+    ];
     if (id)
       return (
         await this.db.query(
-          "UPDATE packaging_rules SET marketplace=$1,min_desi=$2,max_desi=$3,packaging_cost=$4,note=$5,updated_at=NOW()WHERE id=$6 RETURNING *",
-          [
-            marketplace,
-            input.min_desi,
-            input.max_desi,
-            input.packaging_cost,
-            input.note,
-            id,
-          ],
+          `UPDATE packaging_rules SET marketplace=$1,min_desi=$2,max_desi=$3,
+           packaging_cost=$4,note=$5,profile_name=$6,packaging_type=$7,
+           rule_scope=$8,match_value=$9,priority=$10,active=$11,updated_at=NOW()
+           WHERE id=$12 RETURNING *`,
+          [...params, id],
         )
       ).rows[0];
     return (
       await this.db.query(
-        "INSERT INTO packaging_rules(marketplace,min_desi,max_desi,packaging_cost,note)VALUES($1,$2,$3,$4,$5)RETURNING *",
-        [
-          marketplace,
-          input.min_desi,
-          input.max_desi,
-          input.packaging_cost,
-          input.note,
-        ],
+        `INSERT INTO packaging_rules(
+          marketplace,min_desi,max_desi,packaging_cost,note,profile_name,
+          packaging_type,rule_scope,match_value,priority,active
+         )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)RETURNING *`,
+        params,
       )
     ).rows[0];
   }

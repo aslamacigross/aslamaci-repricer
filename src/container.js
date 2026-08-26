@@ -8,14 +8,18 @@ const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
 const { ActionService } = require("./services/action.service");
 const { LearningService } = require("./services/learning.service");
-const { JobService } = require("./services/job.service");
+const { JobService, safeItemError } = require("./services/job.service");
 const { MaintenanceService } = require("./services/maintenance.service");
 const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
 const { BimMarketService } = require("./services/bim-market.service");
+const { RossmannMarketService } = require("./services/rossmann-market.service");
 const { HealthService } = require("./services/health.service");
 const { FinanceService } = require("./services/finance.service");
 const { HepsiburadaService } = require("./services/hepsiburada.service");
+const {
+  HepsiburadaSellerPortalMetadataService,
+} = require("./services/hepsiburada-seller-portal-metadata.service");
 const { DesiService } = require("./services/desi.service");
 const { ShippingTariffService } = require("./services/shipping-tariff.service");
 const {
@@ -114,7 +118,8 @@ function createContainer(overrides = {}) {
     });
   const shippingService =
     overrides.shippingService || new ShippingService(costs);
-  const sync = overrides.sync || new SyncService({ db, trendyol, audit });
+  const sync =
+    overrides.sync || new SyncService({ db, trendyol, hepsiburada, audit });
   const repricer =
     overrides.repricer || new RepricerService({ db, actions, settings });
   const actionService =
@@ -137,9 +142,14 @@ function createContainer(overrides = {}) {
   const fileMarket = overrides.fileMarket || new FileMarketService();
   const bizimMarket = overrides.bizimMarket || new BizimMarketService();
   const bimMarket = overrides.bimMarket || new BimMarketService();
+  const rossmannMarket =
+    overrides.rossmannMarket || new RossmannMarketService();
   const desi = overrides.desi || new DesiService({ db, costEngine });
   const shippingTariff =
     overrides.shippingTariff || new ShippingTariffService({ db });
+  const hepsiburadaSellerPortalMetadata =
+    overrides.hepsiburadaSellerPortalMetadata ||
+    new HepsiburadaSellerPortalMetadataService({ db });
   const health =
     overrides.health || new HealthService({ db, trendyol, hepsiburada });
   const finance =
@@ -214,11 +224,41 @@ function createContainer(overrides = {}) {
   jobService.register("sync-bizim-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("BIZIM_MARKET", bizimMarket),
   );
+  jobService.register("sync-bizim-price-tiers", () =>
+    mappingAutomation.syncBizimPriceTiers(bizimMarket),
+  );
   jobService.register("sync-bim-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("BIM", bimMarket),
   );
+  jobService.register("sync-rossmann-market-prices", () =>
+    mappingAutomation.syncLiveSupplierItems("ROSSMANN", rossmannMarket),
+  );
   jobService.register("sync-products", () => sync.products());
+  jobService.register("sync-hepsiburada-products", async () => {
+    const result = await sync.hepsiburadaProducts();
+    let recalculation;
+    try {
+      recalculation = await costEngine.recalculate(
+        undefined,
+        undefined,
+        "HEPSIBURADA",
+      );
+    } catch (error) {
+      recalculation = {
+        ok: false,
+        code: error.code || "COST_RECALCULATION_FAILED",
+        message: error.message,
+      };
+    }
+    return {
+      ...result,
+      metadata: { ...(result.metadata || {}), recalculation },
+    };
+  });
   jobService.register("sync-buybox", () => sync.buybox());
+  jobService.register("sync-hepsiburada-buybox", () =>
+    sync.hepsiburadaBuybox(),
+  );
   jobService.register("sync-buybox-adaptive", () => sync.adaptiveBuybox());
   jobService.register("calculate-costs", recalculateAllMarketplaces);
   jobService.register("validate-data", recalculateAllMarketplaces);
@@ -227,6 +267,9 @@ function createContainer(overrides = {}) {
   );
   jobService.register("generate-repricer-actions", () =>
     repricer.generate({ source: "JOB" }),
+  );
+  jobService.register("generate-hepsiburada-repricer-actions", () =>
+    repricer.generate({ source: "JOB", marketplace: "HEPSIBURADA" }),
   );
   jobService.register("run-auto-repricer", async () => {
     const global = await repricer.globalSettings();
@@ -250,7 +293,9 @@ function createContainer(overrides = {}) {
         },
       };
     let successful = 0,
-      failed = 0;
+      failed = 0,
+      stale = 0;
+    const itemErrors = [];
     const actionById = new Map();
     for (const action of openAutomationActions)
       actionById.set(action.id, action);
@@ -268,7 +313,12 @@ function createContainer(overrides = {}) {
         await actionService.apply(action.id, "system");
         successful++;
       } catch (error) {
+        if (["PRICE_MISMATCH", "MARKET_PRICE_MISMATCH"].includes(error.code)) {
+          stale++;
+          continue;
+        }
         failed++;
+        itemErrors.push(safeItemError(action, error));
         const latest = await actions.get(action.id);
         if (
           latest &&
@@ -289,7 +339,9 @@ function createContainer(overrides = {}) {
         created: generated.created,
         skipped: generated.skipped,
         openAutomation: openAutomationActions.length,
+        stale,
         verification,
+        itemErrors,
       },
     };
   });
@@ -407,6 +459,7 @@ function createContainer(overrides = {}) {
     auth,
     trendyol,
     hepsiburada,
+    hepsiburadaSellerPortalMetadata,
     audit,
     settings,
     products,
@@ -414,6 +467,7 @@ function createContainer(overrides = {}) {
     fileMarket,
     bizimMarket,
     bimMarket,
+    rossmannMarket,
     health,
     desi,
     shippingTariff,

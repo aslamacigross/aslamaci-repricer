@@ -1,5 +1,5 @@
 const SORT_COLUMNS = {
-  name: "p.product_name",
+  name: "NULLIF(p.product_name,'')",
   price: "p.my_price",
   profit: "p.calculated_net_profit",
   margin: "p.calculated_net_margin",
@@ -44,9 +44,11 @@ class ProductRepository {
     };
     if (filters.search)
       add(
-        "(p.barcode ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
+        "(p.barcode ILIKE ? OR p.marketplace_product_id ILIKE ? OR p.product_name ILIKE ? OR p.brand ILIKE ?)",
         `%${filters.search}%`,
       );
+    if (filters.includeArchived !== true)
+      where.push("COALESCE(p.archived,FALSE)=FALSE");
     if (filters.active !== undefined) add("p.is_active = ?", filters.active);
     if (filters.stocked !== undefined)
       add(
@@ -91,7 +93,7 @@ class ProductRepository {
     const page = Math.max(Number(filters.page) || 1, 1);
     const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 1000);
     const offset = (page - 1) * limit;
-    const sort = SORT_COLUMNS[filters.sort] || "p.product_name";
+    const sort = SORT_COLUMNS[filters.sort] || SORT_COLUMNS.name;
     const direction =
       String(filters.direction).toLowerCase() === "desc" ? "DESC" : "ASC";
     const count = await this.db.query(

@@ -12,6 +12,12 @@ const SUPPLIERS = Object.freeze({
     shortLabel: "Bizim",
   },
   BIM: { code: "BIM", label: "BİM", shortLabel: "BİM" },
+  ROSSMANN: {
+    code: "ROSSMANN",
+    label: "Rossmann",
+    shortLabel: "Rossmann",
+    liveSync: true,
+  },
   OTHER: {
     code: "OTHER",
     label: "Diğer maliyet havuzu",

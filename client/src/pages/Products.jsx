@@ -37,6 +37,11 @@ const columns = [
     render: (r) => <ProductThumb product={r} />,
   },
   { key: "barcode", label: "Barkod" },
+  {
+    key: "marketplace_product_id",
+    label: "Platform ID",
+    render: (r) => r.marketplace_product_id || "-",
+  },
   { key: "product_name", label: "Ürün", width: 310 },
   { key: "brand", label: "Marka" },
   { key: "category_name", label: "Kategori" },
@@ -79,6 +84,11 @@ const columns = [
     key: "packaging_cost",
     label: "Ambalaj",
     render: (r) => money(r.packaging_cost),
+  },
+  {
+    key: "packaging_profile_name",
+    label: "Ambalaj profili",
+    render: (r) => r.packaging_profile_name || "Eski desi kuralı",
   },
   {
     key: "service_fee",
@@ -877,15 +887,18 @@ function CostBreakdown({ data }) {
       </div>
       <div className="breakdown-list">
         {[
-          ["Ürün maliyeti", p.calculated_product_cost],
-          ["Kargo (KDV dahil)", p.calculated_shipping_cost],
-          ["Ambalaj", p.packaging_cost],
-          ["Hizmet bedeli", p.service_fee],
-          ["Hedef kâr", p.target_profit],
+          ["Ürün maliyeti", money(p.calculated_product_cost)],
+          ["Kargo (KDV dahil)", money(p.calculated_shipping_cost)],
+          [
+            "Ambalaj",
+            `${money(p.packaging_cost)} · ${p.packaging_profile_name || "Eski desi kuralı"}`,
+          ],
+          ["Hizmet bedeli", money(p.service_fee)],
+          ["Hedef kâr", money(p.target_profit)],
         ].map(([l, v]) => (
           <div key={l}>
             <span>{l}</span>
-            <b>{money(v)}</b>
+            <b>{v}</b>
           </div>
         ))}
       </div>

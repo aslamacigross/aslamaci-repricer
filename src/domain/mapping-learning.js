@@ -6,6 +6,11 @@ const FULL_SUPPORT_DECISIONS = 10;
 
 function buildMappingLearningKey(suggestion) {
   const product = suggestion.product_snapshot || suggestion;
+  const marketplace = String(
+    suggestion.marketplace || product.marketplace || "TRENDYOL",
+  )
+    .trim()
+    .toUpperCase();
   const priceModes = new Map(
     (suggestion.evidence?.fileMatches || []).map((match) => [
       match.costItemCode,
@@ -13,6 +18,7 @@ function buildMappingLearningKey(suggestion) {
     ]),
   );
   const signature = {
+    ...(marketplace === "TRENDYOL" ? {} : { marketplace }),
     brand: normalizeText(product.brand),
     category: String(product.category_id || ""),
     items: [...(suggestion.items || [])]

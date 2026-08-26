@@ -23,6 +23,7 @@ import {
   Activity,
   Pencil,
   Trophy,
+  Upload,
 } from "lucide-react";
 import { get, post, patch } from "../lib/api";
 import DataTable, {
@@ -115,9 +116,9 @@ function BuyboxStatusBadge({ row }) {
   return (
     <span
       className="buybox-status buybox-status-out"
-      title={hasBuybox ? "Buybox'a dahil değiliz" : "Buybox verisi yok"}
+      title={hasBuybox ? "Sıra bilinmiyor" : "Buybox verisi yok"}
     >
-      {hasBuybox ? "Dahil değil" : "Veri yok"}
+      {hasBuybox ? "Sıra bilinmiyor" : "Veri yok"}
     </span>
   );
 }
@@ -143,6 +144,67 @@ const info = {
   logs: ["Loglar", "Entegrasyon, kullanıcı ve sistem olaylarını izleyin"],
   settings: ["Sistem Ayarları", "Global güvenlik ve operasyon varsayılanları"],
 };
+
+const COMMON_JOBS = new Set([
+  "sync-file-market-prices",
+  "sync-bizim-market-prices",
+  "sync-bim-market-prices",
+  "calculate-costs",
+  "validate-data",
+  "generate-mapping-suggestions",
+  "cleanup-old-logs",
+  "dashboard-cache-refresh",
+  "daily-system-health",
+  "estimate-cost-desi",
+  "bootstrap-pim",
+  "marketplace-category-sync",
+  "marketplace-attribute-sync",
+  "marketplace-brand-sync",
+  "catalog-matching",
+  "publish-batch-verification",
+  "listing-content-verification",
+  "opportunity-generation",
+  "listing-health-scan",
+  "content-quality-scan",
+]);
+
+const HEPSIBURADA_JOBS = new Set([
+  "sync-hepsiburada-products",
+  "sync-hepsiburada-buybox",
+  "generate-hepsiburada-repricer-actions",
+  "import-hepsiburada-shipping",
+  "sync-hepsiburada-orders",
+]);
+
+const TRENDYOL_JOBS = new Set([
+  "sync-products",
+  "sync-buybox",
+  "sync-buybox-adaptive",
+  "generate-repricer-actions",
+  "run-auto-repricer",
+  "check-action-outcomes-5m",
+  "check-action-outcomes-15m",
+  "check-action-outcomes-60m",
+  "sync-orders",
+  "sync-financial-transactions",
+  "sync-trendyol-cargo-invoices",
+  "backfill-trendyol-finance-history",
+]);
+
+function jobMarketplace(name) {
+  if (COMMON_JOBS.has(name)) return "COMMON";
+  if (HEPSIBURADA_JOBS.has(name) || String(name).includes("hepsiburada"))
+    return "HEPSIBURADA";
+  if (TRENDYOL_JOBS.has(name) || String(name).includes("trendyol"))
+    return "TRENDYOL";
+  return "COMMON";
+}
+
+function jobVisibleForMarketplace(row, marketplace) {
+  const scope = jobMarketplace(row.name || row.job_name);
+  return scope === "COMMON" || scope === marketplace;
+}
+
 export default function Operations({
   mode,
   notify,
@@ -155,7 +217,7 @@ export default function Operations({
     <>
       <PageHeader
         title={t}
-        description={`${["jobs", "logs", "settings"].includes(mode) ? "Sistem geneli" : marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} · ${d}`}
+        description={`${mode === "jobs" ? `${marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} + ortak tedarikçi işleri` : mode === "logs" ? "Sistem geneli" : mode === "settings" ? (marketplace === "TRENDYOL" ? "Trendyol ayarları + global güvenlik" : "Hepsiburada ayarları + global güvenlik") : marketplace === "TRENDYOL" ? "Trendyol" : "Hepsiburada"} · ${d}`}
         actions={
           <IconButton
             icon={RefreshCw}
@@ -176,7 +238,9 @@ export default function Operations({
       {mode === "learning" && (
         <Learning key={refresh} notify={notify} marketplace={marketplace} />
       )}{" "}
-      {mode === "jobs" && <Jobs key={refresh} notify={notify} />}{" "}
+      {mode === "jobs" && (
+        <Jobs key={refresh} notify={notify} marketplace={marketplace} />
+      )}{" "}
       {mode === "logs" && <Logs key={refresh} />}{" "}
       {mode === "settings" && (
         <Settings
@@ -301,6 +365,7 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       label: "Buybox",
       render: (r) => money(r.buybox_price),
     },
+    { key: "buybox_seller", label: "Buybox satıcı" },
     {
       key: "learned_max_increase_tl",
       label: "Öğrenilen maks. artış",
@@ -314,11 +379,13 @@ function BuyboxTable({ payload, filters, setFilters, onExport }) {
       label: "2. fiyat",
       render: (r) => money(r.second_price),
     },
+    { key: "second_seller", label: "2. satıcı" },
     {
       key: "third_price",
       label: "3. fiyat",
       render: (r) => money(r.third_price),
     },
+    { key: "third_seller", label: "3. satıcı" },
     {
       key: "rank",
       label: "Buybox durumu",
@@ -736,13 +803,13 @@ function Repricer({ notify, marketplace }) {
   return (
     <>
       {marketplace === "HEPSIBURADA" && (
-        <div className="info-banner warning">
+        <div className="info-banner info">
           <ShieldAlert />
           <div>
-            <strong>Hepsiburada repricer bağlantısı bekleniyor</strong>
+            <strong>Hepsiburada güvenli önizleme modu</strong>
             <p>
-              Karar motoru ve güvenlik katmanı ayrıldı. Credentials ile ürün,
-              buybox ve fiyat servisleri bağlanmadan aksiyon üretilemez.
+              Ürün, mapping ve minimum fiyat kontrolü yapılabilir. Gerçek fiyat
+              gönderimi ayrı Hepsiburada fiyat anahtarı açılana kadar kapalıdır.
             </p>
           </div>
         </div>
@@ -767,15 +834,11 @@ function Repricer({ notify, marketplace }) {
           variant="secondary"
           icon={Eye}
           onClick={preview}
-          disabled={loading || marketplace === "HEPSIBURADA"}
+          disabled={loading}
         >
           Önizle
         </Button>
-        <Button
-          icon={Play}
-          onClick={generate}
-          disabled={loading || marketplace === "HEPSIBURADA"}
-        >
+        <Button icon={Play} onClick={generate} disabled={loading}>
           Aksiyon oluştur
         </Button>
       </div>
@@ -1404,7 +1467,7 @@ function LearningDetail({ data }) {
     </div>
   );
 }
-function Jobs({ notify }) {
+function Jobs({ notify, marketplace }) {
   const [data, setData] = useState(null);
   async function load() {
     const [jobs, runs, health] = await Promise.all([
@@ -1442,6 +1505,14 @@ function Jobs({ notify }) {
     }
   }
   if (!data) return <Loading />;
+  const marketplaceLabel =
+    marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
+  const visibleJobs = data.items.filter((item) =>
+    jobVisibleForMarketplace(item, marketplace),
+  );
+  const visibleRuns = data.runs.filter((item) =>
+    jobVisibleForMarketplace(item, marketplace),
+  );
   const cols = [
     { key: "name", label: "Job" },
     { key: "description", label: "Açıklama" },
@@ -1525,7 +1596,7 @@ function Jobs({ notify }) {
             <h2>Günlük sistem sağlığı</h2>
             <p>
               {data.health
-                ? `${data.health.score}/100 · ${date(data.health.finished_at)}`
+                ? `${data.health.score}/100 · ${date(data.health.finished_at)} · ${marketplaceLabel} görünümü`
                 : "Henüz sağlık taraması çalışmadı"}
             </p>
           </div>
@@ -1562,14 +1633,17 @@ function Jobs({ notify }) {
       <div className="panel table-panel">
         <DataTable
           columns={cols}
-          rows={data.items}
-          columnVisibilityKey="jobs"
+          rows={visibleJobs}
+          columnVisibilityKey={`jobs-${marketplace}`}
         />
       </div>
       <div className="section-heading">
         <div>
           <h2>Çalışma geçmişi</h2>
-          <p>Son 100 job çalışması</p>
+          <p>
+            {marketplaceLabel} ve ortak tedarikçi havuzu için son job
+            çalışmaları
+          </p>
         </div>
       </div>
       <div className="panel table-panel">
@@ -1592,8 +1666,8 @@ function Jobs({ notify }) {
             { key: "failed_count", label: "Hatalı" },
             { key: "error", label: "Hata" },
           ]}
-          rows={data.runs}
-          columnVisibilityKey="job-runs"
+          rows={visibleRuns}
+          columnVisibilityKey={`job-runs-${marketplace}`}
         />
       </div>
     </>
@@ -1837,6 +1911,9 @@ function Settings({ notify, setDryRun, marketplace }) {
           </Button>
         </div>
       </div>
+      {marketplace === "HEPSIBURADA" && (
+        <HepsiburadaMetadataImport notify={notify} />
+      )}
       <Confirm
         open={confirmLive}
         onClose={() => setConfirmLive(false)}
@@ -1846,5 +1923,129 @@ function Settings({ notify, setDryRun, marketplace }) {
         confirmLabel="Canlı modu onayla"
       />
     </>
+  );
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      resolve(value.includes(",") ? value.split(",").pop() : value);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function HepsiburadaMetadataImport({ notify }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [error, setError] = useState(null);
+  async function load() {
+    try {
+      const response = await get("/api/hepsiburada/seller-portal-metadata");
+      setData(response.data);
+      setError(null);
+    } catch (e) {
+      setError(e);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+  async function upload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      const contentBase64 = await fileToBase64(file);
+      const response = await post(
+        "/api/hepsiburada/seller-portal-metadata/import",
+        { filename: file.name, contentBase64 },
+      );
+      setSummary(response.data);
+      notify("Hepsiburada ürün Excel'i işlendi");
+      await load();
+    } catch (e) {
+      notify(e.message, "error");
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const latest = data?.latest;
+  return (
+    <div className="panel settings-form">
+      <h2>Hepsiburada ürün metadata Excel'i</h2>
+      <p className="muted">
+        Seller Portal Satış Bilgisi Excel'i yalnız ürün adı, marka ve kategori
+        bilgisini tamamlar; fiyat, stok, komisyon, maliyet veya repricer alanı
+        değiştirmez.
+      </p>
+      {error && <ErrorState error={error} />}
+      <div className="settings-band">
+        <div>
+          <Upload />
+          <section>
+            <strong>
+              {latest
+                ? `Son import: ${date(latest.imported_at)}`
+                : "Henüz import yok"}
+            </strong>
+            <p>
+              {data?.stale
+                ? "Excel 30 günden eski; güncel Seller Portal dosyasını yükleyin."
+                : "Excel güncelliği takip ediliyor."}
+            </p>
+          </section>
+        </div>
+        <Badge tone={data?.stale ? "warning" : "success"}>
+          {data?.stale ? "YENİLEME GEREKİR" : "TAKİPTE"}
+        </Badge>
+      </div>
+      <div className="form-grid">
+        <Field label="Aktif metadata eksik ürün">
+          <input readOnly value={data?.activeMissingMetadata ?? "-"} />
+        </Field>
+        <Field label="Son Excel'de olmayan aktif ürün">
+          <input readOnly value={data?.activeNotInLatestExcel ?? "-"} />
+        </Field>
+      </div>
+      {summary && (
+        <div className="summary-grid">
+          {[
+            ["Satır", summary.rowsTotal],
+            ["Satışta", summary.rowsActiveInExcel],
+            ["Eşleşen", summary.matched],
+            ["Güncellenen", summary.updated],
+            ["Aynı kalan", summary.unchanged],
+            ["Kimlik uyarısı", summary.identityMismatch],
+            ["Excel-only", summary.excelOnly],
+            ["Geçerli GTIN gözlendi", summary.validGtinObserved ?? summary.validGtinAccepted],
+          ].map(([label, value]) => (
+            <div className="metric" key={label}>
+              <span>{label}</span>
+              <strong>{value ?? 0}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="form-actions">
+        <label className={`button ${busy ? "disabled" : ""}`}>
+          <Upload size={18} />
+          {busy ? "Yükleniyor" : "HB ürün Excel'i yükle"}
+          <input
+            type="file"
+            accept=".xlsx"
+            hidden
+            disabled={busy}
+            onChange={upload}
+          />
+        </label>
+      </div>
+    </div>
   );
 }

@@ -82,6 +82,7 @@ function selectPackagingCost(desi, rules = []) {
   const roundedDesi = Math.ceil(parseNumber(desi));
   const rule = rules.find(
     (item) =>
+      (!item.rule_scope || item.rule_scope === "DESI") &&
       roundedDesi >= parseNumber(item.min_desi) &&
       roundedDesi <= parseNumber(item.max_desi),
   );

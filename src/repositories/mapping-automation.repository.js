@@ -1,5 +1,6 @@
 const { isSupplierPriceFresh } = require("../domain/file-market");
 const {
+  SUPPLIER_CODES,
   estimatePackageDesi,
   priceTierForQuantity,
   supplier,
@@ -22,6 +23,149 @@ function inferredUnitDesi(item) {
   ).value;
 }
 
+function normalizeMarketplace(value) {
+  return String(value || "TRENDYOL")
+    .trim()
+    .toUpperCase();
+}
+
+function productPairKey(marketplace, barcode) {
+  return `${normalizeMarketplace(marketplace)}\u0000${String(barcode || "").trim()}`;
+}
+
+function effectivePriceType(rawData) {
+  if (!rawData || typeof rawData !== "object") return null;
+  return rawData.effective_price_type || null;
+}
+
+function jsonEqual(left, right) {
+  return JSON.stringify(left || null) === JSON.stringify(right || null);
+}
+
+function jsonArrayValue(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isVerifiedBizimProductDetailTiers(supplierCode, rawData) {
+  return (
+    supplierCode === "BIZIM_MARKET" &&
+    rawData &&
+    typeof rawData === "object" &&
+    rawData.price_tiers_source === "BIZIM_PRODUCT_DETAIL" &&
+    rawData.price_tiers_verified === true
+  );
+}
+
+function mergedSupplierRawData(supplierCode, previousRawData, incomingRawData) {
+  const incoming =
+    incomingRawData && typeof incomingRawData === "object"
+      ? incomingRawData
+      : {};
+  if (
+    supplierCode !== "BIZIM_MARKET" ||
+    isVerifiedBizimProductDetailTiers(supplierCode, incoming)
+  )
+    return incoming;
+  const previous =
+    previousRawData && typeof previousRawData === "object"
+      ? previousRawData
+      : {};
+  const merged = { ...previous, ...incoming };
+  for (const key of [
+    "price_tiers",
+    "price_tiers_source",
+    "price_tiers_verified",
+    "price_tiers_verified_at",
+    "product_detail_url",
+    "product_detail_badges",
+    "package_prices",
+  ])
+    if (Object.prototype.hasOwnProperty.call(previous, key))
+      merged[key] = previous[key];
+  return merged;
+}
+
+function supplierPriceTiersForImport(supplierCode, previous, row) {
+  if (supplierCode !== "BIZIM_MARKET") return row.price_tiers || [];
+  if (isVerifiedBizimProductDetailTiers(supplierCode, row.raw_data))
+    return row.price_tiers || [];
+  return previous ? jsonArrayValue(previous.price_tiers) : row.price_tiers || [];
+}
+
+async function canonicalSupplierItemIds(client, item) {
+  const normalizedName = String(item?.normalized_name || "").trim();
+  const supplierCode = String(item?.supplier_code || "").trim();
+  if (!normalizedName || !supplierCode) return [item.id];
+  const rows = (
+    await client.query(
+      `SELECT id FROM file_market_items
+       WHERE supplier_code=$1 AND normalized_name=$2
+       ORDER BY last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC`,
+      [supplierCode, normalizedName],
+    )
+  ).rows;
+  const ids = rows.map((row) => Number(row.id)).filter(Boolean);
+  return ids.length ? ids : [item.id];
+}
+
+async function approvedSupplierLinkKeys(client, supplierCode, rows) {
+  const normalizedNames = [
+    ...new Set(
+      rows
+        .map((row) => String(row.normalized_name || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const sourceKeys = [
+    ...new Set(
+      rows.map((row) => String(row.source_key || "").trim()).filter(Boolean),
+    ),
+  ];
+  if (!normalizedNames.length && !sourceKeys.length)
+    return { normalizedNames: new Set(), sourceKeys: new Set() };
+  const params = [supplierCode, ...normalizedNames, ...sourceKeys];
+  const normalizedPlaceholders = normalizedNames
+    .map((_, index) => `$${index + 2}`)
+    .join(",");
+  const sourceKeyOffset = normalizedNames.length + 2;
+  const sourceKeyPlaceholders = sourceKeys
+    .map((_, index) => `$${index + sourceKeyOffset}`)
+    .join(",");
+  const predicates = [];
+  if (normalizedPlaceholders)
+    predicates.push(`f.normalized_name IN (${normalizedPlaceholders})`);
+  if (sourceKeyPlaceholders)
+    predicates.push(`f.source_key IN (${sourceKeyPlaceholders})`);
+  const result = await client.query(
+    `SELECT DISTINCT f.normalized_name,f.source_key
+     FROM file_market_items f
+     JOIN cost_item_file_links l
+       ON l.file_market_item_id=f.id AND l.status='APPROVED'
+     WHERE f.supplier_code=$1
+       AND (${predicates.join(" OR ")})`,
+    params,
+  );
+  return {
+    normalizedNames: new Set(
+      result.rows
+        .map((row) => String(row.normalized_name || "").trim())
+        .filter(Boolean),
+    ),
+    sourceKeys: new Set(
+      result.rows
+        .map((row) => String(row.source_key || "").trim())
+        .filter(Boolean),
+    ),
+  };
+}
+
 class MappingAutomationRepository {
   constructor(db, withTransaction) {
     this.db = db;
@@ -37,7 +181,12 @@ class MappingAutomationRepository {
       let created = 0;
       let changed = 0;
       let costCodesUpdated = 0;
-      const affectedBarcodes = new Set();
+      const approvedLinkKeys = await approvedSupplierLinkKeys(
+        client,
+        supplierCode,
+        rows,
+      );
+      const affectedProducts = new Map();
       const items = [];
       for (const row of rows) {
         const previous = (
@@ -46,9 +195,32 @@ class MappingAutomationRepository {
             [row.source_key],
           )
         ).rows[0];
+        if (previous && previous.supplier_code !== supplierCode) {
+          const error = new Error(
+            `Tedarikçi kaynak anahtarı çakışıyor: ${row.source_key}`,
+          );
+          error.code = "SUPPLIER_SOURCE_KEY_CONFLICT";
+          throw error;
+        }
         const priceChanged =
           previous &&
           Number(previous.current_price) !== Number(row.current_price);
+        const availabilityChanged =
+          previous && previous.availability !== row.availability;
+        const effectiveTypeChanged =
+          previous &&
+          effectivePriceType(previous.raw_data) !==
+            effectivePriceType(row.raw_data);
+        const rawData = mergedSupplierRawData(
+          supplierCode,
+          previous?.raw_data,
+          row.raw_data,
+        );
+        const priceTiers = supplierPriceTiersForImport(
+          supplierCode,
+          previous,
+          row,
+        );
         const item = (
           await client.query(
             `INSERT INTO file_market_items(
@@ -72,7 +244,6 @@ class MappingAutomationRepository {
               currency=EXCLUDED.currency,
               availability=EXCLUDED.availability,
               raw_data=EXCLUDED.raw_data,
-              supplier_code=EXCLUDED.supplier_code,
               source_url=EXCLUDED.source_url,
               source_category=EXCLUDED.source_category,
               estimated_unit_desi=EXCLUDED.estimated_unit_desi,
@@ -95,7 +266,7 @@ class MappingAutomationRepository {
               row.current_price,
               row.currency,
               row.availability,
-              row.raw_data,
+              rawData,
               row.observed_at,
               previous
                 ? priceChanged
@@ -107,29 +278,55 @@ class MappingAutomationRepository {
               row.source_category || null,
               row.estimated_unit_desi || null,
               row.desi_confidence || "LOW",
-              JSON.stringify(row.price_tiers || []),
+              JSON.stringify(priceTiers),
             ],
           )
         ).rows[0];
-        await client.query(
-          `INSERT INTO file_market_price_history(
-            file_market_item_id,price,availability,observed_at
-          )VALUES($1,$2,$3,$4)`,
-          [item.id, row.current_price, row.availability, row.observed_at],
-        );
+        item.price_tiers = isVerifiedBizimProductDetailTiers(
+          supplierCode,
+          row.raw_data,
+        )
+          ? row.price_tiers || []
+          : jsonArrayValue(item.price_tiers);
+        if (
+          !previous ||
+          priceChanged ||
+          availabilityChanged ||
+          effectiveTypeChanged
+        )
+          await client.query(
+            `INSERT INTO file_market_price_history(
+              file_market_item_id,price,availability,observed_at
+            )VALUES($1,$2,$3,$4)`,
+            [item.id, row.current_price, row.availability, row.observed_at],
+          );
         if (!previous) created++;
         if (priceChanged) changed++;
+        const hasApprovedLink =
+          approvedLinkKeys.normalizedNames.has(
+            String(item.normalized_name || "").trim(),
+          ) ||
+          approvedLinkKeys.sourceKeys.has(String(item.source_key || "").trim());
+        if (!hasApprovedLink) {
+          items.push(item);
+          continue;
+        }
+        const canonicalIds = await canonicalSupplierItemIds(client, item);
+        const canonicalPlaceholders = canonicalIds
+          .map((_, index) => `$${index + 1}`)
+          .join(",");
         const links = (
           await client.query(
             `SELECT l.cost_item_code,ci.unit_cost,pcm.marketplace,pcm.barcode,
-                    pcm.quantity,pcm.effective_unit_cost
+                    pcm.quantity,pcm.effective_unit_cost,pcm.supplier_price_tier
              FROM cost_item_file_links l
              JOIN cost_items ci ON ci.item_code=l.cost_item_code
              LEFT JOIN product_cost_mappings pcm
                ON pcm.cost_item_code=l.cost_item_code
-             WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+             WHERE l.file_market_item_id IN (${canonicalPlaceholders})
+               AND l.status='APPROVED'
              ORDER BY l.cost_item_code,pcm.marketplace,pcm.barcode`,
-            [item.id],
+            canonicalIds,
           )
         ).rows;
         for (const costCode of [
@@ -155,7 +352,7 @@ class MappingAutomationRepository {
           } else {
             await client.query(
               `UPDATE cost_items SET price_source=$2,source_checked_at=$3,
-                 updated_at=CASE WHEN source_checked_at IS DISTINCT FROM $3
+                 updated_at=CASE WHEN source_checked_at IS NULL OR source_checked_at<>$3
                    THEN NOW() ELSE updated_at END
                WHERE item_code=$1`,
               [costCode, supplierCode, row.observed_at],
@@ -171,21 +368,37 @@ class MappingAutomationRepository {
                     linked.quantity,
                   )
                 : { unitPrice: baseUnitCost, tier: null };
-            await client.query(
-              `UPDATE product_cost_mappings SET
-                 effective_unit_cost=$4,
-                 supplier_price_tier=$5::jsonb,
-                 updated_at=NOW()
-               WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
-              [
-                linked.marketplace,
-                linked.barcode,
-                costCode,
-                tier.tier ? tier.unitPrice : null,
-                JSON.stringify(tier.tier || null),
-              ],
-            );
-            affectedBarcodes.add(linked.barcode);
+            const tierUnitCost = tier.tier ? tier.unitPrice : null;
+            const previousTierUnitCost =
+              linked.effective_unit_cost == null
+                ? null
+                : Number(linked.effective_unit_cost);
+            const tierChanged =
+              previousTierUnitCost !== tierUnitCost ||
+              !jsonEqual(linked.supplier_price_tier, tier.tier || null);
+            if (costChanged || tierChanged) {
+              await client.query(
+                `UPDATE product_cost_mappings SET
+                   effective_unit_cost=$4,
+                   supplier_price_tier=$5::jsonb,
+                   updated_at=NOW()
+                 WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
+                [
+                  linked.marketplace,
+                  linked.barcode,
+                  costCode,
+                  tierUnitCost,
+                  JSON.stringify(tier.tier || null),
+                ],
+              );
+              affectedProducts.set(
+                productPairKey(linked.marketplace, linked.barcode),
+                {
+                  marketplace: normalizeMarketplace(linked.marketplace),
+                  barcode: linked.barcode,
+                },
+              );
+            }
           }
           if (costChanged)
             await client.query(
@@ -226,7 +439,7 @@ class MappingAutomationRepository {
         changed,
         unavailable,
         costCodesUpdated,
-        affectedBarcodes: [...affectedBarcodes],
+        affectedBarcodes: [...affectedProducts.values()],
         items,
       };
     });
@@ -234,6 +447,23 @@ class MappingAutomationRepository {
 
   async importFileItems(rows) {
     return this.importSupplierItems("FILE_MARKET", rows);
+  }
+
+  async bizimPriceTierVerificationItems() {
+    return (
+      await this.db.query(
+        `SELECT source_key,product_name,normalized_name,brand,size_value,size_unit,
+                current_price,currency,availability,raw_data,last_seen_at AS observed_at,
+                supplier_code,source_url,source_category,estimated_unit_desi,
+                desi_confidence,price_tiers
+         FROM file_market_items
+         WHERE supplier_code='BIZIM_MARKET'
+           AND availability='AVAILABLE'
+           AND source_url IS NOT NULL
+           AND source_url<>''
+         ORDER BY last_seen_at DESC NULLS LAST,product_name`,
+      )
+    ).rows;
   }
 
   async updateSupplierItemPricing(supplierCode, id, input = {}) {
@@ -276,6 +506,10 @@ class MappingAutomationRepository {
         .filter((tier) => tier.min_quantity > 1 && tier.unit_price > 0)
         .sort((left, right) => right.min_quantity - left.min_quantity);
       const affected = [];
+      const canonicalIds = await canonicalSupplierItemIds(client, item);
+      const canonicalPlaceholders = canonicalIds
+        .map((_, index) => `$${index + 1}`)
+        .join(",");
       const linkedMappings = (
         await client.query(
           `SELECT pcm.marketplace,pcm.barcode,pcm.cost_item_code,
@@ -284,9 +518,10 @@ class MappingAutomationRepository {
            FROM cost_item_file_links l
            JOIN product_cost_mappings pcm ON pcm.cost_item_code=l.cost_item_code
            JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-           WHERE l.file_market_item_id=$1 AND l.status='APPROVED'
+           WHERE l.file_market_item_id IN (${canonicalPlaceholders})
+             AND l.status='APPROVED'
            ORDER BY pcm.barcode,pcm.cost_item_code`,
-          [item.id],
+          canonicalIds,
         )
       ).rows;
       for (const costCode of [
@@ -344,6 +579,7 @@ class MappingAutomationRepository {
     const params = [supplierCode];
     const where = ["1=1"];
     where.push("f.supplier_code=$1");
+    if (!availability) where.push("f.availability<>'MERGED'");
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -386,25 +622,292 @@ class MappingAutomationRepository {
     };
   }
 
+  async listSupplierDuplicateGroups(supplierCode = "FILE_MARKET") {
+    return (
+      await this.db.query(
+        `WITH duplicate_keys AS (
+           SELECT supplier_code,normalized_name,COUNT(*)::int AS duplicate_count
+           FROM file_market_items
+           WHERE supplier_code=$1
+             AND normalized_name IS NOT NULL AND normalized_name<>''
+             AND availability<>'MERGED'
+           GROUP BY supplier_code,normalized_name
+           HAVING COUNT(*)>1
+         ),
+         ranked AS (
+           SELECT f.*,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY f.supplier_code,f.normalized_name
+                    ORDER BY f.last_seen_at DESC NULLS LAST,
+                             f.updated_at DESC NULLS LAST,
+                             f.id DESC
+                  ) AS rank
+           FROM file_market_items f
+           JOIN duplicate_keys d
+             ON d.supplier_code=f.supplier_code
+            AND d.normalized_name=f.normalized_name
+           WHERE f.availability<>'MERGED'
+         ),
+         link_counts AS (
+           SELECT file_market_item_id,COUNT(*)::int AS link_count
+           FROM cost_item_file_links
+           WHERE status='APPROVED'
+           GROUP BY file_market_item_id
+         )
+         SELECT r.supplier_code,r.normalized_name,
+                MAX(r.id) FILTER (WHERE r.rank=1) AS canonical_item_id,
+                MAX(r.product_name) FILTER (WHERE r.rank=1) AS canonical_product_name,
+                MAX(r.current_price) FILTER (WHERE r.rank=1) AS canonical_price,
+                MAX(r.last_seen_at) FILTER (WHERE r.rank=1) AS canonical_last_seen_at,
+                COUNT(*)::int AS duplicate_count,
+                COALESCE(SUM(l.link_count),0)::int AS total_link_count,
+                COALESCE(
+                  JSONB_AGG(
+                    JSONB_BUILD_OBJECT(
+                      'id',r.id,
+                      'product_name',r.product_name,
+                      'current_price',r.current_price,
+                      'last_seen_at',r.last_seen_at,
+                      'link_count',COALESCE(l.link_count,0),
+                      'canonical',r.rank=1
+                    )
+                    ORDER BY r.rank,r.last_seen_at DESC NULLS LAST,r.id DESC
+                  ),
+                  '[]'::jsonb
+                ) AS items
+         FROM ranked r
+         LEFT JOIN link_counts l ON l.file_market_item_id=r.id
+         GROUP BY r.supplier_code,r.normalized_name
+         ORDER BY total_link_count DESC,duplicate_count DESC,canonical_last_seen_at DESC
+         LIMIT 200`,
+        [supplierCode],
+      )
+    ).rows;
+  }
+
+  async mergeSupplierDuplicateGroup(supplierCode, normalizedName) {
+    return this.withTransaction(async (client) => {
+      const rows = (
+        await client.query(
+          `SELECT id
+           FROM file_market_items
+           WHERE supplier_code=$1 AND normalized_name=$2
+             AND availability<>'MERGED'
+           ORDER BY last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
+           FOR UPDATE`,
+          [supplierCode, normalizedName],
+        )
+      ).rows;
+      if (rows.length < 2)
+        return {
+          canonicalItemId: rows[0]?.id || null,
+          mergedItemIds: [],
+          movedLinks: 0,
+        };
+      const canonicalItemId = Number(rows[0].id);
+      const mergedItemIds = rows.slice(1).map((row) => Number(row.id));
+      const moved = await client.query(
+        `UPDATE cost_item_file_links
+         SET file_market_item_id=$1::bigint,updated_at=NOW()
+         WHERE file_market_item_id=ANY($2::bigint[])
+           AND status='APPROVED'
+           AND NOT EXISTS (
+             SELECT 1 FROM cost_item_file_links existing
+             WHERE existing.file_market_item_id=$1::bigint
+               AND existing.cost_item_code=cost_item_file_links.cost_item_code
+               AND existing.status='APPROVED'
+           )`,
+        [canonicalItemId, mergedItemIds],
+      );
+      await client.query(
+        `UPDATE cost_item_file_links
+         SET status='MERGED',updated_at=NOW()
+         WHERE file_market_item_id=ANY($2::bigint[])
+           AND status='APPROVED'
+           AND EXISTS (
+             SELECT 1 FROM cost_item_file_links existing
+             WHERE existing.file_market_item_id=$1::bigint
+               AND existing.cost_item_code=cost_item_file_links.cost_item_code
+               AND existing.status='APPROVED'
+           )`,
+        [canonicalItemId, mergedItemIds],
+      );
+      await client.query(
+        `UPDATE file_market_items
+         SET availability='MERGED',
+             raw_data=raw_data || JSONB_BUILD_OBJECT(
+               'merged_into_id',$1::bigint,
+               'merged_at',NOW()
+             ),
+             updated_at=NOW()
+         WHERE id=ANY($2::bigint[])`,
+        [canonicalItemId, mergedItemIds],
+      );
+      return {
+        canonicalItemId,
+        mergedItemIds,
+        movedLinks: moved.rowCount,
+      };
+    });
+  }
+
   async listFileItems(filters) {
     return this.listSupplierItems({ ...filters, supplierCode: "FILE_MARKET" });
   }
 
-  async trainingRows() {
+  async trainingRows({ marketplace = "TRENDYOL" } = {}) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     return (
       await this.db.query(
-        `SELECT p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
-                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi
+        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,p.catalog_gtin,p.catalog_gtin_source,
+                p.product_name,p.brand,p.category_id,p.category_name,
+                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi,
+                linked.file_market_item_id AS linked_supplier_item_id,
+                linked_f.supplier_code AS linked_supplier_code,
+                linked_f.product_name AS linked_supplier_product_name
          FROM products p
          JOIN product_cost_mappings pcm
            ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-         WHERE p.marketplace='TRENDYOL'
+         LEFT JOIN (
+           SELECT DISTINCT ON(cost_item_code) cost_item_code,file_market_item_id
+           FROM cost_item_file_links
+           WHERE status='APPROVED'
+           ORDER BY cost_item_code,updated_at DESC NULLS LAST,id DESC
+         ) linked ON linked.cost_item_code=pcm.cost_item_code
+         LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
+         WHERE p.marketplace=$1
            AND p.product_name IS NOT NULL
            AND ci.unit_cost>0 AND COALESCE(ci.unit_desi,0)>0
          ORDER BY p.barcode,pcm.id`,
+        [selectedMarketplace],
       )
     ).rows;
+  }
+
+  async verifiedGtinTrainingRows(gtins = []) {
+    const unique = [...new Set(gtins.filter(Boolean))];
+    if (!unique.length) return [];
+    return (
+      await this.db.query(
+        `SELECT p.marketplace,p.barcode,p.product_name,p.brand,
+                p.category_id,p.category_name,
+                pcm.cost_item_code,pcm.quantity,ci.item_name,ci.unit_cost,ci.unit_desi,
+                linked.file_market_item_id AS linked_supplier_item_id,
+                linked_f.supplier_code AS linked_supplier_code,
+                linked_f.product_name AS linked_supplier_product_name
+         FROM products p
+         JOIN product_cost_mappings pcm
+           ON pcm.marketplace=p.marketplace AND pcm.barcode=p.barcode
+         JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         LEFT JOIN (
+           SELECT DISTINCT ON(cost_item_code) cost_item_code,file_market_item_id
+           FROM cost_item_file_links
+           WHERE status='APPROVED'
+           ORDER BY cost_item_code,updated_at DESC NULLS LAST,id DESC
+         ) linked ON linked.cost_item_code=pcm.cost_item_code
+         LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
+         WHERE p.marketplace='TRENDYOL'
+           AND p.barcode=ANY($1::text[])
+           AND p.product_name IS NOT NULL
+           AND ci.unit_cost>0 AND COALESCE(ci.unit_desi,0)>0
+         ORDER BY p.barcode,pcm.id`,
+        [unique],
+      )
+    ).rows;
+  }
+
+  async hepsiburadaIdentifierDiagnostics(sampleLimit = 5) {
+    const limit = Math.min(Math.max(Number(sampleLimit) || 5, 1), 25);
+    const summary = (
+      await this.db.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE is_active=TRUE)::int AS active_targets,
+           COUNT(*) FILTER (
+             WHERE is_active=TRUE
+               AND catalog_gtin IS NOT NULL
+               AND catalog_gtin_source IS NOT NULL
+           )::int AS verified_gtins,
+           COUNT(*) FILTER (
+             WHERE is_active=TRUE
+               AND (catalog_gtin IS NULL OR catalog_gtin_source IS NULL)
+           )::int AS identity_only,
+           COUNT(*) FILTER (
+             WHERE marketplace_catalog_barcode IS NOT NULL
+               AND marketplace_catalog_barcode=barcode
+           )::int AS catalog_equals_merchant_sku,
+           COUNT(*) FILTER (
+             WHERE marketplace_catalog_barcode IS NOT NULL
+               AND catalog_gtin IS NULL
+           )::int AS ambiguous_catalog_values,
+           COUNT(*) FILTER (
+             WHERE catalog_gtin_source IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM products ty
+                 WHERE ty.marketplace='TRENDYOL'
+                   AND ty.barcode=products.catalog_gtin
+               )
+           )::int AS verified_trendyol_matches
+         FROM products WHERE marketplace='HEPSIBURADA'`,
+      )
+    ).rows[0];
+    const verifiedPairs = (
+      await this.db.query(
+        `SELECT hb.barcode AS merchant_sku,hb.marketplace_product_id AS hb_sku,
+                hb.catalog_gtin,
+                hb.catalog_gtin_source,hb.product_name AS hb_product_name,
+                hb.brand AS hb_brand,ty.barcode AS trendyol_barcode,
+                ty.product_name AS trendyol_product_name,ty.brand AS trendyol_brand
+         FROM products hb
+         JOIN products ty
+           ON ty.marketplace='TRENDYOL'
+          AND ty.barcode=hb.catalog_gtin
+         WHERE hb.marketplace='HEPSIBURADA'
+           AND hb.catalog_gtin_source IS NOT NULL
+         ORDER BY hb.barcode`,
+      )
+    ).rows;
+    const ambiguousSamples = (
+      await this.db.query(
+        `SELECT barcode AS merchant_sku,marketplace_product_id AS hb_sku,
+                marketplace_catalog_barcode,catalog_gtin_source,product_name,brand
+         FROM products
+         WHERE marketplace='HEPSIBURADA'
+           AND marketplace_catalog_barcode IS NOT NULL
+           AND catalog_gtin IS NULL
+         ORDER BY barcode LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    const merchantSkuSamples = (
+      await this.db.query(
+        `SELECT barcode AS merchant_sku,marketplace_product_id AS hb_sku,
+                marketplace_catalog_barcode,catalog_gtin,catalog_gtin_source,product_name,brand
+         FROM products
+         WHERE marketplace='HEPSIBURADA'
+           AND marketplace_catalog_barcode=barcode
+         ORDER BY barcode LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    const identityOnlySamples = (
+      await this.db.query(
+        `SELECT barcode AS merchant_sku,marketplace_product_id AS hb_sku,
+                marketplace_catalog_barcode,catalog_gtin,catalog_gtin_source,product_name,brand
+         FROM products
+         WHERE marketplace='HEPSIBURADA' AND is_active=TRUE
+           AND (catalog_gtin IS NULL OR catalog_gtin_source IS NULL)
+         ORDER BY barcode LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    return {
+      summary,
+      verifiedPairs,
+      ambiguousSamples,
+      merchantSkuSamples,
+      identityOnlySamples,
+    };
   }
 
   async targetProducts(options = 500) {
@@ -412,22 +915,33 @@ class MappingAutomationRepository {
       typeof options === "object" && options !== null
         ? options
         : { limit: options };
-    const params = [];
+    const selectedMarketplace = normalizeMarketplace(normalized.marketplace);
+    const params = [selectedMarketplace];
     const where = [
-      "p.marketplace='TRENDYOL'",
+      "p.marketplace=$1",
       "p.is_active=TRUE",
-      "p.product_name IS NOT NULL",
+      "NULLIF(BTRIM(p.product_name),'') IS NOT NULL",
       `(p.data_status='MAPPING_MISSING' OR COALESCE(mt.mapping_count,0)=0)`,
     ];
+    const forcePendingRegeneration = Boolean(
+      normalized.barcode && normalized.forceRegeneration,
+    );
     if (normalized.barcode) {
       params.push(String(normalized.barcode).trim());
       where.push(`p.barcode=$${params.length}`);
     }
+    where.push(
+      forcePendingRegeneration
+        ? "(open_suggestion.id IS NULL OR open_suggestion.status='PENDING')"
+        : "open_suggestion.id IS NULL",
+    );
     params.push(Math.min(Math.max(Number(normalized.limit) || 500, 1), 1000));
     return (
       await this.db.query(
-        `SELECT p.barcode,p.product_name,p.brand,p.category_id,p.category_name,
+        `SELECT p.marketplace,p.barcode,p.marketplace_catalog_barcode,p.catalog_gtin,p.catalog_gtin_source,
+                p.product_name,p.brand,p.category_id,p.category_name,
                 p.product_image_url,p.data_status,p.is_active,p.stock_quantity,
+                p.merchant_sku,p.hb_sku,p.listing_id,
                 p.needs_cost_mapping,p.calculated_product_cost,p.desi
          FROM products p
          LEFT JOIN (
@@ -435,6 +949,10 @@ class MappingAutomationRepository {
            FROM product_cost_mappings
            GROUP BY marketplace,barcode
          ) mt ON mt.marketplace=p.marketplace AND mt.barcode=p.barcode
+         LEFT JOIN mapping_suggestions open_suggestion
+           ON open_suggestion.marketplace=p.marketplace
+          AND open_suggestion.barcode=p.barcode
+          AND open_suggestion.status IN('PENDING','APPROVED')
          WHERE ${where.join(" AND ")}
          ORDER BY p.product_name
          LIMIT $${params.length}`,
@@ -444,19 +962,36 @@ class MappingAutomationRepository {
   }
 
   async fileItemsForMatching(supplierCode = null) {
-    const params = [];
-    const supplierFilter = supplierCode
-      ? `AND supplier_code=$${params.push(supplierCode)}`
-      : "";
-    return (
+    const perSupplierLimit = 10000;
+    const supplierCodes = supplierCode ? [supplierCode] : SUPPLIER_CODES;
+    const supplierFilter = supplierCode ? "AND supplier_code=$1" : "";
+    const params = supplierCode
+      ? [supplierCode, perSupplierLimit]
+      : [perSupplierLimit * supplierCodes.length];
+    const rows = (
       await this.db.query(
-        `SELECT * FROM file_market_items
+        `SELECT *
+         FROM file_market_items
          WHERE current_price>0
+           AND normalized_name<>''
            ${supplierFilter}
-         ORDER BY last_seen_at DESC LIMIT 5000`,
+         ORDER BY supplier_code,normalized_name,last_seen_at DESC NULLS LAST,updated_at DESC NULLS LAST,id DESC
+         LIMIT $${params.length}`,
         params,
       )
     ).rows;
+    const unique = new Map();
+    const supplierCounts = new Map();
+    for (const row of rows) {
+      const code = row.supplier_code || "";
+      const key = `${code}:${row.normalized_name || ""}`;
+      if (unique.has(key)) continue;
+      const count = supplierCounts.get(code) || 0;
+      if (count >= perSupplierLimit) continue;
+      unique.set(key, row);
+      supplierCounts.set(code, count + 1);
+    }
+    return [...unique.values()];
   }
 
   async costItemsForMatching() {
@@ -482,74 +1017,80 @@ class MappingAutomationRepository {
     ).rows;
   }
 
-  async rejectedFingerprints(barcodes = []) {
+  async rejectedFingerprints(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,fingerprint FROM mapping_suggestions
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND status='REJECTED'
            AND barcode=ANY($1::text[])`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows.map((row) => `${row.barcode}:${row.fingerprint}`);
   }
 
-  async rejectedRecipeKeys(barcodes = []) {
+  async rejectedRecipeKeys(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,items FROM mapping_feedback_events
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND decision='REJECTED'
            AND barcode=ANY($1::text[])`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows.map((row) => `${row.barcode}:${buildMappingRecipeKey(row.items)}`);
   }
 
-  async rejectedSourceBarcodes(barcodes = []) {
+  async rejectedSourceBarcodes(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,source_barcode FROM mapping_suggestions
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND status='REJECTED'
            AND source_barcode IS NOT NULL
            AND source_barcode<>''
            AND barcode=ANY($1::text[])`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows.map((row) => `${row.barcode}:${row.source_barcode}`);
   }
 
-  async rejectedFeedbackHints(barcodes = []) {
+  async rejectedFeedbackHints(barcodes = [], marketplace = "TRENDYOL") {
     const unique = [...new Set((barcodes || []).filter(Boolean))];
     if (!unique.length) return [];
     return (
       await this.db.query(
         `SELECT barcode,reason,created_at FROM mapping_feedback_events
-         WHERE marketplace='TRENDYOL'
+         WHERE marketplace=$2
            AND decision='REJECTED'
            AND reason IS NOT NULL
            AND reason<>''
            AND barcode=ANY($1::text[])
          ORDER BY barcode,created_at DESC`,
-        [unique],
+        [unique, normalizeMarketplace(marketplace)],
       )
     ).rows;
   }
 
-  async manualCostQueue({ search, page = 1, limit = 50 } = {}) {
+  async manualCostQueue({
+    search,
+    page = 1,
+    limit = 50,
+    marketplace = "TRENDYOL",
+  } = {}) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const params = [];
     const where = [
       "mfe.decision='REJECTED'",
       "mfe.reason IS NOT NULL",
       "(LOWER(mfe.reason) LIKE '%manuel%' OR LOWER(mfe.reason) LIKE '%uygulamada bulunmuyor%' OR LOWER(mfe.reason) LIKE '%uygulamada yok%')",
-      "p.marketplace='TRENDYOL'",
+      `p.marketplace=$${params.push(selectedMarketplace)}`,
       "(p.data_status='MAPPING_MISSING' OR p.needs_cost_mapping=TRUE)",
     ];
     if (search) {
@@ -563,7 +1104,7 @@ class MappingAutomationRepository {
     const base = `FROM (
         SELECT DISTINCT ON(barcode) *
         FROM mapping_feedback_events
-        WHERE marketplace='TRENDYOL'
+        WHERE marketplace=$1
         ORDER BY barcode,created_at DESC
       ) mfe
       JOIN products p ON p.marketplace=mfe.marketplace AND p.barcode=mfe.barcode
@@ -594,14 +1135,15 @@ class MappingAutomationRepository {
     };
   }
 
-  async markManualCostNeeded(barcode, actor, reason) {
+  async markManualCostNeeded(barcode, actor, reason, marketplace = "TRENDYOL") {
     const normalizedBarcode = String(barcode || "").trim();
+    const selectedMarketplace = normalizeMarketplace(marketplace);
     const product = (
       await this.db.query(
         `SELECT barcode,product_name,brand,category_id,category_name
          FROM products
-         WHERE marketplace='TRENDYOL' AND barcode=$1`,
-        [normalizedBarcode],
+         WHERE marketplace=$1 AND barcode=$2`,
+        [selectedMarketplace, normalizedBarcode],
       )
     ).rows[0];
     if (!product) return null;
@@ -617,10 +1159,11 @@ class MappingAutomationRepository {
           marketplace,barcode,learning_key,decision,actor,
           base_confidence,confidence,confidence_band,learning_adjustment,
           source_type,items,evidence,reason
-        )VALUES('TRENDYOL',$1,$2,'REJECTED',$3,0,0,'LOW',0,
-          'DIAGNOSTIC_MANUAL_COST','[]'::jsonb,$4::jsonb,$5)
+        )VALUES($1,$2,$3,'REJECTED',$4,0,0,'LOW',0,
+          'DIAGNOSTIC_MANUAL_COST','[]'::jsonb,$5::jsonb,$6)
         RETURNING *`,
         [
+          selectedMarketplace,
           normalizedBarcode,
           learningKey,
           actor,
@@ -631,54 +1174,81 @@ class MappingAutomationRepository {
     ).rows[0];
   }
 
-  async saveSuggestions(suggestions, evaluatedBarcodes = []) {
+  async saveSuggestions(
+    suggestions,
+    evaluatedBarcodes = [],
+    marketplace = "TRENDYOL",
+    { forceRegeneration = false } = {},
+  ) {
+    const selectedMarketplace = normalizeMarketplace(marketplace);
+    const uniqueSuggestions = [];
+    const seenSuggestions = new Set();
+    for (const suggestion of suggestions) {
+      const suggestionMarketplace = normalizeMarketplace(
+        suggestion.marketplace || selectedMarketplace,
+      );
+      const key = `${suggestionMarketplace}:${suggestion.barcode}`;
+      if (seenSuggestions.has(key)) continue;
+      seenSuggestions.add(key);
+      uniqueSuggestions.push({
+        ...suggestion,
+        marketplace: suggestionMarketplace,
+      });
+    }
     const evaluated = [
       ...new Set([
         ...evaluatedBarcodes,
-        ...suggestions.map((suggestion) => suggestion.barcode),
+        ...uniqueSuggestions.map((suggestion) => suggestion.barcode),
       ]),
     ];
     if (!evaluated.length)
-      return { created: 0, skippedApproved: 0, skippedRejected: 0, items: [] };
+      return {
+        created: 0,
+        skippedApproved: 0,
+        skippedRejected: 0,
+        skippedDuplicates: 0,
+        skippedSamePending: 0,
+        items: [],
+      };
     return this.withTransaction(async (client) => {
-      const barcodes = suggestions.map((suggestion) => suggestion.barcode);
+      const barcodes = uniqueSuggestions.map(
+        (suggestion) => suggestion.barcode,
+      );
       const approved = new Set(
         barcodes.length
           ? (
               await client.query(
                 `SELECT barcode FROM mapping_suggestions
-             WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
+             WHERE marketplace=$2 AND barcode=ANY($1::text[])
                AND status='APPROVED'`,
-                [barcodes],
+                [barcodes, selectedMarketplace],
               )
             ).rows.map((row) => row.barcode)
           : [],
       );
       const rejectedFingerprints = new Set(
-        suggestions.length
+        uniqueSuggestions.length
           ? (
               await client.query(
                 `SELECT barcode,fingerprint FROM mapping_suggestions
-                 WHERE marketplace='TRENDYOL'
+                 WHERE marketplace=$3
                    AND status='REJECTED'
                    AND barcode=ANY($1::text[])
                    AND fingerprint=ANY($2::text[])`,
                 [
                   barcodes,
-                  suggestions.map((suggestion) => suggestion.fingerprint),
+                  uniqueSuggestions.map((suggestion) => suggestion.fingerprint),
+                  selectedMarketplace,
                 ],
               )
             ).rows.map((row) => `${row.barcode}:${row.fingerprint}`)
           : [],
       );
-      await client.query(
-        `UPDATE mapping_suggestions SET status='STALE',updated_at=NOW()
-         WHERE marketplace='TRENDYOL' AND barcode=ANY($1::text[])
-           AND status='PENDING'`,
-        [evaluated],
-      );
       const saved = [];
-      for (const suggestion of suggestions) {
+      let skippedOpen = 0;
+      let skippedConflicts = 0;
+      let skippedSamePending = 0;
+      for (const suggestion of uniqueSuggestions) {
         if (approved.has(suggestion.barcode)) continue;
         if (
           rejectedFingerprints.has(
@@ -686,6 +1256,35 @@ class MappingAutomationRepository {
           )
         )
           continue;
+        const openSuggestion = (
+          await client.query(
+            `SELECT id,status,fingerprint FROM mapping_suggestions
+             WHERE marketplace=$1 AND barcode=$2
+               AND status IN('PENDING','APPROVED')
+             LIMIT 1`,
+            [suggestion.marketplace || selectedMarketplace, suggestion.barcode],
+          )
+        ).rows[0];
+        if (openSuggestion) {
+          if (
+            openSuggestion.status === "PENDING" &&
+            openSuggestion.fingerprint === suggestion.fingerprint
+          ) {
+            skippedSamePending++;
+            continue;
+          }
+          if (openSuggestion.status === "PENDING" && forceRegeneration) {
+            await client.query(
+              `UPDATE mapping_suggestions
+               SET status='STALE',updated_at=NOW()
+               WHERE id=$1::bigint AND status='PENDING'`,
+              [String(openSuggestion.id)],
+            );
+          } else {
+            skippedOpen++;
+            continue;
+          }
+        }
         const parent = (
           await client.query(
             `INSERT INTO mapping_suggestions(
@@ -694,9 +1293,11 @@ class MappingAutomationRepository {
               algorithm_version,source_type,source_barcode,file_market_item_id,
               supplier_code,
               update_file_price,evidence,product_snapshot,fingerprint
-            )VALUES('TRENDYOL',$1,'PENDING',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            )VALUES($1,$2,'PENDING',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            ON CONFLICT DO NOTHING
             RETURNING *`,
             [
+              suggestion.marketplace || selectedMarketplace,
               suggestion.barcode,
               suggestion.confidence,
               suggestion.base_confidence,
@@ -715,12 +1316,17 @@ class MappingAutomationRepository {
             ],
           )
         ).rows[0];
+        if (!parent) {
+          skippedConflicts++;
+          continue;
+        }
         for (const item of suggestion.items) {
           await client.query(
             `INSERT INTO mapping_suggestion_items(
               suggestion_id,cost_item_code,file_market_item_id,supplier_code,quantity,
               current_unit_cost,suggested_unit_cost,unit_desi,selected_price_tier
-            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            ON CONFLICT(suggestion_id,cost_item_code) DO NOTHING`,
             [
               parent.id,
               item.cost_item_code,
@@ -740,6 +1346,10 @@ class MappingAutomationRepository {
         created: saved.length,
         skippedApproved: approved.size,
         skippedRejected: rejectedFingerprints.size,
+        skippedDuplicates: suggestions.length - uniqueSuggestions.length,
+        skippedSamePending,
+        skippedOpen,
+        skippedConflicts,
         items: saved,
       };
     });
@@ -752,6 +1362,11 @@ class MappingAutomationRepository {
     const rows = (
       await queryable.query(
         `SELECT msi.*,ci.item_name,ci.unit_cost,ci.unit_desi,
+                linked_f.id AS linked_supplier_item_id,
+                linked_f.supplier_code AS linked_supplier_code,
+                linked_f.product_name AS linked_supplier_product_name,
+                linked_f.current_price AS linked_supplier_current_price,
+                linked_f.last_seen_at AS linked_supplier_last_seen_at,
                 f.product_name AS file_product_name,f.current_price AS file_current_price,
                 f.last_seen_at AS file_last_seen_at,
                 f.product_name AS supplier_product_name,
@@ -763,6 +1378,9 @@ class MappingAutomationRepository {
                 COALESCE(msi.supplier_code,f.supplier_code) AS supplier_code
          FROM mapping_suggestion_items msi
          LEFT JOIN cost_items ci ON ci.item_code=msi.cost_item_code
+         LEFT JOIN cost_item_file_links linked
+           ON linked.cost_item_code=msi.cost_item_code AND linked.status='APPROVED'
+         LEFT JOIN file_market_items linked_f ON linked_f.id=linked.file_market_item_id
          LEFT JOIN file_market_items f ON f.id=msi.file_market_item_id
          WHERE msi.suggestion_id IN (${placeholders})
          ORDER BY msi.suggestion_id,msi.id`,
@@ -786,11 +1404,12 @@ class MappingAutomationRepository {
     status,
     confidenceBand,
     supplierCode,
+    marketplace = "TRENDYOL",
     page = 1,
     limit = 50,
   } = {}) {
-    const params = [];
-    const where = ["1=1"];
+    const params = [normalizeMarketplace(marketplace)];
+    const where = ["ms.marketplace=$1"];
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -850,6 +1469,7 @@ class MappingAutomationRepository {
   async latestSuggestionsForBarcode(
     barcode,
     statuses = ["PENDING", "APPROVED"],
+    marketplace = "TRENDYOL",
   ) {
     const normalizedBarcode = String(barcode || "").trim();
     if (!normalizedBarcode) return [];
@@ -867,20 +1487,26 @@ class MappingAutomationRepository {
        LEFT JOIN products source ON source.marketplace=ms.marketplace
          AND source.barcode=ms.source_barcode
        LEFT JOIN file_market_items f ON f.id=ms.file_market_item_id
-       WHERE ms.marketplace='TRENDYOL'
+       WHERE ms.marketplace=$3
          AND ms.barcode=$1
          AND ms.status=ANY($2::text[])
        ORDER BY CASE ms.status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,
                 ms.updated_at DESC,ms.created_at DESC
        LIMIT 10`,
-      [normalizedBarcode, statuses],
+      [normalizedBarcode, statuses, normalizeMarketplace(marketplace)],
     );
     return this.attachItems(result.rows);
   }
 
-  async listLearningFeedback({ search, decision, page = 1, limit = 50 } = {}) {
-    const params = [];
-    const where = ["1=1"];
+  async listLearningFeedback({
+    search,
+    decision,
+    marketplace = "TRENDYOL",
+    page = 1,
+    limit = 50,
+  } = {}) {
+    const params = [normalizeMarketplace(marketplace)];
+    const where = ["mfe.marketplace=$1"];
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -1093,16 +1719,16 @@ class MappingAutomationRepository {
     const product = (
       await client.query(
         `SELECT barcode,data_status,is_active FROM products
-         WHERE marketplace='TRENDYOL' AND barcode=$1 FOR UPDATE`,
-        [suggestion.barcode],
+         WHERE marketplace=$1 AND barcode=$2 FOR UPDATE`,
+        [suggestion.marketplace, suggestion.barcode],
       )
     ).rows[0];
     if (!product || !product.is_active)
       return { conflict: "TARGET_NO_LONGER_ACTIVE" };
     const existing = await client.query(
       `SELECT id FROM product_cost_mappings
-       WHERE marketplace='TRENDYOL' AND barcode=$1 LIMIT 1`,
-      [suggestion.barcode],
+       WHERE marketplace=$1 AND barcode=$2 LIMIT 1`,
+      [suggestion.marketplace, suggestion.barcode],
     );
     if (existing.rowCount) return { conflict: "TARGET_MAPPING_ALREADY_EXISTS" };
     if (
@@ -1222,8 +1848,9 @@ class MappingAutomationRepository {
         `INSERT INTO product_cost_mappings(
           marketplace,barcode,cost_item_code,quantity,effective_unit_cost,
           supplier_price_tier,updated_at
-        )VALUES('TRENDYOL',$1,$2,$3,$4,$5::jsonb,NOW())`,
+        )VALUES($1,$2,$3,$4,$5,$6::jsonb,NOW())`,
         [
+          suggestion.marketplace,
           suggestion.barcode,
           item.cost_item_code,
           item.quantity,

@@ -1,5 +1,5 @@
 const express = require("express");
-const { asyncRoute } = require("../utils/errors");
+const { AppError, asyncRoute } = require("../utils/errors");
 const { SUPPLIER_CODES, supplier } = require("../domain/supplier-products");
 
 function mappingAutomationRoutes({
@@ -7,6 +7,7 @@ function mappingAutomationRoutes({
   fileMarket,
   bizimMarket,
   bimMarket,
+  rossmannMarket,
   audit,
 }) {
   const router = express.Router();
@@ -26,8 +27,13 @@ function mappingAutomationRoutes({
     FILE_MARKET: fileMarket,
     BIZIM_MARKET: bizimMarket,
     BIM: bimMarket,
+    ROSSMANN: rossmannMarket,
   };
   const supplierCode = (value) => String(value || "").toUpperCase();
+  const marketplaceCode = (req) =>
+    String(
+      req.body?.marketplace || req.query?.marketplace || "TRENDYOL",
+    ).toUpperCase();
 
   router.get(
     "/supplier-price-pools/:supplierCode/items",
@@ -40,6 +46,34 @@ function mappingAutomationRoutes({
         ),
       }),
     ),
+  );
+  router.get(
+    "/supplier-price-pools/:supplierCode/duplicates",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.listSupplierDuplicateGroups(code),
+      });
+    }),
+  );
+  router.post(
+    "/supplier-price-pools/:supplierCode/duplicates/merge",
+    asyncRoute(async (req, res) => {
+      const code = supplierCode(req.params.supplierCode);
+      const data = await mappingAutomation.mergeSupplierDuplicateGroup(
+        code,
+        req.body?.normalizedName,
+      );
+      await log(req, "SUPPLIER_DUPLICATE_GROUP_MERGED", code, {
+        supplierCode: code,
+        normalizedName: req.body?.normalizedName,
+        canonicalItemId: data.canonicalItemId,
+        mergedItemIds: data.mergedItemIds,
+        movedLinks: data.movedLinks,
+      });
+      res.json({ status: "ok", data });
+    }),
   );
   router.post(
     "/supplier-price-pools/:supplierCode/items/bulk",
@@ -146,7 +180,23 @@ function mappingAutomationRoutes({
   router.post(
     "/mapping-suggestions/generate",
     asyncRoute(async (req, res) => {
-      const data = await mappingAutomation.generate(req.body || {});
+      let data;
+      try {
+        data = await mappingAutomation.generate({
+          ...(req.body || {}),
+          marketplace: marketplaceCode(req),
+        });
+      } catch (error) {
+        throw new AppError(
+          `Mapping önerisi üretilemedi: ${error.code || error.message || "UNKNOWN_ERROR"}`,
+          error.status && error.status < 500 ? error.status : 409,
+          error.code || "MAPPING_SUGGESTION_GENERATION_FAILED",
+          {
+            marketplace: marketplaceCode(req),
+            safeMessage: error.message,
+          },
+        );
+      }
       await log(req, "MAPPING_SUGGESTIONS_GENERATED", "bulk", data);
       res.json({ status: "ok", data });
     }),
@@ -156,7 +206,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.listSuggestions(req.query),
+        data: await mappingAutomation.listSuggestions({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -165,15 +218,34 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.diagnostics(req.query),
+        data: await mappingAutomation.diagnostics({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
+  );
+  router.get(
+    "/mapping-suggestions/identifier-diagnostics",
+    asyncRoute(async (req, res) => {
+      if (marketplaceCode(req) !== "HEPSIBURADA")
+        throw new AppError(
+          "Kimlik teşhisi yalnız Hepsiburada için kullanılabilir",
+          400,
+          "HEPSIBURADA_ONLY_DIAGNOSTIC",
+        );
+      res.json({
+        status: "ok",
+        data: await mappingAutomation.identifierDiagnostics(req.query),
+      });
+    }),
   );
   router.post(
     "/mapping-suggestions/diagnostics/:barcode/regenerate",
     asyncRoute(async (req, res) => {
       const data = await mappingAutomation.regenerateDiagnosticBarcode(
         req.params.barcode,
+        marketplaceCode(req),
       );
       await log(
         req,
@@ -191,6 +263,7 @@ function mappingAutomationRoutes({
         req.params.barcode,
         req.user.username,
         req.body,
+        marketplaceCode(req),
       );
       await log(req, "MAPPING_DIAGNOSTIC_MANUAL_COST", req.params.barcode, {
         reason: data.reason,
@@ -203,7 +276,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.listLearningFeedback(req.query),
+        data: await mappingAutomation.listLearningFeedback({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -212,7 +288,10 @@ function mappingAutomationRoutes({
     asyncRoute(async (req, res) =>
       res.json({
         status: "ok",
-        data: await mappingAutomation.manualCostQueue(req.query),
+        data: await mappingAutomation.manualCostQueue({
+          ...req.query,
+          marketplace: marketplaceCode(req),
+        }),
       }),
     ),
   );
@@ -223,6 +302,7 @@ function mappingAutomationRoutes({
         req.params.barcode,
         req.user.username,
         req.body,
+        marketplaceCode(req),
       );
       await log(req, "MANUAL_COST_APPLIED", req.params.barcode, data);
       res.json({ status: "ok", data });

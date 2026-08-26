@@ -76,6 +76,45 @@ test("buybox yenilenemezse eski veriyle sonuc yazilmaz", async () => {
   assert.equal(recorded, 0);
 });
 
+test("buybox korunurken yapilan artis kaybettirirse tek otomatik geri donus olusturur", async () => {
+  let recoveryCalls = 0;
+  let learningCalls = 0;
+  const action = {
+    id: 99,
+    marketplace: "TRENDYOL",
+    barcode: "86956362005698",
+    old_price: 638.44,
+    proposed_price: 653.44,
+    rank_before: 1,
+    rank_after: 2,
+    buybox_after: 640,
+  };
+  const service = new LearningService({
+    actions: {
+      pendingOutcomes: async () => [action],
+      recordOutcome: async () => ({ id: 1 }),
+      createBuyboxRecovery: async () => {
+        recoveryCalls++;
+        return { id: 100 };
+      },
+      applyLearningOutcome: async () => {
+        learningCalls++;
+      },
+    },
+    sync: {
+      buybox: async () => ({
+        processed: 1,
+        failed: 0,
+        updatedBarcodes: [action.barcode],
+      }),
+    },
+  });
+  const result = await service.checkOutcomes(5);
+  assert.equal(result.recoveries, 1);
+  assert.equal(recoveryCalls, 1);
+  assert.equal(learningCalls, 1);
+});
+
 test("batch ve pazar fiyati dogrulanmadan aksiyon uygulanmis sayilmaz", async () => {
   let confirmed;
   const action = {

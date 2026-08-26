@@ -43,6 +43,7 @@ const suggestion = {
 describe("Akıllı mapping paneli", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     get.mockImplementation(async (path) => {
       if (path.startsWith("/api/mapping-suggestions"))
         return {
@@ -65,6 +66,28 @@ describe("Akıllı mapping paneli", () => {
         .getAllByText("Yüksek güven")
         .some((item) => item.tagName === "SPAN"),
     ).toBe(true);
+  });
+
+  test("Hepsiburada seciliyken urun ve kimlik basliklarini dogru gosterir", async () => {
+    render(
+      <MappingSuggestions
+        view="suggestions"
+        marketplace="HEPSIBURADA"
+        notify={vi.fn()}
+      />,
+    );
+
+    expect(
+      (await screen.findAllByText("Hepsiburada ürünü")).some(
+        (item) => item.tagName === "BUTTON",
+      ),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByText("Satıcı stok kodu")
+        .some((item) => item.tagName === "BUTTON"),
+    ).toBe(true);
+    expect(screen.queryByText("Trendyol ürünü")).not.toBeInTheDocument();
   });
 
   test("onay öneriyi uygulatmadan yalnızca onay endpointini çağırır", async () => {
@@ -325,6 +348,102 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("Bizim otomatik fiyat kademesini gösterir ama manuel edit açmaz", async () => {
+    get.mockImplementation(async (path) => {
+      if (path.includes("/duplicates")) return { data: { items: [] } };
+      if (path.startsWith("/api/supplier-price-pools/BIZIM_MARKET/items"))
+        return {
+          data: {
+            items: [
+              {
+                id: 7,
+                source_key: "bizim-web:11770",
+                product_name: "Halk UHT Süt 1 L",
+                brand: "Halk",
+                current_price: 44.9,
+                price_tiers: [
+                  { min_quantity: 12, unit_price: 42.9, label: "12+ adet" },
+                ],
+                raw_data: { price_tiers_source: "BIZIM_PRODUCT_DETAIL" },
+              },
+            ],
+            total: 1,
+            page: 1,
+            limit: 50,
+          },
+        };
+      return { data: { items: [], total: 0, page: 1, limit: 50 } };
+    });
+
+    render(<MappingSuggestions view="bizim" notify={vi.fn()} />);
+
+    expect(await screen.findByText("Halk UHT Süt 1 L")).toBeVisible();
+    expect(screen.getByText(/12\+/)).toBeVisible();
+    expect(screen.getByText("Bizim Toptan'dan otomatik")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Fiyat kademelerini düzenle" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("Rossmann havuzunda Card fiyat badge'i ve canlı kaynak linki görünür", async () => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    get.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 9,
+            source_key: "rossmann-api:26",
+            product_name: "Nivea Soft Krem 2'li",
+            brand: "Nivea",
+            current_price: 199,
+            previous_price: 219,
+            size_value: null,
+            size_unit: null,
+            last_seen_at: "2026-08-15T10:00:00.000Z",
+            stale: false,
+            source_url:
+              "https://www.rossmann.com.tr/nivea-soft-krem-2-li-p-kt20100233",
+            raw_data: {
+              regular_price: 330,
+              rossmann_card_price: 199,
+              effective_price_type: "ROSSMANN_CARD",
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 50,
+      },
+    });
+    post.mockResolvedValue({
+      data: {
+        processed: 1,
+        created: 0,
+        changed: 0,
+        metadata: { productsScanned: 1 },
+      },
+    });
+
+    render(<MappingSuggestions view="rossmann" notify={notify} />);
+
+    expect(await screen.findByText("Nivea Soft Krem 2'li")).toBeVisible();
+    expect(screen.getByText("Rossmann Card")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Aç/ })).toHaveAttribute(
+      "href",
+      "https://www.rossmann.com.tr/nivea-soft-krem-2-li-p-kt20100233",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Canlı Rossmann'den yenile" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/supplier-price-pools/ROSSMANN/items/sync-live",
+        {},
+      ),
+    );
+  });
+
   test("Diğer maliyet havuzu manuel ürünleri ayrı tedarikçi koduyla aktarır", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();
@@ -400,7 +519,7 @@ describe("Akıllı mapping paneli", () => {
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(
         "/api/mapping-suggestions/diagnostics/528528268/regenerate",
-        {},
+        { marketplace: "TRENDYOL" },
       ),
     );
     await user.click(screen.getByRole("button", { name: "Manuel" }));

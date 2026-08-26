@@ -1188,6 +1188,13 @@ tbody tr.clickable:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.supplier-tier-readonly {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 @media (max-width: 760px) {
   .supplier-tier-list > div {
     grid-template-columns: 1fr;
@@ -1563,6 +1570,12 @@ tbody tr.clickable:hover {
   font-size: 10px;
   margin: 3px 0 0;
   line-height: 1.5;
+}
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 .modal-layer {
   justify-content: center;

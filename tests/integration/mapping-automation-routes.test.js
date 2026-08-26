@@ -7,7 +7,7 @@ const {
 } = require("../../src/routes/mapping-automation.routes");
 const { errorHandler } = require("../../src/middleware/error-handler");
 
-function appFixture() {
+function appFixture(overrides = {}) {
   const calls = [];
   const mappingAutomation = {
     importFileItems: async (rows) => ({
@@ -79,6 +79,7 @@ function appFixture() {
       calls.push({ ids, token });
       return { applied: ids.length };
     },
+    ...overrides.mappingAutomation,
   };
   const app = express();
   app.use(express.json());
@@ -94,6 +95,7 @@ function appFixture() {
       fileMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       bizimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       bimMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
+      rossmannMarket: { livePriceRows: async () => ({ rows: [], stats: {} }) },
       audit: { record: async () => {} },
     }),
   );
@@ -118,7 +120,7 @@ test("File fiyat havuzu canlı API üzerinden yenilenir", async () => {
   assert.equal(response.body.data.metadata.productsScanned, 20);
 });
 
-test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async () => {
+test("Bizim Toptan, BİM ve Rossmann havuzları ayrı endpointlerden yönetilir", async () => {
   const fixture = appFixture();
   const bizim = await request(fixture.app)
     .post("/api/supplier-price-pools/BIZIM_MARKET/items/sync-live")
@@ -130,6 +132,15 @@ test("Bizim Toptan ve BİM havuzları ayrı endpointlerden yönetilir", async ()
     .send({})
     .expect(200);
   assert.equal(bim.body.data.supplierCode, "BIM");
+  const rossmann = await request(fixture.app)
+    .get("/api/supplier-price-pools/ROSSMANN/items")
+    .expect(200);
+  assert.equal(rossmann.body.data.supplierCode, "ROSSMANN");
+  const rossmannSync = await request(fixture.app)
+    .post("/api/supplier-price-pools/ROSSMANN/items/sync-live")
+    .send({})
+    .expect(200);
+  assert.equal(rossmannSync.body.data.supplierCode, "ROSSMANN");
   const other = await request(fixture.app)
     .post("/api/supplier-price-pools/OTHER/items/bulk")
     .send({ rows: [{ product_name: "Diğer ürün", current_price: 25 }] })
@@ -169,6 +180,29 @@ test("mapping karar geçmişi API üzerinden listelenir", async () => {
     .expect(200);
   assert.equal(response.body.data.total, 1);
   assert.equal(response.body.data.items[0].decision, "APPROVED");
+});
+
+test("mapping önerisi üretim hatası güvenli ve açıklayıcı döner", async () => {
+  const error = new Error(
+    "duplicate key value violates unique constraint mapping_suggestions_actionable_uidx",
+  );
+  error.code = "23505";
+  const response = await request(
+    appFixture({
+      mappingAutomation: {
+        generate: async () => {
+          throw error;
+        },
+      },
+    }).app,
+  )
+    .post("/api/mapping-suggestions/generate")
+    .send({ marketplace: "HEPSIBURADA" })
+    .expect(409);
+
+  assert.equal(response.body.code, "23505");
+  assert.match(response.body.message, /Mapping önerisi üretilemedi/);
+  assert.equal(response.body.details.marketplace, "HEPSIBURADA");
 });
 
 test("teşhis satırından tek barkod önerisi yeniden üretilebilir", async () => {

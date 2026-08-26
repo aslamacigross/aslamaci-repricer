@@ -107,7 +107,8 @@ class LearningService {
       }
     }
     let successful = 0,
-      failed = 0;
+      failed = 0,
+      recoveries = 0;
     for (const action of pending) {
       const before = Number(action.rank_before || 0),
         after = Number(action.rank_after || 0);
@@ -133,6 +134,22 @@ class LearningService {
         elapsedMinutes,
       };
       await this.actions.recordOutcome(action, outcome);
+      // An upward probe that loses Buybox returns to the price that had just
+      // been observed winning. The repository makes this idempotent, so 5m
+      // retries cannot create a chain of recovery actions.
+      if (
+        elapsedMinutes === 5 &&
+        outcome.buyboxLost &&
+        Number(action.rank_before) === 1 &&
+        Number(action.proposed_price) > Number(action.old_price) &&
+        this.actions.createBuyboxRecovery
+      ) {
+        const recovery = await this.actions.createBuyboxRecovery(action);
+        if (recovery) {
+          recoveries++;
+          await this.actions.applyLearningOutcome?.(action, outcome);
+        }
+      }
       if (elapsedMinutes >= 60)
         await this.actions.applyLearningOutcome(action, outcome);
       if (targetAchieved) successful++;
@@ -152,6 +169,7 @@ class LearningService {
       processed: pending.length,
       successful,
       failed,
+      recoveries,
       refreshFailures,
       verification,
     };
