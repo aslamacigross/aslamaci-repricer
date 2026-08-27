@@ -1454,7 +1454,7 @@ class MappingAutomationRepository {
        LEFT JOIN file_market_items f ON f.id=ms.file_market_item_id
        WHERE ${where.join(" AND ")}
        ORDER BY CASE ms.status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,
-                ms.confidence DESC,ms.created_at DESC
+                ms.confidence DESC,ms.created_at DESC,ms.id DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
