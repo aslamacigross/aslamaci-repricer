@@ -4,6 +4,69 @@ const {
   MappingAutomationRepository,
 } = require("../../src/repositories/mapping-automation.repository");
 
+test("mapping öneri kuyruğu pagination için stabil id tie-breaker kullanır", async () => {
+  const calls = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (String(sql).includes("COUNT(*)::int AS total"))
+        return { rows: [{ total: 538 }] };
+      if (String(sql).includes("FROM mapping_suggestions ms"))
+        return {
+          rows: [
+            {
+              id: "1016",
+              marketplace: "HEPSIBURADA",
+              barcode: "HB-2",
+              status: "PENDING",
+              confidence: "0.90000",
+              confidence_band: "HIGH",
+              created_at: "2026-08-27T10:48:58.990Z",
+            },
+            {
+              id: "1015",
+              marketplace: "HEPSIBURADA",
+              barcode: "HB-1",
+              status: "PENDING",
+              confidence: "0.90000",
+              confidence_band: "HIGH",
+              created_at: "2026-08-27T10:48:58.990Z",
+            },
+          ],
+        };
+      if (String(sql).includes("FROM mapping_suggestion_items"))
+        return { rows: [] };
+      return { rows: [] };
+    },
+  };
+  const repo = new MappingAutomationRepository(db, async (callback) =>
+    callback(db),
+  );
+
+  const result = await repo.listSuggestions({
+    marketplace: "HEPSIBURADA",
+    status: "PENDING",
+    page: 2,
+    limit: 50,
+  });
+
+  const listCall = calls.find(
+    (call) =>
+      String(call.sql).includes("FROM mapping_suggestions ms") &&
+      String(call.sql).includes("LIMIT"),
+  );
+  assert.match(
+    listCall.sql,
+    /ms\.confidence DESC,ms\.created_at DESC,ms\.id DESC/,
+  );
+  assert.deepEqual(listCall.params, ["HEPSIBURADA", "PENDING", 50, 50]);
+  assert.equal(result.total, 538);
+  assert.deepEqual(
+    result.items.map((item) => item.id),
+    ["1016", "1015"],
+  );
+});
+
 test("tedarikçi fiyat güncellemesi aynı ürünün duplicate kayıtlarına bağlı mappingleri de günceller", async () => {
   const calls = [];
   const db = {
