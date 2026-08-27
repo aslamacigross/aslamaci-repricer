@@ -1394,7 +1394,6 @@ class SyncService {
         result.thirdSeller,
         result.sellerCount,
         result.source,
-        product.my_price,
       ];
       await this.db.query(
         `UPDATE products
