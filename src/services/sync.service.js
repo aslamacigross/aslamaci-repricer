@@ -1226,31 +1226,62 @@ class SyncService {
 
   async hepsiburadaBuybox(
     barcodes,
-    { limit = 120, batchSize = 10, requestDelayMs = 250 } = {},
+    { limit = null, batchSize = 10, requestDelayMs = 250, pageSize = 500 } = {},
   ) {
-    const params = [];
+    const hasBarcodeFilter = Array.isArray(barcodes) && barcodes.length;
+    const limited = hasBarcodeFilter || limit != null;
+    const pageLimit = Math.min(Math.max(Number(pageSize) || 500, 1), 500);
+    const baseParams = [];
     let where =
       `p.marketplace='HEPSIBURADA'
        AND p.is_active=TRUE
        AND COALESCE(p.archived,FALSE)=FALSE
        AND TRIM(COALESCE(p.hb_sku,p.marketplace_product_id,''))<>''`;
-    if (Array.isArray(barcodes) && barcodes.length) {
-      params.push([...new Set(barcodes.map(String).filter(Boolean))]);
-      where += ` AND p.barcode=ANY($${params.length}::text[])`;
+    if (hasBarcodeFilter) {
+      baseParams.push([...new Set(barcodes.map(String).filter(Boolean))]);
+      where += ` AND p.barcode=ANY($${baseParams.length}::text[])`;
     }
-    params.push(Math.min(Math.max(Number(limit) || 120, 1), 500));
-    const products = (
-      await this.db.query(
-        `SELECT p.barcode,p.product_name,p.my_price,p.min_price,
-                p.calculated_net_profit,p.marketplace_product_id,p.merchant_sku,
-                p.hb_sku,p.listing_id,p.buybox_updated_at
-         FROM products p
-         WHERE ${where}
-         ORDER BY p.buybox_updated_at NULLS FIRST,p.updated_at DESC
-         LIMIT $${params.length}`,
-        params,
-      )
-    ).rows;
+    const selectProducts = `SELECT p.barcode,p.product_name,p.my_price,p.min_price,
+                                  p.calculated_net_profit,p.marketplace_product_id,p.merchant_sku,
+                                  p.hb_sku,p.listing_id,p.buybox_updated_at
+                           FROM products p
+                           WHERE ${where}`;
+    const fetchProducts = async () => {
+      if (limited) {
+        const params = [
+          ...baseParams,
+          Math.min(Math.max(Number(limit) || 120, 1), 500),
+        ];
+        return (
+          await this.db.query(
+            `${selectProducts}
+             ORDER BY p.buybox_updated_at NULLS FIRST,p.updated_at DESC
+             LIMIT $${params.length}`,
+            params,
+          )
+        ).rows;
+      }
+      const all = [];
+      let lastBarcode = "";
+      for (;;) {
+        const params = [...baseParams, lastBarcode, pageLimit];
+        const rows = (
+          await this.db.query(
+            `${selectProducts}
+               AND p.barcode>$${params.length - 1}
+             ORDER BY p.barcode
+             LIMIT $${params.length}`,
+            params,
+          )
+        ).rows;
+        if (!rows.length) break;
+        all.push(...rows);
+        lastBarcode = String(rows[rows.length - 1].barcode || "");
+        if (rows.length < pageLimit) break;
+      }
+      return all;
+    };
+    const products = await fetchProducts();
     const summary = {
       processed: 0,
       successful: 0,
@@ -1272,6 +1303,7 @@ class SyncService {
         rankUnknown: 0,
         buyboxPriceFound: 0,
         competitorPriceFound: 0,
+        productPages: limited ? 1 : Math.ceil(products.length / pageLimit),
         emptyVariants: 0,
         http403: 0,
         http429: 0,
@@ -1378,8 +1410,17 @@ class SyncService {
         `INSERT INTO repricer_observations(
           marketplace,barcode,observed_price,buybox_price,second_price,
           third_price,rank,has_multiple_seller,observed_at
-        )VALUES('HEPSIBURADA',$6,$13,$1,$2,$3,$4,$5,$7)`,
-        values,
+        )VALUES('HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          product.barcode,
+          product.my_price,
+          result.buyboxPrice,
+          result.secondPrice,
+          result.thirdPrice,
+          result.rank,
+          result.hasMultipleSeller,
+          observedAt,
+        ],
       );
       await this.db.query(
         `INSERT INTO buybox_history(
