@@ -7,9 +7,40 @@ function fakeDb(products, calls = []) {
     calls,
     async query(sql, params = []) {
       calls.push({ sql, params });
-      if (String(sql).includes("FROM products p")) return { rows: products };
+      const text = String(sql);
+      if (text.includes("FROM products p")) {
+        const sorted = [...products].sort((left, right) =>
+          String(left.barcode).localeCompare(String(right.barcode)),
+        );
+        if (text.includes("p.barcode>$")) {
+          const limit = Number(params.at(-1));
+          const cursor = String(params.at(-2) || "");
+          return {
+            rows: sorted
+              .filter((product) => String(product.barcode) > cursor)
+              .slice(0, limit),
+          };
+        }
+        const limit = Number(params.at(-1));
+        return {
+          rows: Number.isFinite(limit) ? products.slice(0, limit) : products,
+        };
+      }
       return { rows: [] };
     },
+  };
+}
+
+function product(index, overrides = {}) {
+  return {
+    barcode: `SKU${String(index).padStart(4, "0")}`,
+    hb_sku: `HBV${String(index).padStart(4, "0")}`,
+    merchant_sku: `SKU${String(index).padStart(4, "0")}`,
+    product_name: `HB Ürün ${index}`,
+    my_price: 100 + index,
+    min_price: 80,
+    calculated_net_profit: 20,
+    ...overrides,
   };
 }
 
@@ -137,6 +168,12 @@ describe("Hepsiburada official buybox sync", () => {
     assert.equal(update.params[3], 1);
     assert.equal(update.params[7], "AŞLAMACI GROSS");
     assert.equal(update.params[11], "HEPSIBURADA_OFFICIAL_API");
+    const observation = calls.find((call) =>
+      String(call.sql || "").includes("INSERT INTO repricer_observations"),
+    );
+    assert.ok(observation);
+    assert.equal(observation.params.length, 8);
+    assert.equal(String(observation.sql).includes("$13"), false);
   });
 
   test("variants bos donerse eski timestamp yenilenmez", async () => {
@@ -212,5 +249,66 @@ describe("Hepsiburada official buybox sync", () => {
     assert.equal(update.params[3], 2);
     assert.equal(update.params[7], "Rakip");
     assert.equal(update.params[9], "Ucuncu");
+  });
+
+  test("full sync 120 eski tavanina takilmadan 250+ urunu isler", async () => {
+    const products = Array.from({ length: 253 }, (_, index) =>
+      product(index + 1),
+    );
+    const requestSizes = [];
+    const { sync } = syncWith({
+      products,
+      getBuyboxOrders: async ({ skuList }) => {
+        requestSizes.push(skuList.length);
+        return {
+          variants: skuList.map((sku) => ({
+            sku,
+            buyboxOrders: [
+              { rank: 1, merchantName: "AŞLAMACI GROSS", price: 95 },
+            ],
+          })),
+        };
+      },
+    });
+    const result = await sync.hepsiburadaBuybox(null, {
+      batchSize: 10,
+      pageSize: 100,
+      requestDelayMs: 0,
+    });
+    assert.equal(result.metadata.totalProducts, 253);
+    assert.equal(result.successful, 253);
+    assert.equal(result.metadata.requests, 26);
+    assert.ok(requestSizes.every((size) => size <= 10));
+  });
+
+  test("722 urunluk populasyonu sayfali olarak tamamen dolasir", async () => {
+    const products = Array.from({ length: 722 }, (_, index) =>
+      product(index + 1),
+    );
+    const { sync, calls } = syncWith({
+      products,
+      getBuyboxOrders: async ({ skuList }) => ({
+        variants: skuList.map((sku) => ({
+          sku,
+          buyboxOrders: [
+            { rank: 1, merchantName: "AŞLAMACI GROSS", price: 95 },
+          ],
+        })),
+      }),
+    });
+    const result = await sync.hepsiburadaBuybox(null, {
+      batchSize: 10,
+      pageSize: 200,
+      requestDelayMs: 0,
+    });
+    assert.equal(result.metadata.totalProducts, 722);
+    assert.equal(result.metadata.totalSkus, 722);
+    assert.equal(result.successful, 722);
+    assert.equal(result.metadata.productPages, 4);
+    assert.equal(
+      calls.filter((call) => String(call.sql || "").includes("p.barcode>$"))
+        .length,
+      4,
+    );
   });
 });
