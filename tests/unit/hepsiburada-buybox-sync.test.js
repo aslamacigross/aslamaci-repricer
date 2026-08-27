@@ -164,10 +164,33 @@ describe("Hepsiburada official buybox sync", () => {
       String(call.sql || "").includes("buybox_seller=$8"),
     );
     assert.ok(update);
+    assert.equal(update.params.length, 12);
     assert.equal(update.params[0], 95);
+    assert.equal(update.params[1], 99);
+    assert.equal(update.params[2], null);
     assert.equal(update.params[3], 1);
+    assert.equal(update.params[4], true);
+    assert.equal(update.params[5], "SKU1");
+    assert.equal(update.params[6] instanceof Date, true);
     assert.equal(update.params[7], "AŞLAMACI GROSS");
+    assert.equal(update.params[8], "Rakip");
+    assert.equal(update.params[9], null);
+    assert.equal(update.params[10], 2);
     assert.equal(update.params[11], "HEPSIBURADA_OFFICIAL_API");
+    assert.equal(update.params.includes(100), false);
+    assert.match(String(update.sql), /buybox_price=\$1/);
+    assert.match(String(update.sql), /second_price=\$2/);
+    assert.match(String(update.sql), /third_price=\$3/);
+    assert.match(String(update.sql), /rank=\$4/);
+    assert.match(String(update.sql), /has_multiple_seller=\$5/);
+    assert.match(String(update.sql), /buybox_updated_at=\$7/);
+    assert.match(String(update.sql), /buybox_seller=\$8/);
+    assert.match(String(update.sql), /second_seller=\$9/);
+    assert.match(String(update.sql), /third_seller=\$10/);
+    assert.match(String(update.sql), /seller_count=\$11/);
+    assert.match(String(update.sql), /buybox_source=\$12/);
+    assert.match(String(update.sql), /buybox_error_code=NULL/);
+    assert.equal(String(update.sql).includes("my_price"), false);
     const observation = calls.find((call) =>
       String(call.sql || "").includes("INSERT INTO repricer_observations"),
     );
