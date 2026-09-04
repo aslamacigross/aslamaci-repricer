@@ -72,7 +72,10 @@ class CostEngineService {
             AND x.desi_kg=COALESCE(p.manual_desi_override,CEIL(COALESCE(mt.total_desi,0))) LIMIT 1
         ) sc ON sb.id IS NULL
         LEFT JOIN LATERAL(
-          SELECT * FROM packaging_rules x WHERE x.marketplace=p.marketplace
+          SELECT * FROM packaging_rules x WHERE(
+              x.marketplace=p.marketplace OR
+              (p.marketplace='HEPSIBURADA' AND x.marketplace='TRENDYOL')
+            )
             AND COALESCE(x.active,TRUE)=TRUE AND(
               (x.rule_scope='BARCODE' AND UPPER(x.match_value)=UPPER(p.barcode)) OR
               (x.rule_scope='PRODUCT_NAME' AND p.product_name ILIKE '%'||x.match_value||'%') OR
@@ -82,7 +85,9 @@ class CostEngineService {
             )
           ORDER BY CASE x.rule_scope WHEN 'BARCODE' THEN 5 WHEN 'PRODUCT_NAME' THEN 4
             WHEN 'CATEGORY' THEN 3 WHEN 'BRAND' THEN 2 ELSE 1 END DESC,
-            x.priority DESC,x.id DESC LIMIT 1
+            x.priority DESC,
+            CASE WHEN x.marketplace=p.marketplace THEN 1 ELSE 0 END DESC,
+            x.id DESC LIMIT 1
         ) pr ON TRUE
         WHERE p.marketplace=$3 ${filter}
       )
