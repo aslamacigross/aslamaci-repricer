@@ -19,7 +19,12 @@ function container(options = {}) {
     min_price: 312.28,
     my_price: 329.9,
   };
-  const action = { id: 1, status: "PENDING", barcode: product.barcode };
+  const action = {
+    id: 1,
+    status: "PENDING",
+    barcode: product.barcode,
+    marketplace: options.marketplace || "TRENDYOL",
+  };
   const runJobs = [];
   return {
     auth,
@@ -65,6 +70,7 @@ function container(options = {}) {
         { barcode: product.barcode, proposedPrice: 320, action: "FIYAT_DUSUR" },
       ],
       generate: async () => ({ created: 1 }),
+      ensureSupportedMarketplace: (marketplace) => marketplace,
     },
     actions: {
       list: async () => [action],
@@ -82,6 +88,9 @@ function container(options = {}) {
       reject: async () => ({ ...action, status: "REJECTED" }),
       apply: async () => ({ ...action, status: "DRY_RUN" }),
     },
+    hepsiburadaActionService: {
+      apply: async () => ({ ...action, status: "AWAITING_RESULT" }),
+    },
     jobs: {},
     jobService: {
       run: async (name) => {
@@ -95,6 +104,7 @@ function container(options = {}) {
     },
     sync: { health: async () => ({}) },
     learning: { checkOutcomes: async () => ({ processed: 1 }) },
+    hepsiburadaLearning: { checkOutcomes: async () => ({ processed: 1 }) },
   };
 }
 test("login HttpOnly session verir ve me endpointi calisir", async () => {
@@ -222,6 +232,22 @@ test("bekleyen fiyat aksiyonu panelden duzenlenip onaylanabilir", async () => {
       assert.equal(res.body.data.status, "APPROVED");
       assert.equal(res.body.data.proposed_price, 320);
     });
+});
+
+test("HB aksiyon apply endpointi HB executorunu kullanir", async () => {
+  const app = createApp(container({ marketplace: "HEPSIBURADA" }));
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "password-12345" });
+  await request(app)
+    .post("/api/actions/1/apply")
+    .set({
+      Cookie: login.headers["set-cookie"],
+      "X-CSRF-Token": login.body.csrfToken,
+    })
+    .send({})
+    .expect(200)
+    .expect((res) => assert.equal(res.body.data.status, "AWAITING_RESULT"));
 });
 test("login-dashboard-urun-maliyet-repricer-dry-run-log akisi", async () => {
   const app = createApp(container());

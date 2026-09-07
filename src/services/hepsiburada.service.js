@@ -659,6 +659,20 @@ class HepsiburadaService {
     return env.hepsiburadaPriceUpdatesEnabled === true;
   }
 
+  livePriceUpdatesEnabled() {
+    return this.mutationsEnabled() && this.priceUpdatesEnabled();
+  }
+
+  assertLivePriceUpdateAllowed() {
+    if (this.livePriceUpdatesEnabled()) return;
+    const error = new Error(
+      "Hepsiburada fiyat güncellemesi için iki mutasyon anahtarı da açık olmalı",
+    );
+    error.status = 409;
+    error.code = "HEPSIBURADA_PRICE_MUTATION_DISABLED";
+    throw error;
+  }
+
   sitTestReady() {
     return (
       this.environment === "sit" &&
@@ -1532,6 +1546,15 @@ class HepsiburadaService {
   }
 
   async postListingUpload(kind, rows) {
+    if (this.environment === "production") {
+      if (kind === "price") this.assertLivePriceUpdateAllowed();
+      else if (!this.mutationsEnabled()) {
+        const error = new Error("Hepsiburada mutasyon anahtarı kapalı");
+        error.status = 409;
+        error.code = "HEPSIBURADA_MUTATIONS_DISABLED";
+        throw error;
+      }
+    }
     const path =
       kind === "price"
         ? "price-uploads"
@@ -1558,6 +1581,52 @@ class HepsiburadaService {
         env.hepsiburadaMerchantId,
       )}/${path}/id/${encodeURIComponent(String(id))}`,
     );
+  }
+
+  async submitPriceUpdate({ merchantSku, hbSku, price }) {
+    this.assertLivePriceUpdateAllowed();
+    const normalizedMerchantSku = String(merchantSku || "").trim();
+    const normalizedHbSku = String(hbSku || "").trim();
+    const normalizedPrice = Number(price);
+    if (
+      !normalizedMerchantSku ||
+      !normalizedHbSku ||
+      !Number.isFinite(normalizedPrice) ||
+      normalizedPrice <= 0
+    ) {
+      const error = new Error(
+        "Hepsiburada fiyat güncellemesi için MerchantSKU, HBSKU ve pozitif fiyat gerekli",
+      );
+      error.status = 400;
+      error.code = "HEPSIBURADA_PRICE_UPDATE_INVALID";
+      throw error;
+    }
+    const response = await this.postListingUpload("price", [
+      {
+        hepsiburadaSku: normalizedHbSku,
+        merchantSku: normalizedMerchantSku,
+        price: normalizedPrice,
+      },
+    ]);
+    const uploadId = responseId(response);
+    if (!uploadId) {
+      const error = new Error(
+        "Hepsiburada fiyat yükleme isteği takip numarası döndürmedi",
+      );
+      error.status = 502;
+      error.code = "MARKET_BATCH_ID_MISSING";
+      throw error;
+    }
+    return { uploadId: String(uploadId), response };
+  }
+
+  async readListingForPrice({ merchantSku, hbSku }) {
+    const payload = await this.listListingsFiltered({
+      merchantSkuList: String(merchantSku || "").trim() || undefined,
+      hbSkuList: String(hbSku || "").trim() || undefined,
+      limit: 10,
+    });
+    return normalizeRows(payload)[0] || null;
   }
 
   async waitListingUploadStatus(
@@ -2029,21 +2098,17 @@ class HepsiburadaService {
   }
 
   async updatePriceAndInventory({ sku, price, stock }) {
-    if (!this.priceUpdatesEnabled())
-      return {
-        dryRun: true,
-        code: "HEPSIBURADA_PRICE_UPDATES_DISABLED",
-        message: "Hepsiburada fiyat güncelleme anahtarı kapalı",
-      };
-    const body = {};
-    if (price != null) body.price = Number(price);
-    if (stock != null) body.availableStock = Number(stock);
-    return this.request(
-      `${this.listingBaseUrl}/listings/merchantid/${encodeURIComponent(
-        env.hepsiburadaMerchantId,
-      )}/sku/${encodeURIComponent(String(sku))}`,
-      { method: "PUT", body: JSON.stringify(body) },
+    const error = new Error(
+      "Hepsiburada fiyatları yalnız repricer executor üzerinden async price-uploads akışıyla güncellenebilir",
     );
+    error.status = 409;
+    error.code = "HEPSIBURADA_REPRICER_EXECUTOR_REQUIRED";
+    error.details = {
+      sku: Boolean(sku),
+      price: price != null,
+      stock: stock != null,
+    };
+    throw error;
   }
 
   async fetchAllListings({ pageSize = 100, maxPages = 200 } = {}) {

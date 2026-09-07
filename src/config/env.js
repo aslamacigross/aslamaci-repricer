@@ -133,10 +133,6 @@ function validateEnv() {
     errors.push("OPPORTUNITY_AUTO_PUBLISH_ENABLED false kalmali");
   if (!["sit", "test", "production", "prod"].includes(env.hepsiburadaEnv))
     errors.push("HEPSIBURADA_ENV sit veya production olmali");
-  if (env.hepsiburadaMutationsEnabled)
-    errors.push("HEPSIBURADA_MUTATIONS_ENABLED false kalmali");
-  if (env.hepsiburadaPriceUpdatesEnabled)
-    errors.push("HEPSIBURADA_PRICE_UPDATES_ENABLED false kalmali");
   if (errors.length)
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
 }

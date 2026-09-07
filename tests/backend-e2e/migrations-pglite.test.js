@@ -12,11 +12,8 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 38);
-    assert.equal(
-      initial.rows.at(-1).version,
-      "038_hepsiburada_seller_portal_metadata",
-    );
+    assert.equal(initial.rowCount, 39);
+    assert.equal(initial.rows.at(-1).version, "039_hepsiburada_live_repricer");
 
     const columnsAfterUp = await db.query(`
       SELECT column_name
@@ -66,6 +63,31 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     );
     assert.equal(buyboxCollectorJobAfterUp.rowCount, 1);
     assert.equal(buyboxCollectorJobAfterUp.rows[0].enabled, false);
+
+    const hbRepricerJobs = await db.query(
+      `SELECT name,enabled FROM jobs
+       WHERE name IN(
+         'run-auto-hepsiburada-repricer',
+         'check-hepsiburada-action-outcomes-5m',
+         'check-hepsiburada-action-outcomes-15m',
+         'check-hepsiburada-action-outcomes-60m'
+       ) ORDER BY name`,
+    );
+    assert.equal(hbRepricerJobs.rowCount, 4);
+    assert.equal(
+      hbRepricerJobs.rows.every((row) => row.enabled === false),
+      true,
+    );
+
+    await migrate("down", db);
+    const afterHbLiveRepricerDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(afterHbLiveRepricerDown.rowCount, 38);
+    assert.equal(
+      afterHbLiveRepricerDown.rows.at(-1).version,
+      "038_hepsiburada_seller_portal_metadata",
+    );
 
     await migrate("down", db);
     const afterSellerPortalMetadataDown = await db.query(
@@ -151,10 +173,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 38);
+    assert.equal(afterRoundTrip.rowCount, 39);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "038_hepsiburada_seller_portal_metadata",
+      "039_hepsiburada_live_repricer",
     );
     const tariffRowsAfterRoundTrip = await db.query(`
       SELECT

@@ -27,6 +27,7 @@ test("outcome pencereleri bigint aksiyon kimliği ve integer süre ile sorgulan�
       String(elapsedMinutes),
       elapsedMinutes,
       actionId,
+      null,
     ]);
   }
 });
