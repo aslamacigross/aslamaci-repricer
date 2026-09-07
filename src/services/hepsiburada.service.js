@@ -1621,12 +1621,34 @@ class HepsiburadaService {
   }
 
   async readListingForPrice({ merchantSku, hbSku }) {
+    const normalizedHbSku = String(hbSku || "").trim();
+    const normalizedMerchantSku = String(merchantSku || "").trim();
     const payload = await this.listListingsFiltered({
-      merchantSkuList: String(merchantSku || "").trim() || undefined,
-      hbSkuList: String(hbSku || "").trim() || undefined,
+      ...(normalizedHbSku
+        ? { hbSkuList: normalizedHbSku }
+        : { merchantSkuList: normalizedMerchantSku || undefined }),
       limit: 10,
     });
-    return normalizeRows(payload)[0] || null;
+    const rows = normalizeRows(payload);
+    if (normalizedHbSku)
+      return (
+        rows.find(
+          (row) =>
+            String(
+              row?.hbSku ||
+                row?.hepsiburadaSku ||
+                firstMatchedInfo(row)?.hbSku ||
+                "",
+            ).trim() === normalizedHbSku,
+        ) || null
+      );
+    return (
+      rows.find(
+        (row) =>
+          String(row?.merchantSku || row?.merchantSKU || "").trim() ===
+          normalizedMerchantSku,
+      ) || null
+    );
   }
 
   async waitListingUploadStatus(
