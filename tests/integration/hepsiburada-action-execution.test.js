@@ -169,6 +169,40 @@ test("HB stale fiyat ve acik aksiyon marketplace yazimini engeller", async () =>
   assert.equal(duplicate.submissions(), 0);
 });
 
+test("ayni HB aksiyonu eszamanli olarak iki kez gonderilemez", async () => {
+  let releaseSubmission;
+  let submissions = 0;
+  const state = serviceFixture({
+    hepsiburada: {
+      submitPriceUpdate: async () => {
+        submissions++;
+        await new Promise((resolve) => {
+          releaseSubmission = resolve;
+        });
+        return { uploadId: "hb-upload-81", response: { id: "hb-upload-81" } };
+      },
+    },
+  });
+  state.service.actions.updateStatus = async (id, status, fields = {}) => {
+    state.action.status = status;
+    state.action.batch_id = fields.batchId || state.action.batch_id;
+    state.statuses.push(status);
+    return { ...state.action };
+  };
+
+  const first = state.service.apply(81, "system");
+  while (!releaseSubmission)
+    await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(
+    state.service.apply(81, "system"),
+    (error) => error.code === "DUPLICATE_APPLY",
+  );
+  assert.equal(submissions, 1);
+  releaseSubmission();
+  await first;
+  assert.equal(submissions, 1);
+});
+
 test("HB Listing API fiyat uyusmazligi aksiyonu STALE yapar", async () => {
   const { service, statuses, submissions } = serviceFixture({
     hepsiburada: {
@@ -222,12 +256,9 @@ test("HB executor minimum fiyat guvenligini Trendyol semantigiyle uygular", asyn
   const { service, submissions } = serviceFixture({
     action: { proposed_price: 700 },
   });
-  await assert.rejects(
-    service.apply(81, "system"),
-    {
-      code: "SAFETY_BLOCKED",
-      message: /BELOW_MIN_PRICE/,
-    },
-  );
+  await assert.rejects(service.apply(81, "system"), {
+    code: "SAFETY_BLOCKED",
+    message: /BELOW_MIN_PRICE/,
+  });
   assert.equal(submissions(), 0);
 });

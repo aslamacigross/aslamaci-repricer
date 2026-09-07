@@ -7,6 +7,10 @@ const LIVE_REFRESH_JOBS = [
   "sync-buybox",
   "dashboard-cache-refresh",
 ];
+const HEPSIBURADA_LIVE_REFRESH_JOBS = [
+  "sync-hepsiburada-products",
+  "sync-hepsiburada-buybox",
+];
 
 function formatJobRun(run) {
   return {
@@ -125,14 +129,16 @@ function dashboardRoutes({ dashboard, jobService, audit, repricer, actions }) {
     asyncRoute(async (req, res) => {
       const selectedMarketplace = marketplace(req.body.marketplace);
       const runs = [];
-      if (selectedMarketplace === "TRENDYOL") {
-        for (const name of LIVE_REFRESH_JOBS) {
-          const run = await jobService.run(name, {
-            source: "dashboard-live-refresh",
-            actor: req.user.username,
-          });
-          runs.push({ ...formatJobRun(run), job_name: run.job_name || name });
-        }
+      const refreshJobs =
+        selectedMarketplace === "TRENDYOL"
+          ? LIVE_REFRESH_JOBS
+          : HEPSIBURADA_LIVE_REFRESH_JOBS;
+      for (const name of refreshJobs) {
+        const run = await jobService.run(name, {
+          source: "dashboard-live-refresh",
+          actor: req.user.username,
+        });
+        runs.push({ ...formatJobRun(run), job_name: run.job_name || name });
       }
       const data = await dashboard.get({
         fresh: true,

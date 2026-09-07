@@ -239,6 +239,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function parseRetryAfterMs(value, now = Date.now()) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const seconds = Number(text);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const retryAt = Date.parse(text);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : null;
+}
+
 function htmlDecode(value) {
   return String(value || "")
     .replace(/&quot;/g, '"')
@@ -977,6 +986,12 @@ class HepsiburadaService {
           `Hepsiburada HTTP ${response.status}: ${body.slice(0, 500)}${safeHint}`,
         );
         error.status = response.status;
+        if (response.status === 429) {
+          error.code = "HTTP_429";
+          error.retryAfterMs = parseRetryAfterMs(
+            response.headers?.get?.("retry-after"),
+          );
+        }
         throw error;
       }
       return body ? JSON.parse(body) : {};
@@ -2281,9 +2296,8 @@ function normalizeBuyboxOrders(payload) {
           variant.merchantSku ||
           "",
       ).trim();
-      const orders = (Array.isArray(variant.buyboxOrders)
-        ? variant.buyboxOrders
-        : []
+      const orders = (
+        Array.isArray(variant.buyboxOrders) ? variant.buyboxOrders : []
       )
         .map((order, index) => {
           const rank = Number(order.rank ?? order.order ?? order.position);
@@ -2318,6 +2332,7 @@ function normalizeBuyboxOrders(payload) {
 
 module.exports = {
   HepsiburadaService,
+  parseRetryAfterMs,
   DEFAULT_ENDPOINTS,
   SIT_TEST_GUIDES,
   normalizedEnvironment,

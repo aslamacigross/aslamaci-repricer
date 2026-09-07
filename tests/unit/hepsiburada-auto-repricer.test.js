@@ -4,7 +4,11 @@ const {
   HepsiburadaAutoRepricerService,
 } = require("../../src/services/hepsiburada-auto-repricer.service");
 
-function fixture({ gatesOpen = true } = {}) {
+function fixture({
+  gatesOpen = true,
+  actions: generatedActions,
+  ...options
+} = {}) {
   const applied = [];
   const approved = [];
   const requestedMarketplaces = [];
@@ -21,6 +25,7 @@ function fixture({ gatesOpen = true } = {}) {
     barcode: "TY1",
     status: "PENDING",
   };
+  const actionItems = generatedActions || [hbAction, trendyolAction];
   const service = new HepsiburadaAutoRepricerService({
     repricer: {
       globalSettings: async () => ({ dryRun: false, repricerEnabled: true }),
@@ -30,7 +35,7 @@ function fixture({ gatesOpen = true } = {}) {
           processed: 2,
           created: 1,
           skipped: 0,
-          items: [hbAction, trendyolAction],
+          items: actionItems,
         };
       },
     },
@@ -58,6 +63,10 @@ function fixture({ gatesOpen = true } = {}) {
       verifyPendingActions: async () => ({ processed: 0 }),
     },
     hepsiburada: { livePriceUpdatesEnabled: () => gatesOpen },
+    sleep: options.sleep,
+    now: options.now,
+    submissionIntervalMs: options.submissionIntervalMs,
+    rateLimitCooldownMs: options.rateLimitCooldownMs,
   });
   return {
     service,
@@ -65,6 +74,7 @@ function fixture({ gatesOpen = true } = {}) {
     approved,
     requestedMarketplaces,
     generatedInputs,
+    hbAction,
   };
 }
 
@@ -88,4 +98,80 @@ test("HB otomatik job mutasyon kapilari kapaliyken action uygulamaz", async () =
   assert.deepEqual(state.approved, []);
   assert.deepEqual(state.applied, []);
   assert.deepEqual(state.requestedMarketplaces, []);
+});
+
+test("HB otomatik job uygulama baslangiclarini pazar yeri hizinda araliklar", async () => {
+  let now = 1000;
+  const waits = [];
+  const actions = [1, 2, 3].map((id) => ({
+    id,
+    marketplace: "HEPSIBURADA",
+    barcode: `HB${id}`,
+    status: "PENDING",
+  }));
+  const state = fixture({
+    actions,
+    submissionIntervalMs: 2000,
+    now: () => now,
+    sleep: async (ms) => {
+      waits.push(ms);
+      now += ms;
+    },
+  });
+  const result = await state.service.run();
+  assert.deepEqual(state.applied, [1, 2, 3]);
+  assert.deepEqual(waits, [2000, 2000]);
+  assert.equal(result.metadata.attempted, 3);
+  assert.equal(result.metadata.pacingWaitMs, 4000);
+});
+
+test("HB otomatik job eszamanli ikinci kosuyu atlar", async () => {
+  let release;
+  const state = fixture();
+  state.service.hepsiburadaActionService.apply = async (id) => {
+    state.applied.push(id);
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+  };
+  const first = state.service.run();
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  const overlapping = await state.service.run();
+  assert.equal(overlapping.metadata.overlapSkipped, true);
+  assert.deepEqual(state.applied, [1]);
+  release();
+  await first;
+});
+
+test("HB otomatik job ilk 429 sonrasinda kalan aksiyonlari gondermez", async () => {
+  let now = 1000;
+  const actions = [1, 2, 3].map((id) => ({
+    id,
+    marketplace: "HEPSIBURADA",
+    barcode: `HB${id}`,
+    status: "PENDING",
+  }));
+  const state = fixture({
+    actions,
+    submissionIntervalMs: 0,
+    rateLimitCooldownMs: 600000,
+    now: () => now,
+  });
+  state.service.hepsiburadaActionService.apply = async (id) => {
+    state.applied.push(id);
+    const error = new Error("rate limited");
+    error.status = 429;
+    error.code = "HTTP_429";
+    error.retryAfterMs = 90000;
+    throw error;
+  };
+  const result = await state.service.run();
+  assert.deepEqual(state.applied, [1]);
+  assert.equal(result.failed, 1);
+  assert.equal(result.metadata.rateLimited, true);
+  assert.equal(result.metadata.retryAfterMs, 90000);
+  now += 1000;
+  const cooldown = await state.service.run();
+  assert.equal(cooldown.metadata.rateLimitCooldown, true);
+  assert.equal(cooldown.metadata.cooldownRemainingMs, 89000);
 });

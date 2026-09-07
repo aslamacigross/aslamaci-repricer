@@ -201,6 +201,26 @@ test("dashboard canlı yenileme güvenli veri joblarını sırayla çalıştır�
       assert.equal(res.body.data.dashboard.kpis.total_products, 1);
     });
 });
+test("Hepsiburada canlı yenileme yalnız mevcut HB veri joblarını çalıştırır", async () => {
+  const app = createApp(container());
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "password-12345" });
+  await request(app)
+    .post("/api/dashboard/live-refresh")
+    .set({
+      Cookie: login.headers["set-cookie"],
+      "X-CSRF-Token": login.body.csrfToken,
+    })
+    .send({ marketplace: "HEPSIBURADA" })
+    .expect(200)
+    .expect((res) => {
+      assert.deepEqual(
+        res.body.data.runs.map((run) => run.job_name),
+        ["sync-hepsiburada-products", "sync-hepsiburada-buybox"],
+      );
+    });
+});
 test("dashboard metrik detayi drawer icin kayit dondurur", async () => {
   const app = createApp(container());
   const login = await request(app)
