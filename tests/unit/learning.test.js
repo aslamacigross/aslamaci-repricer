@@ -145,6 +145,30 @@ test("batch ve pazar fiyati dogrulanmadan aksiyon uygulanmis sayilmaz", async ()
   assert.equal(confirmed.result.marketProduct.salePrice, 312.28);
 });
 
+test("verification ve outcome sorgulari marketplace ile izole edilir", async () => {
+  const calls = [];
+  const service = new LearningService({
+    marketplace: "HEPSIBURADA",
+    actions: {
+      pendingVerifications: async (...args) => {
+        calls.push(["verification", ...args]);
+        return [];
+      },
+      pendingOutcomes: async (...args) => {
+        calls.push(["outcome", ...args]);
+        return [];
+      },
+      confirmApplied: async () => {},
+    },
+    sync: { verifyPriceAction: async () => ({ status: "PENDING" }) },
+  });
+  await service.checkOutcomes(5);
+  assert.deepEqual(calls, [
+    ["verification", 200, null, "HEPSIBURADA"],
+    ["outcome", 5, null, "HEPSIBURADA"],
+  ]);
+});
+
 test("ogrenme merkezi basarili en kucuk adimi aciklar", () => {
   assert.match(
     nextLearningRecommendation({

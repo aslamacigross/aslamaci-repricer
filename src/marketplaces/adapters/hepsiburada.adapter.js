@@ -12,10 +12,8 @@ class HepsiburadaAdapter extends MarketplaceAdapter {
         supportsFinancialTransactions: false,
         supportsPriceUpdate:
           service?.configured?.() === true &&
-          service?.priceUpdatesEnabled?.() === true,
-        supportsInventoryUpdate:
-          service?.configured?.() === true &&
-          service?.priceUpdatesEnabled?.() === true,
+          service?.livePriceUpdatesEnabled?.() === true,
+        supportsInventoryUpdate: false,
         supportsExistingCatalogOfferCreate: false,
         supportsNewProductCreate: false,
       },

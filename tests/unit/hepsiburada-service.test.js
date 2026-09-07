@@ -225,7 +225,10 @@ describe("Hepsiburada API runtime configuration", () => {
         environment: "sit",
         fetch: async (url, options) => {
           request = { url, options };
-          return { ok: true, text: async () => JSON.stringify({ variants: [] }) };
+          return {
+            ok: true,
+            text: async () => JSON.stringify({ variants: [] }),
+          };
         },
       });
       await service.getBuyboxOrders({
@@ -1376,5 +1379,82 @@ describe("Hepsiburada API runtime configuration", () => {
     } finally {
       Object.assign(env, previous);
     }
+  });
+
+  test("production fiyat uploadu iki HB mutasyon anahtarini birlikte ister", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+      hepsiburadaMutationsEnabled: env.hepsiburadaMutationsEnabled,
+      hepsiburadaPriceUpdatesEnabled: env.hepsiburadaPriceUpdatesEnabled,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url, options) => {
+          requests.push({ url, options });
+          return {
+            ok: true,
+            text: async () => JSON.stringify({ id: "price-upload-1" }),
+          };
+        },
+      });
+      for (const [mutationsEnabled, priceUpdatesEnabled] of [
+        [false, false],
+        [true, false],
+        [false, true],
+      ]) {
+        Object.assign(env, {
+          hepsiburadaMutationsEnabled: mutationsEnabled,
+          hepsiburadaPriceUpdatesEnabled: priceUpdatesEnabled,
+        });
+        await assert.rejects(
+          service.submitPriceUpdate({
+            merchantSku: "MSKU1",
+            hbSku: "HBCV1",
+            price: 123.45,
+          }),
+          (error) => error.code === "HEPSIBURADA_PRICE_MUTATION_DISABLED",
+        );
+      }
+      assert.equal(requests.length, 0);
+
+      Object.assign(env, {
+        hepsiburadaMutationsEnabled: true,
+        hepsiburadaPriceUpdatesEnabled: true,
+      });
+      const result = await service.submitPriceUpdate({
+        merchantSku: "MSKU1",
+        hbSku: "HBCV1",
+        price: 123.45,
+      });
+      assert.equal(result.uploadId, "price-upload-1");
+      assert.equal(requests.length, 1);
+      assert.match(String(requests[0].url), /price-uploads$/);
+      assert.deepEqual(JSON.parse(requests[0].options.body), [
+        {
+          hepsiburadaSku: "HBCV1",
+          merchantSku: "MSKU1",
+          price: 123.45,
+        },
+      ]);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
+  test("eski dogrudan HB fiyat-stok metodu marketplace yazimini reddeder", async () => {
+    const service = new HepsiburadaService({ environment: "production" });
+    await assert.rejects(
+      service.updatePriceAndInventory({ sku: "HBCV1", price: 100 }),
+      (error) => error.code === "HEPSIBURADA_REPRICER_EXECUTOR_REQUIRED",
+    );
   });
 });

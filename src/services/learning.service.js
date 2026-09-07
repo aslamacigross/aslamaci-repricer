@@ -1,8 +1,9 @@
 class LearningService {
-  constructor({ actions, sync, audit }) {
+  constructor({ actions, sync, audit, marketplace = "TRENDYOL" }) {
     this.actions = actions;
     this.sync = sync;
     this.audit = audit;
+    this.marketplace = String(marketplace).toUpperCase();
   }
 
   async verifyPendingActions(actionId = null) {
@@ -12,7 +13,11 @@ class LearningService {
       !this.actions.confirmApplied
     )
       return { processed: 0, verified: 0, failed: 0, pending: 0, errors: 0 };
-    const actions = await this.actions.pendingVerifications(200, actionId);
+    const actions = await this.actions.pendingVerifications(
+      200,
+      actionId,
+      this.marketplace,
+    );
     const summary = {
       processed: actions.length,
       verified: 0,
@@ -45,10 +50,12 @@ class LearningService {
         const verificationTimedOut =
           ["PENDING", "MISMATCH"].includes(result.status) && ageMinutes >= 60;
         if (result.status === "FAILED" || verificationTimedOut) {
+          const marketplaceLabel =
+            this.marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
           await this.actions.markVerificationFailed(
             action.id,
             result.error ||
-              "Trendyol fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı",
+              `${marketplaceLabel} fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı`,
             result.batchResponse,
           );
           await this.audit?.record?.({
@@ -69,7 +76,7 @@ class LearningService {
       } catch (error) {
         summary.errors++;
         await this.audit?.integration?.({
-          integration: "TRENDYOL",
+          integration: this.marketplace,
           level: "ERROR",
           operation: "PRICE_ACTION_VERIFICATION",
           message: error.message,
@@ -82,7 +89,11 @@ class LearningService {
 
   async checkOutcomes(elapsedMinutes, actionId = null) {
     const verification = await this.verifyPendingActions(actionId);
-    let pending = await this.actions.pendingOutcomes(elapsedMinutes, actionId);
+    let pending = await this.actions.pendingOutcomes(
+      elapsedMinutes,
+      actionId,
+      this.marketplace,
+    );
     let refreshFailures = 0;
     if (pending.length && this.sync) {
       try {
@@ -92,13 +103,17 @@ class LearningService {
         const updated = new Set(refresh.updatedBarcodes || []);
         refreshFailures = Number(refresh.failed || 0);
         pending = (
-          await this.actions.pendingOutcomes(elapsedMinutes, actionId)
+          await this.actions.pendingOutcomes(
+            elapsedMinutes,
+            actionId,
+            this.marketplace,
+          )
         ).filter((action) => updated.has(action.barcode));
       } catch (error) {
         refreshFailures = pending.length;
         pending = [];
         await this.audit?.integration?.({
-          integration: "TRENDYOL",
+          integration: this.marketplace,
           level: "WARN",
           operation: "PRICE_ACTION_OUTCOME_BUYBOX_REFRESH",
           message: error.message,

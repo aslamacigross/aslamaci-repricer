@@ -61,6 +61,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "036_bizim_price_tier_job",
       "037_hepsiburada_buybox_public_collectors",
       "038_hepsiburada_seller_portal_metadata",
+      "039_hepsiburada_live_repricer",
     ],
   );
   const safety = await db.query(
@@ -308,6 +309,17 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       )VALUES('TRENDYOL','INVALID',100)`,
     ),
   );
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedHepsiburadaLiveRepricerJobs = await db.query(
+    `SELECT name FROM jobs
+     WHERE name IN(
+       'run-auto-hepsiburada-repricer',
+       'check-hepsiburada-action-outcomes-5m',
+       'check-hepsiburada-action-outcomes-15m',
+       'check-hepsiburada-action-outcomes-60m'
+     )`,
+  );
+  assert.equal(removedHepsiburadaLiveRepricerJobs.rowCount, 0);
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedSellerPortalMetadataTables = await db.query(
     `SELECT table_name FROM information_schema.tables

@@ -4,8 +4,10 @@ function repricerRoutes({
   repricer,
   actions,
   actionService,
+  hepsiburadaActionService,
   jobService,
   learning,
+  hepsiburadaLearning,
   audit,
 }) {
   const r = express.Router();
@@ -79,10 +81,17 @@ function repricerRoutes({
   r.post(
     "/repricer/run-auto",
     asyncRoute(async (req, res) => {
-      repricer.ensureSupportedMarketplace(marketplace(req));
+      const selectedMarketplace = repricer.ensureSupportedMarketplace(
+        marketplace(req),
+      );
       res.json({
         status: "ok",
-        data: await jobService.run("run-auto-repricer", { source: "web" }),
+        data: await jobService.run(
+          selectedMarketplace === "HEPSIBURADA"
+            ? "run-auto-hepsiburada-repricer"
+            : "run-auto-repricer",
+          { source: "web" },
+        ),
       });
     }),
   );
@@ -146,12 +155,18 @@ function repricerRoutes({
   );
   r.post(
     "/actions/:id/apply",
-    asyncRoute(async (req, res) =>
+    asyncRoute(async (req, res) => {
+      const action = await actions.get(req.params.id);
+      if (!action) throw new AppError("Aksiyon bulunamadı", 404);
+      const executor =
+        action.marketplace === "HEPSIBURADA"
+          ? hepsiburadaActionService
+          : actionService;
       res.json({
         status: "ok",
-        data: await actionService.apply(req.params.id, req.user.username),
-      }),
-    ),
+        data: await executor.apply(req.params.id, req.user.username),
+      });
+    }),
   );
   r.post(
     "/actions/:id/revert",
@@ -170,9 +185,11 @@ function repricerRoutes({
     asyncRoute(async (req, res) => {
       const action = await actions.get(req.params.id);
       if (!action) throw new AppError("Aksiyon bulunamadı", 404);
+      const selectedLearning =
+        action.marketplace === "HEPSIBURADA" ? hepsiburadaLearning : learning;
       res.json({
         status: "ok",
-        data: await learning.checkOutcomes(
+        data: await selectedLearning.checkOutcomes(
           Number(req.body.elapsedMinutes) || 5,
           req.params.id,
         ),

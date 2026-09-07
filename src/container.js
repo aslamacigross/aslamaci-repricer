@@ -7,6 +7,12 @@ const { SyncService } = require("./services/sync.service");
 const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
 const { ActionService } = require("./services/action.service");
+const {
+  HepsiburadaActionService,
+} = require("./services/hepsiburada-action.service");
+const {
+  HepsiburadaAutoRepricerService,
+} = require("./services/hepsiburada-auto-repricer.service");
 const { LearningService } = require("./services/learning.service");
 const { JobService, safeItemError } = require("./services/job.service");
 const { MaintenanceService } = require("./services/maintenance.service");
@@ -134,8 +140,41 @@ function createContainer(overrides = {}) {
       audit,
       repricer,
     });
+  const hepsiburadaActionService =
+    overrides.hepsiburadaActionService ||
+    new HepsiburadaActionService({
+      withTransaction: transaction,
+      actions,
+      products,
+      hepsiburada,
+      audit,
+      repricer,
+    });
   const learning =
     overrides.learning || new LearningService({ actions, sync, audit });
+  const hepsiburadaLearning =
+    overrides.hepsiburadaLearning ||
+    new LearningService({
+      actions,
+      sync: {
+        verifyPriceAction: (action) =>
+          hepsiburadaActionService.verifyPriceAction(action),
+        buybox: (barcodes) => sync.hepsiburadaBuybox(barcodes),
+      },
+      audit,
+      marketplace: "HEPSIBURADA",
+    });
+  const hepsiburadaAutoRepricer =
+    overrides.hepsiburadaAutoRepricer ||
+    new HepsiburadaAutoRepricerService({
+      repricer,
+      actions,
+      products,
+      actionService,
+      hepsiburadaActionService,
+      hepsiburadaLearning,
+      hepsiburada,
+    });
   const maintenance = new MaintenanceService(db, env.logRetentionDays);
   const jobService =
     overrides.jobService || new JobService({ db, repository: jobs });
@@ -345,6 +384,9 @@ function createContainer(overrides = {}) {
       },
     };
   });
+  jobService.register("run-auto-hepsiburada-repricer", () =>
+    hepsiburadaAutoRepricer.run(),
+  );
   jobService.register("check-action-outcomes-5m", () =>
     learning.checkOutcomes(5),
   );
@@ -353,6 +395,15 @@ function createContainer(overrides = {}) {
   );
   jobService.register("check-action-outcomes-60m", () =>
     learning.checkOutcomes(60),
+  );
+  jobService.register("check-hepsiburada-action-outcomes-5m", () =>
+    hepsiburadaLearning.checkOutcomes(5),
+  );
+  jobService.register("check-hepsiburada-action-outcomes-15m", () =>
+    hepsiburadaLearning.checkOutcomes(15),
+  );
+  jobService.register("check-hepsiburada-action-outcomes-60m", () =>
+    hepsiburadaLearning.checkOutcomes(60),
   );
   jobService.register("cleanup-old-logs", async () => {
     const current = await settings.getAll();
@@ -493,7 +544,10 @@ function createContainer(overrides = {}) {
     sync,
     repricer,
     actionService,
+    hepsiburadaActionService,
+    hepsiburadaAutoRepricer,
     learning,
+    hepsiburadaLearning,
     jobService,
   };
 }
