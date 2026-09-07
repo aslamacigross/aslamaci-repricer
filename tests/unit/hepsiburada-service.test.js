@@ -1450,6 +1450,60 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
+  test("fiyat preflighti exact HBSKU ile tek read-only Listing filtresi kullanir", async () => {
+    const previous = {
+      hepsiburadaMerchantId: env.hepsiburadaMerchantId,
+      hepsiburadaPassword: env.hepsiburadaPassword,
+      hepsiburadaUserAgent: env.hepsiburadaUserAgent,
+    };
+    const requests = [];
+    Object.assign(env, {
+      hepsiburadaMerchantId: "merchant-id",
+      hepsiburadaPassword: "secret-key",
+      hepsiburadaUserAgent: "aslamacigross_dev",
+    });
+    try {
+      const service = new HepsiburadaService({
+        environment: "production",
+        fetch: async (url, options = {}) => {
+          requests.push({ url, options });
+          return {
+            ok: true,
+            text: async () =>
+              JSON.stringify({
+                listings: [
+                  {
+                    hbSku: "HBCV-WRONG",
+                    merchantSku: "MSKU-CANARY",
+                    price: 999,
+                  },
+                  {
+                    hbSku: "HBCV-CANARY",
+                    merchantSku: "MSKU-CANARY",
+                    price: 583.1,
+                  },
+                ],
+              }),
+          };
+        },
+      });
+      const listing = await service.readListingForPrice({
+        hbSku: "HBCV-CANARY",
+        merchantSku: "MSKU-CANARY",
+      });
+      assert.equal(listing.hbSku, "HBCV-CANARY");
+      assert.equal(listing.price, 583.1);
+      assert.equal(requests.length, 1);
+      const requestUrl = new URL(requests[0].url);
+      assert.equal(requestUrl.searchParams.get("hbSkuList"), "HBCV-CANARY");
+      assert.equal(requestUrl.searchParams.has("merchantSkuList"), false);
+      assert.equal(requests[0].options.method, undefined);
+      assert.equal(requests[0].options.body, undefined);
+    } finally {
+      Object.assign(env, previous);
+    }
+  });
+
   test("eski dogrudan HB fiyat-stok metodu marketplace yazimini reddeder", async () => {
     const service = new HepsiburadaService({ environment: "production" });
     await assert.rejects(
