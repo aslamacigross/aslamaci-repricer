@@ -1450,6 +1450,25 @@ describe("Hepsiburada API runtime configuration", () => {
     }
   });
 
+  test("HB 429 cevabi Retry-After bilgisini executor icin korur", async () => {
+    const service = new HepsiburadaService({
+      environment: "production",
+      fetch: async () => ({
+        ok: false,
+        status: 429,
+        headers: { get: (name) => (name === "retry-after" ? "90" : null) },
+        text: async () => '{"code":"1144"}',
+      }),
+    });
+    await assert.rejects(
+      service.request("https://listing-external.hepsiburada.com/test"),
+      (error) =>
+        error.code === "HTTP_429" &&
+        error.status === 429 &&
+        error.retryAfterMs === 90000,
+    );
+  });
+
   test("fiyat preflighti exact HBSKU ile tek read-only Listing filtresi kullanir", async () => {
     const previous = {
       hepsiburadaMerchantId: env.hepsiburadaMerchantId,
