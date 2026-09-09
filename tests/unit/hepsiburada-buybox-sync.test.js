@@ -199,6 +199,78 @@ describe("Hepsiburada official buybox sync", () => {
     assert.equal(String(observation.sql).includes("$13"), false);
   });
 
+  test("verified Hepsiburada seller alias ranks as own merchant", async () => {
+    const { sync, calls } = syncWith({
+      products: [
+        {
+          barcode: "SKU1",
+          hb_sku: "HBV1",
+          merchant_sku: "SKU1",
+          product_name: "HB Ürün",
+          my_price: 100,
+          min_price: 80,
+        },
+      ],
+      getBuyboxOrders: async ({ skuList }) => ({
+        variants: [
+          {
+            sku: skuList[0],
+            buyboxOrders: [
+              { rank: 1, merchantName: "Aşlamacı Bakliyat", price: 95 },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const result = await sync.hepsiburadaBuybox(["SKU1"], {
+      limit: 1,
+      batchSize: 1,
+    });
+
+    assert.equal(result.successful, 1);
+    const update = calls.find((call) =>
+      String(call.sql || "").includes("buybox_seller=$8"),
+    );
+    assert.ok(update);
+    assert.equal(update.params[3], 1);
+    assert.equal(update.params[7], "Aşlamacı Bakliyat");
+  });
+
+  test("unrelated and blank Hepsiburada seller names do not fabricate rank", async () => {
+    const { sync, calls } = syncWith({
+      products: [
+        product(1, { barcode: "SKU1", hb_sku: "HBV1" }),
+        product(2, { barcode: "SKU2", hb_sku: "HBV2" }),
+      ],
+      getBuyboxOrders: async ({ skuList }) => ({
+        variants: skuList.map((sku) => ({
+          sku,
+          buyboxOrders: [
+            {
+              rank: 1,
+              merchantName: sku === "HBV1" ? "Rakip Market" : "",
+              price: 95,
+            },
+          ],
+        })),
+      }),
+    });
+
+    const result = await sync.hepsiburadaBuybox(["SKU1", "SKU2"], {
+      limit: 2,
+      batchSize: 2,
+    });
+
+    assert.equal(result.successful, 2);
+    const updates = calls.filter((call) =>
+      String(call.sql || "").includes("buybox_seller=$8"),
+    );
+    assert.equal(updates.length, 2);
+    assert.equal(updates[0].params[3], null);
+    assert.equal(updates[1].params[3], null);
+  });
+
   test("variants bos donerse eski timestamp yenilenmez", async () => {
     const { sync, calls } = syncWith({
       products: [
