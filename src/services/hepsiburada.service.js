@@ -1160,6 +1160,7 @@ class HepsiburadaService {
       env.hepsiburadaSellerName,
       "AŞLAMACI GROSS",
       "ASLAMACI GROSS",
+      "AŞLAMACI BAKLİYAT",
     ].filter(Boolean);
 
     let best = parseHepsiburadaPublicBuyboxHtml(searchResponse.body, {

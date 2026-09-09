@@ -1322,6 +1322,7 @@ class SyncService {
         env.hepsiburadaSellerName,
         "AŞLAMACI GROSS",
         "ASLAMACI GROSS",
+        "AŞLAMACI BAKLİYAT",
       ]
         .filter(Boolean)
         .map(normalizedSellerName),
