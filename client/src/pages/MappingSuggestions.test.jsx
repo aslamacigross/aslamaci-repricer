@@ -40,6 +40,16 @@ const suggestion = {
   ],
 };
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("Akıllı mapping paneli", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -384,6 +394,105 @@ describe("Akıllı mapping paneli", () => {
       screen.queryByRole("button", { name: "Fiyat kademelerini düzenle" }),
     ).not.toBeInTheDocument();
   });
+
+  test.each([
+    {
+      firstView: "file",
+      firstCode: "FILE_MARKET",
+      firstProduct: "Geciken File ürünü",
+      secondView: "bizim",
+      secondCode: "BIZIM_MARKET",
+      secondProduct: "Güncel Bizim ürünü",
+    },
+    {
+      firstView: "bizim",
+      firstCode: "BIZIM_MARKET",
+      firstProduct: "Geciken Bizim ürünü",
+      secondView: "file",
+      secondCode: "FILE_MARKET",
+      secondProduct: "Güncel File ürünü",
+    },
+  ])(
+    "$firstCode cevabı geç gelse de $secondCode havuzunu overwrite etmez",
+    async ({
+      firstView,
+      firstCode,
+      firstProduct,
+      secondView,
+      secondCode,
+      secondProduct,
+    }) => {
+      const firstResponse = deferred();
+      const secondResponse = deferred();
+      get.mockImplementation((path) => {
+        if (path.includes("/duplicates"))
+          return Promise.resolve({ data: { items: [] } });
+        if (path.startsWith(`/api/supplier-price-pools/${firstCode}/items`))
+          return firstResponse.promise;
+        if (path.startsWith(`/api/supplier-price-pools/${secondCode}/items`))
+          return secondResponse.promise;
+        return Promise.resolve({
+          data: { items: [], total: 0, page: 1, limit: 50 },
+        });
+      });
+
+      const { rerender } = render(
+        <MappingSuggestions view={firstView} notify={vi.fn()} />,
+      );
+      await waitFor(() =>
+        expect(get).toHaveBeenCalledWith(
+          expect.stringContaining(
+            `/api/supplier-price-pools/${firstCode}/items?`,
+          ),
+        ),
+      );
+
+      rerender(<MappingSuggestions view={secondView} notify={vi.fn()} />);
+      await waitFor(() =>
+        expect(get).toHaveBeenCalledWith(
+          expect.stringContaining(
+            `/api/supplier-price-pools/${secondCode}/items?`,
+          ),
+        ),
+      );
+      secondResponse.resolve({
+        data: {
+          items: [
+            {
+              id: 2,
+              product_name: secondProduct,
+              current_price: 20,
+              availability: "AVAILABLE",
+            },
+          ],
+          total: 1,
+          page: 1,
+          limit: 50,
+        },
+      });
+      expect(await screen.findByText(secondProduct)).toBeVisible();
+
+      firstResponse.resolve({
+        data: {
+          items: [
+            {
+              id: 1,
+              product_name: firstProduct,
+              current_price: 10,
+              availability: "AVAILABLE",
+            },
+          ],
+          total: 1,
+          page: 1,
+          limit: 50,
+        },
+      });
+      await waitFor(() =>
+        expect(screen.getByText(secondProduct)).toBeVisible(),
+      );
+      expect(screen.queryByText(firstProduct)).not.toBeInTheDocument();
+    },
+  );
 
   test("Rossmann havuzunda Card fiyat badge'i ve canlı kaynak linki görünür", async () => {
     const user = userEvent.setup();

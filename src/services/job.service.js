@@ -95,10 +95,15 @@ class JobService {
           client,
         );
       } catch (error) {
-        logger.error("job_failed", { job: name, message: error.message });
+        const diagnostics = error?.jobDiagnostics || {};
+        logger.error("job_failed", {
+          job: name,
+          message: error.message,
+          diagnostics,
+        });
         await this.repository.finish(
           run.id,
-          { status: "FAILED", error: error.message },
+          { status: "FAILED", error: error.message, metadata: diagnostics },
           client,
         );
         throw error;

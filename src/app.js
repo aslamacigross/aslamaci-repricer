@@ -13,6 +13,9 @@ const {
   csrfRequired,
 } = require("./middleware/security");
 const { notFound, errorHandler } = require("./middleware/error-handler");
+const {
+  createRequestObservability,
+} = require("./middleware/request-observability");
 const { asyncRoute } = require("./utils/errors");
 const { authRoutes } = require("./routes/auth.routes");
 const { dashboardRoutes } = require("./routes/dashboard.routes");
@@ -95,6 +98,7 @@ function createApp(container = createContainer()) {
       /^\/api\/products\/[^/]+\/image$/.test(req.path));
   app.use(
     requestContext,
+    createRequestObservability(),
     cors,
     express.json({ limit: "25mb" }),
     createRateLimiter({

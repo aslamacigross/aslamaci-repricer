@@ -1,13 +1,15 @@
 const { Pool } = require("pg");
 const { env } = require("./env");
+const { observeDatabase } = require("../observability/request-metrics");
 
-const pool = new Pool({
+const rawPool = new Pool({
   connectionString: env.databaseUrl || undefined,
   ssl: env.nodeEnv === "production" ? { rejectUnauthorized: false } : false,
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 });
+const pool = observeDatabase(rawPool);
 
 async function withTransaction(work) {
   const client = await pool.connect();

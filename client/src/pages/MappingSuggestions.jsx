@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   DatabaseZap,
@@ -242,15 +242,37 @@ export default function MappingSuggestions({
   marketplace = "TRENDYOL",
 }) {
   if (view === "file")
-    return <SupplierPricePool supplierCode="FILE_MARKET" notify={notify} />;
+    return (
+      <SupplierPricePool
+        key="FILE_MARKET"
+        supplierCode="FILE_MARKET"
+        notify={notify}
+      />
+    );
   if (view === "bizim")
-    return <SupplierPricePool supplierCode="BIZIM_MARKET" notify={notify} />;
+    return (
+      <SupplierPricePool
+        key="BIZIM_MARKET"
+        supplierCode="BIZIM_MARKET"
+        notify={notify}
+      />
+    );
   if (view === "bim")
-    return <SupplierPricePool supplierCode="BIM" notify={notify} />;
+    return (
+      <SupplierPricePool key="BIM" supplierCode="BIM" notify={notify} />
+    );
   if (view === "rossmann")
-    return <SupplierPricePool supplierCode="ROSSMANN" notify={notify} />;
+    return (
+      <SupplierPricePool
+        key="ROSSMANN"
+        supplierCode="ROSSMANN"
+        notify={notify}
+      />
+    );
   if (view === "other")
-    return <SupplierPricePool supplierCode="OTHER" notify={notify} />;
+    return (
+      <SupplierPricePool key="OTHER" supplierCode="OTHER" notify={notify} />
+    );
   if (view === "learning")
     return <MappingLearningHistory marketplace={marketplace} />;
   if (view === "diagnostics")
@@ -1694,8 +1716,10 @@ function SupplierPricePool({ supplierCode, notify }) {
   const [editing, setEditing] = useState(null);
   const [duplicates, setDuplicates] = useState(null);
   const [mergingDuplicate, setMergingDuplicate] = useState("");
+  const requestSequence = useRef(0);
 
-  async function load() {
+  async function load(expectedRequestId) {
+    const requestId = expectedRequestId || ++requestSequence.current;
     setLoading(true);
     setError(null);
     try {
@@ -1704,21 +1728,32 @@ function SupplierPricePool({ supplierCode, notify }) {
       const response = await get(
         `/api/supplier-price-pools/${supplierCode}/items?${params}`,
       );
+      if (requestId !== requestSequence.current) return;
       setResult(response.data);
       const duplicateResponse = await get(
         `/api/supplier-price-pools/${supplierCode}/duplicates`,
       );
+      if (requestId !== requestSequence.current) return;
       setDuplicates(duplicateResponse.data);
     } catch (nextError) {
+      if (requestId !== requestSequence.current) return;
       setError(nextError);
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }
 
   useEffect(() => {
-    const id = setTimeout(load, 250);
-    return () => clearTimeout(id);
+    const requestId = ++requestSequence.current;
+    setResult(null);
+    setDuplicates(null);
+    setError(null);
+    setLoading(true);
+    const id = setTimeout(() => load(requestId), 250);
+    return () => {
+      clearTimeout(id);
+      if (requestSequence.current === requestId) requestSequence.current++;
+    };
   }, [search, page, supplierCode]);
   useEffect(() => setPage(1), [search]);
 

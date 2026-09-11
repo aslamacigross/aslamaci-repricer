@@ -106,6 +106,7 @@ test("Rossmann ürün alanları kaynak satırına normalize edilir", () => {
 });
 
 test("partial crawl fullSnapshot=true üretmez", async () => {
+  const warnings = [];
   const service = new RossmannMarketService({
     baseUrl: "https://rossmann.test",
     pageSize: 2,
@@ -123,11 +124,51 @@ test("partial crawl fullSnapshot=true üretmez", async () => {
         },
       });
     },
+    log: { warn: (message, data) => warnings.push({ message, data }) },
   });
   const result = await service.livePriceRows();
   assert.equal(result.rows.length, 2);
   assert.equal(result.fullSnapshot, false);
   assert.equal(result.stats.failedPages.length, 1);
+  assert.equal(warnings[0].message, "rossmann_sync_page_failed");
+  assert.equal(warnings[0].data.page, 2);
+  assert.equal(warnings[0].data.attempt, 1);
+  assert.equal(warnings[0].data.productsSuccessfullyScanned, 2);
+});
+
+test("403 job hatası güvenli ve sınırlı diagnostic metadata üretir", async () => {
+  const warnings = [];
+  let requests = 0;
+  const service = new RossmannMarketService({
+    baseUrl: "https://rossmann.test",
+    fetchImpl: async () => {
+      requests++;
+      return {
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+        text: async () =>
+          "<html><body>Remote rejection token=unsafe-value</body></html>",
+      };
+    },
+    log: { warn: (message, data) => warnings.push({ message, data }) },
+  });
+
+  await assert.rejects(service.livePriceRows(), (error) => {
+    assert.equal(error.code, "ROSSMANN_CATALOG_EMPTY");
+    assert.equal(error.jobDiagnostics.failureStage, "http_response");
+    assert.equal(error.jobDiagnostics.httpStatus, 403);
+    assert.equal(error.jobDiagnostics.page, 1);
+    assert.equal(error.jobDiagnostics.attempt, 1);
+    assert.equal(error.jobDiagnostics.productsScanned, 0);
+    assert.equal(error.jobDiagnostics.fullSnapshotStarted, false);
+    assert.match(error.jobDiagnostics.responseSnippet, /\[REDACTED\]/);
+    assert.doesNotMatch(error.jobDiagnostics.responseSnippet, /unsafe-value/);
+    return true;
+  });
+  assert.equal(requests, 1);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].data.httpStatus, 403);
 });
 
 test("complete crawl tüm pagination bitince fullSnapshot=true üretir", async () => {

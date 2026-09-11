@@ -1,4 +1,5 @@
 const { estimatePackageDesi } = require("../domain/supplier-products");
+const logger = require("../config/logger");
 
 const ROSSMANN_BASE_URL = "https://www.rossmann.com.tr";
 const ROSSMANN_CATALOG_CATEGORY_ID = 2;
@@ -13,9 +14,7 @@ function parseRossmannPrice(value) {
     .replace(/\s/g, "")
     .replace(/₺|TL|TRY/gi, "");
   if (!text) return NaN;
-  const normalized = text
-    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
-    .replace(",", ".");
+  const normalized = text.replace(/\.(?=\d{3}(?:\D|$))/g, "").replace(",", ".");
   return Number(normalized);
 }
 
@@ -75,7 +74,8 @@ function conditionalPromotion(product) {
 function effectivePrice(product) {
   const regularPrice = positivePrice(product?.price);
   const specialPrice =
-    positivePrice(product?.ross_60_price) || positivePrice(product?.special_price);
+    positivePrice(product?.ross_60_price) ||
+    positivePrice(product?.special_price);
   const cardPrice = positivePrice(product?.crm_price);
   if (cardPrice && regularPrice && cardPrice < regularPrice)
     return { price: cardPrice, type: "ROSSMANN_CARD" };
@@ -94,7 +94,8 @@ function productRow(product, { observedAt, baseUrl = ROSSMANN_BASE_URL } = {}) {
   const regularPrice = positivePrice(product?.price);
   const cardPrice = positivePrice(product?.crm_price);
   const salePrice =
-    positivePrice(product?.ross_60_price) || positivePrice(product?.special_price);
+    positivePrice(product?.ross_60_price) ||
+    positivePrice(product?.special_price);
   const promo = conditionalPromotion(product);
   const category = categoryFromProduct(product);
   const desi = estimatePackageDesi(productName);
@@ -137,9 +138,29 @@ function productRow(product, { observedAt, baseUrl = ROSSMANN_BASE_URL } = {}) {
   };
 }
 
+function safeResponseSnippet(value, limit = 160) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(
+      /(authorization|api[-_ ]?key|secret|password|token)\s*[:=]\s*[^\s,;]+/gi,
+      "$1=[REDACTED]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
+function diagnosticError(message, code, diagnostics) {
+  const error = new Error(message);
+  error.code = code;
+  error.jobDiagnostics = diagnostics;
+  return error;
+}
+
 async function fetchJson(url, { fetchImpl = fetch, timeoutMs = 20000 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const started = Date.now();
   try {
     const response = await fetchImpl(url, {
       signal: controller.signal,
@@ -149,9 +170,60 @@ async function fetchJson(url, { fetchImpl = fetch, timeoutMs = 20000 } = {}) {
         "user-agent": "AslamaciERP/2.0 supplier-price-sync",
       },
     });
-    if (!response.ok)
-      throw new Error(`Rossmann katalog ${response.status}: ${response.statusText}`);
-    return await response.json();
+    if (!response.ok) {
+      let responseSnippet = "";
+      try {
+        if (typeof response.text === "function")
+          responseSnippet = safeResponseSnippet(await response.text());
+      } catch {
+        // The status and stage still provide a safe diagnostic.
+      }
+      throw diagnosticError(
+        `Rossmann katalog ${response.status}: ${response.statusText}`,
+        "ROSSMANN_HTTP_ERROR",
+        {
+          failureStage: "http_response",
+          httpStatus: response.status,
+          statusText: safeResponseSnippet(response.statusText, 80) || null,
+          responseSnippet: responseSnippet || null,
+          durationMs: Date.now() - started,
+          attempt: 1,
+        },
+      );
+    }
+    try {
+      return await response.json();
+    } catch (error) {
+      throw diagnosticError(
+        `Rossmann katalog yanıtı JSON olarak okunamadı: ${error.message}`,
+        "ROSSMANN_RESPONSE_PARSE_ERROR",
+        {
+          failureStage: "parse_response",
+          httpStatus: response.status,
+          statusText: safeResponseSnippet(response.statusText, 80) || null,
+          responseSnippet: null,
+          durationMs: Date.now() - started,
+          attempt: 1,
+        },
+      );
+    }
+  } catch (error) {
+    if (error.jobDiagnostics) throw error;
+    const timedOut = controller.signal.aborted;
+    throw diagnosticError(
+      timedOut
+        ? "Rossmann katalog isteği zaman aşımına uğradı"
+        : `Rossmann katalog isteği başarısız: ${error.message}`,
+      timedOut ? "ROSSMANN_TIMEOUT" : "ROSSMANN_NETWORK_ERROR",
+      {
+        failureStage: timedOut ? "timeout" : "network",
+        httpStatus: null,
+        statusText: null,
+        responseSnippet: null,
+        durationMs: Date.now() - started,
+        attempt: 1,
+      },
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -165,6 +237,7 @@ class RossmannMarketService {
     fetchImpl = fetch,
     timeoutMs = 20000,
     maxPages = 1000,
+    log = logger,
   } = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.categoryId = categoryId;
@@ -172,6 +245,7 @@ class RossmannMarketService {
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
     this.maxPages = maxPages;
+    this.log = log;
   }
 
   async fetchPage(from = 0) {
@@ -211,21 +285,45 @@ class RossmannMarketService {
       try {
         body = await this.fetchPage(from);
       } catch (error) {
-        failures.push({
+        const failure = {
           page: page + 1,
           from,
+          failureStage: error.jobDiagnostics?.failureStage || "fetch_page",
+          httpStatus: error.jobDiagnostics?.httpStatus || null,
+          statusText: error.jobDiagnostics?.statusText || null,
+          responseSnippet: error.jobDiagnostics?.responseSnippet || null,
+          attempt: error.jobDiagnostics?.attempt || 1,
+          durationMs: error.jobDiagnostics?.durationMs || 0,
           error: error.message,
           productsSuccessfullyScanned: productsScanned,
+          fullSnapshotStarted: productsScanned > 0,
+        };
+        failures.push(failure);
+        this.log.warn("rossmann_sync_page_failed", {
+          provider: "rossmann-elastic",
+          ...failure,
         });
         break;
       }
       const hits = body?.product?.hits?.hits;
       if (!Array.isArray(hits)) {
-        failures.push({
+        const failure = {
           page: page + 1,
           from,
+          failureStage: "parse_response",
+          httpStatus: null,
+          statusText: null,
+          responseSnippet: null,
+          attempt: 1,
+          durationMs: 0,
           error: "Rossmann katalog ürün listesi geçersiz",
           productsSuccessfullyScanned: productsScanned,
+          fullSnapshotStarted: productsScanned > 0,
+        };
+        failures.push(failure);
+        this.log.warn("rossmann_sync_page_failed", {
+          provider: "rossmann-elastic",
+          ...failure,
         });
         break;
       }
@@ -258,12 +356,35 @@ class RossmannMarketService {
       Number.isFinite(total) &&
       rows.length > 0 &&
       rows.length >= total;
-    if (!rows.length)
-      throw new Error(
+    if (!rows.length) {
+      const firstFailure = failures[0] || {
+        failureStage: "empty_catalog",
+        httpStatus: null,
+        page: 1,
+        from: 0,
+        attempt: 1,
+        responseSnippet: null,
+      };
+      throw diagnosticError(
         `Rossmann canlı katalog boş döndü: ${failures
           .map((failure) => failure.error)
           .join("; ")}`,
+        "ROSSMANN_CATALOG_EMPTY",
+        {
+          provider: "rossmann-elastic",
+          failureStage: firstFailure.failureStage,
+          httpStatus: firstFailure.httpStatus,
+          statusText: firstFailure.statusText || null,
+          page: firstFailure.page,
+          from: firstFailure.from,
+          attempt: firstFailure.attempt,
+          durationMs: Date.now() - started,
+          productsScanned,
+          fullSnapshotStarted: productsScanned > 0,
+          responseSnippet: firstFailure.responseSnippet,
+        },
       );
+    }
     return {
       rows,
       fullSnapshot,
