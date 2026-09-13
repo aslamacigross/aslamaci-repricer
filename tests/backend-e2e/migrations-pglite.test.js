@@ -12,8 +12,11 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 39);
-    assert.equal(initial.rows.at(-1).version, "039_hepsiburada_live_repricer");
+    assert.equal(initial.rowCount, 41);
+    assert.equal(
+      initial.rows.at(-1).version,
+      "042_canonical_cost_alias_relations_audit",
+    );
 
     const columnsAfterUp = await db.query(`
       SELECT column_name
@@ -77,6 +80,38 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     assert.equal(
       hbRepricerJobs.rows.every((row) => row.enabled === false),
       true,
+    );
+
+    const canonicalTablesAfterUp = await db.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN (
+          'cost_item_supplier_offers',
+          'cost_item_aliases',
+          'supplier_offer_relations',
+          'cost_integrity_operations'
+        )
+      ORDER BY table_name
+    `);
+    assert.equal(canonicalTablesAfterUp.rowCount, 4);
+
+    await migrate("down", db);
+    const afterAliasFoundationDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(
+      afterAliasFoundationDown.rows.at(-1).version,
+      "041_canonical_cost_supplier_offers",
+    );
+
+    await migrate("down", db);
+    const afterCanonicalOffersDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(
+      afterCanonicalOffersDown.rows.at(-1).version,
+      "039_hepsiburada_live_repricer",
     );
 
     await migrate("down", db);
@@ -173,10 +208,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 39);
+    assert.equal(afterRoundTrip.rowCount, 41);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "039_hepsiburada_live_repricer",
+      "042_canonical_cost_alias_relations_audit",
     );
     const tariffRowsAfterRoundTrip = await db.query(`
       SELECT
@@ -185,6 +220,68 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     `);
     assert.equal(Number(tariffRowsAfterRoundTrip.rows[0].rates), 0);
     assert.equal(Number(tariffRowsAfterRoundTrip.rows[0].barems), 0);
+  } finally {
+    await db.end();
+  }
+});
+
+test("canonical FK guardlari mevcut orphanlari korur ve yeni orphan yazimini engeller", async () => {
+  const db = await createPglitePool();
+  try {
+    await migrate("up", db);
+    await migrate("down", db);
+    await migrate("down", db);
+
+    await db.query(
+      `INSERT INTO cost_items(item_code,item_name,unit_cost,unit_desi)
+       VALUES('VALID_COST','Valid Cost',42,1)`,
+    );
+    const supplier = (
+      await db.query(
+        `INSERT INTO file_market_items(
+           source_key,product_name,normalized_name,current_price,supplier_code
+         )VALUES('FOUNDATION:DIRTY','Dirty Fixture','dirty fixture',40,'BIM')
+         RETURNING id`,
+      )
+    ).rows[0];
+    await db.query(
+      `INSERT INTO product_cost_mappings(
+         marketplace,barcode,cost_item_code,quantity
+       )VALUES('TRENDYOL','EXISTING-ORPHAN','MISSING_COST',1)`,
+    );
+    await db.query(
+      `INSERT INTO cost_item_file_links(
+         cost_item_code,file_market_item_id,status
+       )VALUES('MISSING_COST',$1,'APPROVED')`,
+      [supplier.id],
+    );
+
+    await migrate("up", db);
+
+    const existingDirtyRows = await db.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM product_cost_mappings
+          WHERE cost_item_code='MISSING_COST') AS mappings,
+         (SELECT COUNT(*)::int FROM cost_item_file_links
+          WHERE cost_item_code='MISSING_COST') AS links`,
+    );
+    assert.equal(existingDirtyRows.rows[0].mappings, 1);
+    assert.equal(existingDirtyRows.rows[0].links, 1);
+    await assert.rejects(
+      db.query(
+        `INSERT INTO product_cost_mappings(
+           marketplace,barcode,cost_item_code,quantity
+         )VALUES('HEPSIBURADA','NEW-ORPHAN','ANOTHER_MISSING_COST',1)`,
+      ),
+    );
+    await assert.rejects(
+      db.query(
+        `INSERT INTO cost_item_file_links(
+           cost_item_code,file_market_item_id,status
+         )VALUES('ANOTHER_MISSING_COST',$1,'APPROVED')`,
+        [supplier.id],
+      ),
+    );
   } finally {
     await db.end();
   }

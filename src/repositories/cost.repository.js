@@ -466,10 +466,21 @@ class CostRepository {
 
   async deleteCostItem(id) {
     const usage = await this.db.query(
-      "SELECT COUNT(*)::int AS count FROM product_cost_mappings pcm JOIN cost_items ci ON ci.item_code=pcm.cost_item_code WHERE ci.id=$1",
+      `SELECT
+         (SELECT COUNT(*)::int
+          FROM product_cost_mappings pcm
+          JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+          WHERE ci.id=$1) AS product_mapping_count,
+         (SELECT COUNT(*)::int
+          FROM cost_item_file_links link
+          JOIN cost_items ci ON ci.item_code=link.cost_item_code
+          WHERE ci.id=$1) AS supplier_link_count`,
       [id],
     );
-    if (usage.rows[0].count > 0)
+    if (
+      Number(usage.rows[0].product_mapping_count) > 0 ||
+      Number(usage.rows[0].supplier_link_count) > 0
+    )
       throw new AppError(
         "Kullanılan maliyet kalemi silinemez",
         409,

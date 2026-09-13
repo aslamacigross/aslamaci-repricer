@@ -62,6 +62,8 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "037_hepsiburada_buybox_public_collectors",
       "038_hepsiburada_seller_portal_metadata",
       "039_hepsiburada_live_repricer",
+      "041_canonical_cost_supplier_offers",
+      "042_canonical_cost_alias_relations_audit",
     ],
   );
   const safety = await db.query(
@@ -309,6 +311,34 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       )VALUES('TRENDYOL','INVALID',100)`,
     ),
   );
+  const canonicalCostTables = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN(
+       'cost_item_supplier_offers','cost_item_aliases',
+       'supplier_offer_relations','cost_integrity_operations'
+     )`,
+  );
+  assert.equal(canonicalCostTables.rowCount, 4);
+  const supplierOfferMetadata = await db.query(
+    `SELECT DISTINCT column_name FROM information_schema.columns
+     WHERE table_name='file_market_items'
+       AND column_name IN('offer_type','physical_supplier_code','checked_at')`,
+  );
+  assert.equal(supplierOfferMetadata.rowCount, 3);
+
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedAliasFoundation = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name IN(
+       'cost_item_aliases','supplier_offer_relations','cost_integrity_operations'
+     )`,
+  );
+  assert.equal(removedAliasFoundation.rowCount, 0);
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedCanonicalOffers = await db.query(
+    "SELECT DISTINCT table_name FROM information_schema.tables WHERE table_name='cost_item_supplier_offers'",
+  );
+  assert.equal(removedCanonicalOffers.rowCount, 0);
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedHepsiburadaLiveRepricerJobs = await db.query(
     `SELECT name FROM jobs
