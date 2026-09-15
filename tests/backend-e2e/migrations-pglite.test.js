@@ -15,7 +15,7 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     assert.equal(initial.rowCount, 41);
     assert.equal(
       initial.rows.at(-1).version,
-      "042_canonical_cost_alias_relations_audit",
+      "041_canonical_cost_alias_relations_audit",
     );
 
     const columnsAfterUp = await db.query(`
@@ -102,7 +102,7 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     );
     assert.equal(
       afterAliasFoundationDown.rows.at(-1).version,
-      "041_canonical_cost_supplier_offers",
+      "040_canonical_cost_supplier_offers",
     );
 
     await migrate("down", db);
@@ -211,7 +211,7 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     assert.equal(afterRoundTrip.rowCount, 41);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "042_canonical_cost_alias_relations_audit",
+      "041_canonical_cost_alias_relations_audit",
     );
     const tariffRowsAfterRoundTrip = await db.query(`
       SELECT

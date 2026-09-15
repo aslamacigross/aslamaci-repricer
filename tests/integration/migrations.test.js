@@ -62,8 +62,8 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "037_hepsiburada_buybox_public_collectors",
       "038_hepsiburada_seller_portal_metadata",
       "039_hepsiburada_live_repricer",
-      "041_canonical_cost_supplier_offers",
-      "042_canonical_cost_alias_relations_audit",
+      "040_canonical_cost_supplier_offers",
+      "041_canonical_cost_alias_relations_audit",
     ],
   );
   const safety = await db.query(
