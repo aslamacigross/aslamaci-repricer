@@ -107,6 +107,17 @@ async function linkOffer(
   ).rows[0];
 }
 
+async function addLegacyLink(db, item, offer) {
+  return (
+    await db.query(
+      `INSERT INTO cost_item_file_links(
+         cost_item_code,file_market_item_id,confidence,status,approved_by,approved_at
+       )VALUES($1,$2,1,'APPROVED','tester',NOW()) RETURNING *`,
+      [item.item_code, offer.id],
+    )
+  ).rows[0];
+}
+
 async function addProductMapping(db, item, marketplace, barcode, quantity = 1) {
   await db.query(
     `INSERT INTO products(
@@ -214,6 +225,7 @@ test("selected offer degisimi atomic, audited ve idempotenttir", async (t) => {
   const newOffer = await addOffer(db, "SELECTED-NEW", 110);
   await linkOffer(db, item, oldOffer, { selected: true });
   await linkOffer(db, item, newOffer);
+  await addLegacyLink(db, item, oldOffer);
   await addProductMapping(db, item, "TRENDYOL", "SELECTED-TY");
   await addProductMapping(db, item, "HEPSIBURADA", "SELECTED-HB");
   await db.query(
@@ -250,6 +262,17 @@ test("selected offer degisimi atomic, audited ve idempotenttir", async (t) => {
   ).rows[0];
   assert.equal(tierReset.effective_unit_cost, null);
   assert.equal(tierReset.supplier_price_tier, null);
+  assert.equal(
+    Number(
+      (
+        await db.query(
+          "SELECT file_market_item_id FROM cost_item_file_links WHERE cost_item_code=$1",
+          [item.item_code],
+        )
+      ).rows[0].file_market_item_id,
+    ),
+    Number(newOffer.id),
+  );
   assert.deepEqual(
     recalculations.sort((a, b) => a.marketplace.localeCompare(b.marketplace)),
     [
@@ -279,6 +302,7 @@ test("CostEngine hatasi selected offer ve unit cost islemini rollback eder", asy
   const target = await addOffer(db, "ROLLBACK-NEW", 75);
   await linkOffer(db, item, oldOffer, { selected: true });
   await linkOffer(db, item, target);
+  await addLegacyLink(db, item, oldOffer);
   await addProductMapping(db, item, "TRENDYOL", "ROLLBACK-TY");
   const preview = await service.preview("CHANGE_SELECTED_OFFER", {
     costItemId: item.id,
@@ -299,6 +323,17 @@ test("CostEngine hatasi selected offer ve unit cost islemini rollback eder", asy
     )
   ).rows[0];
   assert.equal(Number(selected.supplier_offer_id), Number(oldOffer.id));
+  assert.equal(
+    Number(
+      (
+        await db.query(
+          "SELECT file_market_item_id FROM cost_item_file_links WHERE cost_item_code=$1",
+          [item.item_code],
+        )
+      ).rows[0].file_market_item_id,
+    ),
+    Number(oldOffer.id),
+  );
   assert.equal(
     (
       await db.query(
@@ -515,6 +550,7 @@ test("supplier replacement preview mutation yapmaz, apply user confirmation gere
   });
   const newOffer = await addOffer(db, "MR-GREEN-NEW", 79);
   await linkOffer(db, item, oldOffer, { selected: true });
+  await addLegacyLink(db, item, oldOffer);
   const preview = await service.preview("REPLACE_SUPPLIER_OFFER", {
     costItemId: item.id,
     oldSupplierOfferId: oldOffer.id,
@@ -548,6 +584,17 @@ test("supplier replacement preview mutation yapmaz, apply user confirmation gere
     )
   ).rows[0];
   assert.equal(relation.status, "APPROVED");
+  assert.equal(
+    Number(
+      (
+        await db.query(
+          "SELECT file_market_item_id FROM cost_item_file_links WHERE cost_item_code=$1",
+          [item.item_code],
+        )
+      ).rows[0].file_market_item_id,
+    ),
+    Number(newOffer.id),
+  );
   await service.reverse(operation.id, {
     actor: "phase-2b-test",
     reason: "replacement was incorrect",
@@ -562,6 +609,17 @@ test("supplier replacement preview mutation yapmaz, apply user confirmation gere
       ).rows[0].unit_cost,
     ),
     65,
+  );
+  assert.equal(
+    Number(
+      (
+        await db.query(
+          "SELECT file_market_item_id FROM cost_item_file_links WHERE cost_item_code=$1",
+          [item.item_code],
+        )
+      ).rows[0].file_market_item_id,
+    ),
+    Number(oldOffer.id),
   );
 });
 

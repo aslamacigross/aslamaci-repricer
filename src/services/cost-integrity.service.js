@@ -360,6 +360,11 @@ class CostIntegrityService {
         suffix,
       );
       const mappings = await this._mappings(queryable, item.item_code, suffix);
+      const legacyLinks = await this._legacyLinks(
+        queryable,
+        item.item_code,
+        lock,
+      );
       const targetRelation = relations.find(
         (row) => Number(row.supplier_offer_id) === targetSupplierOfferId,
       );
@@ -378,7 +383,12 @@ class CostIntegrityService {
           409,
           "SUPPLIER_OFFER_PRICE_INVALID",
         );
-      const before = this._snapshot({ costItems: [item], relations, mappings });
+      const before = this._snapshot({
+        costItems: [item],
+        relations,
+        mappings,
+        legacyLinks,
+      });
       return {
         payload: { costItemId, targetSupplierOfferId },
         target: { type: "cost_item", id: costItemId },
@@ -590,6 +600,11 @@ class CostIntegrityService {
         suffix,
       );
       const mappings = await this._mappings(queryable, item.item_code, suffix);
+      const legacyLinks = await this._legacyLinks(
+        queryable,
+        item.item_code,
+        lock,
+      );
       const selectedOld = relations.some(
         (row) =>
           Number(row.supplier_offer_id) === oldSupplierOfferId &&
@@ -603,6 +618,7 @@ class CostIntegrityService {
           relations,
           mappings,
           offers: [oldOffer, newOffer],
+          legacyLinks,
         }),
         impact: this._impact(
           mappings,
@@ -782,6 +798,7 @@ class CostIntegrityService {
       ],
     );
     await this._applyOfferPricing(client, costItemId, offer);
+    await this._syncLegacyLink(client, costItemId, offer.id, context.actor);
     return {
       after: await this._currentSnapshot(client, state.before),
       affectedMappings: state.before.mappings,
@@ -919,6 +936,12 @@ class CostIntegrityService {
         ],
       );
       await this._applyOfferPricing(client, costItemId, offer);
+      await this._syncLegacyLink(
+        client,
+        costItemId,
+        newSupplierOfferId,
+        context.actor,
+      );
     }
     return {
       after: await this._currentSnapshot(client, state.before),
@@ -1057,6 +1080,39 @@ class CostIntegrityService {
           relation.selected_by,
           relation.selected_at,
           relation.selection_reason,
+        ],
+      );
+    const itemCodes = (snapshot?.costItems || []).map((item) => item.item_code);
+    if (itemCodes.length) {
+      const priorLegacyIds = (snapshot?.legacyLinks || []).map((row) =>
+        Number(row.id),
+      );
+      await client.query(
+        `DELETE FROM cost_item_file_links
+         WHERE cost_item_code=ANY($1::text[])
+           AND NOT(id=ANY($2::bigint[]))`,
+        [itemCodes, priorLegacyIds.length ? priorLegacyIds : [0]],
+      );
+    }
+    for (const link of snapshot?.legacyLinks || [])
+      await client.query(
+        `INSERT INTO cost_item_file_links(
+           id,cost_item_code,file_market_item_id,confidence,status,approved_by,
+           approved_at,created_at,updated_at
+         )VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT(cost_item_code) DO UPDATE SET
+           file_market_item_id=$3,confidence=$4,status=$5,approved_by=$6,
+           approved_at=$7,updated_at=NOW()`,
+        [
+          link.id,
+          link.cost_item_code,
+          link.file_market_item_id,
+          link.confidence,
+          link.status,
+          link.approved_by,
+          link.approved_at,
+          link.created_at,
+          link.updated_at,
         ],
       );
     if (original?.operation_type === "REPLACE_COST_ITEM") {
@@ -1217,6 +1273,19 @@ class CostIntegrityService {
     }
   }
 
+  async _syncLegacyLink(client, costItemId, supplierOfferId, actor) {
+    const item = await this._costItem(client, costItemId);
+    await client.query(
+      `INSERT INTO cost_item_file_links(
+         cost_item_code,file_market_item_id,confidence,status,approved_by,approved_at
+       )VALUES($1,$2,1,'APPROVED',$3,NOW())
+       ON CONFLICT(cost_item_code) DO UPDATE SET
+         file_market_item_id=$2,confidence=1,status='APPROVED',approved_by=$3,
+         approved_at=NOW(),updated_at=NOW()`,
+      [item.item_code, supplierOfferId, actor],
+    );
+  }
+
   async _costItem(queryable, id, suffix = "") {
     const row = (
       await queryable.query(`SELECT * FROM cost_items WHERE id=$1${suffix}`, [
@@ -1282,15 +1351,34 @@ class CostIntegrityService {
     ).rows;
   }
 
+  async _legacyLinks(queryable, itemCode, lock = false) {
+    return (
+      await queryable.query(
+        `SELECT * FROM cost_item_file_links
+         WHERE cost_item_code=$1 ORDER BY id${lock ? " FOR UPDATE" : ""}`,
+        [itemCode],
+      )
+    ).rows;
+  }
+
   _snapshot({
     costItems = [],
     relations = [],
     mappings = [],
     offers = [],
     aliases = [],
+    legacyLinks = [],
     orphan = null,
   }) {
-    return { costItems, relations, mappings, offers, aliases, orphan };
+    return {
+      costItems,
+      relations,
+      mappings,
+      offers,
+      aliases,
+      legacyLinks,
+      orphan,
+    };
   }
 
   _impact(mappings, oldUnitCost, newUnitCost) {
@@ -1354,7 +1442,16 @@ class CostIntegrityService {
       itemCodes.length || itemIds.length
         ? await this._aliases(client, itemCodes, itemIds)
         : [];
-    return { costItems, relations, mappings, aliases };
+    const legacyLinks = itemCodes.length
+      ? (
+          await client.query(
+            `SELECT * FROM cost_item_file_links
+             WHERE cost_item_code=ANY($1::text[]) ORDER BY id`,
+            [itemCodes],
+          )
+        ).rows
+      : [];
+    return { costItems, relations, mappings, aliases, legacyLinks };
   }
 
   async _startOperation(client, input) {
