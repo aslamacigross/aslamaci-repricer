@@ -3,6 +3,7 @@ const { env } = require("./config/env");
 const { AuthService } = require("./services/auth.service");
 const { TrendyolService } = require("./services/trendyol.service");
 const { CostEngineService } = require("./services/cost-engine.service");
+const { CostIntegrityService } = require("./services/cost-integrity.service");
 const { SyncService } = require("./services/sync.service");
 const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
@@ -115,6 +116,13 @@ function createContainer(overrides = {}) {
   const contentRepository =
     overrides.contentRepository || new ContentRepository(db, transaction);
   const costEngine = overrides.costEngine || new CostEngineService(db);
+  const costIntegrity =
+    overrides.costIntegrity ||
+    new CostIntegrityService({
+      db,
+      withTransaction: transaction,
+      costEngine,
+    });
   const mappingAutomation =
     overrides.mappingAutomation ||
     new MappingAutomationService({
@@ -540,6 +548,7 @@ function createContainer(overrides = {}) {
     actions,
     jobs,
     costEngine,
+    costIntegrity,
     shippingService,
     sync,
     repricer,

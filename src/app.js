@@ -21,6 +21,7 @@ const { authRoutes } = require("./routes/auth.routes");
 const { dashboardRoutes } = require("./routes/dashboard.routes");
 const { productsRoutes } = require("./routes/products.routes");
 const { costsRoutes } = require("./routes/costs.routes");
+const { costIntegrityRoutes } = require("./routes/cost-integrity.routes");
 const { repricerRoutes } = require("./routes/repricer.routes");
 const { systemRoutes } = require("./routes/system.routes");
 const { financeRoutes } = require("./routes/finance.routes");
@@ -207,6 +208,7 @@ function createApp(container = createContainer()) {
   app.use("/api/dashboard", dashboardRoutes(container));
   app.use("/api/products", productsRoutes(container));
   app.use("/api", costsRoutes(container));
+  app.use("/api", costIntegrityRoutes(container));
   app.use("/api", mappingAutomationRoutes(container));
   app.use("/api", repricerRoutes(container));
   app.use("/api", financeRoutes(container));

@@ -119,7 +119,12 @@ function costsRoutes({
   r.get(
     "/cost-items",
     asyncRoute(async (req, res) =>
-      res.json({ status: "ok", items: await costs.listCostItems() }),
+      res.json({
+        status: "ok",
+        items: await costs.listCostItems({
+          includeArchived: req.query.includeArchived === "true",
+        }),
+      }),
     ),
   );
   r.post(

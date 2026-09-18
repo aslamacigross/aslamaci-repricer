@@ -42,8 +42,8 @@ class CanonicalCostRepository {
         [normalizedCode],
       )
     ).rows[0];
-    if (direct) return direct;
-    return (
+    if (direct && direct.lifecycle_status !== "ARCHIVED") return direct;
+    const aliased = (
       await this.db.query(
         `SELECT ci.*,'ALIAS' AS resolution_source,a.alias_code
          FROM cost_item_aliases a
@@ -53,6 +53,7 @@ class CanonicalCostRepository {
         [normalizedCode],
       )
     ).rows[0];
+    return aliased || direct;
   }
 
   async createAlias({ aliasCode, canonicalCostItemId, actor, reason }) {
@@ -60,11 +61,11 @@ class CanonicalCostRepository {
     return this.withTransaction(async (client) => {
       const direct = (
         await client.query(
-          "SELECT id FROM cost_items WHERE item_code=$1 LIMIT 1",
+          "SELECT id,lifecycle_status FROM cost_items WHERE item_code=$1 LIMIT 1",
           [normalizedAlias],
         )
       ).rows[0];
-      if (direct)
+      if (direct && direct.lifecycle_status !== "ARCHIVED")
         throw new AppError(
           "Alias mevcut bir item_code ile çakışıyor",
           409,

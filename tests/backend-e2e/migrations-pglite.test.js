@@ -12,11 +12,8 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const initial = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(initial.rowCount, 41);
-    assert.equal(
-      initial.rows.at(-1).version,
-      "041_canonical_cost_alias_relations_audit",
-    );
+    assert.equal(initial.rowCount, 42);
+    assert.equal(initial.rows.at(-1).version, "042_safe_cost_operations");
 
     const columnsAfterUp = await db.query(`
       SELECT column_name
@@ -90,11 +87,21 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
           'cost_item_supplier_offers',
           'cost_item_aliases',
           'supplier_offer_relations',
-          'cost_integrity_operations'
+          'cost_integrity_operations',
+          'cost_integrity_quarantine'
         )
       ORDER BY table_name
     `);
-    assert.equal(canonicalTablesAfterUp.rowCount, 4);
+    assert.equal(canonicalTablesAfterUp.rowCount, 5);
+
+    await migrate("down", db);
+    const afterSafeOperationsDown = await db.query(
+      "SELECT version FROM schema_migrations ORDER BY version",
+    );
+    assert.equal(
+      afterSafeOperationsDown.rows.at(-1).version,
+      "041_canonical_cost_alias_relations_audit",
+    );
 
     await migrate("down", db);
     const afterAliasFoundationDown = await db.query(
@@ -208,10 +215,10 @@ test("PostgreSQL migrationlari up, idempotency, down ve yeniden up calisir", asy
     const afterRoundTrip = await db.query(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    assert.equal(afterRoundTrip.rowCount, 41);
+    assert.equal(afterRoundTrip.rowCount, 42);
     assert.equal(
       afterRoundTrip.rows.at(-1).version,
-      "041_canonical_cost_alias_relations_audit",
+      "042_safe_cost_operations",
     );
     const tariffRowsAfterRoundTrip = await db.query(`
       SELECT
@@ -229,6 +236,7 @@ test("canonical FK guardlari mevcut orphanlari korur ve yeni orphan yazimini eng
   const db = await createPglitePool();
   try {
     await migrate("up", db);
+    await migrate("down", db);
     await migrate("down", db);
     await migrate("down", db);
 

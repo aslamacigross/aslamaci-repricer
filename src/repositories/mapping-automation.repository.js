@@ -1,4 +1,5 @@
 const { isSupplierPriceFresh } = require("../domain/file-market");
+const { AppError } = require("../utils/errors");
 const {
   SUPPLIER_CODES,
   estimatePackageDesi,
@@ -96,7 +97,9 @@ function supplierPriceTiersForImport(supplierCode, previous, row) {
   if (supplierCode !== "BIZIM_MARKET") return row.price_tiers || [];
   if (isVerifiedBizimProductDetailTiers(supplierCode, row.raw_data))
     return row.price_tiers || [];
-  return previous ? jsonArrayValue(previous.price_tiers) : row.price_tiers || [];
+  return previous
+    ? jsonArrayValue(previous.price_tiers)
+    : row.price_tiers || [];
 }
 
 async function canonicalSupplierItemIds(client, item) {
@@ -706,6 +709,19 @@ class MappingAutomationRepository {
         };
       const canonicalItemId = Number(rows[0].id);
       const mergedItemIds = rows.slice(1).map((row) => Number(row.id));
+      const canonicalRelations = await client.query(
+        `SELECT id,supplier_offer_id,status
+         FROM cost_item_supplier_offers
+         WHERE supplier_offer_id=ANY($1::bigint[])
+         LIMIT 1`,
+        [[canonicalItemId, ...mergedItemIds]],
+      );
+      if (canonicalRelations.rowCount)
+        throw new AppError(
+          "Canonical supplier ilişkisi bulunan kayıt eski merge akışıyla birleştirilemez",
+          409,
+          "CANONICAL_SUPPLIER_RELATION_CONFLICT",
+        );
       const moved = await client.query(
         `UPDATE cost_item_file_links
          SET file_market_item_id=$1::bigint,updated_at=NOW()

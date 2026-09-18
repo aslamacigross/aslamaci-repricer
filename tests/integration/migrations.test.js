@@ -64,6 +64,7 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
       "039_hepsiburada_live_repricer",
       "040_canonical_cost_supplier_offers",
       "041_canonical_cost_alias_relations_audit",
+      "042_safe_cost_operations",
     ],
   );
   const safety = await db.query(
@@ -315,10 +316,11 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
     `SELECT DISTINCT table_name FROM information_schema.tables
      WHERE table_name IN(
        'cost_item_supplier_offers','cost_item_aliases',
-       'supplier_offer_relations','cost_integrity_operations'
+       'supplier_offer_relations','cost_integrity_operations',
+       'cost_integrity_quarantine'
      )`,
   );
-  assert.equal(canonicalCostTables.rowCount, 4);
+  assert.equal(canonicalCostTables.rowCount, 5);
   const supplierOfferMetadata = await db.query(
     `SELECT DISTINCT column_name FROM information_schema.columns
      WHERE table_name='file_market_items'
@@ -326,6 +328,31 @@ test("migrationlar bos veritabaninda calisir ve tekrar calistirilabilir", async 
   );
   assert.equal(supplierOfferMetadata.rowCount, 3);
 
+  const safeOperationColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='cost_integrity_operations'
+       AND column_name IN(
+         'idempotency_key','preview_fingerprint','operation_payload',
+         'reverses_operation_id'
+       )`,
+  );
+  assert.equal(safeOperationColumns.rowCount, 4);
+
+  const lifecycleColumns = await db.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name='cost_items'
+       AND column_name IN(
+         'lifecycle_status','archived_at','archived_by','archive_reason'
+       )`,
+  );
+  assert.equal(lifecycleColumns.rowCount, 4);
+
+  await migrate("down", db, { compatibility: "pg-mem" });
+  const removedSafeOperations = await db.query(
+    `SELECT DISTINCT table_name FROM information_schema.tables
+     WHERE table_name='cost_integrity_quarantine'`,
+  );
+  assert.equal(removedSafeOperations.rowCount, 0);
   await migrate("down", db, { compatibility: "pg-mem" });
   const removedAliasFoundation = await db.query(
     `SELECT DISTINCT table_name FROM information_schema.tables

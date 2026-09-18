@@ -25,7 +25,7 @@ class CostRepository {
     this.withTransaction = withTransaction;
   }
 
-  async listCostItems() {
+  async listCostItems({ includeArchived = false } = {}) {
     return (
       await this.db.query(
         `SELECT ci.*, COUNT(DISTINCT pcm.barcode)::int AS product_count,
@@ -41,8 +41,10 @@ class CostRepository {
          ON link.cost_item_code=ci.item_code AND link.status='APPROVED'
        LEFT JOIN file_market_items supplier_item
          ON supplier_item.id=link.file_market_item_id
+       WHERE ($1::boolean=TRUE OR ci.lifecycle_status='ACTIVE')
        GROUP BY ci.id,link.file_market_item_id,link.approved_at,supplier_item.id
        ORDER BY ci.item_name`,
+        [includeArchived === true || String(includeArchived) === "true"],
       )
     ).rows;
   }
@@ -474,13 +476,19 @@ class CostRepository {
          (SELECT COUNT(*)::int
           FROM cost_item_file_links link
           JOIN cost_items ci ON ci.item_code=link.cost_item_code
-          WHERE ci.id=$1) AS supplier_link_count`,
+          WHERE ci.id=$1) AS supplier_link_count,
+         (SELECT COUNT(*)::int FROM cost_item_supplier_offers
+          WHERE cost_item_id=$1) AS canonical_supplier_link_count,
+         (SELECT COUNT(*)::int FROM cost_item_aliases
+          WHERE canonical_cost_item_id=$1) AS alias_count,
+         (SELECT COUNT(*)::int FROM supplier_cost_sync_events event
+          JOIN cost_items ci ON ci.item_code=event.cost_item_code
+          WHERE ci.id=$1) AS cost_history_count,
+         (SELECT COUNT(*)::int FROM cost_integrity_operations
+          WHERE target_type='cost_item' AND target_id=$1::text) AS operation_count`,
       [id],
     );
-    if (
-      Number(usage.rows[0].product_mapping_count) > 0 ||
-      Number(usage.rows[0].supplier_link_count) > 0
-    )
+    if (Object.values(usage.rows[0]).some((value) => Number(value) > 0))
       throw new AppError(
         "Kullanılan maliyet kalemi silinemez",
         409,
