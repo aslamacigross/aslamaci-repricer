@@ -77,6 +77,36 @@ function costIntegrityRoutes({ costIntegrity }) {
     ),
   );
 
+  router.get(
+    "/cost-integrity/cost-items",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costIntegrity.searchCostItems(req.query),
+      }),
+    ),
+  );
+
+  router.get(
+    "/cost-integrity/cost-items/:id/context",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costIntegrity.costItemContext(req.params.id),
+      }),
+    ),
+  );
+
+  router.get(
+    "/cost-integrity/operations/:id",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costIntegrity.operation(req.params.id),
+      }),
+    ),
+  );
+
   return router;
 }
 

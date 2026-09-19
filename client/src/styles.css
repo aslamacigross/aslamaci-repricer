@@ -1343,6 +1343,185 @@ tbody tr.clickable:hover {
 .compact-table td {
   height: 36px;
 }
+.cost-management-panel {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.cost-current-summary,
+.cost-operation-success {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+.cost-current-summary > div,
+.cost-current-summary small,
+.cost-current-summary span {
+  display: block;
+}
+.cost-current-summary span,
+.cost-current-summary small {
+  color: var(--muted);
+}
+.cost-current-summary strong {
+  display: block;
+  margin: 4px 0;
+}
+.cost-operation-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0;
+  overflow-x: auto;
+}
+.cost-operation-tabs button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.cost-operation-tabs button.active {
+  border-color: var(--green);
+  color: var(--green-dark);
+  font-weight: 700;
+}
+.cost-selector {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.cost-selector-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+.cost-offer-results {
+  display: grid;
+  gap: 8px;
+  max-height: 390px;
+  overflow-y: auto;
+}
+.cost-offer-results article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.cost-offer-results article.selected {
+  border-color: var(--green);
+}
+.cost-offer-results article strong,
+.cost-offer-results article small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.cost-offer-results article small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.cost-offer-badges,
+.cost-offer-actions,
+.cost-danger-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cost-offer-actions {
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+.cost-offer-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--green-dark);
+}
+.cost-selector-warning,
+.cost-selector-error {
+  color: var(--red);
+}
+.manual-cost-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.manual-cost-form .drawer-actions {
+  grid-column: 1 / -1;
+}
+.cost-impact-preview {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.cost-change-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 20px;
+  padding: 12px;
+  background: #f8fbf9;
+  border-radius: 8px;
+}
+.split-mapping-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.split-mapping-list > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.split-mapping-list > button.assigned {
+  border-color: var(--green);
+}
+.split-mapping-list > button.active {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+.split-mapping-list small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+.manual-edit-details,
+.suggestion-cost-correction {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.manual-edit-details summary,
+.suggestion-cost-correction summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.cost-operation-success {
+  margin-top: 12px;
+  border-color: var(--green);
+}
 .resource-context {
   border-top: 1px solid var(--line);
   display: grid;
@@ -1858,6 +2037,22 @@ tbody tr.clickable:hover {
   }
 }
 @media (max-width: 760px) {
+  .cost-selector-controls,
+  .manual-cost-form {
+    grid-template-columns: 1fr;
+  }
+  .cost-offer-results article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .cost-offer-actions,
+  .cost-offer-actions .btn,
+  .cost-danger-actions .btn {
+    width: 100%;
+  }
+  .cost-operation-tabs button {
+    flex: 0 0 auto;
+  }
   .app-shell {
     display: block;
   }

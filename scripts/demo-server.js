@@ -244,6 +244,9 @@ const fileMarketItems = [
     last_seen_at: now,
     stale: false,
     supplier_code: "FILE_MARKET",
+    canonical_cost_item_id: 1,
+    canonical_item_code: "YUMUSATICI_ACTISOFT_1500ML",
+    is_selected: true,
   },
 ];
 const supplierPricePools = {
@@ -379,6 +382,7 @@ const productRepo = {
         ? [
             {
               id: 1,
+              cost_item_id: 1,
               cost_item_code: "YUMUSATICI_ACTISOFT_1500ML",
               item_name: "Actisoft Yumuşatıcı 1500 ml",
               quantity: barcode === "8690609598109" ? 1 : 4,
@@ -1138,6 +1142,65 @@ const container = {
   products: productRepo,
   costEngine: { recalculate: async () => ({ processed: 1 }) },
   costs,
+  costIntegrity: {
+    legacyBackfillPreview: async () => ({ counts: {}, rows: [] }),
+    applyLegacyBackfill: async () => ({ status: "APPLIED" }),
+    searchCostItems: async () => ({ items: [], total: 0, page: 1, limit: 25 }),
+    costItemContext: async () => ({
+      costItem: {
+        id: 1,
+        item_code: "YUMUSATICI_ACTISOFT_1500ML",
+        item_name: "Actisoft Yumuşatıcı 1500 ml",
+        unit_cost: 112,
+        unit_desi: 1.5,
+      },
+      mappings: [
+        {
+          id: 1,
+          marketplace: "TRENDYOL",
+          barcode: "8690609598109",
+          product_name: products[0].product_name,
+          quantity: 1,
+        },
+      ],
+      supplierOffers: [
+        {
+          supplier_offer_id: 1,
+          product_name: "Actisoft Menekşe Bahçesi 1500 ml",
+          supplier_code: "FILE_MARKET",
+          offer_type: "LIVE",
+          availability: "AVAILABLE",
+          current_price: 112,
+          is_selected: true,
+          last_seen_at: now,
+        },
+      ],
+      hardDeleteEligibility: { eligible: false },
+      recentOperations: [],
+    }),
+    hardDeleteEligibility: async () => ({ eligible: false }),
+    operation: async (id) => ({ id, status: "APPLIED" }),
+    preview: async (operationType, payload) => ({
+      operationType,
+      payload,
+      previewFingerprint: "demo-cost-preview",
+      impact: {
+        mappingCount: 1,
+        byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+        activeProductCount: 1,
+        currentUnitCost: 112,
+        targetUnitCost: 112,
+        mappings: [],
+      },
+      warnings: [],
+    }),
+    apply: async ({ operationType }) => ({
+      id: 900,
+      operation_type: operationType,
+      status: "APPLIED",
+    }),
+    reverse: async () => ({ id: 901, status: "APPLIED" }),
+  },
   mappingAutomation: {
     listSupplierItems: async (supplierCode) => ({
       items: supplierPricePools[supplierCode] || [],

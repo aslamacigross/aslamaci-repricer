@@ -385,10 +385,20 @@ class ProductRepository {
     if (!product) return null;
     const mappings = (
       await this.db.query(
-        `SELECT pcm.*, ci.item_name, ci.unit_cost, ci.unit_desi,
+        `SELECT pcm.*, ci.id AS cost_item_id,ci.item_name, ci.unit_cost, ci.unit_desi,
+              selected.supplier_offer_id AS selected_supplier_offer_id,
+              offer.product_name AS selected_supplier_product_name,
+              offer.supplier_code AS selected_supplier_code,
+              offer.offer_type AS selected_offer_type,
+              offer.availability AS selected_offer_availability,
+              offer.checked_at AS selected_offer_checked_at,
+              offer.last_seen_at AS selected_offer_last_seen_at,
               pcm.quantity * ci.unit_cost AS line_cost, pcm.quantity * ci.unit_desi AS line_desi,
               (ci.item_code IS NULL) AS orphan
        FROM product_cost_mappings pcm LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+       LEFT JOIN cost_item_supplier_offers selected
+         ON selected.cost_item_id=ci.id AND selected.status='APPROVED' AND selected.is_selected=TRUE
+       LEFT JOIN file_market_items offer ON offer.id=selected.supplier_offer_id
        WHERE pcm.marketplace=$1 AND pcm.barcode=$2 ORDER BY ci.item_name`,
         [marketplace, barcode],
       )

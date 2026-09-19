@@ -27,6 +27,7 @@ import {
   Pagination,
   SearchInput,
 } from "../components/ui";
+import { CostSelector } from "../components/CostManagement";
 
 const statusLabels = {
   PENDING: "Bekliyor",
@@ -1502,6 +1503,29 @@ function SuggestionDrawer({
                       : "Kontrol gerekli"}
                   </b>
                 </div>
+                {suggestion.status === "PENDING" && (
+                  <details className="suggestion-cost-correction">
+                    <summary>Doğru maliyeti seç</summary>
+                    <CostSelector
+                      selectedId={form.items[index].file_market_item_id}
+                      onSelect={(selected) => {
+                        updateItem(
+                          index,
+                          "cost_item_code",
+                          selected.canonical_item_code || selected.cost_item_code,
+                        );
+                        updateItem(index, "file_market_item_id", selected.id);
+                        updateItem(index, "supplier_code", selected.supplier_code);
+                        updateItem(
+                          index,
+                          "suggested_unit_cost",
+                          Number(selected.current_price),
+                        );
+                        updateItem(index, "selected_price_tier", null);
+                      }}
+                    />
+                  </details>
+                )}
               </div>
               );
             })}
@@ -1706,6 +1730,8 @@ function SupplierPricePool({ supplierCode, notify }) {
   const canEditBulkPrices = false;
   const [result, setResult] = useState(null);
   const [search, setSearch] = useState("");
+  const [physicalSupplier, setPhysicalSupplier] = useState("");
+  const [freshness, setFreshness] = useState("");
   const [page, setPage] = useState(1);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1725,6 +1751,9 @@ function SupplierPricePool({ supplierCode, notify }) {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (search) params.set("search", search);
+      if (physicalSupplier)
+        params.set("physicalSupplierCode", physicalSupplier);
+      if (freshness) params.set("freshness", freshness);
       const response = await get(
         `/api/supplier-price-pools/${supplierCode}/items?${params}`,
       );
@@ -1754,8 +1783,8 @@ function SupplierPricePool({ supplierCode, notify }) {
       clearTimeout(id);
       if (requestSequence.current === requestId) requestSequence.current++;
     };
-  }, [search, page, supplierCode]);
-  useEffect(() => setPage(1), [search]);
+  }, [search, page, supplierCode, physicalSupplier, freshness]);
+  useEffect(() => setPage(1), [search, physicalSupplier, freshness]);
 
   async function importItems() {
     setSaving(true);
@@ -1842,6 +1871,25 @@ function SupplierPricePool({ supplierCode, notify }) {
         ),
     },
     { key: "brand", label: "Marka" },
+    ...(supplierCode === "OTHER"
+      ? [
+          {
+            key: "physical_supplier_code",
+            label: "Fiziki tedarikçi",
+            render: (row) =>
+              supplierDefinition(row.physical_supplier_code).shortLabel,
+          },
+          {
+            key: "offer_type",
+            label: "Kaynak",
+            render: (row) => (
+              <Badge tone={row.offer_type === "MANUAL" ? "warning" : "info"}>
+                {row.offer_type || "MANUAL"}
+              </Badge>
+            ),
+          },
+        ]
+      : []),
     {
       key: "current_price",
       label: "Güncel fiyat",
@@ -1985,6 +2033,32 @@ function SupplierPricePool({ supplierCode, notify }) {
             onChange={setSearch}
             placeholder={`${definition.shortLabel} ürün veya marka ara`}
           />
+          {supplierCode === "OTHER" && (
+            <>
+              <select
+                aria-label="Fiziki tedarikçi filtresi"
+                value={physicalSupplier}
+                onChange={(event) => setPhysicalSupplier(event.target.value)}
+              >
+                <option value="">Tüm fiziki tedarikçiler</option>
+                <option value="FILE_MARKET">File</option>
+                <option value="BIZIM_MARKET">Bizim</option>
+                <option value="BIM">BİM</option>
+                <option value="ROSSMANN">Rossmann</option>
+                <option value="OTHER">Diğer</option>
+              </select>
+              <select
+                aria-label="Kontrol zamanı filtresi"
+                value={freshness}
+                onChange={(event) => setFreshness(event.target.value)}
+              >
+                <option value="">Tüm kontrol durumları</option>
+                <option value="CURRENT">Güncel</option>
+                <option value="DUE">Kontrol zamanı gelmiş</option>
+                <option value="UNKNOWN">Kontrol tarihi bilinmiyor</option>
+              </select>
+            </>
+          )}
         </div>
         <div className="mapping-toolbar-actions">
           {definition.liveSync && (

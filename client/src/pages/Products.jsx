@@ -27,6 +27,7 @@ import {
   Pagination,
   Field,
 } from "../components/ui";
+import { CostAssignmentEditor } from "../components/CostManagement";
 const columns = [
   {
     key: "product_image_url",
@@ -498,7 +499,14 @@ export default function Products({ notify, marketplace = "TRENDYOL" }) {
                 Geçmiş
               </button>
             </div>
-            {tab === "cost" && <CostBreakdown data={detail.breakdown} />}{" "}
+            {tab === "cost" && (
+              <CostBreakdown
+                data={detail.breakdown}
+                marketplace={marketplace}
+                notify={notify}
+                onChanged={() => open(selected)}
+              />
+            )}{" "}
             {tab === "settings" && (
               <SettingsForm
                 detail={detail}
@@ -872,7 +880,7 @@ function BulkSettingsDrawer({
   );
 }
 
-function CostBreakdown({ data }) {
+export function CostBreakdown({ data, marketplace, notify, onChanged }) {
   const p = data.product;
   return (
     <div>
@@ -915,6 +923,13 @@ function CostBreakdown({ data }) {
           {x.orphan && <Badge tone="danger">Orphan</Badge>}
         </div>
       ))}
+      <CostAssignmentEditor
+        marketplace={marketplace}
+        barcode={p.barcode}
+        mappings={data.mappings}
+        notify={notify}
+        onChanged={onChanged}
+      />
     </div>
   );
 }

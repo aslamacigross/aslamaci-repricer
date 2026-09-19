@@ -123,6 +123,16 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test("mapping suggestion drawer shared CostSelector kullanır", async () => {
+    const user = userEvent.setup();
+    render(<MappingSuggestions view="suggestions" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Öneriyi incele" }),
+    );
+    await user.click(screen.getByText("Doğru maliyeti seç"));
+    expect(await screen.findByTestId("shared-cost-selector")).toBeVisible();
+  });
+
   test("onaylı öneriyi önizleyip gerçek mappinge uygular", async () => {
     const user = userEvent.setup();
     const approved = { ...suggestion, status: "APPROVED" };
@@ -589,6 +599,31 @@ describe("Akıllı mapping paneli", () => {
         },
       ),
     );
+  });
+
+  test("Diğer havuzu fiziki tedarikçi ve kontrol zamanıyla server-side filtrelenir", async () => {
+    get.mockResolvedValue({
+      data: { items: [], total: 0, page: 1, limit: 50 },
+    });
+    render(<MappingSuggestions view="other" notify={vi.fn()} />);
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Fiziki tedarikçi filtresi"),
+      "BIM",
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Kontrol zamanı filtresi"),
+      "DUE",
+    );
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith(
+        expect.stringContaining("physicalSupplierCode=BIM"),
+      ),
+    );
+    expect(
+      get.mock.calls.some(
+        ([path]) => path.includes("freshness=DUE") && path.includes("supplier-price-pools/OTHER"),
+      ),
+    ).toBe(true);
   });
 
   test("teşhis satırından öneri üretir ve manuel kuyruğa alır", async () => {

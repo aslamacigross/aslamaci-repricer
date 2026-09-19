@@ -34,6 +34,18 @@ test("cost integrity API Phase 2C contractini ve authenticated actor'u korur", a
       calls.push(["eligibility", id]);
       return { eligible: false };
     },
+    async searchCostItems(query) {
+      calls.push(["search", query]);
+      return { items: [], total: 0 };
+    },
+    async costItemContext(id) {
+      calls.push(["context", id]);
+      return { costItem: { id: Number(id) }, mappings: [] };
+    },
+    async operation(id) {
+      calls.push(["operation", id]);
+      return { id: Number(id), status: "APPLIED" };
+    },
   };
   const app = express();
   app.use(express.json());
@@ -67,6 +79,9 @@ test("cost integrity API Phase 2C contractini ve authenticated actor'u korur", a
   await request(app)
     .get("/api/cost-integrity/cost-items/4/hard-delete-eligibility")
     .expect(200);
+  await request(app).get("/api/cost-integrity/cost-items?search=tea").expect(200);
+  await request(app).get("/api/cost-integrity/cost-items/4/context").expect(200);
+  await request(app).get("/api/cost-integrity/operations/2").expect(200);
 
   assert.equal(calls[1][1].actor, "authenticated-user");
   assert.equal(calls[3][1].actor, "authenticated-user");
@@ -80,6 +95,9 @@ test("cost integrity API Phase 2C contractini ve authenticated actor'u korur", a
       "apply",
       "reverse",
       "eligibility",
+      "search",
+      "context",
+      "operation",
     ],
   );
 });

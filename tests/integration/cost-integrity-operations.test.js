@@ -783,3 +783,197 @@ test("eski supplier duplicate merge canonical relation varken durur", async (t) 
     true,
   );
 });
+
+test("manual cost create preview, atomic apply ve reversal canonical state'i korur", async (t) => {
+  const { db, service, recalculations } = await fixture();
+  t.after(() => db.end());
+  const source = await addCostItem(db, "MANUAL_CREATE_SOURCE", 55);
+  const mapping = await addProductMapping(
+    db,
+    source,
+    "TRENDYOL",
+    "MANUAL-CREATE-TY",
+    2,
+  );
+  const preview = await service.preview("CREATE_MANUAL_COST", {
+    marketplace: "TRENDYOL",
+    barcode: "MANUAL-CREATE-TY",
+    sourceCostItemId: source.id,
+    itemCode: "MANUAL_CREATED_SAFE",
+    itemName: "Manuel test ürünü",
+    unitCost: 79,
+    unitDesi: 1.2,
+    quantity: 2,
+    physicalSupplierCode: "FILE_MARKET",
+    checkedAt: "2026-09-19",
+  });
+  assert.equal(preview.impact.targetUnitCost, 79);
+  assert.equal(preview.impact.mappingCount, 1);
+  const applied = await service.apply(applyInput(preview));
+  const created = (
+    await db.query("SELECT * FROM cost_items WHERE item_code='MANUAL_CREATED_SAFE'")
+  ).rows[0];
+  const relation = (
+    await db.query(
+      "SELECT * FROM cost_item_supplier_offers WHERE cost_item_id=$1",
+      [created.id],
+    )
+  ).rows[0];
+  const offer = (
+    await db.query("SELECT * FROM file_market_items WHERE id=$1", [
+      relation.supplier_offer_id,
+    ])
+  ).rows[0];
+  const moved = (
+    await db.query("SELECT * FROM product_cost_mappings WHERE id=$1", [mapping.id])
+  ).rows[0];
+  assert.equal(offer.offer_type, "MANUAL");
+  assert.equal(offer.physical_supplier_code, "FILE_MARKET");
+  assert.equal(relation.is_selected, true);
+  assert.equal(moved.cost_item_code, "MANUAL_CREATED_SAFE");
+  assert.deepEqual(recalculations, [
+    { barcode: "MANUAL-CREATE-TY", marketplace: "TRENDYOL" },
+  ]);
+
+  await service.reverse(applied.id, {
+    actor: "phase-2c-test",
+    reason: "manual create undo",
+    idempotencyKey: "manual-create-reversal",
+  });
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM cost_items WHERE item_code='MANUAL_CREATED_SAFE'",
+      )
+    ).rows[0].count,
+    0,
+  );
+  assert.equal(
+    (
+      await db.query("SELECT cost_item_code FROM product_cost_mappings WHERE id=$1", [
+        mapping.id,
+      ])
+    ).rows[0].cost_item_code,
+    source.item_code,
+  );
+});
+
+test("manual cost edit fiyat ve metadata'yi atomic günceller ve geri alır", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "MANUAL_EDIT_SAFE", 65);
+  const offer = await addOffer(db, "MANUAL-EDIT-SAFE", 65, {
+    supplier: "OTHER",
+    type: "MANUAL",
+  });
+  await db.query(
+    "UPDATE file_market_items SET physical_supplier_code='BIM',checked_at='2026-08-01' WHERE id=$1",
+    [offer.id],
+  );
+  await linkOffer(db, item, offer, { selected: true });
+  await addLegacyLink(db, item, offer);
+  await addProductMapping(db, item, "HEPSIBURADA", "MANUAL-EDIT-HB");
+  const preview = await service.preview("EDIT_MANUAL_COST", {
+    costItemId: item.id,
+    supplierOfferId: offer.id,
+    itemName: "Güncel manuel ürün",
+    unitCost: 79,
+    physicalSupplierCode: "BIM",
+    checkedAt: "2026-09-19",
+  });
+  const applied = await service.apply(applyInput(preview));
+  const edited = (
+    await db.query("SELECT item_name,unit_cost FROM cost_items WHERE id=$1", [item.id])
+  ).rows[0];
+  assert.equal(edited.item_name, "Güncel manuel ürün");
+  assert.equal(Number(edited.unit_cost), 79);
+  assert.equal(
+    Number(
+      (
+        await db.query("SELECT current_price FROM file_market_items WHERE id=$1", [
+          offer.id,
+        ])
+      ).rows[0].current_price,
+    ),
+    79,
+  );
+  await service.reverse(applied.id, {
+    actor: "phase-2c-test",
+    reason: "manual edit undo",
+    idempotencyKey: "manual-edit-reversal",
+  });
+  const restored = (
+    await db.query("SELECT item_name,unit_cost FROM cost_items WHERE id=$1", [item.id])
+  ).rows[0];
+  assert.equal(restored.item_name, item.item_name);
+  assert.equal(Number(restored.unit_cost), 65);
+});
+
+test("supplier selector server-side search canonical ve selected bilgiyi döndürür", async (t) => {
+  const { db, service, withTransaction } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "SELECTOR_CANONICAL", 59.9);
+  const offer = await addOffer(db, "FILE-SELECTOR-KEY", 59.9, {
+    supplier: "FILE_MARKET",
+  });
+  await db.query(
+    `UPDATE file_market_items
+     SET raw_data='{"barcode":"8690000000001"}'::jsonb WHERE id=$1`,
+    [offer.id],
+  );
+  await linkOffer(db, item, offer, { selected: true });
+  const repository = new MappingAutomationRepository(db, withTransaction);
+  const result = await repository.listSupplierItems({
+    supplierCode: "FILE_MARKET",
+    search: "8690000000001",
+    page: 1,
+    limit: 20,
+  });
+  assert.equal(result.total, 1);
+  assert.equal(Number(result.items[0].canonical_cost_item_id), Number(item.id));
+  assert.equal(result.items[0].canonical_item_code, item.item_code);
+  assert.equal(result.items[0].is_selected, true);
+
+  const costItems = await service.searchCostItems({ search: "", page: 1, limit: 20 });
+  assert.ok(costItems.total >= 1);
+  assert.ok(costItems.items.some((row) => Number(row.id) === Number(item.id)));
+});
+
+test("mappingi olmayan ürün canonical cost item'a atanır ve geri alınır", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "UNMAPPED_ASSIGN", 88);
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('HEPSIBURADA','UNMAPPED-HB','Unmapped HB',20,200,TRUE,FALSE)`,
+  );
+  const preview = await service.preview("ASSIGN_PRODUCT_COST", {
+    marketplace: "HEPSIBURADA",
+    barcode: "UNMAPPED-HB",
+    targetCostItemId: item.id,
+    quantity: 3,
+  });
+  assert.equal(preview.impact.byMarketplace.HEPSIBURADA, 1);
+  const applied = await service.apply(applyInput(preview));
+  const mapping = (
+    await db.query(
+      "SELECT * FROM product_cost_mappings WHERE marketplace='HEPSIBURADA' AND barcode='UNMAPPED-HB'",
+    )
+  ).rows[0];
+  assert.equal(mapping.cost_item_code, item.item_code);
+  assert.equal(Number(mapping.quantity), 3);
+  await service.reverse(applied.id, {
+    actor: "phase-2c-test",
+    reason: "assign undo",
+    idempotencyKey: "assign-reversal",
+  });
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM product_cost_mappings WHERE marketplace='HEPSIBURADA' AND barcode='UNMAPPED-HB'",
+      )
+    ).rows[0].count,
+    0,
+  );
+});

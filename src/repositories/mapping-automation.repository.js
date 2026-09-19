@@ -576,6 +576,8 @@ class MappingAutomationRepository {
     supplierCode = "FILE_MARKET",
     search,
     availability,
+    physicalSupplierCode,
+    freshness,
     page = 1,
     limit = 50,
   } = {}) {
@@ -586,13 +588,30 @@ class MappingAutomationRepository {
     if (search) {
       params.push(`%${search}%`);
       where.push(
-        `(f.product_name ILIKE $${params.length} OR f.brand ILIKE $${params.length})`,
+        `(f.product_name ILIKE $${params.length}
+          OR f.brand ILIKE $${params.length}
+          OR f.source_key ILIKE $${params.length}
+          OR COALESCE(f.raw_data->>'barcode','') ILIKE $${params.length})`,
       );
     }
     if (availability) {
       params.push(availability);
       where.push(`f.availability=$${params.length}`);
     }
+    if (physicalSupplierCode) {
+      params.push(physicalSupplierCode);
+      where.push(`f.physical_supplier_code=$${params.length}`);
+    }
+    if (freshness === "CURRENT")
+      where.push(
+        "COALESCE(f.checked_at,f.last_seen_at)>=NOW()-INTERVAL '30 days'",
+      );
+    if (freshness === "DUE")
+      where.push(
+        "COALESCE(f.checked_at,f.last_seen_at)<NOW()-INTERVAL '30 days'",
+      );
+    if (freshness === "UNKNOWN")
+      where.push("f.checked_at IS NULL");
     const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const safePage = Math.max(Number(page) || 1, 1);
     const count = await this.db.query(
@@ -602,12 +621,20 @@ class MappingAutomationRepository {
     params.push(safeLimit, (safePage - 1) * safeLimit);
     const items = await this.db.query(
       `SELECT f.*,l.cost_item_code,l.confidence AS link_confidence,
-              ci.item_name AS linked_cost_item_name,ci.unit_cost AS linked_unit_cost,
-              ci.unit_desi AS linked_unit_desi,
+              COALESCE(canonical.cost_item_id,ci.id) AS canonical_cost_item_id,
+              COALESCE(canonical_item.item_code,ci.item_code) AS canonical_item_code,
+              COALESCE(canonical_item.item_name,ci.item_name) AS linked_cost_item_name,
+              COALESCE(canonical_item.unit_cost,ci.unit_cost) AS linked_unit_cost,
+              COALESCE(canonical_item.unit_desi,ci.unit_desi) AS linked_unit_desi,
+              canonical.status AS canonical_relation_status,
+              COALESCE(canonical.is_selected,FALSE) AS is_selected,
               CASE WHEN f.last_seen_at<NOW()-INTERVAL '30 days' THEN TRUE ELSE FALSE END AS stale
        FROM file_market_items f
        LEFT JOIN cost_item_file_links l ON l.file_market_item_id=f.id AND l.status='APPROVED'
        LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+       LEFT JOIN cost_item_supplier_offers canonical
+         ON canonical.supplier_offer_id=f.id AND canonical.status='APPROVED'
+       LEFT JOIN cost_items canonical_item ON canonical_item.id=canonical.cost_item_id
        WHERE ${where.join(" AND ")}
        ORDER BY f.last_seen_at DESC,f.product_name
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
