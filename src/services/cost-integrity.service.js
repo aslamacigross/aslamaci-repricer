@@ -93,6 +93,18 @@ function positiveNumber(value, field, { allowZero = false } = {}) {
   return number;
 }
 
+function positiveInteger(value, field) {
+  const normalized = required(value, field);
+  const number = Number(normalized);
+  if (!Number.isSafeInteger(number) || number < 1)
+    throw new AppError(
+      `${field} pozitif tam sayı olmalıdır`,
+      400,
+      "VALIDATION_ERROR",
+    );
+  return number;
+}
+
 class CostIntegrityService {
   constructor({ db, withTransaction, costEngine }) {
     this.db = db;
@@ -469,7 +481,7 @@ class CostIntegrityService {
       const unitDesi = positiveNumber(payload.unitDesi ?? 0, "unitDesi", {
         allowZero: true,
       });
-      const quantity = positiveNumber(payload.quantity || 1, "quantity");
+      const quantity = positiveInteger(payload.quantity, "quantity");
       const physicalSupplierCode = normalizedPhysicalSupplier(
         payload.physicalSupplierCode,
       );
@@ -550,14 +562,27 @@ class CostIntegrityService {
         target: { type: "product", id: `${marketplace}:${barcode}` },
         before,
         impact: {
-          ...this._impact(
-            sourceMapping ? [sourceMapping] : [{ marketplace, barcode, quantity }],
-            source?.unit_cost ?? null,
-            unitCost,
+          ...this._assignmentImpact(
+            sourceMapping || {
+              marketplace,
+              barcode,
+              product_name: product.product_name,
+              is_active: product.is_active,
+              archived: product.archived,
+            },
+            {
+              currentUnitCost: source?.unit_cost ?? null,
+              targetUnitCost: unitCost,
+              currentQuantity: sourceMapping?.quantity ?? null,
+              targetQuantity: quantity,
+              currentUnitDesi: source?.unit_desi ?? null,
+              targetUnitDesi: unitDesi,
+              product,
+            },
           ),
           createsCanonicalCostItem: true,
         },
-        warnings: [],
+        warnings: unitDesi > 0 ? [] : ["TARGET_DESI_MISSING"],
       };
     }
     if (type === "EDIT_MANUAL_COST") {
@@ -631,7 +656,7 @@ class CostIntegrityService {
         payload.targetCostItemId,
         "targetCostItemId",
       );
-      const quantity = positiveNumber(payload.quantity || 1, "quantity");
+      const quantity = positiveInteger(payload.quantity, "quantity");
       const product = (
         await queryable.query(
           `SELECT * FROM products WHERE marketplace=$1 AND barcode=$2${suffix}`,
@@ -668,8 +693,17 @@ class CostIntegrityService {
         payload: { marketplace, barcode, targetCostItemId, quantity },
         target: { type: "product_mapping", id: `${marketplace}:${barcode}` },
         before: this._snapshot({ costItems: [targetItem] }),
-        impact: this._impact([previewMapping], null, targetItem.unit_cost),
-        warnings: [],
+        impact: this._assignmentImpact(previewMapping, {
+          currentUnitCost: null,
+          targetUnitCost: targetItem.unit_cost,
+          currentQuantity: null,
+          targetQuantity: quantity,
+          currentUnitDesi: null,
+          targetUnitDesi: targetItem.unit_desi,
+          product,
+        }),
+        warnings:
+          Number(targetItem.unit_desi) > 0 ? [] : ["TARGET_DESI_MISSING"],
       };
     }
     if (["CHANGE_SELECTED_OFFER", "MANUAL_TO_LIVE"].includes(type)) {
@@ -746,13 +780,7 @@ class CostIntegrityService {
         payload.targetCostItemId,
         "targetCostItemId",
       );
-      const quantity = Number(payload.quantity);
-      if (!(quantity > 0))
-        throw new AppError(
-          "quantity pozitif olmalıdır",
-          400,
-          "VALIDATION_ERROR",
-        );
+      const quantity = positiveInteger(payload.quantity, "quantity");
       const source = await this._costItem(queryable, sourceCostItemId, suffix);
       const targetItem = await this._costItem(
         queryable,
@@ -761,7 +789,9 @@ class CostIntegrityService {
       );
       const mapping = (
         await queryable.query(
-          `SELECT pcm.*,p.product_name,p.is_active,p.archived
+          `SELECT pcm.*,p.product_name,p.is_active,p.archived,p.desi,
+                  p.manual_desi_override,p.packaging_profile_name,
+                  p.packaging_rule_source,p.packaging_cost
            FROM product_cost_mappings pcm
            LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
            WHERE pcm.marketplace=$1 AND pcm.barcode=$2 AND pcm.cost_item_code=$3${lock ? " FOR UPDATE OF pcm" : ""}`,
@@ -788,8 +818,17 @@ class CostIntegrityService {
         },
         target: { type: "product_mapping", id: mapping.id },
         before,
-        impact: this._impact([mapping], source.unit_cost, targetItem.unit_cost),
-        warnings: [],
+        impact: this._assignmentImpact(mapping, {
+          currentUnitCost: mapping.effective_unit_cost ?? source.unit_cost,
+          targetUnitCost: targetItem.unit_cost,
+          currentQuantity: mapping.quantity,
+          targetQuantity: quantity,
+          currentUnitDesi: source.unit_desi,
+          targetUnitDesi: targetItem.unit_desi,
+          product: mapping,
+        }),
+        warnings:
+          Number(targetItem.unit_desi) > 0 ? [] : ["TARGET_DESI_MISSING"],
       };
     }
     if (["REPLACE_COST_ITEM", "SPLIT_COST_MAPPINGS"].includes(type)) {
@@ -1267,17 +1306,19 @@ class CostIntegrityService {
     } = state.payload;
     const source = await this._costItem(client, sourceCostItemId);
     const target = await this._costItem(client, targetCostItemId);
-    const conflict = await client.query(
-      `SELECT id FROM product_cost_mappings
-       WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
-      [marketplace, barcode, target.item_code],
-    );
-    if (conflict.rowCount)
-      throw new AppError(
-        "Hedef mapping zaten mevcut",
-        409,
-        "TARGET_MAPPING_EXISTS",
+    if (Number(source.id) !== Number(target.id)) {
+      const conflict = await client.query(
+        `SELECT id FROM product_cost_mappings
+         WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
+        [marketplace, barcode, target.item_code],
       );
+      if (conflict.rowCount)
+        throw new AppError(
+          "Hedef mapping zaten mevcut",
+          409,
+          "TARGET_MAPPING_EXISTS",
+        );
+    }
     await client.query(
       `UPDATE product_cost_mappings SET cost_item_code=$4,quantity=$5,updated_at=NOW()
        WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
@@ -1976,6 +2017,65 @@ class CostIntegrityService {
         quantity: Number(row.quantity),
         active: Boolean(row.is_active && !row.archived),
       })),
+    };
+  }
+
+  _assignmentImpact(
+    mapping,
+    {
+      currentUnitCost,
+      targetUnitCost,
+      currentQuantity,
+      targetQuantity,
+      currentUnitDesi,
+      targetUnitDesi,
+      product,
+    },
+  ) {
+    const normalizedCurrentQuantity =
+      currentQuantity == null ? null : Number(currentQuantity);
+    const normalizedTargetQuantity = Number(targetQuantity);
+    const normalizedCurrentUnitCost =
+      currentUnitCost == null ? null : Number(currentUnitCost);
+    const normalizedTargetUnitCost = Number(targetUnitCost);
+    const normalizedCurrentUnitDesi =
+      currentUnitDesi == null ? null : Number(currentUnitDesi);
+    const normalizedTargetUnitDesi = Number(targetUnitDesi || 0);
+    return {
+      ...this._impact(
+        [{ ...mapping, quantity: normalizedTargetQuantity }],
+        normalizedCurrentUnitCost,
+        normalizedTargetUnitCost,
+      ),
+      currentQuantity: normalizedCurrentQuantity,
+      targetQuantity: normalizedTargetQuantity,
+      currentLineCost:
+        normalizedCurrentQuantity == null || normalizedCurrentUnitCost == null
+          ? null
+          : normalizedCurrentQuantity * normalizedCurrentUnitCost,
+      targetLineCost: normalizedTargetQuantity * normalizedTargetUnitCost,
+      currentUnitDesi: normalizedCurrentUnitDesi,
+      targetUnitDesi: normalizedTargetUnitDesi,
+      currentTotalDesi:
+        normalizedCurrentQuantity == null || normalizedCurrentUnitDesi == null
+          ? null
+          : normalizedCurrentQuantity * normalizedCurrentUnitDesi,
+      targetTotalDesi: normalizedTargetQuantity * normalizedTargetUnitDesi,
+      effectiveProductDesi:
+        product?.manual_desi_override == null
+          ? Number(product?.desi || 0)
+          : Number(product.manual_desi_override),
+      manualDesiOverride:
+        product?.manual_desi_override == null
+          ? null
+          : Number(product.manual_desi_override),
+      targetEffectiveProductDesi:
+        product?.manual_desi_override == null
+          ? Math.ceil(normalizedTargetQuantity * normalizedTargetUnitDesi)
+          : Number(product.manual_desi_override),
+      packagingProfileName: product?.packaging_profile_name || null,
+      packagingRuleSource: product?.packaging_rule_source || null,
+      packagingCost: Number(product?.packaging_cost || 0),
     };
   }
 

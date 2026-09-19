@@ -27,6 +27,9 @@ const offer = {
   availability: "AVAILABLE",
   canonical_cost_item_id: 12,
   canonical_item_code: "HARRAS_FILIZ_1KG",
+  linked_cost_item_name: "Harras Filiz Çay 1 kg",
+  linked_unit_cost: 239,
+  linked_unit_desi: 0.8,
   last_seen_at: "2026-09-19T10:00:00Z",
 };
 
@@ -116,6 +119,7 @@ describe("shared cost management", () => {
     );
     expect(await screen.findByText("Harras Filiz Çay 1 kg")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Seç" }));
+    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
     expect(await screen.findByText("İşlem önizlemesi")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Onayla" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith(
@@ -127,6 +131,205 @@ describe("shared cost management", () => {
       }),
     ));
     expect(await screen.findByRole("button", { name: "Geri al" })).toBeVisible();
+  });
+
+  test("unmapped bundle quantity 4 ile preview ve apply payloadini korur", async () => {
+    const notify = vi.fn();
+    const shampoo = {
+      ...offer,
+      id: 17,
+      product_name: "Kepeğe Karşı Etkili Şampuan 700 ml",
+      linked_cost_item_name: "Kepeğe Karşı Etkili Şampuan 700 ml",
+      linked_unit_cost: 150,
+      linked_unit_desi: 0.7,
+      canonical_cost_item_id: 42,
+    };
+    get.mockResolvedValue({
+      data: { items: [shampoo], total: 1, page: 1, limit: 20 },
+    });
+    post.mockImplementation(async (path, body) => {
+      if (path.endsWith("/preview"))
+        return {
+          data: {
+            operationType: body.operationType,
+            payload: body.payload,
+            previewFingerprint: "quantity-4-fingerprint",
+            warnings: [],
+            impact: {
+              mappingCount: 1,
+              byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+              targetUnitCost: 150,
+              targetQuantity: body.payload.quantity,
+              targetLineCost: body.payload.quantity * 150,
+              targetUnitDesi: 0.7,
+              targetTotalDesi: body.payload.quantity * 0.7,
+              targetEffectiveProductDesi: 3,
+              mappings: [
+                {
+                  marketplace: "TRENDYOL",
+                  barcode: "SHAMPOO-4X",
+                  quantity: body.payload.quantity,
+                },
+              ],
+            },
+          },
+        };
+      return { data: { id: 91, operation_type: "ASSIGN_PRODUCT_COST" } };
+    });
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="SHAMPOO-4X"
+        mappings={[]}
+        product={{
+          product_name: "4 adet Kepeğe Karşı Etkili Şampuan 700 ml Ekonomik paket",
+          desi: 3,
+          packaging_profile_name: "Standart paket",
+        }}
+        notify={notify}
+      />,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
+    const quantity = screen.getByLabelText("Ürün Adedi");
+    expect(quantity).toHaveValue(1);
+    expect(screen.getByText("Birim desi: 0,7")).toBeVisible();
+    await userEvent.clear(quantity);
+    await userEvent.type(quantity, "4");
+    expect(screen.getByText("4 × ₺150,00 = ₺600,00")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "ASSIGN_PRODUCT_COST",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "SHAMPOO-4X",
+          targetCostItemId: 42,
+          quantity: 4,
+        },
+      }),
+    );
+    expect(await screen.findByText("İşlem önizlemesi")).toBeVisible();
+    expect(screen.getAllByText("Toplam ürün maliyeti")).toHaveLength(2);
+    expect(screen.getAllByText("Değişiklik sonrası tahmini desi")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "Onayla" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/cost-integrity/apply",
+        expect.objectContaining({
+          payload: expect.objectContaining({ quantity: 4 }),
+          previewFingerprint: "quantity-4-fingerprint",
+        }),
+      ),
+    );
+  });
+
+  test.each([
+    ["", "Ürün adedi zorunludur."],
+    ["0", "Ürün adedi en az 1 olmalıdır."],
+    ["-1", "Ürün adedi en az 1 olmalıdır."],
+    ["1.5", "Ürün adedi tam sayı olmalıdır."],
+  ])("geçersiz quantity %s preview'dan önce reddedilir", async (value, message) => {
+    const notify = vi.fn();
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="INVALID-QTY"
+        mappings={[]}
+        notify={notify}
+      />,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
+    fireEvent.change(screen.getByLabelText("Ürün Adedi"), {
+      target: { value },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    expect(screen.getByText(message)).toBeVisible();
+    expect(notify).toHaveBeenCalledWith(message, "error");
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  test("mevcut mapping quantity yuklenir ve ayni canonical item icinde duzeltilir", async () => {
+    const notify = vi.fn();
+    get.mockImplementation(async (path) =>
+      path.includes("/context")
+        ? {
+            data: {
+              costItem: {
+                id: 1,
+                item_name: "Şampuan 700 ml",
+                unit_cost: 150,
+                unit_desi: 0.7,
+              },
+              mappings: [
+                {
+                  id: 3,
+                  marketplace: "TRENDYOL",
+                  barcode: "SHAMPOO-4X",
+                  quantity: 1,
+                },
+              ],
+              supplierOffers: [],
+              hardDeleteEligibility: { eligible: false },
+            },
+          }
+        : { data: { items: [offer], total: 1, page: 1, limit: 20 } },
+    );
+    post.mockResolvedValue({
+      data: {
+        operationType: "REASSIGN_PRODUCT_COST",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "SHAMPOO-4X",
+          sourceCostItemId: 1,
+          targetCostItemId: 1,
+          quantity: 4,
+        },
+        previewFingerprint: "quantity-edit",
+        impact: {
+          mappingCount: 1,
+          targetQuantity: 4,
+          targetUnitCost: 150,
+          targetLineCost: 600,
+          byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+        },
+      },
+    });
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="SHAMPOO-4X"
+        mappings={[
+          {
+            id: 3,
+            cost_item_id: 1,
+            item_name: "Şampuan 700 ml",
+            unit_cost: 150,
+            unit_desi: 0.7,
+            quantity: 1,
+          },
+        ]}
+        product={{ manual_desi_override: 5, desi: 5 }}
+        notify={notify}
+      />,
+    );
+    const quantity = await screen.findByLabelText("Ürün Adedi");
+    expect(quantity).toHaveValue(1);
+    expect(screen.getByText("5 · Manuel override")).toBeVisible();
+    await userEvent.clear(quantity);
+    await userEvent.type(quantity, "4");
+    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "REASSIGN_PRODUCT_COST",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "SHAMPOO-4X",
+          sourceCostItemId: 1,
+          targetCostItemId: 1,
+          quantity: 4,
+        },
+      }),
+    );
   });
 
   test("split preview bütün mappingler atanmadığında UI tarafından reddedilir", async () => {

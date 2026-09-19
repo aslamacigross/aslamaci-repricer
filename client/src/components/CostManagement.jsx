@@ -59,6 +59,99 @@ function sourceUrl(item) {
   return item.source_url || item.raw_data?.url || item.raw_data?.source_url;
 }
 
+const WARNING_MESSAGES = {
+  TARGET_DESI_MISSING:
+    "Bu maliyet kaleminde birim desi tanımlı değil. Maliyet Kalemleri ekranından birim desi tanımlayın.",
+};
+
+function quantityError(value) {
+  if (value === "" || value == null) return "Ürün adedi zorunludur.";
+  const number = Number(value);
+  if (!Number.isFinite(number) || !Number.isInteger(number))
+    return "Ürün adedi tam sayı olmalıdır.";
+  if (number < 1) return "Ürün adedi en az 1 olmalıdır.";
+  return "";
+}
+
+function desi(value) {
+  return Number(value || 0).toLocaleString("tr-TR", {
+    maximumFractionDigits: 4,
+  });
+}
+
+function QuantityPackagingSummary({ quantity, unitCost, unitDesi, product }) {
+  const numericQuantity = Number(quantity);
+  const validQuantity = Number.isInteger(numericQuantity) && numericQuantity >= 1;
+  const numericUnitCost = Number(unitCost || 0);
+  const numericUnitDesi = Number(unitDesi || 0);
+  const calculatedDesi = validQuantity ? numericQuantity * numericUnitDesi : 0;
+  const hasOverride = product?.manual_desi_override != null;
+
+  return (
+    <div className="assignment-calculation" aria-label="Maliyet ve ambalaj özeti">
+      <div>
+        <span>Birim maliyet</span>
+        <b>{money(numericUnitCost)}</b>
+      </div>
+      <div>
+        <span>Ürün adedi</span>
+        <b>{validQuantity ? numericQuantity : "-"}</b>
+      </div>
+      <div className="assignment-total">
+        <span>Toplam ürün maliyeti</span>
+        <b>
+          {validQuantity
+            ? `${numericQuantity} × ${money(numericUnitCost)} = ${money(numericQuantity * numericUnitCost)}`
+            : "Geçerli ürün adedi girin"}
+        </b>
+      </div>
+      <div>
+        <span>Birim desi</span>
+        <b>{numericUnitDesi > 0 ? desi(numericUnitDesi) : "Tanımlı değil"}</b>
+      </div>
+      <div>
+        <span>Mapping toplam desi</span>
+        <b>
+          {numericUnitDesi > 0 && validQuantity
+            ? `${desi(numericUnitDesi)} × ${numericQuantity} = ${desi(calculatedDesi)}`
+            : "-"}
+        </b>
+      </div>
+      <div>
+        <span>Mevcut kargoda kullanılan desi</span>
+        <b>
+          {hasOverride
+            ? `${desi(product.manual_desi_override)} · Manuel override`
+            : product?.desi != null
+              ? desi(product.desi)
+              : "Mapping kaydedilince hesaplanır"}
+        </b>
+      </div>
+      <div>
+        <span>Değişiklik sonrası tahmini desi</span>
+        <b>
+          {hasOverride
+            ? `${desi(product.manual_desi_override)} · Manuel override korunur`
+            : numericUnitDesi > 0 && validQuantity
+              ? desi(Math.ceil(calculatedDesi))
+              : "-"}
+        </b>
+      </div>
+      {product?.packaging_profile_name && (
+        <div className="assignment-total">
+          <span>Mevcut ambalaj profili</span>
+          <b>{product.packaging_profile_name}</b>
+        </div>
+      )}
+      {numericUnitDesi <= 0 && (
+        <p className="cost-selector-warning assignment-total">
+          Desi tanımlı değil. Maliyet Kalemleri ekranından birim desi tanımlayın.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function CostSelector({
   onSelect,
   selectedId,
@@ -189,6 +282,13 @@ export function CostSelector({
                   <small>
                     Son görüldü: {date(item.checked_at || item.last_seen_at)}
                   </small>
+                  {item.linked_unit_desi != null && (
+                    <small>
+                      Birim desi: {Number(item.linked_unit_desi) > 0
+                        ? desi(item.linked_unit_desi)
+                        : "Tanımlı değil"}
+                    </small>
+                  )}
                   {blocked && (
                     <small className="cost-selector-warning">
                       Bu supplier kaydı henüz canonical maliyet kalemine bağlı değil.
@@ -302,6 +402,7 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
   const [customReason, setCustomReason] = useState("");
   if (!preview) return null;
   const impact = preview.impact || {};
+  const hasAssignmentCalculation = impact.targetQuantity != null;
   const finalReason = reason === "Diğer" ? customReason.trim() : reason;
   return (
     <Modal open onClose={onClose} title="İşlem önizlemesi">
@@ -313,10 +414,66 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
           <div><span>Mapping</span><b>{impact.mappingCount || 0}</b></div>
           <div><span>Aktif ürün</span><b>{impact.activeProductCount || 0}</b></div>
         </div>
-        <div className="cost-change-summary">
-          <span>Mevcut maliyet</span><b>{money(impact.currentUnitCost)}</b>
-          <span>Yeni maliyet</span><b>{money(impact.targetUnitCost)}</b>
-        </div>
+        {hasAssignmentCalculation ? (
+          <div className="cost-change-summary assignment-preview-summary">
+            {impact.currentQuantity != null && (
+              <>
+                <span>Mevcut ürün maliyeti</span>
+                <b>
+                  {impact.currentQuantity} × {money(impact.currentUnitCost)} ={" "}
+                  {money(impact.currentLineCost)}
+                </b>
+              </>
+            )}
+            <span>Birim maliyet</span><b>{money(impact.targetUnitCost)}</b>
+            <span>Ürün adedi</span><b>{impact.targetQuantity}</b>
+            <span>Toplam ürün maliyeti</span>
+            <b>
+              {impact.targetQuantity} × {money(impact.targetUnitCost)} ={" "}
+              {money(impact.targetLineCost)}
+            </b>
+            <span>Birim desi</span>
+            <b>
+              {Number(impact.targetUnitDesi) > 0
+                ? desi(impact.targetUnitDesi)
+                : "Tanımlı değil"}
+            </b>
+            <span>Mapping toplam desi</span>
+            <b>
+              {Number(impact.targetUnitDesi) > 0
+                ? `${desi(impact.targetUnitDesi)} × ${impact.targetQuantity} = ${desi(impact.targetTotalDesi)}`
+                : "-"}
+            </b>
+            {impact.manualDesiOverride != null && (
+              <>
+                <span>Kargoda kullanılan desi</span>
+                <b>{desi(impact.manualDesiOverride)} · Manuel override</b>
+              </>
+            )}
+            {impact.targetEffectiveProductDesi != null && (
+              <>
+                <span>Değişiklik sonrası tahmini desi</span>
+                <b>
+                  {desi(impact.targetEffectiveProductDesi)}
+                  {impact.manualDesiOverride != null
+                    ? " · Manuel override korunur"
+                    : ""}
+                </b>
+              </>
+            )}
+            {impact.packagingProfileName && (
+              <>
+                <span>Mevcut ambalaj profili</span>
+                <b>{impact.packagingProfileName}</b>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="cost-change-summary">
+            <span>Mevcut maliyet</span><b>{money(impact.currentUnitCost)}</b>
+            <span>Yeni maliyet</span><b>{money(impact.targetUnitCost)}</b>
+          </div>
+        )}
         {(impact.mappings || []).map((mapping) => (
           <div className="mapping-row" key={mapping.id || `${mapping.marketplace}:${mapping.barcode}`}>
             <div>
@@ -326,7 +483,9 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
           </div>
         ))}
         {(preview.warnings || []).map((warning) => (
-          <p className="cost-selector-warning" key={warning}>{warning}</p>
+          <p className="cost-selector-warning" key={warning}>
+            {WARNING_MESSAGES[warning] || warning}
+          </p>
         ))}
         <Field label="Neden">
           <select value={reason} onChange={(event) => setReason(event.target.value)}>
@@ -415,16 +574,64 @@ function useOperation({ notify, onChanged }) {
   return { preview, busy, lastOperation, open, apply, undo, close: () => setPreview(null) };
 }
 
+function AssignmentControls({
+  quantity,
+  onQuantityChange,
+  error,
+  unitCost,
+  unitDesi,
+  product,
+  targetName,
+  onPreview,
+  disabled,
+}) {
+  return (
+    <div className="assignment-controls">
+      {targetName && (
+        <div className="assignment-target">
+          <span>Seçilen maliyet kalemi</span>
+          <strong>{targetName}</strong>
+        </div>
+      )}
+      <Field label="Ürün Adedi">
+        <input
+          aria-label="Ürün Adedi"
+          type="number"
+          min="1"
+          step="1"
+          inputMode="numeric"
+          value={quantity}
+          onChange={(event) => onQuantityChange(event.target.value)}
+        />
+      </Field>
+      {error && <p className="cost-selector-error">{error}</p>}
+      <QuantityPackagingSummary
+        quantity={quantity}
+        unitCost={unitCost}
+        unitDesi={unitDesi}
+        product={product}
+      />
+      <Button disabled={disabled} onClick={onPreview}>
+        Değişikliği önizle
+      </Button>
+    </div>
+  );
+}
+
 export function CostAssignmentEditor({
   marketplace,
   barcode,
   mappings = [],
+  product,
   onChanged,
   notify,
 }) {
   const [mappingId, setMappingId] = useState(mappings[0]?.id || "");
   const [context, setContext] = useState(null);
   const [mode, setMode] = useState("REASSIGN");
+  const [quantity, setQuantity] = useState(String(mappings[0]?.quantity ?? 1));
+  const [quantityValidation, setQuantityValidation] = useState("");
+  const [targetOffer, setTargetOffer] = useState(null);
   const [splitAssignments, setSplitAssignments] = useState({});
   const [splitActiveMappingId, setSplitActiveMappingId] = useState(null);
   const operation = useOperation({ notify, onChanged });
@@ -434,6 +641,16 @@ export function CostAssignmentEditor({
     if (!mappings.some((row) => Number(row.id) === Number(mappingId)))
       setMappingId(mappings[0]?.id || "");
   }, [mappings, mappingId]);
+
+  useEffect(() => {
+    setQuantity(String(mapping?.quantity ?? 1));
+    setQuantityValidation("");
+    setTargetOffer(null);
+  }, [mapping?.id, mapping?.quantity]);
+
+  useEffect(() => {
+    setTargetOffer(null);
+  }, [mode]);
 
   useEffect(() => {
     let active = true;
@@ -447,6 +664,35 @@ export function CostAssignmentEditor({
 
   const selectedOffer = context?.supplierOffers?.find((offer) => offer.is_selected);
   const current = context?.costItem;
+  const checkedQuantity = () => {
+    const message = quantityError(quantity);
+    setQuantityValidation(message);
+    if (message) {
+      notify?.(message, "error");
+      return null;
+    }
+    return Number(quantity);
+  };
+  const assignmentPreview = () => {
+    const normalizedQuantity = checkedQuantity();
+    if (normalizedQuantity == null) return;
+    if (!mapping && !targetOffer) {
+      notify?.("Önce bir maliyet kalemi seçin.", "error");
+      return;
+    }
+    operation.open(mapping ? "REASSIGN_PRODUCT_COST" : "ASSIGN_PRODUCT_COST", {
+      marketplace,
+      barcode,
+      ...(mapping
+        ? {
+            sourceCostItemId: mapping.cost_item_id,
+            targetCostItemId:
+              targetOffer?.canonical_cost_item_id || mapping.cost_item_id,
+          }
+        : { targetCostItemId: targetOffer.canonical_cost_item_id }),
+      quantity: normalizedQuantity,
+    });
+  };
   const openTarget = (offer) => {
     if (mode === "SOURCE") {
       if (
@@ -511,16 +757,13 @@ export function CostAssignmentEditor({
       setSplitActiveMappingId(null);
       return;
     }
-    return operation.open("REASSIGN_PRODUCT_COST", {
-      marketplace,
-      barcode,
-      sourceCostItemId: mapping.cost_item_id,
-      targetCostItemId: offer.canonical_cost_item_id,
-      quantity: Number(mapping.quantity),
-    });
+    setTargetOffer(offer);
+    setQuantityValidation("");
   };
 
-  const manualPreview = (form) =>
+  const manualPreview = (form) => {
+    const normalizedQuantity = checkedQuantity();
+    if (normalizedQuantity == null) return;
     operation.open("CREATE_MANUAL_COST", {
       marketplace,
       barcode,
@@ -529,10 +772,11 @@ export function CostAssignmentEditor({
       itemName: form.itemName,
       unitCost: form.unitCost,
       unitDesi: form.unitDesi,
-      quantity: Number(mapping?.quantity || 1),
+      quantity: normalizedQuantity,
       physicalSupplierCode: form.physicalSupplierCode,
       checkedAt: form.checkedAt,
     });
+  };
 
   const editManual = (form) =>
     operation.open("EDIT_MANUAL_COST", {
@@ -561,15 +805,26 @@ export function CostAssignmentEditor({
       <section className="cost-management-panel">
         <Empty label="Bu ürünün maliyet mappingi yok" />
         <CostSelector
-          onSelect={(selected) =>
-            operation.open("ASSIGN_PRODUCT_COST", {
-              marketplace,
-              barcode,
-              targetCostItemId: selected.canonical_cost_item_id,
-              quantity: 1,
-            })
-          }
+          selectedId={targetOffer?.id}
+          onSelect={(selected) => {
+            setTargetOffer(selected);
+            setQuantityValidation("");
+          }}
           onManualSubmit={manualPreview}
+        />
+        <AssignmentControls
+          quantity={quantity}
+          onQuantityChange={(value) => {
+            setQuantity(value);
+            setQuantityValidation("");
+          }}
+          error={quantityValidation}
+          unitCost={targetOffer?.linked_unit_cost ?? targetOffer?.current_price}
+          unitDesi={targetOffer?.linked_unit_desi}
+          product={product}
+          targetName={targetOffer?.linked_cost_item_name || targetOffer?.product_name}
+          onPreview={assignmentPreview}
+          disabled={!targetOffer}
         />
         {operation.lastOperation && (
           <div className="cost-operation-success">
@@ -630,6 +885,37 @@ export function CostAssignmentEditor({
           </button>
         ))}
       </div>
+      {mode === "REASSIGN" && (
+        <AssignmentControls
+          quantity={quantity}
+          onQuantityChange={(value) => {
+            setQuantity(value);
+            setQuantityValidation("");
+          }}
+          error={quantityValidation}
+          unitCost={
+            targetOffer?.linked_unit_cost ??
+            targetOffer?.current_price ??
+            current?.unit_cost ??
+            mapping.unit_cost
+          }
+          unitDesi={
+            targetOffer?.linked_unit_desi ?? current?.unit_desi ?? mapping.unit_desi
+          }
+          product={product}
+          targetName={
+            targetOffer?.linked_cost_item_name ||
+            targetOffer?.product_name ||
+            current?.item_name ||
+            mapping.item_name
+          }
+          onPreview={assignmentPreview}
+          disabled={
+            !current ||
+            (!targetOffer && Number(quantity) === Number(mapping.quantity))
+          }
+        />
+      )}
       {mode === "SPLIT" && (
         <div className="split-mapping-list">
           {(context?.mappings || []).map((row) => (
@@ -657,6 +943,7 @@ export function CostAssignmentEditor({
       ) : (
         <CostSelector
           onSelect={openTarget}
+          selectedId={targetOffer?.id}
           requireCanonical={!(["SOURCE", "REPLACEMENT"].includes(mode))}
           onManualSubmit={manualPreview}
         />

@@ -927,6 +927,7 @@ export function CostBreakdown({ data, marketplace, notify, onChanged }) {
         marketplace={marketplace}
         barcode={p.barcode}
         mappings={data.mappings}
+        product={p}
         notify={notify}
         onChanged={onChanged}
       />

@@ -939,30 +939,45 @@ test("supplier selector server-side search canonical ve selected bilgiyi döndü
   assert.ok(costItems.items.some((row) => Number(row.id) === Number(item.id)));
 });
 
-test("mappingi olmayan ürün canonical cost item'a atanır ve geri alınır", async (t) => {
+test("4'lu bundle mappingi quantity ile toplam maliyet ve desiyi dogru preview eder", async (t) => {
   const { db, service } = await fixture();
   t.after(() => db.end());
-  const item = await addCostItem(db, "UNMAPPED_ASSIGN", 88);
+  const item = await addCostItem(db, "SHAMPOO_700ML", 150);
+  await db.query("UPDATE cost_items SET unit_desi=0.7 WHERE id=$1", [item.id]);
   await db.query(
     `INSERT INTO products(
        marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
-     )VALUES('HEPSIBURADA','UNMAPPED-HB','Unmapped HB',20,200,TRUE,FALSE)`,
+     )VALUES(
+       'TRENDYOL','SHAMPOO-4X',
+       '4 adet Kepeğe Karşı Etkili Şampuan 700 ml Ekonomik paket',
+       20,800,TRUE,FALSE
+     )`,
   );
   const preview = await service.preview("ASSIGN_PRODUCT_COST", {
-    marketplace: "HEPSIBURADA",
-    barcode: "UNMAPPED-HB",
+    marketplace: "TRENDYOL",
+    barcode: "SHAMPOO-4X",
     targetCostItemId: item.id,
-    quantity: 3,
+    quantity: 4,
   });
-  assert.equal(preview.impact.byMarketplace.HEPSIBURADA, 1);
+  assert.equal(preview.impact.byMarketplace.TRENDYOL, 1);
+  assert.equal(preview.impact.targetUnitCost, 150);
+  assert.equal(preview.impact.targetQuantity, 4);
+  assert.equal(preview.impact.targetLineCost, 600);
+  assert.equal(preview.impact.targetUnitDesi, 0.7);
+  assert.equal(preview.impact.targetTotalDesi, 2.8);
+  assert.equal(preview.impact.targetEffectiveProductDesi, 3);
   const applied = await service.apply(applyInput(preview));
   const mapping = (
     await db.query(
-      "SELECT * FROM product_cost_mappings WHERE marketplace='HEPSIBURADA' AND barcode='UNMAPPED-HB'",
+      "SELECT * FROM product_cost_mappings WHERE marketplace='TRENDYOL' AND barcode='SHAMPOO-4X'",
     )
   ).rows[0];
   assert.equal(mapping.cost_item_code, item.item_code);
-  assert.equal(Number(mapping.quantity), 3);
+  assert.equal(Number(mapping.quantity), 4);
+  assert.equal(
+    Number((await db.query("SELECT unit_desi FROM cost_items WHERE id=$1", [item.id])).rows[0].unit_desi),
+    0.7,
+  );
   await service.reverse(applied.id, {
     actor: "phase-2c-test",
     reason: "assign undo",
@@ -971,9 +986,102 @@ test("mappingi olmayan ürün canonical cost item'a atanır ve geri alınır", a
   assert.equal(
     (
       await db.query(
-        "SELECT COUNT(*)::int count FROM product_cost_mappings WHERE marketplace='HEPSIBURADA' AND barcode='UNMAPPED-HB'",
+        "SELECT COUNT(*)::int count FROM product_cost_mappings WHERE marketplace='TRENDYOL' AND barcode='SHAMPOO-4X'",
       )
     ).rows[0].count,
     0,
   );
+});
+
+test("yeni assignment quantity icin zorunlu pozitif tam sayi ister", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "STRICT_ASSIGN_QUANTITY", 150);
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','STRICT-QTY','Strict quantity product',20,800,TRUE,FALSE)`,
+  );
+  for (const quantity of [undefined, null, "", 0, -1, 1.5, "abc"])
+    await assert.rejects(
+      service.preview("ASSIGN_PRODUCT_COST", {
+        marketplace: "TRENDYOL",
+        barcode: "STRICT-QTY",
+        targetCostItemId: item.id,
+        ...(quantity === undefined ? {} : { quantity }),
+      }),
+      (error) => error.code === "VALIDATION_ERROR",
+    );
+});
+
+test("quantity preview fingerprint'e katilir ve stale apply reddedilir", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "FINGERPRINT_QUANTITY", 150);
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','FINGERPRINT-QTY','Fingerprint product',20,800,TRUE,FALSE)`,
+  );
+  const preview = await service.preview("ASSIGN_PRODUCT_COST", {
+    marketplace: "TRENDYOL",
+    barcode: "FINGERPRINT-QTY",
+    targetCostItemId: item.id,
+    quantity: 4,
+  });
+  await assert.rejects(
+    service.apply(
+      applyInput(preview, {
+        payload: { ...preview.payload, quantity: 1 },
+      }),
+    ),
+    (error) => error.code === "STALE_PREVIEW",
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM product_cost_mappings WHERE barcode='FINGERPRINT-QTY'",
+      )
+    ).rows[0].count,
+    0,
+  );
+});
+
+test("mevcut mapping quantity ayni canonical item uzerinde guvenle duzeltilir", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "QUANTITY_ONLY_EDIT", 150);
+  const ty = await addProductMapping(db, item, "TRENDYOL", "QTY-SHARED", 1);
+  await addProductMapping(db, item, "HEPSIBURADA", "QTY-SHARED", 2);
+  const preview = await service.preview("REASSIGN_PRODUCT_COST", {
+    marketplace: "TRENDYOL",
+    barcode: "QTY-SHARED",
+    sourceCostItemId: item.id,
+    targetCostItemId: item.id,
+    quantity: 4,
+  });
+  assert.equal(preview.impact.currentQuantity, 1);
+  assert.equal(preview.impact.targetQuantity, 4);
+  assert.equal(preview.impact.targetLineCost, 600);
+  const operation = await service.apply(applyInput(preview));
+  let rows = await db.query(
+    "SELECT marketplace,quantity FROM product_cost_mappings WHERE barcode='QTY-SHARED' ORDER BY marketplace",
+  );
+  assert.deepEqual(
+    rows.rows.map((row) => [row.marketplace, Number(row.quantity)]),
+    [
+      ["HEPSIBURADA", 2],
+      ["TRENDYOL", 4],
+    ],
+  );
+  await service.reverse(operation.id, {
+    actor: "phase-2c1-test",
+    reason: "quantity edit undo",
+    idempotencyKey: "quantity-edit-undo",
+  });
+  rows = await db.query(
+    "SELECT id,quantity FROM product_cost_mappings WHERE barcode='QTY-SHARED' AND marketplace='TRENDYOL'",
+  );
+  assert.equal(Number(rows.rows[0].id), Number(ty.id));
+  assert.equal(Number(rows.rows[0].quantity), 1);
 });

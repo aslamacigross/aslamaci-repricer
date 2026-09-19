@@ -1454,6 +1454,61 @@ tbody tr.clickable:hover {
 .cost-selector-error {
   color: var(--red);
 }
+.assignment-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(240px, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+.assignment-target,
+.assignment-calculation,
+.assignment-controls > .cost-selector-error,
+.assignment-controls > .btn {
+  grid-column: 1 / -1;
+}
+.assignment-target span,
+.assignment-target strong {
+  display: block;
+}
+.assignment-target span,
+.assignment-calculation span {
+  color: var(--muted);
+}
+.assignment-target strong {
+  margin-top: 4px;
+}
+.assignment-calculation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.assignment-calculation > div {
+  min-width: 0;
+}
+.assignment-calculation span,
+.assignment-calculation b {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.assignment-calculation b {
+  margin-top: 4px;
+}
+.assignment-calculation .assignment-total {
+  grid-column: 1 / -1;
+}
+.assignment-calculation p {
+  margin: 0;
+}
 .manual-cost-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1477,6 +1532,10 @@ tbody tr.clickable:hover {
   padding: 12px;
   background: #f8fbf9;
   border-radius: 8px;
+}
+.assignment-preview-summary b {
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 .split-mapping-list {
   display: grid;
@@ -2038,8 +2097,21 @@ tbody tr.clickable:hover {
 }
 @media (max-width: 760px) {
   .cost-selector-controls,
-  .manual-cost-form {
+  .manual-cost-form,
+  .assignment-controls,
+  .assignment-calculation {
     grid-template-columns: 1fr;
+  }
+  .assignment-calculation .assignment-total,
+  .assignment-controls > * {
+    grid-column: 1;
+  }
+  .assignment-preview-summary {
+    grid-template-columns: 1fr;
+  }
+  .assignment-preview-summary b {
+    margin-bottom: 6px;
+    text-align: left;
   }
   .cost-offer-results article {
     align-items: stretch;
