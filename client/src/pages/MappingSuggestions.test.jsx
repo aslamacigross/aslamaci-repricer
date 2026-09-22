@@ -133,6 +133,84 @@ describe("Akıllı mapping paneli", () => {
     expect(await screen.findByTestId("shared-cost-selector")).toBeVisible();
   });
 
+  test("mapping suggestion secilen canonical desiyi drawer icinde guvenle duzeltir", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (path) => {
+      if (path.startsWith("/api/mapping-suggestions"))
+        return {
+          data: { items: [suggestion], total: 1, page: 1, limit: 50 },
+        };
+      if (path.includes("/api/supplier-price-pools/FILE_MARKET/items"))
+        return {
+          data: {
+            items: [
+              {
+                id: 7,
+                product_name: "Actisoft Menekşe Bahçesi 1500 ml",
+                current_price: 112,
+                supplier_code: "FILE_MARKET",
+                availability: "AVAILABLE",
+                offer_type: "LIVE",
+                canonical_cost_item_id: 12,
+                canonical_item_code: "YUMUSATICI_ACTISOFT_1500ML",
+                linked_unit_desi: 1.5,
+              },
+            ],
+            total: 1,
+            page: 1,
+            limit: 20,
+          },
+        };
+      if (path.includes("/api/cost-integrity/cost-items/12/context"))
+        return {
+          data: {
+            mappings: [
+              { marketplace: "TRENDYOL", barcode: "8690609598109" },
+              { marketplace: "HEPSIBURADA", barcode: "HB-8690609598109" },
+            ],
+          },
+        };
+      return { data: { items: [], total: 0, page: 1, limit: 20 } };
+    });
+    post.mockImplementation(async (path) =>
+      path.includes("/desi-review/")
+        ? {
+            data: {
+              id: 12,
+              item_code: "YUMUSATICI_ACTISOFT_1500ML",
+              unit_desi: 1.8,
+            },
+          }
+        : { data: { ...suggestion, status: "APPROVED" } },
+    );
+
+    render(<MappingSuggestions view="suggestions" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Öneriyi incele" }),
+    );
+    await user.click(screen.getByText("Doğru maliyeti seç"));
+    await user.click(await screen.findByRole("button", { name: "Seç" }));
+    const quantity = screen.getByLabelText("Adet");
+    expect(quantity).toHaveValue(1);
+    const unitDesi = await screen.findByLabelText("Canonical birim desi");
+    expect(unitDesi).toHaveValue(1.5);
+    await user.clear(unitDesi);
+    await user.type(unitDesi, "1.8");
+    await user.click(screen.getByRole("button", { name: "Desiyi güncelle" }));
+    expect(await screen.findByText(/Trendyol: 1 mapping/)).toBeVisible();
+    expect(screen.getByText(/Hepsiburada: 1 mapping/)).toBeVisible();
+    await user.click(
+      screen.getAllByRole("button", { name: "Desiyi güncelle" }).at(-1),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/cost-items/desi-review/YUMUSATICI_ACTISOFT_1500ML/resolve",
+        { unit_desi: 1.8 },
+      ),
+    );
+    expect(screen.getByLabelText("Adet")).toHaveValue(1);
+  });
+
   test("onaylı öneriyi önizleyip gerçek mappinge uygular", async () => {
     const user = userEvent.setup();
     const approved = { ...suggestion, status: "APPROVED" };

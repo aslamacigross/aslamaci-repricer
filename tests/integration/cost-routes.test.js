@@ -9,6 +9,7 @@ function appFixture() {
   let fullReplaceCalls = 0;
   const bulkCostCalls = [];
   const manualReviewUpdates = [];
+  const desiUpdates = [];
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
@@ -81,6 +82,12 @@ function appFixture() {
         record: async () => {},
         entityHistory: async () => [],
       },
+      desi: {
+        resolve: async (itemCode, unitDesi, actor) => {
+          desiUpdates.push({ itemCode, unitDesi, actor });
+          return { item_code: itemCode, unit_desi: unitDesi };
+        },
+      },
     }),
   );
   app.use(errorHandler);
@@ -89,6 +96,7 @@ function appFixture() {
     fullReplaceCalls: () => fullReplaceCalls,
     bulkCostCalls,
     manualReviewUpdates,
+    desiUpdates,
   };
 }
 
@@ -216,4 +224,22 @@ test("manuel maliyet canlı tedarikci havuzuna baglanabilir", async () => {
   assert.equal(response.body.data.costItem.unit_cost, 49.9);
   assert.equal(fixture.manualReviewUpdates[0].type, "link");
   assert.equal(fixture.manualReviewUpdates[0].supplierItemId, 99);
+});
+
+test("canonical birim desi mevcut review endpointiyle pozitif sayi olarak guncellenir", async () => {
+  const fixture = appFixture();
+  await request(fixture.app)
+    .post("/api/cost-items/desi-review/SHAMPOO_700ML/resolve")
+    .send({ unit_desi: 0 })
+    .expect(400);
+  assert.equal(fixture.desiUpdates.length, 0);
+
+  const response = await request(fixture.app)
+    .post("/api/cost-items/desi-review/SHAMPOO_700ML/resolve")
+    .send({ unit_desi: 1.8 })
+    .expect(200);
+  assert.equal(response.body.data.unit_desi, 1.8);
+  assert.deepEqual(fixture.desiUpdates, [
+    { itemCode: "SHAMPOO_700ML", unitDesi: 1.8, actor: "admin" },
+  ]);
 });

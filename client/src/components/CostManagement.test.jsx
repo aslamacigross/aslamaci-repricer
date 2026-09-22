@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { get, post } from "../lib/api";
 import {
+  CanonicalDesiEditor,
   CostAssignmentEditor,
   CostSelector,
   ImpactPreviewModal,
@@ -330,6 +331,96 @@ describe("shared cost management", () => {
         },
       }),
     );
+  });
+
+  test("canonical unit desi mevcut guvenli akista drawer icinden guncellenir", async () => {
+    const notify = vi.fn();
+    const onSaved = vi.fn();
+    get.mockResolvedValue({
+      data: {
+        mappings: [
+          { marketplace: "TRENDYOL", barcode: "TY-1" },
+          { marketplace: "TRENDYOL", barcode: "TY-2" },
+          { marketplace: "HEPSIBURADA", barcode: "HB-1" },
+        ],
+      },
+    });
+    post.mockResolvedValue({
+      data: {
+        id: 12,
+        item_code: "SHAMPOO_700ML",
+        unit_desi: 1.8,
+      },
+    });
+    const view = render(
+      <CanonicalDesiEditor
+        costItemId={12}
+        itemCode="SHAMPOO_700ML"
+        unitDesi={1.5}
+        quantity={4}
+        product={{ manual_desi_override: 5 }}
+        notify={notify}
+        onSaved={onSaved}
+      />,
+    );
+    const input = screen.getByLabelText("Canonical birim desi");
+    expect(input).toHaveValue(1.5);
+    expect(screen.getByText("ceil(1,5 × 4) = 6")).toBeVisible();
+    expect(screen.getByText(/manuel desi override aktif: 5/i)).toBeVisible();
+
+    view.rerender(
+      <CanonicalDesiEditor
+        costItemId={12}
+        itemCode="SHAMPOO_700ML"
+        unitDesi={1.5}
+        quantity={5}
+        product={{ manual_desi_override: 5 }}
+        notify={notify}
+        onSaved={onSaved}
+      />,
+    );
+    expect(screen.getByLabelText("Canonical birim desi")).toHaveValue(1.5);
+    expect(screen.getByText("ceil(1,5 × 5) = 8")).toBeVisible();
+    expect(post).not.toHaveBeenCalled();
+
+    await userEvent.clear(screen.getByLabelText("Canonical birim desi"));
+    await userEvent.type(screen.getByLabelText("Canonical birim desi"), "1.8");
+    expect(screen.getByText("ceil(1,8 × 5) = 9")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Desiyi güncelle" }));
+    expect(await screen.findByText("Ortak birim desiyi güncelle")).toBeVisible();
+    expect(screen.getByText(/Trendyol: 2 mapping/)).toBeVisible();
+    expect(screen.getByText(/Hepsiburada: 1 mapping/)).toBeVisible();
+    expect(screen.getByText(/manuel desi override değeri korunacaktır/i)).toBeVisible();
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Desiyi güncelle" }).at(-1),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/cost-items/desi-review/SHAMPOO_700ML/resolve",
+        { unit_desi: 1.8 },
+      ),
+    );
+    expect(onSaved).toHaveBeenCalledWith(
+      expect.objectContaining({ unit_desi: 1.8 }),
+    );
+    expect(notify).toHaveBeenCalledWith("Ortak birim desi güncellendi");
+  });
+
+  test("kullanilmayan canonical item icin gereksiz shared-impact alarmi gostermez", async () => {
+    get.mockResolvedValue({ data: { mappings: [] } });
+    render(
+      <CanonicalDesiEditor
+        costItemId={44}
+        itemCode="UNUSED_ITEM"
+        unitDesi={0}
+        quantity={4}
+        notify={vi.fn()}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText("Canonical birim desi"), "1.8");
+    await userEvent.click(screen.getByRole("button", { name: "Desiyi güncelle" }));
+    expect(await screen.findByText("Ortak birim desiyi güncelle")).toBeVisible();
+    expect(screen.queryByText(/Trendyol:/)).not.toBeInTheDocument();
   });
 
   test("split preview bütün mappingler atanmadığında UI tarafından reddedilir", async () => {

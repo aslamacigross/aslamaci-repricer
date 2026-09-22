@@ -1509,6 +1509,52 @@ tbody tr.clickable:hover {
 .assignment-calculation p {
   margin: 0;
 }
+.canonical-desi-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.canonical-desi-heading,
+.canonical-desi-fields {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  justify-content: space-between;
+}
+.canonical-desi-heading strong,
+.canonical-desi-heading small,
+.canonical-desi-total span,
+.canonical-desi-total b {
+  display: block;
+}
+.canonical-desi-heading small,
+.canonical-desi-total span {
+  color: var(--muted);
+}
+.canonical-desi-heading small,
+.canonical-desi-total b {
+  margin-top: 4px;
+}
+.canonical-desi-fields > label {
+  flex: 0 1 190px;
+}
+.canonical-desi-total {
+  min-width: 0;
+  text-align: right;
+}
+.canonical-desi-total b {
+  overflow-wrap: anywhere;
+}
+.canonical-desi-editor > .btn {
+  justify-self: start;
+}
+.canonical-desi-impact {
+  margin-top: 14px;
+}
 .manual-cost-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2112,6 +2158,22 @@ tbody tr.clickable:hover {
   .assignment-preview-summary b {
     margin-bottom: 6px;
     text-align: left;
+  }
+  .canonical-desi-heading,
+  .canonical-desi-fields {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .canonical-desi-fields > label {
+    flex-basis: auto;
+    width: 100%;
+  }
+  .canonical-desi-total {
+    text-align: left;
+  }
+  .canonical-desi-editor > .btn {
+    justify-self: stretch;
+    width: 100%;
   }
   .cost-offer-results article {
     align-items: stretch;

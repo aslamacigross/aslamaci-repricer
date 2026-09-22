@@ -77,3 +77,72 @@ test("yüksek güvenli desiyi uygular, belirsiz ürünü inceleme kuyruğuna al�
     ),
   );
 });
+
+test("manuel desi resolve canonical alani audit ederek ilgili marketplace urunlerini hesaplar", async () => {
+  const calls = [];
+  const recalculated = [];
+  const db = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (sql.includes("UPDATE cost_items SET unit_desi"))
+        return {
+          rows: [
+            {
+              id: 12,
+              item_code: "SHAMPOO_700ML",
+              unit_desi: params[1],
+            },
+          ],
+        };
+      if (sql.includes("SELECT DISTINCT marketplace,barcode"))
+        return {
+          rows: [
+            { marketplace: "TRENDYOL", barcode: "SHAMPOO-4X" },
+            { marketplace: "HEPSIBURADA", barcode: "HB-SHAMPOO" },
+          ],
+        };
+      return { rows: [], rowCount: 1 };
+    },
+  };
+  const service = new DesiService({
+    db,
+    costEngine: {
+      recalculate: async (barcode, queryable, marketplace) =>
+        recalculated.push({ barcode, queryable, marketplace }),
+    },
+  });
+
+  const item = await service.resolve("SHAMPOO_700ML", 1.8, "admin");
+  assert.equal(item.unit_desi, 1.8);
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.sql.includes("UPDATE cost_items SET unit_desi") &&
+        call.params[0] === "SHAMPOO_700ML" &&
+        call.params[1] === 1.8,
+    ),
+  );
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.sql.includes("'DESI_REVIEW_RESOLVED'") &&
+        call.params[0] === "admin",
+    ),
+  );
+  assert.equal(
+    calls.some((call) => call.sql.includes("UPDATE product_cost_mappings")),
+    false,
+  );
+  assert.deepEqual(recalculated, [
+    {
+      barcode: "SHAMPOO-4X",
+      queryable: undefined,
+      marketplace: "TRENDYOL",
+    },
+    {
+      barcode: "HB-SHAMPOO",
+      queryable: undefined,
+      marketplace: "HEPSIBURADA",
+    },
+  ]);
+});

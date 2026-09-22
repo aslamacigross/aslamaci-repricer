@@ -79,6 +79,198 @@ function desi(value) {
   });
 }
 
+function unitDesiError(value) {
+  if (value === "" || value == null) return "Birim desi zorunludur.";
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0)
+    return "Birim desi pozitif sayı olmalıdır.";
+  return "";
+}
+
+export function CanonicalDesiEditor({
+  costItemId,
+  itemCode,
+  unitDesi,
+  quantity = 1,
+  product,
+  knownMappings,
+  notify,
+  onSaved,
+}) {
+  const [draft, setDraft] = useState(String(unitDesi ?? ""));
+  const [persisted, setPersisted] = useState(Number(unitDesi || 0));
+  const [mappings, setMappings] = useState(knownMappings || []);
+  const [loadingImpact, setLoadingImpact] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [validation, setValidation] = useState("");
+
+  useEffect(() => {
+    setDraft(String(unitDesi ?? ""));
+    setPersisted(Number(unitDesi || 0));
+    setValidation("");
+    setConfirming(false);
+  }, [costItemId, itemCode, unitDesi]);
+
+  useEffect(() => {
+    if (Array.isArray(knownMappings)) {
+      setMappings(knownMappings);
+      return undefined;
+    }
+    if (!costItemId) {
+      setMappings([]);
+      return undefined;
+    }
+    let active = true;
+    setLoadingImpact(true);
+    get(`/api/cost-integrity/cost-items/${costItemId}/context`)
+      .then((response) => active && setMappings(response.data?.mappings || []))
+      .catch((error) => notify?.(errorMessage(error), "error"))
+      .finally(() => active && setLoadingImpact(false));
+    return () => {
+      active = false;
+    };
+  }, [costItemId, knownMappings]);
+
+  if (!costItemId || !itemCode) return null;
+  const numericDesi = Number(draft);
+  const numericQuantity = Number(quantity);
+  const validQuantity =
+    Number.isInteger(numericQuantity) && numericQuantity >= 1;
+  const error = unitDesiError(draft);
+  const changed = !error && numericDesi !== persisted;
+  const marketplaceCounts = mappings.reduce(
+    (counts, mapping) => ({
+      ...counts,
+      [mapping.marketplace]: (counts[mapping.marketplace] || 0) + 1,
+    }),
+    {},
+  );
+  const totalDesi =
+    !error && validQuantity ? Math.ceil(numericDesi * numericQuantity) : null;
+  const hasOverride = product?.manual_desi_override != null;
+
+  function prepare() {
+    setValidation(error);
+    if (error) {
+      notify?.(error, "error");
+      return;
+    }
+    setConfirming(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const response = await post(
+        `/api/cost-items/desi-review/${encodeURIComponent(itemCode)}/resolve`,
+        { unit_desi: numericDesi },
+      );
+      const saved = response.data;
+      setPersisted(Number(saved.unit_desi));
+      setDraft(String(saved.unit_desi));
+      setConfirming(false);
+      setValidation("");
+      onSaved?.(saved);
+      notify?.("Ortak birim desi güncellendi");
+    } catch (saveError) {
+      notify?.(errorMessage(saveError), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="canonical-desi-editor">
+      <div className="canonical-desi-heading">
+        <div>
+          <strong>Ambalaj / Kargo</strong>
+          <small>Bu alan maliyet kaleminin ortak birim desisidir.</small>
+        </div>
+        {loadingImpact && <small>Etki hesaplanıyor...</small>}
+      </div>
+      <div className="canonical-desi-fields">
+        <Field label="Birim desi">
+          <input
+            aria-label="Canonical birim desi"
+            type="number"
+            min="0.01"
+            step="0.01"
+            inputMode="decimal"
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setValidation("");
+            }}
+          />
+        </Field>
+        <div className="canonical-desi-total">
+          <span>Toplam desi</span>
+          <b>
+            {totalDesi == null
+              ? "Geçerli birim desi girin"
+              : `ceil(${desi(numericDesi)} × ${numericQuantity}) = ${desi(totalDesi)}`}
+          </b>
+        </div>
+      </div>
+      {validation && <p className="cost-selector-error">{validation}</p>}
+      {hasOverride && (
+        <p className="cost-selector-warning">
+          Bu üründe manuel desi override aktif: {desi(product.manual_desi_override)}.
+          Canonical desi güncellense de override otomatik kaldırılmaz.
+        </p>
+      )}
+      <Button
+        variant="secondary"
+        disabled={!changed || saving}
+        onClick={prepare}
+      >
+        Desiyi güncelle
+      </Button>
+      {confirming && (
+        <Modal
+          open
+          onClose={() => setConfirming(false)}
+          title="Ortak birim desiyi güncelle"
+        >
+          <div className="modal-body">
+            <div className="cost-change-summary">
+              <span>Mevcut birim desi</span><b>{desi(persisted)}</b>
+              <span>Yeni birim desi</span><b>{desi(numericDesi)}</b>
+              <span>Bu mapping için toplam desi</span><b>{desi(totalDesi)}</b>
+            </div>
+            {mappings.length > 0 && (
+              <div className="info-banner canonical-desi-impact">
+                <div>
+                  <strong>Bu desi maliyet kaleminin ortak birim desisidir.</strong>
+                  <p>
+                    Trendyol: {marketplaceCounts.TRENDYOL || 0} mapping ·
+                    Hepsiburada: {marketplaceCounts.HEPSIBURADA || 0} mapping
+                  </p>
+                </div>
+              </div>
+            )}
+            {hasOverride && (
+              <p className="cost-selector-warning">
+                Bu üründeki {desi(product.manual_desi_override)} manuel desi
+                override değeri korunacaktır.
+              </p>
+            )}
+          </div>
+          <div className="modal-actions">
+            <Button variant="secondary" onClick={() => setConfirming(false)}>
+              İptal
+            </Button>
+            <Button disabled={saving} onClick={save}>
+              Desiyi güncelle
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function QuantityPackagingSummary({ quantity, unitCost, unitDesi, product }) {
   const numericQuantity = Number(quantity);
   const validQuantity = Number.isInteger(numericQuantity) && numericQuantity >= 1;
@@ -580,11 +772,17 @@ function AssignmentControls({
   error,
   unitCost,
   unitDesi,
+  costItemId,
+  itemCode,
+  mappings,
   product,
   targetName,
   onPreview,
   disabled,
+  notify,
 }) {
+  const [resolvedUnitDesi, setResolvedUnitDesi] = useState(unitDesi);
+  useEffect(() => setResolvedUnitDesi(unitDesi), [costItemId, unitDesi]);
   return (
     <div className="assignment-controls">
       {targetName && (
@@ -605,10 +803,20 @@ function AssignmentControls({
         />
       </Field>
       {error && <p className="cost-selector-error">{error}</p>}
+      <CanonicalDesiEditor
+        costItemId={costItemId}
+        itemCode={itemCode}
+        unitDesi={resolvedUnitDesi}
+        quantity={quantity}
+        product={product}
+        knownMappings={mappings}
+        notify={notify}
+        onSaved={(item) => setResolvedUnitDesi(item.unit_desi)}
+      />
       <QuantityPackagingSummary
         quantity={quantity}
         unitCost={unitCost}
-        unitDesi={unitDesi}
+        unitDesi={resolvedUnitDesi}
         product={product}
       />
       <Button disabled={disabled} onClick={onPreview}>
@@ -821,10 +1029,13 @@ export function CostAssignmentEditor({
           error={quantityValidation}
           unitCost={targetOffer?.linked_unit_cost ?? targetOffer?.current_price}
           unitDesi={targetOffer?.linked_unit_desi}
+          costItemId={targetOffer?.canonical_cost_item_id}
+          itemCode={targetOffer?.canonical_item_code}
           product={product}
           targetName={targetOffer?.linked_cost_item_name || targetOffer?.product_name}
           onPreview={assignmentPreview}
           disabled={!targetOffer}
+          notify={notify}
         />
         {operation.lastOperation && (
           <div className="cost-operation-success">
@@ -902,6 +1113,14 @@ export function CostAssignmentEditor({
           unitDesi={
             targetOffer?.linked_unit_desi ?? current?.unit_desi ?? mapping.unit_desi
           }
+          costItemId={targetOffer?.canonical_cost_item_id || current?.id}
+          itemCode={targetOffer?.canonical_item_code || current?.item_code}
+          mappings={
+            !targetOffer ||
+            Number(targetOffer.canonical_cost_item_id) === Number(current?.id)
+              ? context?.mappings
+              : undefined
+          }
           product={product}
           targetName={
             targetOffer?.linked_cost_item_name ||
@@ -914,6 +1133,7 @@ export function CostAssignmentEditor({
             !current ||
             (!targetOffer && Number(quantity) === Number(mapping.quantity))
           }
+          notify={notify}
         />
       )}
       {mode === "SPLIT" && (

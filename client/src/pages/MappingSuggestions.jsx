@@ -27,7 +27,10 @@ import {
   Pagination,
   SearchInput,
 } from "../components/ui";
-import { CostSelector } from "../components/CostManagement";
+import {
+  CanonicalDesiEditor,
+  CostSelector,
+} from "../components/CostManagement";
 
 const statusLabels = {
   PENDING: "Bekliyor",
@@ -1258,6 +1261,7 @@ function SuggestionDrawer({
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [selectedCostOffers, setSelectedCostOffers] = useState({});
 
   useEffect(() => {
     if (!suggestion) return setForm(null);
@@ -1280,6 +1284,7 @@ function SuggestionDrawer({
       })),
     });
     setRejectionReason("");
+    setSelectedCostOffers({});
   }, [suggestion]);
 
   if (!suggestion || !form) return null;
@@ -1509,6 +1514,10 @@ function SuggestionDrawer({
                     <CostSelector
                       selectedId={form.items[index].file_market_item_id}
                       onSelect={(selected) => {
+                        setSelectedCostOffers((current) => ({
+                          ...current,
+                          [index]: selected,
+                        }));
                         updateItem(
                           index,
                           "cost_item_code",
@@ -1524,6 +1533,26 @@ function SuggestionDrawer({
                         updateItem(index, "selected_price_tier", null);
                       }}
                     />
+                    {selectedCostOffers[index]?.canonical_cost_item_id && (
+                      <CanonicalDesiEditor
+                        costItemId={
+                          selectedCostOffers[index].canonical_cost_item_id
+                        }
+                        itemCode={
+                          selectedCostOffers[index].canonical_item_code
+                        }
+                        unitDesi={
+                          selectedCostOffers[index].linked_unit_desi ??
+                          form.items[index].unit_desi
+                        }
+                        quantity={form.items[index].quantity}
+                        product={suggestion}
+                        notify={notify}
+                        onSaved={(saved) =>
+                          updateItem(index, "unit_desi", Number(saved.unit_desi))
+                        }
+                      />
+                    )}
                   </details>
                 )}
               </div>
