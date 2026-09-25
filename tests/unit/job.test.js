@@ -86,3 +86,86 @@ test("job diagnostic metadata mevcut run kaydına taşınır", async () => {
     },
   ]);
 });
+
+test("scheduler lock sonrasında job artık due değilse stale kararla çalıştırmaz", async () => {
+  let handled = 0;
+  let started = 0;
+  const client = {
+    async query(sql) {
+      if (sql.includes("pg_try_advisory_lock"))
+        return { rows: [{ locked: true }] };
+      if (sql.includes("FROM jobs WHERE name"))
+        return {
+          rows: [
+            {
+              name: "sync-buybox",
+              enabled: true,
+              schedule_type: "INTERVAL",
+              schedule_minutes: 60,
+              last_run_at: new Date().toISOString(),
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const service = new JobService({
+    db: { connect: async () => client },
+    repository: {
+      start: async () => {
+        started++;
+        return { id: 1 };
+      },
+    },
+  });
+  service.register("sync-buybox", async () => {
+    handled++;
+  });
+
+  const result = await service.run("sync-buybox", { source: "scheduler" });
+
+  assert.equal(result.status, "SKIPPED");
+  assert.equal(handled, 0);
+  assert.equal(started, 0);
+});
+
+test("scheduler lock sonrasında hâlâ due olan jobu normal çalıştırır", async () => {
+  let handled = 0;
+  const client = {
+    async query(sql) {
+      if (sql.includes("pg_try_advisory_lock"))
+        return { rows: [{ locked: true }] };
+      if (sql.includes("FROM jobs WHERE name"))
+        return {
+          rows: [
+            {
+              name: "sync-buybox",
+              enabled: true,
+              schedule_type: "INTERVAL",
+              schedule_minutes: 1,
+              last_run_at: "2026-09-25T08:00:00.000Z",
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const service = new JobService({
+    db: { connect: async () => client },
+    repository: {
+      start: async () => ({ id: 1 }),
+      finish: async (_id, result) => result,
+    },
+  });
+  service.register("sync-buybox", async () => {
+    handled++;
+    return { processed: 1, successful: 1, failed: 0 };
+  });
+
+  const result = await service.run("sync-buybox", { source: "scheduler" });
+
+  assert.equal(result.status, "SUCCESS");
+  assert.equal(handled, 1);
+});

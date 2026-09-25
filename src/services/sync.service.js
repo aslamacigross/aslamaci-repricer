@@ -1,7 +1,12 @@
 const { env } = require("../config/env");
+const logger = require("../config/logger");
 const { roundMoney } = require("../utils/numbers");
 const { canonicalGtin } = require("../domain/catalog-gtin");
 const { normalizeBuyboxOrders } = require("./hepsiburada.service");
+const {
+  ObservationPersistenceService,
+  emptyCounters,
+} = require("./observation-persistence.service");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -12,6 +17,12 @@ function hasText(value) {
 function blankToNull(value) {
   const text = String(value ?? "").trim();
   return text ? text : null;
+}
+
+function mergeObservationCounters(target, source) {
+  for (const [table, counters] of Object.entries(source || {}))
+    for (const [name, count] of Object.entries(counters || {}))
+      target[table][name] += Number(count) || 0;
 }
 
 function normalizedSellerName(value) {
@@ -448,11 +459,13 @@ async function verifiedGtinCrossMarketMetadata(db, gtin) {
 }
 
 class SyncService {
-  constructor({ db, trendyol, hepsiburada, audit }) {
+  constructor({ db, trendyol, hepsiburada, audit, observations }) {
     this.db = db;
     this.trendyol = trendyol;
     this.hepsiburada = hepsiburada;
     this.audit = audit;
+    this.observations =
+      observations || new ObservationPersistenceService({ db });
   }
 
   async products() {
@@ -1124,6 +1137,7 @@ class SyncService {
       failed = 0;
     const updatedBarcodes = [];
     const failedBarcodes = [];
+    const observationPersistence = emptyCounters();
     for (let index = 0; index < products.length; index += 10) {
       const chunk = products.slice(index, index + 10);
       try {
@@ -1131,6 +1145,7 @@ class SyncService {
           chunk.map((row) => row.barcode),
         );
         const responded = new Set();
+        const snapshots = [];
         for (const info of data.buyboxInfo || []) {
           const barcode = String(info.barcode || "");
           const original = chunk.find((row) => row.barcode === barcode);
@@ -1156,47 +1171,45 @@ class SyncService {
              WHERE marketplace='TRENDYOL' AND barcode=$6`,
             values,
           );
-          await this.db.query(
-            `INSERT INTO repricer_observations(
-              marketplace,barcode,observed_price,buybox_price,second_price,
-              third_price,rank,has_multiple_seller,observed_at
-            )VALUES('TRENDYOL',$6,$8,$1,$2,$3,$4,$5,$7)`,
-            [...values, original.my_price],
-          );
-          await this.db.query(
-            `INSERT INTO buybox_history(
-              marketplace,barcode,product_name,observed_price,buybox_price,
-              second_price,third_price,rank,has_multiple_seller,min_price,
-              net_profit,observed_at
-            )VALUES('TRENDYOL',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-            ON CONFLICT(marketplace,barcode,observed_at)DO NOTHING`,
-            [
-              barcode,
-              original.product_name,
-              original.my_price,
-              values[0],
-              values[1],
-              values[2],
-              values[3],
-              values[4],
-              original.min_price,
-              original.calculated_net_profit,
-              observedAt,
-            ],
-          );
           const visiblePrices = [values[0], values[1], values[2]];
-          for (let rank = 1; rank <= visiblePrices.length; rank++) {
-            if (!(visiblePrices[rank - 1] > 0)) continue;
-            await this.db.query(
-              `INSERT INTO competitor_price_observations(
-                marketplace,barcode,rank,price,observed_at
-              )VALUES('TRENDYOL',$1,$2,$3,$4)`,
-              [barcode, rank, visiblePrices[rank - 1], observedAt],
-            );
-          }
+          snapshots.push({
+            barcode,
+            observed_at: observedAt,
+            repricer: {
+              observed_price: original.my_price,
+              buybox_price: values[0],
+              second_price: values[1],
+              third_price: values[2],
+              rank: values[3],
+              has_multiple_seller: values[4],
+            },
+            buybox: {
+              product_name: original.product_name,
+              observed_price: original.my_price,
+              buybox_price: values[0],
+              second_price: values[1],
+              third_price: values[2],
+              rank: values[3],
+              has_multiple_seller: values[4],
+              min_price: original.min_price,
+              net_profit: original.calculated_net_profit,
+              buybox_seller: null,
+              second_seller: null,
+              third_seller: null,
+              seller_count: null,
+              buybox_source: null,
+            },
+            competitors: visiblePrices.flatMap((price, rank) =>
+              price > 0 ? [{ rank: rank + 1, price }] : [],
+            ),
+          });
           processed++;
           updatedBarcodes.push(barcode);
         }
+        mergeObservationCounters(
+          observationPersistence,
+          await this.observations.persist("TRENDYOL", snapshots),
+        );
         for (const item of chunk)
           if (!responded.has(item.barcode)) {
             failed++;
@@ -1215,12 +1228,20 @@ class SyncService {
       }
       if (index + 10 < products.length) await sleep(250);
     }
+    logger.info("observation_persistence_summary", {
+      marketplace: "TRENDYOL",
+      heartbeatMinutes:
+        this.observations.heartbeatMinutes ?? env.observationHeartbeatMinutes,
+      enabled: this.observations.enabled ?? env.observationDedupEnabled,
+      tables: observationPersistence,
+    });
     return {
       processed,
       successful: processed,
       failed,
       updatedBarcodes,
       failedBarcodes: [...new Set(failedBarcodes)],
+      metadata: { observationPersistence },
     };
   }
 
@@ -1232,8 +1253,7 @@ class SyncService {
     const limited = hasBarcodeFilter || limit != null;
     const pageLimit = Math.min(Math.max(Number(pageSize) || 500, 1), 500);
     const baseParams = [];
-    let where =
-      `p.marketplace='HEPSIBURADA'
+    let where = `p.marketplace='HEPSIBURADA'
        AND p.is_active=TRUE
        AND COALESCE(p.archived,FALSE)=FALSE
        AND TRIM(COALESCE(p.hb_sku,p.marketplace_product_id,''))<>''`;
@@ -1312,6 +1332,7 @@ class SyncService {
         failFast: false,
         durationMs: 0,
         itemErrors: [],
+        observationPersistence: emptyCounters(),
       },
     };
     const started = Date.now();
@@ -1344,8 +1365,7 @@ class SyncService {
       summary.failedBarcodes.push(product.barcode);
       if (code === "HTTP_401") summary.metadata.http401++;
       else if (code === "HTTP_403") summary.metadata.http403++;
-      else if (code === "HTTP_429")
-        summary.metadata.http429++;
+      else if (code === "HTTP_429") summary.metadata.http429++;
       else if (code === "TIMEOUT") summary.metadata.timeouts++;
       if (summary.metadata.itemErrors.length < 25)
         summary.metadata.itemErrors.push({
@@ -1380,7 +1400,7 @@ class SyncService {
         await recordError(product, code, null);
       }
     };
-    const writeResult = async (product, result, observedAt) => {
+    const writeResult = async (product, result, observedAt, snapshots) => {
       summary.processed++;
       const values = [
         result.buyboxPrice,
@@ -1406,63 +1426,42 @@ class SyncService {
          WHERE marketplace='HEPSIBURADA' AND barcode=$6`,
         values,
       );
-      await this.db.query(
-        `INSERT INTO repricer_observations(
-          marketplace,barcode,observed_price,buybox_price,second_price,
-          third_price,rank,has_multiple_seller,observed_at
-        )VALUES('HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8)`,
-        [
-          product.barcode,
-          product.my_price,
-          result.buyboxPrice,
-          result.secondPrice,
-          result.thirdPrice,
-          result.rank,
-          result.hasMultipleSeller,
-          observedAt,
-        ],
-      );
-      await this.db.query(
-        `INSERT INTO buybox_history(
-          marketplace,barcode,product_name,observed_price,buybox_price,
-          second_price,third_price,rank,has_multiple_seller,min_price,
-          net_profit,observed_at,buybox_seller,second_seller,third_seller,
-          seller_count,buybox_source
-        )VALUES('HEPSIBURADA',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-        ON CONFLICT(marketplace,barcode,observed_at)DO NOTHING`,
-        [
-          product.barcode,
-          product.product_name,
-          product.my_price,
-          result.buyboxPrice,
-          result.secondPrice,
-          result.thirdPrice,
-          result.rank,
-          result.hasMultipleSeller,
-          product.min_price,
-          product.calculated_net_profit,
-          observedAt,
-          result.buyboxSeller,
-          result.secondSeller,
-          result.thirdSeller,
-          result.sellerCount,
-          result.source,
-        ],
-      );
       const visiblePrices = [
         result.buyboxPrice,
         result.secondPrice,
         result.thirdPrice,
       ];
-      for (let rank = 1; rank <= visiblePrices.length; rank++) {
-        if (!(visiblePrices[rank - 1] > 0)) continue;
-        await this.db.query(
-          `INSERT INTO competitor_price_observations(
-            marketplace,barcode,rank,price,observed_at
-          )VALUES('HEPSIBURADA',$1,$2,$3,$4)`,
-          [product.barcode, rank, visiblePrices[rank - 1], observedAt],
-        );
-      }
+      snapshots.push({
+        barcode: product.barcode,
+        observed_at: observedAt,
+        repricer: {
+          observed_price: product.my_price,
+          buybox_price: result.buyboxPrice,
+          second_price: result.secondPrice,
+          third_price: result.thirdPrice,
+          rank: result.rank,
+          has_multiple_seller: result.hasMultipleSeller,
+        },
+        buybox: {
+          product_name: product.product_name,
+          observed_price: product.my_price,
+          buybox_price: result.buyboxPrice,
+          second_price: result.secondPrice,
+          third_price: result.thirdPrice,
+          rank: result.rank,
+          has_multiple_seller: result.hasMultipleSeller,
+          min_price: product.min_price,
+          net_profit: product.calculated_net_profit,
+          buybox_seller: result.buyboxSeller,
+          second_seller: result.secondSeller,
+          third_seller: result.thirdSeller,
+          seller_count: result.sellerCount,
+          buybox_source: result.source,
+        },
+        competitors: visiblePrices.flatMap((price, rank) =>
+          price > 0 ? [{ rank: rank + 1, price }] : [],
+        ),
+      });
       summary.successful++;
       if (result.buyboxPrice) summary.metadata.buyboxPriceFound++;
       if (result.secondPrice || result.thirdPrice)
@@ -1491,6 +1490,7 @@ class SyncService {
         const variantsBySku = new Map(
           variants.map((variant) => [variant.sku, variant]),
         );
+        const snapshots = [];
         for (const sku of batch) {
           const variant = variantsBySku.get(sku);
           if (!variant || !variant.buyboxOrders.length) {
@@ -1517,9 +1517,13 @@ class SyncService {
             source: "HEPSIBURADA_OFFICIAL_API",
           };
           for (const product of productsBySku.get(sku) || []) {
-            await writeResult(product, result, observedAt);
+            await writeResult(product, result, observedAt, snapshots);
           }
         }
+        mergeObservationCounters(
+          summary.metadata.observationPersistence,
+          await this.observations.persist("HEPSIBURADA", snapshots),
+        );
       } catch (error) {
         summary.metadata.failedRequests++;
         const status = Number(error.status || error.httpStatus || 0);
@@ -1557,6 +1561,13 @@ class SyncService {
       operation: "OFFICIAL_BUYBOX_SYNC_SUMMARY",
       message: `HB official buybox sync: ${summary.successful}/${summary.metadata.totalProducts}`,
       details: summary.metadata,
+    });
+    logger.info("observation_persistence_summary", {
+      marketplace: "HEPSIBURADA",
+      heartbeatMinutes:
+        this.observations.heartbeatMinutes ?? env.observationHeartbeatMinutes,
+      enabled: this.observations.enabled ?? env.observationDedupEnabled,
+      tables: summary.metadata.observationPersistence,
     });
     return summary;
   }

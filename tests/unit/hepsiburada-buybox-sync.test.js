@@ -195,8 +195,19 @@ describe("Hepsiburada official buybox sync", () => {
       String(call.sql || "").includes("INSERT INTO repricer_observations"),
     );
     assert.ok(observation);
-    assert.equal(observation.params.length, 8);
-    assert.equal(String(observation.sql).includes("$13"), false);
+    assert.equal(observation.params[0], "HEPSIBURADA");
+    assert.deepEqual(JSON.parse(observation.params[1]), [
+      {
+        barcode: "SKU1",
+        observed_at: JSON.parse(observation.params[1])[0].observed_at,
+        observed_price: 100,
+        buybox_price: 95,
+        second_price: 99,
+        third_price: null,
+        rank: 1,
+        has_multiple_seller: true,
+      },
+    ]);
   });
 
   test("verified Hepsiburada seller alias ranks as own merchant", async () => {
@@ -295,7 +306,11 @@ describe("Hepsiburada official buybox sync", () => {
       ),
       false,
     );
-    assert.equal(calls.find((call) => call.params?.[1] === "BUYBOX_NOT_RETURNED")?.params[1], "BUYBOX_NOT_RETURNED");
+    assert.equal(
+      calls.find((call) => call.params?.[1] === "BUYBOX_NOT_RETURNED")
+        ?.params[1],
+      "BUYBOX_NOT_RETURNED",
+    );
   });
 
   test("official veri public collector tarafindan overwrite edilmez", async () => {

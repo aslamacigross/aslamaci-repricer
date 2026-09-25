@@ -86,6 +86,17 @@ class JobService {
           error: "Job zaten çalışıyor",
           processed: 0,
         };
+      if (metadata.source === "scheduler") {
+        const current = (
+          await client.query("SELECT * FROM jobs WHERE name=$1", [name])
+        ).rows[0];
+        if (!current || !isJobDue(current))
+          return {
+            status: "SKIPPED",
+            error: "Job lock beklerken başka bir çalışma tarafından tamamlandı",
+            processed: 0,
+          };
+      }
       run = await this.repository.start(name, client);
       try {
         const result = await handler(metadata);
