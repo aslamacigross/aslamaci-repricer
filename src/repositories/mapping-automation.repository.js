@@ -620,7 +620,8 @@ class MappingAutomationRepository {
     );
     params.push(safeLimit, (safePage - 1) * safeLimit);
     const items = await this.db.query(
-      `SELECT f.*,l.cost_item_code,l.confidence AS link_confidence,
+      `SELECT f.*,l.id AS legacy_link_id,l.cost_item_code,
+              l.confidence AS link_confidence,
               COALESCE(canonical.cost_item_id,ci.id) AS canonical_cost_item_id,
               COALESCE(canonical_item.item_code,ci.item_code) AS canonical_item_code,
               COALESCE(canonical_item.item_name,ci.item_name) AS linked_cost_item_name,
@@ -628,6 +629,10 @@ class MappingAutomationRepository {
               COALESCE(canonical_item.unit_desi,ci.unit_desi) AS linked_unit_desi,
               canonical.status AS canonical_relation_status,
               COALESCE(canonical.is_selected,FALSE) AS is_selected,
+              EXISTS(
+                SELECT 1 FROM cost_item_supplier_offers relation
+                WHERE relation.supplier_offer_id=f.id
+              ) AS has_supplier_relation,
               CASE WHEN f.last_seen_at<NOW()-INTERVAL '30 days' THEN TRUE ELSE FALSE END AS stale
        FROM file_market_items f
        LEFT JOIN cost_item_file_links l ON l.file_market_item_id=f.id AND l.status='APPROVED'
@@ -641,11 +646,35 @@ class MappingAutomationRepository {
       params,
     );
     return {
-      items: items.rows.map((item) => ({
-        ...item,
-        supplier_label:
-          supplier(item.supplier_code)?.label || item.supplier_code,
-      })),
+      items: items.rows.map((item) => {
+        let selectionState = "BLOCKED";
+        let selectionBlockReason = null;
+        if (item.canonical_cost_item_id) selectionState = "LINKED";
+        else if (item.legacy_link_id)
+          selectionBlockReason =
+            "Bu supplier kaydında incelenmesi gereken bir legacy bağlantı var.";
+        else if (item.has_supplier_relation)
+          selectionBlockReason =
+            "Bu supplier kaydında incelenmesi gereken canonical ilişki var.";
+        else if ((item.offer_type || "LIVE") !== "LIVE")
+          selectionBlockReason =
+            "Bu kayıt canlı supplier ürünü olmadığı için bu akışta kullanılamaz.";
+        else if (item.availability !== "AVAILABLE")
+          selectionBlockReason = "Bu supplier ürünü şu anda kullanılamıyor.";
+        else if (!(Number(item.current_price) > 0))
+          selectionBlockReason = "Bu supplier ürününün geçerli fiyatı yok.";
+        else if (item.stale)
+          selectionBlockReason =
+            "Bu supplier ürününün güncelliği doğrulanmalıdır.";
+        else selectionState = "UNLINKED_ELIGIBLE";
+        return {
+          ...item,
+          selection_state: selectionState,
+          selection_block_reason: selectionBlockReason,
+          supplier_label:
+            supplier(item.supplier_code)?.label || item.supplier_code,
+        };
+      }),
       total: count.rows[0].total,
       page: safePage,
       limit: safeLimit,

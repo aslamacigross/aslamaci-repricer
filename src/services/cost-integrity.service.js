@@ -1,11 +1,16 @@
 const crypto = require("node:crypto");
 const { AppError } = require("../utils/errors");
 const { priceTierForQuantity } = require("../domain/supplier-products");
+const {
+  generatedCostCode,
+  uniqueCostCode,
+} = require("../domain/cost-item-identity");
 
 const OPERATION_TYPES = new Set([
   "CHANGE_SELECTED_OFFER",
   "REASSIGN_PRODUCT_COST",
   "ASSIGN_PRODUCT_COST",
+  "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
   "REPLACE_COST_ITEM",
   "SPLIT_COST_MAPPINGS",
   "MANUAL_TO_LIVE",
@@ -330,6 +335,10 @@ class CostIntegrityService {
       let affectedMappings;
       if (original.operation_type === "CREATE_MANUAL_COST")
         affectedMappings = await this._reverseManualCreate(client, original);
+      else if (
+        original.operation_type === "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN"
+      )
+        affectedMappings = await this._reverseLiveCostCreate(client, original);
       else if (original.operation_type === "ASSIGN_PRODUCT_COST")
         affectedMappings = await this._reverseAssignedMapping(client, original);
       else
@@ -704,6 +713,141 @@ class CostIntegrityService {
         }),
         warnings:
           Number(targetItem.unit_desi) > 0 ? [] : ["TARGET_DESI_MISSING"],
+      };
+    }
+    if (type === "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN") {
+      const marketplace = normalizedMarketplace(payload.marketplace);
+      const barcode = required(payload.barcode, "barcode");
+      const supplierOfferId = positiveId(
+        payload.supplierOfferId,
+        "supplierOfferId",
+      );
+      const quantity = positiveInteger(payload.quantity, "quantity");
+      const product = (
+        await queryable.query(
+          `SELECT * FROM products WHERE marketplace=$1 AND barcode=$2${suffix}`,
+          [marketplace, barcode],
+        )
+      ).rows[0];
+      if (!product)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const existingMapping = await queryable.query(
+        `SELECT id FROM product_cost_mappings
+         WHERE marketplace=$1 AND barcode=$2${lock ? " FOR UPDATE" : ""}`,
+        [marketplace, barcode],
+      );
+      if (existingMapping.rowCount)
+        throw new AppError(
+          "Ürün önizlemeden sonra başka bir maliyet kalemine bağlandı",
+          409,
+          "STALE_PREVIEW",
+        );
+      const offer = await this._supplierOffer(
+        queryable,
+        supplierOfferId,
+        suffix,
+      );
+      if ((offer.offer_type || "LIVE") !== "LIVE")
+        throw new AppError(
+          "Yalnız canlı supplier offer için maliyet kalemi oluşturulabilir",
+          409,
+          "LIVE_SUPPLIER_OFFER_REQUIRED",
+        );
+      if (offer.availability !== "AVAILABLE")
+        throw new AppError(
+          "Supplier offer kullanılabilir değil",
+          409,
+          "SUPPLIER_OFFER_NOT_AVAILABLE",
+        );
+      if (!(Number(offer.current_price) > 0))
+        throw new AppError(
+          "Supplier offer fiyatı geçersizdir",
+          409,
+          "SUPPLIER_OFFER_PRICE_INVALID",
+        );
+      const lastSeenAt = new Date(offer.last_seen_at || offer.checked_at || 0);
+      const oldestCurrent = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      if (!lastSeenAt.getTime() || lastSeenAt.getTime() < oldestCurrent)
+        throw new AppError(
+          "Supplier offer güncel değildir",
+          409,
+          "SUPPLIER_OFFER_STALE",
+        );
+      const relation = await queryable.query(
+        `SELECT id,cost_item_id,status FROM cost_item_supplier_offers
+         WHERE supplier_offer_id=$1${lock ? " FOR UPDATE" : ""}`,
+        [supplierOfferId],
+      );
+      if (relation.rowCount)
+        throw new AppError(
+          "Supplier offer artık bir canonical maliyet kalemiyle ilişkilidir",
+          409,
+          "SUPPLIER_OFFER_ALREADY_LINKED",
+        );
+      const legacyLink = await queryable.query(
+        `SELECT id,cost_item_code FROM cost_item_file_links
+         WHERE file_market_item_id=$1 AND status='APPROVED'${
+           lock ? " FOR UPDATE" : ""
+         }`,
+        [supplierOfferId],
+      );
+      if (legacyLink.rowCount)
+        throw new AppError(
+          "Supplier offer üzerinde mevcut veya belirsiz bir legacy bağlantı var",
+          409,
+          "SUPPLIER_OFFER_LEGACY_LINK_CONFLICT",
+        );
+      const itemCode = await this._availableCostItemCode(
+        queryable,
+        offer,
+        lock,
+      );
+      const itemName = required(
+        payload.itemName || offer.product_name,
+        "itemName",
+      );
+      const unitDesi = positiveNumber(payload.unitDesi ?? 0, "unitDesi", {
+        allowZero: true,
+      });
+      const normalizedPayload = {
+        marketplace,
+        barcode,
+        supplierOfferId,
+        itemCode,
+        itemName,
+        unitCost: Number(offer.current_price),
+        unitDesi,
+        quantity,
+        sourceCheckedAt: offer.checked_at || offer.last_seen_at || null,
+      };
+      const previewMapping = {
+        marketplace,
+        barcode,
+        quantity,
+        product_name: product.product_name,
+        is_active: product.is_active,
+        archived: product.archived,
+      };
+      return {
+        payload: normalizedPayload,
+        target: { type: "product_mapping", id: `${marketplace}:${barcode}` },
+        before: this._snapshot({ offers: [offer] }),
+        impact: {
+          ...this._assignmentImpact(previewMapping, {
+            currentUnitCost: null,
+            targetUnitCost: offer.current_price,
+            currentQuantity: null,
+            targetQuantity: quantity,
+            currentUnitDesi: null,
+            targetUnitDesi: unitDesi,
+            product,
+          }),
+          createsCanonicalCostItem: true,
+          supplierCode: offer.supplier_code,
+          supplierProductName: offer.product_name,
+          canonicalItemName: itemName,
+        },
+        warnings: unitDesi > 0 ? [] : ["TARGET_DESI_MISSING"],
       };
     }
     if (["CHANGE_SELECTED_OFFER", "MANUAL_TO_LIVE"].includes(type)) {
@@ -1091,6 +1235,8 @@ class CostIntegrityService {
       return this._reassign(client, state, context);
     if (type === "ASSIGN_PRODUCT_COST")
       return this._assign(client, state);
+    if (type === "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN")
+      return this._createLiveCostAndAssign(client, state, context);
     if (["REPLACE_COST_ITEM", "SPLIT_COST_MAPPINGS"].includes(type))
       return this._moveMappings(client, state, {
         ...context,
@@ -1195,6 +1341,57 @@ class CostIntegrityService {
         legacyLinks: await this._legacyLinks(client, item.item_code),
       }),
       affectedMappings: [mapping],
+    };
+  }
+
+  async _createLiveCostAndAssign(client, state, context) {
+    const payload = state.payload;
+    const offer = await this._supplierOffer(client, payload.supplierOfferId);
+    const item = (
+      await client.query(
+        `INSERT INTO cost_items(
+           item_code,item_name,unit_cost,unit_desi,unit,price_source,
+           source_checked_at,note
+         )VALUES($1,$2,$3,$4,'adet',$5,$6,$7)
+         RETURNING *`,
+        [
+          payload.itemCode,
+          payload.itemName,
+          payload.unitCost,
+          payload.unitDesi,
+          offer.supplier_code,
+          payload.sourceCheckedAt,
+          context.reason,
+        ],
+      )
+    ).rows[0];
+    await client.query(
+      `INSERT INTO cost_item_supplier_offers(
+         cost_item_id,supplier_offer_id,status,is_selected,approved_by,approved_at,
+         selected_by,selected_at,selection_reason
+       )VALUES($1,$2,'APPROVED',TRUE,$3,NOW(),$3,NOW(),$4)`,
+      [item.id, offer.id, context.actor, context.reason],
+    );
+    await this._syncLegacyLink(client, item.id, offer.id, context.actor);
+    const mapping = (
+      await client.query(
+        `INSERT INTO product_cost_mappings(
+           marketplace,barcode,cost_item_code,quantity,updated_at
+         )VALUES($1,$2,$3,$4,NOW()) RETURNING *`,
+        [payload.marketplace, payload.barcode, item.item_code, payload.quantity],
+      )
+    ).rows[0];
+    await this._applyOfferPricing(client, item.id, offer);
+    const mappings = await this._mappings(client, item.item_code);
+    return {
+      after: this._snapshot({
+        costItems: [item],
+        relations: await this._supplierRelations(client, item.id),
+        mappings,
+        offers: [offer],
+        legacyLinks: await this._legacyLinks(client, item.item_code),
+      }),
+      affectedMappings: mappings.length ? mappings : [mapping],
     };
   }
 
@@ -1838,6 +2035,132 @@ class CostIntegrityService {
     return affected;
   }
 
+  async _reverseLiveCostCreate(client, original) {
+    const after = original.after_snapshot || {};
+    const createdItem = after.costItems?.[0];
+    const supplierOffer = after.offers?.[0];
+    const createdMapping = after.mappings?.[0];
+    if (!createdItem || !supplierOffer || !createdMapping)
+      throw new AppError(
+        "Canlı maliyet oluşturma kaydı geri alınamıyor",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    const currentItem = (
+      await client.query("SELECT * FROM cost_items WHERE id=$1 FOR UPDATE", [
+        createdItem.id,
+      ])
+    ).rows[0];
+    if (!currentItem)
+      throw new AppError(
+        "Oluşturulan maliyet kalemi artık bulunamıyor",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    const mappings = (
+      await client.query(
+        "SELECT * FROM product_cost_mappings WHERE cost_item_code=$1 FOR UPDATE",
+        [createdItem.item_code],
+      )
+    ).rows;
+    const relations = (
+      await client.query(
+        "SELECT * FROM cost_item_supplier_offers WHERE cost_item_id=$1 FOR UPDATE",
+        [createdItem.id],
+      )
+    ).rows;
+    const legacyLinks = (
+      await client.query(
+        "SELECT * FROM cost_item_file_links WHERE cost_item_code=$1 FOR UPDATE",
+        [createdItem.item_code],
+      )
+    ).rows;
+    const dependencies = (
+      await client.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM cost_item_aliases
+             WHERE canonical_cost_item_id=$1) aliases,
+           (SELECT COUNT(*)::int FROM supplier_cost_sync_events
+             WHERE cost_item_code=$2) history,
+           (SELECT COUNT(*)::int FROM cost_integrity_operations later
+             WHERE later.id<>$3
+               AND later.created_at>$4
+               AND later.status IN('PLANNED','APPLIED','REVERSED')
+               AND (
+                 (later.target_type='cost_item' AND later.target_id=$1::text)
+                 OR later.operation_payload->>'costItemId'=$1::text
+                 OR later.operation_payload->>'sourceCostItemId'=$1::text
+                 OR later.operation_payload->>'targetCostItemId'=$1::text
+               )) later_operations`,
+        [
+          createdItem.id,
+          createdItem.item_code,
+          original.id,
+          original.created_at,
+        ],
+      )
+    ).rows[0];
+    const sameTimestamp = (current, snapshot) =>
+      (current == null && snapshot == null) ||
+      new Date(current).getTime() === new Date(snapshot).getTime();
+    const itemUnchanged =
+      currentItem.item_name === createdItem.item_name &&
+      Number(currentItem.unit_cost) === Number(createdItem.unit_cost) &&
+      Number(currentItem.unit_desi || 0) === Number(createdItem.unit_desi || 0) &&
+      currentItem.unit === createdItem.unit &&
+      currentItem.price_source === createdItem.price_source &&
+      currentItem.note === createdItem.note &&
+      Number(currentItem.previous_unit_cost || 0) ===
+        Number(createdItem.previous_unit_cost || 0) &&
+      sameTimestamp(currentItem.source_checked_at, createdItem.source_checked_at) &&
+      currentItem.lifecycle_status === createdItem.lifecycle_status &&
+      sameTimestamp(currentItem.archived_at, createdItem.archived_at) &&
+      currentItem.archived_by === createdItem.archived_by &&
+      currentItem.archive_reason === createdItem.archive_reason;
+    const mappingUnchanged =
+      mappings.length === 1 &&
+      Number(mappings[0].id) === Number(createdMapping.id) &&
+      mappings[0].marketplace === createdMapping.marketplace &&
+      mappings[0].barcode === createdMapping.barcode &&
+      Number(mappings[0].quantity) === Number(createdMapping.quantity);
+    const relationUnchanged =
+      relations.length === 1 &&
+      Number(relations[0].supplier_offer_id) === Number(supplierOffer.id) &&
+      relations[0].status === "APPROVED" &&
+      relations[0].is_selected === true;
+    const legacyUnchanged =
+      legacyLinks.length === 1 &&
+      Number(legacyLinks[0].file_market_item_id) === Number(supplierOffer.id) &&
+      legacyLinks[0].status === "APPROVED";
+    if (
+      !itemUnchanged ||
+      !mappingUnchanged ||
+      !relationUnchanged ||
+      !legacyUnchanged ||
+      Number(dependencies.aliases) > 0 ||
+      Number(dependencies.history) > 0 ||
+      Number(dependencies.later_operations) > 0
+    )
+      throw new AppError(
+        "Maliyet kalemi daha sonra kullanıldığı veya değiştirildiği için güvenle geri alınamaz",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    await client.query("DELETE FROM product_cost_mappings WHERE id=$1", [
+      createdMapping.id,
+    ]);
+    await client.query("DELETE FROM cost_item_file_links WHERE id=$1", [
+      legacyLinks[0].id,
+    ]);
+    await client.query("DELETE FROM cost_item_supplier_offers WHERE id=$1", [
+      relations[0].id,
+    ]);
+    await client.query("DELETE FROM cost_items WHERE id=$1", [createdItem.id]);
+    return [
+      { marketplace: createdMapping.marketplace, barcode: createdMapping.barcode },
+    ];
+  }
+
   async _reverseAssignedMapping(client, original) {
     const payload = original.operation_payload || {};
     const target = original.after_snapshot?.costItems?.[0];
@@ -1894,6 +2217,26 @@ class CostIntegrityService {
          file_market_item_id=$2,confidence=1,status='APPROVED',approved_by=$3,
          approved_at=NOW(),updated_at=NOW()`,
       [item.item_code, supplierOfferId, actor],
+    );
+  }
+
+  async _availableCostItemCode(queryable, offer, lock = false) {
+    const baseCode = generatedCostCode(offer);
+    const fallbackCode = uniqueCostCode(baseCode, offer);
+    const rows = (
+      await queryable.query(
+        `SELECT item_code FROM cost_items
+         WHERE item_code=ANY($1::text[])${lock ? " FOR UPDATE" : ""}`,
+        [[baseCode, fallbackCode]],
+      )
+    ).rows;
+    const occupied = new Set(rows.map((row) => row.item_code));
+    if (!occupied.has(baseCode)) return baseCode;
+    if (!occupied.has(fallbackCode)) return fallbackCode;
+    throw new AppError(
+      "Supplier offer için güvenli maliyet kodu ayrılamadı",
+      409,
+      "COST_ITEM_CODE_EXISTS",
     );
   }
 

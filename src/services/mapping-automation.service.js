@@ -30,6 +30,10 @@ const {
   canonicalGtin,
   verifiedCatalogGtin,
 } = require("../domain/catalog-gtin");
+const {
+  generatedCostCode,
+  uniqueCostCode,
+} = require("../domain/cost-item-identity");
 
 const ALGORITHM_VERSION = "multi-supplier-v11";
 
@@ -443,39 +447,6 @@ function hashValue(value) {
     .createHash("sha256")
     .update(JSON.stringify(value))
     .digest("hex");
-}
-
-function generatedCostCode(fileItem) {
-  const raw = normalizeText(`${fileItem.brand || ""} ${fileItem.product_name}`)
-    .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 8)
-    .join("_")
-    .toUpperCase();
-  const size =
-    fileItem.size_value && fileItem.size_unit
-      ? `_${Number(fileItem.size_value).toLocaleString("tr-TR", {
-          maximumFractionDigits: 0,
-          useGrouping: false,
-        })}${String(fileItem.size_unit).toUpperCase()}`
-      : "";
-  const supplierPrefix =
-    fileItem.supplier_code && fileItem.supplier_code !== "FILE_MARKET"
-      ? `${fileItem.supplier_code}_`
-      : "";
-  return `${supplierPrefix}${raw || "TEDARIKCI_URUN"}${size}`.replace(
-    /[^A-Z0-9_]/g,
-    "_",
-  );
-}
-
-function uniqueCostCode(baseCode, item, index) {
-  const suffix = item.file_market_item_id
-    ? `_F${item.file_market_item_id}`
-    : `_${index + 1}`;
-  const clean = `${baseCode}${suffix}`.replace(/[^A-Z0-9_]/g, "_");
-  return clean.length > 120 ? clean.slice(0, 120) : clean;
 }
 
 function ensureUniqueSuggestionItems(items) {

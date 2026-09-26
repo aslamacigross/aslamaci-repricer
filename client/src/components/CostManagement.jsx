@@ -30,12 +30,54 @@ export const SUPPLIERS = [
 ];
 
 const REASONS = [
+  "Yeni mapping / İlk maliyet eşlemesi",
   "Yanlış maliyet eşleşmesi",
   "Manuel kaydı canlı ürüne geçiriyorum",
   "Supplier ürünü yenilendi/değişti",
   "Duplicate/eski kayıt kaldırılıyor",
   "Ürün varyantlarını ayırıyorum",
   "Diğer",
+];
+
+const DEFAULT_REASON = "Yanlış maliyet eşleşmesi";
+const NEW_MAPPING_REASON = "Yeni mapping / İlk maliyet eşlemesi";
+
+const REFRESHABLE_PREVIEW_ERRORS = new Set([
+  "STALE_PREVIEW",
+  "SOURCE_MAPPING_REQUIRED",
+  "SUPPLIER_OFFER_ALREADY_LINKED",
+  "SUPPLIER_OFFER_LEGACY_LINK_CONFLICT",
+  "SUPPLIER_OFFER_NOT_AVAILABLE",
+  "SUPPLIER_OFFER_PRICE_INVALID",
+  "SUPPLIER_OFFER_STALE",
+]);
+
+const COST_ACTIONS = [
+  {
+    value: "REASSIGN",
+    label: "Bu ürünün maliyetini değiştir",
+    help: "Yalnız bu marketplace ürününün bağlı olduğu maliyet kalemini değiştirir.",
+  },
+  {
+    value: "SOURCE",
+    label: "Tedarikçi kaynağını değiştir",
+    help: "Ürün eşleşmesi aynı kalır; maliyetin takip edildiği tedarikçi kaynağı değişir.",
+  },
+  {
+    value: "REPLACEMENT",
+    label: "Eski tedarikçi kaydını yenisiyle eşleştir",
+    help: "Aynı fiziksel ürünün eski ve yeni tedarikçi kayıtlarını birbirine bağlar.",
+  },
+  {
+    value: "REPLACE",
+    label: "Tüm mappingleri başka maliyet kalemine taşı",
+    help: "Bu maliyet kalemini kullanan tüm ürünleri tek bir yeni maliyet kalemine taşır.",
+  },
+  {
+    value: "SPLIT",
+    label: "Mappingleri farklı maliyetlere ayır",
+    help: "Bu maliyet kalemini kullanan ürünleri birden fazla doğru maliyet kalemine dağıtır.",
+  },
 ];
 
 function operationId() {
@@ -51,6 +93,10 @@ function errorMessage(error) {
     COST_ITEM_IN_USE:
       "Bu maliyet daha önce kullanıldığı için kalıcı silinemez. Kaldır/Arşivle seçeneğini kullanın.",
     SOURCE_MAPPING_REQUIRED: "Değiştirilecek mevcut maliyet satırını seçin.",
+    SUPPLIER_OFFER_ALREADY_LINKED:
+      "Bu tedarikçi ürünü siz önizlemeyi açtıktan sonra başka bir maliyet kalemine bağlandı. Sonuçları yenileyin.",
+    SUPPLIER_OFFER_LEGACY_LINK_CONFLICT:
+      "Bu tedarikçi ürününde incelenmesi gereken eski bir bağlantı var.",
   };
   return messages[error?.code] || error?.message || "İşlem tamamlanamadı";
 }
@@ -346,6 +392,7 @@ function QuantityPackagingSummary({ quantity, unitCost, unitDesi, product }) {
 
 export function CostSelector({
   onSelect,
+  onCreateFromOffer,
   selectedId,
   allowManual = true,
   requireCanonical = true,
@@ -445,7 +492,25 @@ export function CostSelector({
       ) : (
         <div className="cost-offer-results">
           {result.items.map((item) => {
-            const blocked = requireCanonical && !item.canonical_cost_item_id;
+            const inferredState = item.canonical_cost_item_id
+              ? "LINKED"
+              : (item.offer_type || "LIVE") === "LIVE" &&
+                  item.availability === "AVAILABLE" &&
+                  !item.stale &&
+                  Number(item.current_price) > 0
+                ? "UNLINKED_ELIGIBLE"
+                : "BLOCKED";
+            const selectionState = item.selection_state || inferredState;
+            const linked = selectionState === "LINKED";
+            const canCreate =
+              requireCanonical &&
+              selectionState === "UNLINKED_ELIGIBLE" &&
+              Boolean(onCreateFromOffer);
+            const blocked =
+              selectionState === "BLOCKED" ||
+              (requireCanonical &&
+                selectionState === "UNLINKED_ELIGIBLE" &&
+                !onCreateFromOffer);
             const url = sourceUrl(item);
             return (
               <article
@@ -481,10 +546,21 @@ export function CostSelector({
                         : "Tanımlı değil"}
                     </small>
                   )}
+                  {canCreate && (
+                    <small className="cost-selector-warning">
+                      Bu tedarikçi ürünü henüz bir maliyet kalemine bağlı değil.
+                    </small>
+                  )}
                   {blocked && (
                     <small className="cost-selector-warning">
-                      Bu supplier kaydı henüz canonical maliyet kalemine bağlı değil.
+                      {item.selection_block_reason ||
+                        (selectionState === "UNLINKED_ELIGIBLE"
+                          ? "Bu tedarikçi ürünü henüz bir maliyet kalemine bağlı değil. Bu işlem yalnız mevcut maliyet kalemlerini kullanır."
+                          : "Bu tedarikçi ürünü bu işlem için kullanılamaz.")}
                     </small>
+                  )}
+                  {linked && item.linked_cost_item_name && (
+                    <small>Canonical: {item.linked_cost_item_name}</small>
                   )}
                 </div>
                 <div className="cost-offer-actions">
@@ -496,9 +572,15 @@ export function CostSelector({
                   <Button
                     variant={item.is_selected ? "secondary" : "primary"}
                     disabled={blocked}
-                    onClick={() => onSelect(item)}
+                    onClick={() =>
+                      canCreate
+                        ? onCreateFromOffer?.(item)
+                        : onSelect(item)
+                    }
                   >
-                    Seç
+                    {canCreate
+                      ? "Yeni maliyet kalemi oluştur ve seç"
+                      : "Seç"}
                   </Button>
                 </div>
               </article>
@@ -590,8 +672,16 @@ function ManualCostForm({ initial, onCancel, onSubmit, showDesi = true }) {
 }
 
 export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
-  const [reason, setReason] = useState(REASONS[0]);
+  const [reason, setReason] = useState(DEFAULT_REASON);
   const [customReason, setCustomReason] = useState("");
+  useEffect(() => {
+    const isFirstMapping = [
+      "ASSIGN_PRODUCT_COST",
+      "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    ].includes(preview?.operationType);
+    setReason(isFirstMapping ? NEW_MAPPING_REASON : DEFAULT_REASON);
+    setCustomReason("");
+  }, [preview?.operationType, preview?.previewFingerprint]);
   if (!preview) return null;
   const impact = preview.impact || {};
   const hasAssignmentCalculation = impact.targetQuantity != null;
@@ -600,6 +690,18 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
     <Modal open onClose={onClose} title="İşlem önizlemesi">
       <div className="cost-impact-preview">
         <Badge tone="info">{preview.operationType}</Badge>
+        {impact.createsCanonicalCostItem && (
+          <div className="info-banner create-canonical-summary">
+            <div>
+              <strong>Yeni maliyet kalemi oluşturulacak</strong>
+              <p>
+                {impact.supplierCode} · {impact.supplierProductName} ·{" "}
+                {money(impact.targetUnitCost)}
+              </p>
+              <small>Yeni maliyet kalemi: {impact.canonicalItemName}</small>
+            </div>
+          </div>
+        )}
         <div className="metric-row">
           <div><span>Trendyol</span><b>{impact.byMarketplace?.TRENDYOL || 0}</b></div>
           <div><span>Hepsiburada</span><b>{impact.byMarketplace?.HEPSIBURADA || 0}</b></div>
@@ -692,7 +794,11 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
         <div className="modal-actions">
           <Button variant="secondary" onClick={onClose}>İptal</Button>
           <Button disabled={busy || !finalReason} onClick={() => onConfirm(finalReason)}>
-            {busy ? "Uygulanıyor" : "Onayla"}
+            {busy
+              ? "Uygulanıyor"
+              : impact.createsCanonicalCostItem
+                ? "Oluştur ve eşleştir"
+                : "Onayla"}
           </Button>
         </div>
       </div>
@@ -700,10 +806,11 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
   );
 }
 
-function useOperation({ notify, onChanged }) {
+function useOperation({ notify, onChanged, onConflict }) {
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [lastOperation, setLastOperation] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   async function open(operationType, payload) {
     setBusy(true);
@@ -740,7 +847,16 @@ function useOperation({ notify, onChanged }) {
       await onChanged?.();
     } catch (error) {
       notify?.(errorMessage(error), "error");
-      if (error?.code === "STALE_PREVIEW") setPreview(null);
+      if (REFRESHABLE_PREVIEW_ERRORS.has(error?.code)) {
+        setPreview(null);
+        setRefreshKey((value) => value + 1);
+        onConflict?.();
+        try {
+          await onChanged?.();
+        } catch {
+          // The primary conflict is already visible; selector remount refreshes it.
+        }
+      }
     } finally {
       setBusy(false);
     }
@@ -763,7 +879,16 @@ function useOperation({ notify, onChanged }) {
       setBusy(false);
     }
   }
-  return { preview, busy, lastOperation, open, apply, undo, close: () => setPreview(null) };
+  return {
+    preview,
+    busy,
+    lastOperation,
+    refreshKey,
+    open,
+    apply,
+    undo,
+    close: () => setPreview(null),
+  };
 }
 
 function AssignmentControls({
@@ -780,9 +905,15 @@ function AssignmentControls({
   onPreview,
   disabled,
   notify,
+  createCanonical = false,
+  draftItemName,
+  onDraftItemNameChange,
+  draftUnitDesi,
+  onDraftUnitDesiChange,
 }) {
   const [resolvedUnitDesi, setResolvedUnitDesi] = useState(unitDesi);
   useEffect(() => setResolvedUnitDesi(unitDesi), [costItemId, unitDesi]);
+  const effectiveUnitDesi = createCanonical ? draftUnitDesi : resolvedUnitDesi;
   return (
     <div className="assignment-controls">
       {targetName && (
@@ -803,20 +934,53 @@ function AssignmentControls({
         />
       </Field>
       {error && <p className="cost-selector-error">{error}</p>}
-      <CanonicalDesiEditor
-        costItemId={costItemId}
-        itemCode={itemCode}
-        unitDesi={resolvedUnitDesi}
-        quantity={quantity}
-        product={product}
-        knownMappings={mappings}
-        notify={notify}
-        onSaved={(item) => setResolvedUnitDesi(item.unit_desi)}
-      />
+      {createCanonical ? (
+        <div className="new-canonical-fields">
+          <div className="canonical-desi-heading">
+            <div>
+              <strong>Yeni maliyet kalemi</strong>
+              <small>Teknik maliyet kodu güvenli biçimde otomatik oluşturulur.</small>
+            </div>
+          </div>
+          <Field label="Maliyet kalemi adı">
+            <input
+              aria-label="Maliyet kalemi adı"
+              value={draftItemName}
+              onChange={(event) => onDraftItemNameChange(event.target.value)}
+            />
+          </Field>
+          <Field label="Birim desi">
+            <input
+              aria-label="Yeni canonical birim desi"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={draftUnitDesi}
+              onChange={(event) => onDraftUnitDesiChange(event.target.value)}
+            />
+          </Field>
+          <small>
+            Birim desi canonical maliyet kaleminde ortak tutulur; quantity ile
+            ayrı alanlardır.
+          </small>
+        </div>
+      ) : (
+        <CanonicalDesiEditor
+          costItemId={costItemId}
+          itemCode={itemCode}
+          unitDesi={resolvedUnitDesi}
+          quantity={quantity}
+          product={product}
+          knownMappings={mappings}
+          notify={notify}
+          onSaved={(item) => setResolvedUnitDesi(item.unit_desi)}
+        />
+      )}
       <QuantityPackagingSummary
         quantity={quantity}
         unitCost={unitCost}
-        unitDesi={resolvedUnitDesi}
+        unitDesi={effectiveUnitDesi}
         product={product}
       />
       <Button disabled={disabled} onClick={onPreview}>
@@ -840,9 +1004,19 @@ export function CostAssignmentEditor({
   const [quantity, setQuantity] = useState(String(mappings[0]?.quantity ?? 1));
   const [quantityValidation, setQuantityValidation] = useState("");
   const [targetOffer, setTargetOffer] = useState(null);
+  const [draftItemName, setDraftItemName] = useState("");
+  const [draftUnitDesi, setDraftUnitDesi] = useState("");
   const [splitAssignments, setSplitAssignments] = useState({});
   const [splitActiveMappingId, setSplitActiveMappingId] = useState(null);
-  const operation = useOperation({ notify, onChanged });
+  const operation = useOperation({
+    notify,
+    onChanged,
+    onConflict: () => {
+      setTargetOffer(null);
+      setDraftItemName("");
+      setDraftUnitDesi("");
+    },
+  });
   const mapping = mappings.find((row) => Number(row.id) === Number(mappingId));
 
   useEffect(() => {
@@ -854,6 +1028,8 @@ export function CostAssignmentEditor({
     setQuantity(String(mapping?.quantity ?? 1));
     setQuantityValidation("");
     setTargetOffer(null);
+    setDraftItemName("");
+    setDraftUnitDesi("");
   }, [mapping?.id, mapping?.quantity]);
 
   useEffect(() => {
@@ -888,10 +1064,23 @@ export function CostAssignmentEditor({
       notify?.("Önce bir maliyet kalemi seçin.", "error");
       return;
     }
-    operation.open(mapping ? "REASSIGN_PRODUCT_COST" : "ASSIGN_PRODUCT_COST", {
+    const createsCanonical = !mapping && targetOffer?.createCanonical;
+    operation.open(
+      createsCanonical
+        ? "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN"
+        : mapping
+          ? "REASSIGN_PRODUCT_COST"
+          : "ASSIGN_PRODUCT_COST",
+      {
       marketplace,
       barcode,
-      ...(mapping
+      ...(createsCanonical
+        ? {
+            supplierOfferId: targetOffer.id,
+            itemName: draftItemName,
+            unitDesi: draftUnitDesi === "" ? 0 : Number(draftUnitDesi),
+          }
+        : mapping
         ? {
             sourceCostItemId: mapping.cost_item_id,
             targetCostItemId:
@@ -899,7 +1088,16 @@ export function CostAssignmentEditor({
           }
         : { targetCostItemId: targetOffer.canonical_cost_item_id }),
       quantity: normalizedQuantity,
-    });
+      },
+    );
+  };
+  const createFromOffer = (offer) => {
+    setTargetOffer({ ...offer, createCanonical: true });
+    setDraftItemName(offer.product_name || "");
+    setDraftUnitDesi(
+      String(offer.estimated_unit_desi ?? offer.unit_desi ?? ""),
+    );
+    setQuantityValidation("");
   };
   const openTarget = (offer) => {
     if (mode === "SOURCE") {
@@ -908,7 +1106,7 @@ export function CostAssignmentEditor({
         Number(offer.canonical_cost_item_id) !== Number(current.id)
       ) {
         notify?.(
-          "Bu ürün başka bir maliyet kalemine bağlı. Maliyeti değiştir akışını kullanın.",
+          "Bu ürün başka bir maliyet kalemine bağlı. Bu ürünün maliyetini değiştir akışını kullanın.",
           "error",
         );
         return;
@@ -934,7 +1132,7 @@ export function CostAssignmentEditor({
         Number(offer.canonical_cost_item_id) !== Number(current.id)
       ) {
         notify?.(
-          "Bu ürün başka bir maliyet kalemine bağlı. Başka kalemle değiştir akışını kullanın.",
+          "Bu ürün başka bir maliyet kalemine bağlı. Tüm mappingleri başka maliyet kalemine taşı akışını kullanın.",
           "error",
         );
         return;
@@ -1013,11 +1211,15 @@ export function CostAssignmentEditor({
       <section className="cost-management-panel">
         <Empty label="Bu ürünün maliyet mappingi yok" />
         <CostSelector
+          key={`unmapped-${operation.refreshKey}`}
           selectedId={targetOffer?.id}
           onSelect={(selected) => {
-            setTargetOffer(selected);
+            setTargetOffer({ ...selected, createCanonical: false });
+            setDraftItemName("");
+            setDraftUnitDesi("");
             setQuantityValidation("");
           }}
+          onCreateFromOffer={createFromOffer}
           onManualSubmit={manualPreview}
         />
         <AssignmentControls
@@ -1034,8 +1236,20 @@ export function CostAssignmentEditor({
           product={product}
           targetName={targetOffer?.linked_cost_item_name || targetOffer?.product_name}
           onPreview={assignmentPreview}
-          disabled={!targetOffer}
+          disabled={
+            !targetOffer ||
+            (targetOffer.createCanonical && !draftItemName.trim()) ||
+            (targetOffer.createCanonical &&
+              draftUnitDesi !== "" &&
+              (!Number.isFinite(Number(draftUnitDesi)) ||
+                Number(draftUnitDesi) < 0))
+          }
           notify={notify}
+          createCanonical={Boolean(targetOffer?.createCanonical)}
+          draftItemName={draftItemName}
+          onDraftItemNameChange={setDraftItemName}
+          draftUnitDesi={draftUnitDesi}
+          onDraftUnitDesiChange={setDraftUnitDesi}
         />
         {operation.lastOperation && (
           <div className="cost-operation-success">
@@ -1084,18 +1298,36 @@ export function CostAssignmentEditor({
         </Field>
       )}
       <div className="cost-operation-tabs" role="tablist">
-        {[
-          ["REASSIGN", "Maliyeti değiştir"],
-          ["SOURCE", "Kaynağı değiştir"],
-          ["REPLACEMENT", "Yeni kayıtla değiştir"],
-          ["REPLACE", "Başka kalemle değiştir"],
-          ["SPLIT", "Mappingleri ayır"],
-        ].map(([value, label]) => (
-          <button key={value} className={mode === value ? "active" : ""} onClick={() => setMode(value)}>
-            {label}
+        {COST_ACTIONS.slice(0, 2).map((action) => (
+          <button
+            key={action.value}
+            className={mode === action.value ? "active" : ""}
+            onClick={() => setMode(action.value)}
+          >
+            {action.label}
           </button>
         ))}
       </div>
+      <details
+        className="cost-more-actions"
+        open={COST_ACTIONS.slice(2).some((action) => action.value === mode)}
+      >
+        <summary>Diğer maliyet işlemleri</summary>
+        <div className="cost-operation-tabs" role="tablist">
+          {COST_ACTIONS.slice(2).map((action) => (
+            <button
+              key={action.value}
+              className={mode === action.value ? "active" : ""}
+              onClick={() => setMode(action.value)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </details>
+      <p className="cost-action-help">
+        {COST_ACTIONS.find((action) => action.value === mode)?.help}
+      </p>
       {mode === "REASSIGN" && (
         <AssignmentControls
           quantity={quantity}
@@ -1162,6 +1394,7 @@ export function CostAssignmentEditor({
         <Loading label="Maliyet bağlantıları yükleniyor" />
       ) : (
         <CostSelector
+          key={`mapped-${operation.refreshKey}`}
           onSelect={openTarget}
           selectedId={targetOffer?.id}
           requireCanonical={!(["SOURCE", "REPLACEMENT"].includes(mode))}

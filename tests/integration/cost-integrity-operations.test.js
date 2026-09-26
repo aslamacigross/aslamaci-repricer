@@ -939,6 +939,38 @@ test("supplier selector server-side search canonical ve selected bilgiyi döndü
   assert.ok(costItems.items.some((row) => Number(row.id) === Number(item.id)));
 });
 
+test("supplier selector linked, unlinked eligible ve blocked kayitlari siniflandirir", async (t) => {
+  const { db, withTransaction } = await fixture();
+  t.after(() => db.end());
+  const item = await addCostItem(db, "LINKED_SELECTOR", 50);
+  const linked = await addOffer(db, "LINKED-SELECTOR", 50, { supplier: "BIM" });
+  await linkOffer(db, item, linked, { selected: true });
+  const eligible = await addOffer(db, "UNLINKED-ELIGIBLE", 50, {
+    supplier: "BIM",
+  });
+  const unavailable = await addOffer(db, "UNLINKED-BLOCKED", 50, {
+    supplier: "BIM",
+    availability: "UNAVAILABLE",
+  });
+  const repository = new MappingAutomationRepository(db, withTransaction);
+  const result = await repository.listSupplierItems({
+    supplierCode: "BIM",
+    page: 1,
+    limit: 20,
+  });
+  const byId = new Map(result.items.map((row) => [Number(row.id), row]));
+  assert.equal(byId.get(Number(linked.id)).selection_state, "LINKED");
+  assert.equal(
+    byId.get(Number(eligible.id)).selection_state,
+    "UNLINKED_ELIGIBLE",
+  );
+  assert.equal(byId.get(Number(unavailable.id)).selection_state, "BLOCKED");
+  assert.match(
+    byId.get(Number(unavailable.id)).selection_block_reason,
+    /kullanılamıyor/,
+  );
+});
+
 test("4'lu bundle mappingi quantity ile toplam maliyet ve desiyi dogru preview eder", async (t) => {
   const { db, service } = await fixture();
   t.after(() => db.end());
@@ -990,6 +1022,386 @@ test("4'lu bundle mappingi quantity ile toplam maliyet ve desiyi dogru preview e
       )
     ).rows[0].count,
     0,
+  );
+});
+
+test("unlinked LIVE offer tek transaction ile canonical maliyet ve TY mapping olusturur", async (t) => {
+  const { db, service, recalculations } = await fixture();
+  t.after(() => db.end());
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','XYZ-SHAMPOO-4X','4 adet XYZ Şampuan 700 ml',20,300,TRUE,FALSE)`,
+  );
+  const offer = await addOffer(db, "BIM-XYZ-SHAMPOO", 50, {
+    supplier: "BIM",
+  });
+  await db.query(
+    `UPDATE file_market_items
+     SET product_name='XYZ Şampuan 700 ml',normalized_name='xyz sampuan 700 ml',
+         size_value=700,size_unit='ML',estimated_unit_desi=1.8
+     WHERE id=$1`,
+    [offer.id],
+  );
+
+  const preview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "TRENDYOL",
+      barcode: "XYZ-SHAMPOO-4X",
+      supplierOfferId: offer.id,
+      itemName: "XYZ Şampuan 700 ml",
+      unitDesi: 1.8,
+      quantity: 4,
+    },
+  );
+  assert.equal(preview.impact.createsCanonicalCostItem, true);
+  assert.equal(preview.impact.targetUnitCost, 50);
+  assert.equal(preview.impact.targetQuantity, 4);
+  assert.equal(preview.impact.targetLineCost, 200);
+  assert.equal(preview.impact.targetEffectiveProductDesi, 8);
+  assert.match(preview.payload.itemCode, /^BIM_/);
+
+  const input = applyInput(preview, {
+    idempotencyKey: "create-live-and-assign-1",
+    reason: "Yeni mapping / İlk maliyet eşlemesi",
+  });
+  const applied = await service.apply(input);
+  const repeated = await service.apply(input);
+  assert.equal(Number(repeated.id), Number(applied.id));
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM cost_integrity_operations WHERE idempotency_key=$1",
+        [input.idempotencyKey],
+      )
+    ).rows[0].count,
+    1,
+  );
+
+  const items = await db.query(
+    "SELECT * FROM cost_items WHERE item_code=$1",
+    [preview.payload.itemCode],
+  );
+  assert.equal(items.rowCount, 1);
+  assert.equal(Number(items.rows[0].unit_cost), 50);
+  assert.equal(Number(items.rows[0].unit_desi), 1.8);
+  assert.equal(items.rows[0].price_source, "BIM");
+  const relations = await db.query(
+    "SELECT * FROM cost_item_supplier_offers WHERE cost_item_id=$1",
+    [items.rows[0].id],
+  );
+  assert.equal(relations.rowCount, 1);
+  assert.equal(relations.rows[0].is_selected, true);
+  assert.equal(Number(relations.rows[0].supplier_offer_id), Number(offer.id));
+  const legacy = await db.query(
+    "SELECT * FROM cost_item_file_links WHERE cost_item_code=$1",
+    [preview.payload.itemCode],
+  );
+  assert.equal(legacy.rowCount, 1);
+  assert.equal(Number(legacy.rows[0].file_market_item_id), Number(offer.id));
+  const mappings = await db.query(
+    "SELECT * FROM product_cost_mappings WHERE cost_item_code=$1",
+    [preview.payload.itemCode],
+  );
+  assert.equal(mappings.rowCount, 1);
+  assert.equal(mappings.rows[0].marketplace, "TRENDYOL");
+  assert.equal(Number(mappings.rows[0].quantity), 4);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM product_cost_mappings WHERE marketplace='HEPSIBURADA'",
+      )
+    ).rows[0].count,
+    0,
+  );
+  assert.deepEqual(recalculations, [
+    { barcode: "XYZ-SHAMPOO-4X", marketplace: "TRENDYOL" },
+  ]);
+
+  await service.reverse(applied.id, {
+    actor: "phase-2c2-test",
+    reason: "new live cost undo",
+    idempotencyKey: "create-live-and-assign-undo",
+  });
+  assert.equal(
+    (
+      await db.query("SELECT COUNT(*)::int count FROM cost_items WHERE id=$1", [
+        items.rows[0].id,
+      ])
+    ).rows[0].count,
+    0,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM product_cost_mappings WHERE cost_item_code=$1",
+        [preview.payload.itemCode],
+      )
+    ).rows[0].count,
+    0,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM cost_item_supplier_offers WHERE cost_item_id=$1",
+        [items.rows[0].id],
+      )
+    ).rows[0].count,
+    0,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM cost_item_file_links WHERE cost_item_code=$1",
+        [preview.payload.itemCode],
+      )
+    ).rows[0].count,
+    0,
+  );
+  assert.equal(
+    (
+      await db.query("SELECT COUNT(*)::int count FROM file_market_items WHERE id=$1", [
+        offer.id,
+      ])
+    ).rows[0].count,
+    1,
+  );
+});
+
+test("unlinked LIVE offer preview sonrasi ownership veya fiyat degisirse apply reddedilir", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','XYZ-RACE','XYZ Race',20,100,TRUE,FALSE),
+             ('TRENDYOL','XYZ-PRICE','XYZ Price',20,100,TRUE,FALSE)`,
+  );
+  const raceOffer = await addOffer(db, "BIM-XYZ-RACE", 50, { supplier: "BIM" });
+  const racePreview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "TRENDYOL",
+      barcode: "XYZ-RACE",
+      supplierOfferId: raceOffer.id,
+      itemName: "XYZ Race",
+      unitDesi: 1,
+      quantity: 1,
+    },
+  );
+  assert.equal(racePreview.impact.targetLineCost, 50);
+  const owner = await addCostItem(db, "RACE_OWNER", 50);
+  await linkOffer(db, owner, raceOffer, { selected: true });
+  await assert.rejects(
+    service.apply(applyInput(racePreview)),
+    (error) => error.code === "SUPPLIER_OFFER_ALREADY_LINKED",
+  );
+  assert.equal(
+    (
+      await db.query("SELECT COUNT(*)::int count FROM cost_items WHERE item_name='XYZ Race'")
+    ).rows[0].count,
+    0,
+  );
+
+  const priceOffer = await addOffer(db, "BIM-XYZ-PRICE", 50, { supplier: "BIM" });
+  const pricePreview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "TRENDYOL",
+      barcode: "XYZ-PRICE",
+      supplierOfferId: priceOffer.id,
+      itemName: "XYZ Price",
+      unitDesi: 1,
+      quantity: 1,
+    },
+  );
+  await db.query("UPDATE file_market_items SET current_price=55 WHERE id=$1", [
+    priceOffer.id,
+  ]);
+  await assert.rejects(
+    service.apply(applyInput(pricePreview)),
+    (error) => error.code === "STALE_PREVIEW",
+  );
+
+  const mappingOffer = await addOffer(db, "BIM-XYZ-MAPPING-RACE", 50, {
+    supplier: "BIM",
+  });
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','XYZ-MAPPING-RACE','XYZ Mapping Race',20,100,TRUE,FALSE)`,
+  );
+  const mappingPreview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "TRENDYOL",
+      barcode: "XYZ-MAPPING-RACE",
+      supplierOfferId: mappingOffer.id,
+      itemName: "XYZ Mapping Race",
+      unitDesi: 1,
+      quantity: 1,
+    },
+  );
+  const existingItem = await addCostItem(db, "MAPPING_RACE_OWNER", 50);
+  await db.query(
+    `INSERT INTO product_cost_mappings(marketplace,barcode,cost_item_code,quantity)
+     VALUES('TRENDYOL','XYZ-MAPPING-RACE',$1,1)`,
+    [existingItem.item_code],
+  );
+  await assert.rejects(
+    service.apply(applyInput(mappingPreview)),
+    (error) => error.code === "STALE_PREVIEW",
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT COUNT(*)::int count FROM cost_items WHERE item_name='XYZ Mapping Race'",
+      )
+    ).rows[0].count,
+    0,
+  );
+});
+
+test("unlinked LIVE offer HB mapping olustururken Trendyol mappingini degistirmez", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  const existingItem = await addCostItem(db, "EXISTING_TY_COST", 75);
+  await addProductMapping(db, existingItem, "TRENDYOL", "SHARED-BARCODE", 2);
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('HEPSIBURADA','SHARED-BARCODE','HB XYZ Şampuan',20,100,TRUE,FALSE)`,
+  );
+  const offer = await addOffer(db, "BIM-HB-XYZ", 50, { supplier: "BIM" });
+  const preview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "HEPSIBURADA",
+      barcode: "SHARED-BARCODE",
+      supplierOfferId: offer.id,
+      itemName: "HB XYZ Şampuan",
+      unitDesi: 1,
+      quantity: 1,
+    },
+  );
+  await service.apply(applyInput(preview));
+  const mappings = (
+    await db.query(
+      `SELECT marketplace,cost_item_code,quantity
+       FROM product_cost_mappings WHERE barcode='SHARED-BARCODE'
+       ORDER BY marketplace`,
+    )
+  ).rows;
+  assert.deepEqual(
+    mappings.map((row) => ({
+      marketplace: row.marketplace,
+      cost_item_code: row.cost_item_code,
+      quantity: Number(row.quantity),
+    })),
+    [
+      {
+        marketplace: "HEPSIBURADA",
+        cost_item_code: preview.payload.itemCode,
+        quantity: 1,
+      },
+      {
+        marketplace: "TRENDYOL",
+        cost_item_code: existingItem.item_code,
+        quantity: 2,
+      },
+    ],
+  );
+});
+
+test("canli maliyet create undo sonraki integrity operasyonu varsa bloklanir", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','XYZ-OP-DEPENDENCY','XYZ Operation Dependency',20,100,TRUE,FALSE)`,
+  );
+  const offer = await addOffer(db, "BIM-XYZ-OP-DEPENDENCY", 50, {
+    supplier: "BIM",
+  });
+  const preview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "TRENDYOL",
+      barcode: "XYZ-OP-DEPENDENCY",
+      supplierOfferId: offer.id,
+      itemName: "XYZ Operation Dependency",
+      unitDesi: 1,
+      quantity: 1,
+    },
+  );
+  const operation = await service.apply(applyInput(preview));
+  const item = (
+    await db.query("SELECT * FROM cost_items WHERE item_code=$1", [
+      preview.payload.itemCode,
+    ])
+  ).rows[0];
+  await db.query(
+    `INSERT INTO cost_integrity_operations(
+       batch_id,operation_type,actor,reason,target_type,target_id,status,
+       idempotency_key,operation_payload
+     )VALUES('dependency','DEPENDENCY_TEST','tester','later dependency',
+       'cost_item',$1,'APPLIED','dependency-operation',$2::jsonb)`,
+    [item.id, JSON.stringify({ costItemId: Number(item.id) })],
+  );
+  await assert.rejects(
+    service.reverse(operation.id, {
+      actor: "phase-2c2-test",
+      reason: "unsafe operation dependency undo",
+      idempotencyKey: "unsafe-operation-dependency-undo",
+    }),
+    (error) => error.code === "COST_OPERATION_NOT_REVERSIBLE",
+  );
+  assert.equal(
+    (
+      await db.query("SELECT COUNT(*)::int count FROM cost_items WHERE id=$1", [
+        item.id,
+      ])
+    ).rows[0].count,
+    1,
+  );
+});
+
+test("canli maliyet create undo daha sonraki dependency varsa guvenle bloklanir", async (t) => {
+  const { db, service } = await fixture();
+  t.after(() => db.end());
+  await db.query(
+    `INSERT INTO products(
+       marketplace,barcode,product_name,commission_rate,my_price,is_active,archived
+     )VALUES('TRENDYOL','XYZ-UNDO','XYZ Undo',20,100,TRUE,FALSE),
+             ('HEPSIBURADA','XYZ-UNDO-HB','XYZ Undo HB',20,100,TRUE,FALSE)`,
+  );
+  const offer = await addOffer(db, "BIM-XYZ-UNDO", 50, { supplier: "BIM" });
+  const preview = await service.preview(
+    "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+    {
+      marketplace: "TRENDYOL",
+      barcode: "XYZ-UNDO",
+      supplierOfferId: offer.id,
+      itemName: "XYZ Undo",
+      unitDesi: 1,
+      quantity: 1,
+    },
+  );
+  const operation = await service.apply(applyInput(preview));
+  await db.query(
+    `INSERT INTO product_cost_mappings(marketplace,barcode,cost_item_code,quantity)
+     VALUES('HEPSIBURADA','XYZ-UNDO-HB',$1,1)`,
+    [preview.payload.itemCode],
+  );
+  await assert.rejects(
+    service.reverse(operation.id, {
+      actor: "phase-2c2-test",
+      reason: "unsafe undo",
+      idempotencyKey: "unsafe-create-live-undo",
+    }),
+    (error) => error.code === "COST_OPERATION_NOT_REVERSIBLE",
   );
 });
 

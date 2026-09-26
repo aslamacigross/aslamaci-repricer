@@ -1392,6 +1392,23 @@ tbody tr.clickable:hover {
   color: var(--green-dark);
   font-weight: 700;
 }
+.cost-more-actions {
+  margin: 8px 0;
+}
+.cost-more-actions summary {
+  color: var(--green-dark);
+  cursor: pointer;
+  font-weight: 700;
+}
+.cost-more-actions .cost-operation-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.cost-action-help {
+  margin: 6px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
 .cost-selector {
   display: grid;
   gap: 12px;
@@ -1467,8 +1484,22 @@ tbody tr.clickable:hover {
 }
 .assignment-target,
 .assignment-calculation,
+.new-canonical-fields,
 .assignment-controls > .cost-selector-error,
 .assignment-controls > .btn {
+  grid-column: 1 / -1;
+}
+.new-canonical-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 0.35fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.new-canonical-fields > .canonical-desi-heading,
+.new-canonical-fields > small {
   grid-column: 1 / -1;
 }
 .assignment-target span,
@@ -2145,11 +2176,15 @@ tbody tr.clickable:hover {
   .cost-selector-controls,
   .manual-cost-form,
   .assignment-controls,
-  .assignment-calculation {
+  .assignment-calculation,
+  .new-canonical-fields {
     grid-template-columns: 1fr;
   }
   .assignment-calculation .assignment-total,
   .assignment-controls > * {
+    grid-column: 1;
+  }
+  .new-canonical-fields > * {
     grid-column: 1;
   }
   .assignment-preview-summary {
