@@ -14,8 +14,12 @@ vi.mock("../lib/api", () => ({ get: vi.fn(), post: vi.fn() }));
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
 }
 
 const offer = {
@@ -281,13 +285,13 @@ describe("shared cost management", () => {
     );
   });
 
-  test("unlinked LIVE offer yeni canonical maliyet previewu acar ve ilk mapping nedenini secer", async () => {
+  test("Rossmann unlinked LIVE offer CTA tiklamasi previewu dogrudan acar", async () => {
     const unlinked = {
       id: 81,
       product_name: "XYZ Şampuan 700 ml",
       current_price: 50,
-      source_key: "BIM-XYZ",
-      supplier_code: "BIM",
+      source_key: "ROSSMANN-XYZ",
+      supplier_code: "ROSSMANN",
       offer_type: "LIVE",
       availability: "AVAILABLE",
       estimated_unit_desi: 1.8,
@@ -311,7 +315,7 @@ describe("shared cost management", () => {
             warnings: [],
             impact: {
               createsCanonicalCostItem: true,
-              supplierCode: "BIM",
+              supplierCode: "ROSSMANN",
               supplierProductName: "XYZ Şampuan 700 ml",
               canonicalItemName: body.payload.itemName,
               mappingCount: 1,
@@ -344,11 +348,38 @@ describe("shared cost management", () => {
         notify={vi.fn()}
       />,
     );
+    await userEvent.selectOptions(screen.getByLabelText("Tedarikçi"), "ROSSMANN");
     await userEvent.click(
       await screen.findByRole("button", {
         name: "Yeni maliyet kalemi oluştur ve seç",
       }),
     );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "XYZ-4X",
+          supplierOfferId: 81,
+          itemName: "XYZ Şampuan 700 ml",
+          unitDesi: 1.8,
+          quantity: 1,
+        },
+      }),
+    );
+    expect(await screen.findByText("Yeni maliyet kalemi oluşturulacak")).toBeVisible();
+    expect(screen.getByLabelText("Neden")).toHaveValue(
+      "Yeni mapping / İlk maliyet eşlemesi",
+    );
+    expect(
+      screen.getByRole("button", { name: "Oluştur ve eşleştir" }),
+    ).toBeVisible();
+    expect(post).not.toHaveBeenCalledWith(
+      "/api/cost-integrity/apply",
+      expect.anything(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "İptal" }));
+    expect(screen.queryByText("İşlem önizlemesi")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Maliyet kalemi adı")).toHaveValue(
       "XYZ Şampuan 700 ml",
     );
@@ -357,7 +388,11 @@ describe("shared cost management", () => {
     await userEvent.clear(quantity);
     await userEvent.type(quantity, "4");
     expect(screen.getByText("4 × ₺50,00 = ₺200,00")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Yeni maliyet kalemi oluştur ve seç",
+      }),
+    );
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
         operationType: "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
@@ -378,6 +413,83 @@ describe("shared cost management", () => {
     expect(
       screen.getByRole("button", { name: "Oluştur ve eşleştir" }),
     ).toBeVisible();
+    expect(post).not.toHaveBeenCalledWith(
+      "/api/cost-integrity/apply",
+      expect.anything(),
+    );
+  });
+
+  test("create preview hatasindan sonra CTA yeniden kullanilabilir", async () => {
+    const notify = vi.fn();
+    const firstPreview = deferred();
+    const unlinked = {
+      ...offer,
+      id: 82,
+      product_name: "Rossmann Alt Siradaki Ürün",
+      supplier_code: "ROSSMANN",
+      canonical_cost_item_id: null,
+      linked_cost_item_name: null,
+      selection_state: "UNLINKED_ELIGIBLE",
+    };
+    get.mockResolvedValue({
+      data: { items: [offer, { ...offer, id: 8 }, unlinked], total: 3, page: 1, limit: 20 },
+    });
+    post
+      .mockImplementationOnce(() => firstPreview.promise)
+      .mockResolvedValueOnce({
+        data: {
+          operationType: "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+          payload: {
+            marketplace: "TRENDYOL",
+            barcode: "ROSS-NEW",
+            supplierOfferId: 82,
+            itemName: "Rossmann Alt Siradaki Ürün",
+            unitDesi: 0,
+            quantity: 1,
+          },
+          previewFingerprint: "retry-preview",
+          warnings: [],
+          impact: {
+            createsCanonicalCostItem: true,
+            mappingCount: 1,
+            activeProductCount: 1,
+            byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+            targetUnitCost: 239,
+            targetQuantity: 1,
+            targetLineCost: 239,
+            targetUnitDesi: 0,
+            targetTotalDesi: 0,
+          },
+        },
+      });
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="ROSS-NEW"
+        mappings={[]}
+        notify={notify}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Yeni maliyet kalemi oluştur ve seç",
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Önizleme hazırlanıyor" }),
+    ).toBeDisabled();
+    firstPreview.reject(new Error("Preview servisine ulaşılamadı"));
+    const retry = await screen.findByRole("button", {
+      name: "Yeni maliyet kalemi oluştur ve seç",
+    });
+    expect(retry).toBeEnabled();
+    expect(notify).toHaveBeenCalledWith("Preview servisine ulaşılamadı", "error");
+    await userEvent.click(retry);
+    expect(await screen.findByText("Yeni maliyet kalemi oluşturulacak")).toBeVisible();
+    expect(post).toHaveBeenLastCalledWith("/api/cost-integrity/preview", {
+      operationType: "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+      payload: expect.objectContaining({ supplierOfferId: 82 }),
+    });
   });
 
   test("unlinked offer apply conflict selectoru yeniler ve stale secimi temizler", async () => {
@@ -450,9 +562,6 @@ describe("shared cost management", () => {
       await screen.findByRole("button", {
         name: "Yeni maliyet kalemi oluştur ve seç",
       }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Değişikliği önizle" }),
     );
     await userEvent.click(
       await screen.findByRole("button", { name: "Oluştur ve eşleştir" }),

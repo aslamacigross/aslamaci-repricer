@@ -393,6 +393,7 @@ function QuantityPackagingSummary({ quantity, unitCost, unitDesi, product }) {
 export function CostSelector({
   onSelect,
   onCreateFromOffer,
+  createPreviewBusy = false,
   selectedId,
   allowManual = true,
   requireCanonical = true,
@@ -571,7 +572,7 @@ export function CostSelector({
                   )}
                   <Button
                     variant={item.is_selected ? "secondary" : "primary"}
-                    disabled={blocked}
+                    disabled={blocked || (canCreate && createPreviewBusy)}
                     onClick={() =>
                       canCreate
                         ? onCreateFromOffer?.(item)
@@ -579,7 +580,9 @@ export function CostSelector({
                     }
                   >
                     {canCreate
-                      ? "Yeni maliyet kalemi oluştur ve seç"
+                      ? createPreviewBusy
+                        ? "Önizleme hazırlanıyor"
+                        : "Yeni maliyet kalemi oluştur ve seç"
                       : "Seç"}
                   </Button>
                 </div>
@@ -1006,6 +1009,7 @@ export function CostAssignmentEditor({
   const [targetOffer, setTargetOffer] = useState(null);
   const [draftItemName, setDraftItemName] = useState("");
   const [draftUnitDesi, setDraftUnitDesi] = useState("");
+  const createPreviewPending = useRef(false);
   const [splitAssignments, setSplitAssignments] = useState({});
   const [splitActiveMappingId, setSplitActiveMappingId] = useState(null);
   const operation = useOperation({
@@ -1057,15 +1061,19 @@ export function CostAssignmentEditor({
     }
     return Number(quantity);
   };
-  const assignmentPreview = () => {
+  const assignmentPreview = ({
+    offer = targetOffer,
+    itemName = draftItemName,
+    unitDesi = draftUnitDesi,
+  } = {}) => {
     const normalizedQuantity = checkedQuantity();
     if (normalizedQuantity == null) return;
-    if (!mapping && !targetOffer) {
+    if (!mapping && !offer) {
       notify?.("Önce bir maliyet kalemi seçin.", "error");
       return;
     }
-    const createsCanonical = !mapping && targetOffer?.createCanonical;
-    operation.open(
+    const createsCanonical = !mapping && offer?.createCanonical;
+    return operation.open(
       createsCanonical
         ? "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN"
         : mapping
@@ -1076,28 +1084,38 @@ export function CostAssignmentEditor({
       barcode,
       ...(createsCanonical
         ? {
-            supplierOfferId: targetOffer.id,
-            itemName: draftItemName,
-            unitDesi: draftUnitDesi === "" ? 0 : Number(draftUnitDesi),
+            supplierOfferId: offer.id,
+            itemName,
+            unitDesi: unitDesi === "" ? 0 : Number(unitDesi),
           }
         : mapping
         ? {
             sourceCostItemId: mapping.cost_item_id,
             targetCostItemId:
-              targetOffer?.canonical_cost_item_id || mapping.cost_item_id,
+              offer?.canonical_cost_item_id || mapping.cost_item_id,
           }
-        : { targetCostItemId: targetOffer.canonical_cost_item_id }),
+        : { targetCostItemId: offer.canonical_cost_item_id }),
       quantity: normalizedQuantity,
       },
     );
   };
-  const createFromOffer = (offer) => {
-    setTargetOffer({ ...offer, createCanonical: true });
-    setDraftItemName(offer.product_name || "");
-    setDraftUnitDesi(
-      String(offer.estimated_unit_desi ?? offer.unit_desi ?? ""),
+  const createFromOffer = async (offer) => {
+    if (createPreviewPending.current) return;
+    const target = { ...offer, createCanonical: true };
+    const itemName = offer.product_name || "";
+    const unitDesi = String(
+      offer.estimated_unit_desi ?? offer.unit_desi ?? "",
     );
+    setTargetOffer(target);
+    setDraftItemName(itemName);
+    setDraftUnitDesi(unitDesi);
     setQuantityValidation("");
+    createPreviewPending.current = true;
+    try {
+      await assignmentPreview({ offer: target, itemName, unitDesi });
+    } finally {
+      createPreviewPending.current = false;
+    }
   };
   const openTarget = (offer) => {
     if (mode === "SOURCE") {
@@ -1220,6 +1238,7 @@ export function CostAssignmentEditor({
             setQuantityValidation("");
           }}
           onCreateFromOffer={createFromOffer}
+          createPreviewBusy={operation.busy}
           onManualSubmit={manualPreview}
         />
         <AssignmentControls
