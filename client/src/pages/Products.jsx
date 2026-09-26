@@ -882,6 +882,8 @@ function BulkSettingsDrawer({
 
 export function CostBreakdown({ data, marketplace, notify, onChanged }) {
   const p = data.product;
+  const commissionAmount =
+    (Number(p.my_price || 0) * Number(p.commission_rate || 0)) / 100;
   return (
     <div>
       <div className="formula">
@@ -902,6 +904,10 @@ export function CostBreakdown({ data, marketplace, notify, onChanged }) {
             `${money(p.packaging_cost)} · ${p.packaging_profile_name || "Eski desi kuralı"}`,
           ],
           ["Hizmet bedeli", money(p.service_fee)],
+          [
+            `Komisyon (${percent(p.commission_rate)})`,
+            money(commissionAmount),
+          ],
           ["Hedef kâr", money(p.target_profit)],
         ].map(([l, v]) => (
           <div key={l}>
