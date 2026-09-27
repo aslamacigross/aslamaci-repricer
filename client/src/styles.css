@@ -604,6 +604,94 @@ button:disabled {
   margin-top: 4px;
   font-size: 20px;
 }
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.summary-card {
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 11px;
+  cursor: pointer;
+}
+.summary-card.active {
+  border-color: #419176;
+  box-shadow: 0 0 0 3px #e5f3ed;
+}
+.summary-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.summary-card strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 20px;
+}
+.integrity-review {
+  padding: 12px;
+}
+.integrity-category-copy {
+  margin-bottom: 12px;
+}
+.integrity-category-copy p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.integrity-list {
+  display: grid;
+  gap: 9px;
+}
+.integrity-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 12px;
+  background: #fff;
+}
+.integrity-row-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.integrity-row p {
+  margin: 6px 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.metric-chip {
+  padding: 8px 10px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+.metric-chip:last-child {
+  border-right: 0;
+}
+.details-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(0, 1fr);
+  gap: 8px 14px;
+  font-size: 11px;
+}
+.details-grid span {
+  color: var(--muted);
+}
+.details-grid b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .table-shell {
   position: relative;
 }
@@ -2354,6 +2442,25 @@ tbody tr.clickable:hover {
   }
   .metric-row > div:nth-child(-n + 2) {
     border-bottom: 1px solid var(--line);
+  }
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .integrity-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .integrity-row .btn {
+    justify-content: center;
+  }
+  .metric-chip:nth-child(2) {
+    border-right: 0;
+  }
+  .metric-chip:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+  .details-grid {
+    grid-template-columns: 1fr;
   }
   .form-grid {
     grid-template-columns: 1fr;

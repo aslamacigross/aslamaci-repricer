@@ -68,6 +68,16 @@ function costIntegrityRoutes({ costIntegrity }) {
   );
 
   router.get(
+    "/cost-integrity/review",
+    asyncRoute(async (req, res) =>
+      res.json({
+        status: "ok",
+        data: await costIntegrity.reviewQueue(req.query),
+      }),
+    ),
+  );
+
+  router.get(
     "/cost-integrity/cost-items/:id/hard-delete-eligibility",
     asyncRoute(async (req, res) =>
       res.json({

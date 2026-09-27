@@ -308,6 +308,12 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
           >
             <CheckCircle2 /> Kontrol zamanı
           </button>
+          <button
+            className={costView === "integrity" ? "active" : ""}
+            onClick={() => setCostView("integrity")}
+          >
+            <SearchCheck /> Veri Bütünlüğü
+          </button>
         </div>
       )}
       {error ? (
@@ -330,6 +336,8 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
         />
       ) : mode === "costs" && costView === "review" ? (
         <ManualCostReview notify={notify} />
+      ) : mode === "costs" && costView === "integrity" ? (
+        <CostIntegrityReview notify={notify} />
       ) : (
         <ResourceTable
           mode={mode}
@@ -669,6 +677,855 @@ function ManualCostReviewModal({ value, onClose, notify, onSaved }) {
       </footer>
     </Modal>
   );
+}
+
+const integrityCategories = [
+  {
+    key: "parallel",
+    label: "Paralel bağlantılar",
+    summaryKey: "parallelGroups",
+  },
+  {
+    key: "orphan-mappings",
+    label: "Orphan mapping",
+    summaryKey: "orphanMappings",
+  },
+  {
+    key: "orphan-links",
+    label: "Orphan supplier link",
+    summaryKey: "orphanLegacyLinks",
+  },
+  {
+    key: "manual-live",
+    label: "Manual → Live adayları",
+    summaryKey: "manualLiveCandidates",
+  },
+  {
+    key: "source-anomalies",
+    label: "Kaynak problemi",
+    summaryKey: "sourceAnomalies",
+  },
+  {
+    key: "duplicates",
+    label: "Duplicate adayları",
+    summaryKey: "duplicateCandidates",
+  },
+];
+
+function impactBadge(label, value) {
+  return (
+    <span className="metric-chip" key={label}>
+      <small>{label}</small>
+      <strong>{Number(value || 0)}</strong>
+    </span>
+  );
+}
+
+function CostIntegrityReview({ notify }) {
+  const [data, setData] = useState(null),
+    [category, setCategory] = useState("parallel"),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState(null),
+    [selected, setSelected] = useState(null);
+  const limit = 25;
+  async function load(next = { category, search, page }) {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        category: next.category,
+        search: next.search,
+        page: String(next.page),
+        limit: String(limit),
+      });
+      setData((await get(`/api/cost-integrity/review?${params}`)).data);
+    } catch (loadError) {
+      setError(loadError);
+      notify?.(loadError.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load({ category, search, page: 1 });
+  }, []);
+  function changeCategory(nextCategory) {
+    setCategory(nextCategory);
+    setPage(1);
+    load({ category: nextCategory, search, page: 1 });
+  }
+  function changeSearch(value) {
+    setSearch(value);
+    setPage(1);
+    load({ category, search: value, page: 1 });
+  }
+  function changePage(nextPage) {
+    setPage(nextPage);
+    load({ category, search, page: nextPage });
+  }
+  if (error) return <ErrorState error={error} retry={() => load()} />;
+  const summary = data?.summary || {};
+  const items = data?.items || [];
+  return (
+    <>
+      <div className="info-banner">
+        <TriangleAlert />
+        <div>
+          <strong>İnsan onaylı veri bütünlüğü merkezi</strong>
+          <p>
+            Bu ekran adayları ve kanıtları gösterir; otomatik merge, otomatik
+            temizleme veya otomatik en ucuz kaynak seçimi yapmaz. Benzer isim
+            aynı fiziksel ürün değildir: BİM Mr. Green ≠ FILE Actisoft.
+          </p>
+        </div>
+      </div>
+      <div className="summary-grid">
+        {integrityCategories.map((item) => (
+          <button
+            type="button"
+            className={`summary-card ${category === item.key ? "active" : ""}`}
+            key={item.key}
+            onClick={() => changeCategory(item.key)}
+          >
+            <span>{item.label}</span>
+            <strong>{Number(summary[item.summaryKey] || 0)}</strong>
+          </button>
+        ))}
+      </div>
+      <div className="filters">
+        <SearchInput
+          value={search}
+          onChange={changeSearch}
+          placeholder="Maliyet, supplier veya ürün ara"
+        />
+        <IconButton icon={RefreshCw} label="Yenile" onClick={() => load()} />
+      </div>
+      {loading && !data ? (
+        <Loading />
+      ) : (
+        <div className="panel table-panel integrity-review">
+          <div className="integrity-category-copy">
+            <strong>
+              {integrityCategories.find((item) => item.key === category)?.label}
+            </strong>
+            <p>{data?.definitions?.[category]}</p>
+          </div>
+          {items.length ? (
+            <div className="integrity-list">
+              {items.map((item, index) => (
+                <IntegrityIssueRow
+                  key={`${item.type}:${item.supplier_offer_id || item.mapping_id || item.legacy_link_id || item.normalized_key || index}`}
+                  item={item}
+                  category={category}
+                  onOpen={() => setSelected(item)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              Bu kategoride incelenecek kayıt bulunmadı.
+            </div>
+          )}
+          <Pagination
+            page={data?.page || page}
+            total={data?.total || 0}
+            limit={data?.limit || limit}
+            onChange={changePage}
+          />
+        </div>
+      )}
+      <IntegrityIssueModal
+        item={selected}
+        category={category}
+        onClose={() => setSelected(null)}
+      />
+    </>
+  );
+}
+
+function IntegrityIssueRow({ item, category, onOpen }) {
+  const title = integrityTitle(item, category);
+  const impact = integrityImpact(item);
+  return (
+    <article className="integrity-row">
+      <div>
+        <div className="integrity-row-heading">
+          <strong>{title}</strong>
+          <Badge tone={integrityTone(category)}>{integrityLabel(category)}</Badge>
+        </div>
+        <p>{integrityReason(item, category)}</p>
+        <div className="metric-row">
+          {impact.map(([label, value]) => impactBadge(label, value))}
+        </div>
+      </div>
+      <Button variant="secondary" icon={Eye} onClick={onOpen}>
+        İncele
+      </Button>
+    </article>
+  );
+}
+
+function IntegrityIssueModal({ item, category, onClose }) {
+  const [form, setForm] = useState(() => defaultIntegrityForm(item, category)),
+    [preview, setPreview] = useState(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  useEffect(() => {
+    setForm(defaultIntegrityForm(item, category));
+    setPreview(null);
+    setError("");
+  }, [item, category]);
+  if (!item) return null;
+  const rows = integrityDetailRows(item, category);
+  const options = integrityResolutionOptions(category);
+  const request = buildIntegrityPreviewRequest(item, category, form);
+  async function openPreview() {
+    if (!request) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await post("/api/cost-integrity/preview", request);
+      setPreview({
+        ...response.data,
+        idempotencyKey: `integrity-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2)}`,
+      });
+    } catch (previewError) {
+      setError(previewError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function applyPreview() {
+    if (!preview) return;
+    setBusy(true);
+    setError("");
+    try {
+      await post("/api/cost-integrity/apply", {
+        operationType: preview.operationType,
+        payload: preview.payload,
+        previewFingerprint: preview.previewFingerprint,
+        confirmedMappingCount: preview.impact?.mappingCount || 0,
+        idempotencyKey: preview.idempotencyKey,
+        reason: form.reason || "Orphan kayıt düzeltiliyor",
+      });
+      onClose();
+    } catch (applyError) {
+      setError(applyError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title="Veri bütünlüğü incelemesi">
+      <div className="modal-body integrity-modal">
+        <div className="info-banner">
+          <SearchCheck />
+          <div>
+            <strong>{integrityTitle(item, category)}</strong>
+            <p>{integrityReason(item, category)}</p>
+          </div>
+        </div>
+        <section>
+          <h3>Kanıt ve etki</h3>
+          <div className="details-grid">
+            {rows.map(([label, value]) => (
+              <React.Fragment key={label}>
+                <span>{label}</span>
+                <b>{value || "-"}</b>
+              </React.Fragment>
+            ))}
+          </div>
+        </section>
+        {Array.isArray(item.legacy_links) && item.legacy_links.length > 0 && (
+          <section>
+            <h3>Bağlı maliyetler</h3>
+            <div className="mini-list">
+              {item.legacy_links.map((link) => (
+                <p key={link.legacyLinkId}>
+                  <b>{link.itemName || link.costItemCode}</b>{" "}
+                  <span className="muted">
+                    {money(link.unitCost)} · {link.mappingCount || 0} mapping ·{" "}
+                    {link.selected ? "selected source" : "source değil"}
+                  </span>
+                </p>
+              ))}
+            </div>
+          </section>
+        )}
+        {Array.isArray(item.candidates) && item.candidates.length > 0 && (
+          <section>
+            <h3>Adaylar</h3>
+            <div className="mini-list">
+              {item.candidates.map((candidate) => (
+                <p key={candidate.costItemId}>
+                  <b>{candidate.itemName}</b>{" "}
+                  <span className="muted">
+                    {candidate.itemCode} · {money(candidate.unitCost)} ·{" "}
+                    {candidate.mappingCount || 0} mapping
+                  </span>
+                </p>
+              ))}
+            </div>
+          </section>
+        )}
+        <section>
+          <h3>Güvenli çözüm yolları</h3>
+          <div className="mini-list">
+            {options.map((option) => (
+              <p key={option.title}>
+                <b>{option.title}</b>
+                <br />
+                <span className="muted">{option.description}</span>
+              </p>
+            ))}
+          </div>
+        </section>
+        <IntegrityResolutionForm
+          item={item}
+          category={category}
+          form={form}
+          onChange={(patch) => {
+            setForm((current) => ({ ...current, ...patch }));
+            setPreview(null);
+            setError("");
+          }}
+        />
+        <div className="info-banner warning">
+          <TriangleAlert />
+          <div>
+            <strong>Önizleme zorunlu, otomatik işlem yok</strong>
+            <p>
+              Hedef maliyet veya supplier kaynağı kullanıcı tarafından
+              seçildikten sonra mevcut safe-operation etki önizlemesi açılır.
+              Quantity korunur, selected source otomatik değişmez, desi farkı
+              kullanıcı onayı olmadan yazılmaz.
+            </p>
+          </div>
+        </div>
+        {error && <p className="cost-selector-error">{error}</p>}
+        {preview && (
+          <section>
+            <h3>Etki önizlemesi</h3>
+            <div className="details-grid">
+              <span>Operasyon kapsamı</span>
+              <b>{integrityOperationLabel(preview.operationType)}</b>
+              <span>Trendyol mapping</span>
+              <b>{preview.impact?.marketplaceCounts?.TRENDYOL || 0}</b>
+              <span>HB mapping</span>
+              <b>{preview.impact?.marketplaceCounts?.HEPSIBURADA || 0}</b>
+              <span>Toplam mapping</span>
+              <b>{preview.impact?.mappingCount || 0}</b>
+              <span>Uyarılar</span>
+              <b>{(preview.warnings || []).join(", ") || "Yok"}</b>
+            </div>
+          </section>
+        )}
+      </div>
+      <footer className="modal-actions">
+        <span />
+        <Button variant="secondary" onClick={onClose}>
+          Şimdilik dokunma
+        </Button>
+        <Button
+          variant="secondary"
+          icon={Eye}
+          onClick={openPreview}
+          disabled={busy || !request}
+        >
+          Etki önizle
+        </Button>
+        <Button onClick={applyPreview} disabled={busy || !preview}>
+          Önizlemeyi uygula
+        </Button>
+      </footer>
+    </Modal>
+  );
+}
+
+function IntegrityResolutionForm({ item, category, form, onChange }) {
+  if (category === "parallel")
+    return (
+      <section>
+        <h3>Çözüm seçimi</h3>
+        <div className="form-grid">
+          <Field label="Kaynak maliyet">
+            <select
+              value={form.sourceCostItemId || ""}
+              onChange={(event) =>
+                onChange({ sourceCostItemId: event.target.value })
+              }
+            >
+              {(item.legacy_links || []).map((link) => (
+                <option
+                  key={link.costItemId || link.legacyLinkId || link.costItemCode}
+                  value={link.costItemId || ""}
+                >
+                  {link.itemName || link.costItemCode}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Hedef maliyet">
+            <select
+              value={form.targetCostItemId || ""}
+              onChange={(event) =>
+                onChange({ targetCostItemId: event.target.value })
+              }
+            >
+              {(item.legacy_links || []).map((link) => (
+                <option
+                  key={link.costItemId || link.legacyLinkId || link.costItemCode}
+                  value={link.costItemId || ""}
+                >
+                  {link.itemName || link.costItemCode}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Neden">
+            <input
+              value={form.reason || ""}
+              onChange={(event) => onChange({ reason: event.target.value })}
+            />
+          </Field>
+        </div>
+      </section>
+    );
+  if (category === "duplicates")
+    return (
+      <section>
+        <h3>Çözüm seçimi</h3>
+        <div className="form-grid">
+          <Field label="Kaynak maliyet">
+            <select
+              value={form.sourceCostItemId || ""}
+              onChange={(event) =>
+                onChange({ sourceCostItemId: event.target.value })
+              }
+            >
+              {(item.candidates || []).map((candidate) => (
+                <option key={candidate.costItemId} value={candidate.costItemId}>
+                  {candidate.itemName}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Hedef maliyet">
+            <select
+              value={form.targetCostItemId || ""}
+              onChange={(event) =>
+                onChange({ targetCostItemId: event.target.value })
+              }
+            >
+              {(item.candidates || []).map((candidate) => (
+                <option key={candidate.costItemId} value={candidate.costItemId}>
+                  {candidate.itemName}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Neden">
+            <input
+              value={form.reason || ""}
+              onChange={(event) => onChange({ reason: event.target.value })}
+            />
+          </Field>
+        </div>
+      </section>
+    );
+  if (["orphan-mappings", "orphan-links"].includes(category))
+    return (
+      <section>
+        <h3>Çözüm seçimi</h3>
+        <div className="form-grid">
+          <Field label="Hedef canonical maliyet ID">
+            <input
+              type="number"
+              min="1"
+              value={form.targetCostItemId || ""}
+              onChange={(event) =>
+                onChange({ targetCostItemId: event.target.value })
+              }
+              placeholder="Doğru maliyet kaleminin ID'si"
+            />
+          </Field>
+          <Field label="Neden">
+            <input
+              value={form.reason || ""}
+              onChange={(event) => onChange({ reason: event.target.value })}
+            />
+          </Field>
+        </div>
+      </section>
+    );
+  if (category === "manual-live")
+    return (
+      <section>
+        <h3>Çözüm seçimi</h3>
+        <div className="form-grid">
+          <Field label="Canlı supplier adayı">
+            <input value={item.candidate_product_name || "Aday yok"} disabled />
+          </Field>
+          <Field label="Neden">
+            <input
+              value={form.reason || ""}
+              onChange={(event) => onChange({ reason: event.target.value })}
+            />
+          </Field>
+        </div>
+      </section>
+    );
+  if (category === "source-anomalies")
+    return (
+      <section>
+        <h3>Çözüm seçimi</h3>
+        <div className="form-grid">
+          <Field label="Yeni supplier offer ID">
+            <input
+              type="number"
+              min="1"
+              value={form.targetSupplierOfferId || ""}
+              onChange={(event) =>
+                onChange({ targetSupplierOfferId: event.target.value })
+              }
+              placeholder="Doğru canlı supplier kaydı"
+            />
+          </Field>
+          <Field label="Neden">
+            <input
+              value={form.reason || ""}
+              onChange={(event) => onChange({ reason: event.target.value })}
+            />
+          </Field>
+        </div>
+      </section>
+    );
+  return null;
+}
+
+function defaultIntegrityForm(item, category) {
+  if (!item) return {};
+  if (category === "parallel") {
+    const links = (item.legacy_links || []).filter((link) => link.costItemId);
+    return {
+      sourceCostItemId: links[1]?.costItemId || links[0]?.costItemId || "",
+      targetCostItemId: links[0]?.costItemId || "",
+      reason: "Yanlış supplier bağlantısı",
+    };
+  }
+  if (category === "duplicates") {
+    const candidates = item.candidates || [];
+    return {
+      sourceCostItemId: candidates[1]?.costItemId || candidates[0]?.costItemId || "",
+      targetCostItemId: candidates[0]?.costItemId || "",
+      reason: "Duplicate maliyet kalemi",
+    };
+  }
+  if (category === "manual-live")
+    return {
+      reason: "Manual kaydı canlı ürüne geçiriyorum",
+    };
+  if (category === "source-anomalies")
+    return {
+      targetSupplierOfferId: "",
+      reason: "Eski tedarikçi kaydı",
+    };
+  if (["orphan-mappings", "orphan-links"].includes(category))
+    return {
+      targetCostItemId: "",
+      reason: "Orphan kayıt düzeltiliyor",
+    };
+  return {};
+}
+
+function buildIntegrityPreviewRequest(item, category, form) {
+  if (!item) return null;
+  if (["parallel", "duplicates"].includes(category)) {
+    if (
+      !form.sourceCostItemId ||
+      !form.targetCostItemId ||
+      Number(form.sourceCostItemId) === Number(form.targetCostItemId)
+    )
+      return null;
+    return {
+      operationType: "REPLACE_COST_ITEM",
+      payload: {
+        sourceCostItemId: Number(form.sourceCostItemId),
+        targetCostItemId: Number(form.targetCostItemId),
+      },
+    };
+  }
+  if (category === "orphan-mappings" && form.targetCostItemId)
+    return {
+      operationType: "REPAIR_ORPHAN",
+      payload: {
+        sourceTable: "PRODUCT_COST_MAPPINGS",
+        sourceRowId: Number(item.mapping_id),
+        targetCostItemId: Number(form.targetCostItemId),
+      },
+    };
+  if (category === "orphan-links" && form.targetCostItemId)
+    return {
+      operationType: "REPAIR_ORPHAN",
+      payload: {
+        sourceTable: "COST_ITEM_FILE_LINKS",
+        sourceRowId: Number(item.legacy_link_id),
+        targetCostItemId: Number(form.targetCostItemId),
+      },
+    };
+  if (category === "manual-live" && item.cost_item_id && item.candidate_offer_id)
+    return {
+      operationType: "MANUAL_TO_LIVE",
+      payload: {
+        costItemId: Number(item.cost_item_id),
+        targetSupplierOfferId: Number(item.candidate_offer_id),
+      },
+    };
+  if (category === "source-anomalies" && form.targetSupplierOfferId)
+    return {
+      operationType: "CHANGE_SELECTED_OFFER",
+      payload: {
+        costItemId: Number(item.cost_item_id),
+        targetSupplierOfferId: Number(form.targetSupplierOfferId),
+      },
+    };
+  return null;
+}
+
+function integrityOperationLabel(operationType) {
+  return (
+    {
+      REPLACE_COST_ITEM: "Tüm mappingleri başka maliyet kalemine taşı",
+      REPAIR_ORPHAN: "Orphan kaydı doğru canonical maliyete bağla",
+      MANUAL_TO_LIVE: "Manual kaydı canlı ürüne geçir",
+      CHANGE_SELECTED_OFFER: "Tedarikçi kaynağını değiştir",
+    }[operationType] || operationType
+  );
+}
+
+function integrityTone(category) {
+  if (["orphan-mappings", "orphan-links", "source-anomalies"].includes(category))
+    return "warning";
+  return "info";
+}
+
+function integrityLabel(category) {
+  return (
+    {
+      parallel: "İnceleme gerekli",
+      "orphan-mappings": "Kırık bağlantı",
+      "orphan-links": "Legacy orphan",
+      "manual-live": "Aday",
+      "source-anomalies": "Kaynak problemi",
+      duplicates: "Aday",
+    }[category] || "İnceleme"
+  );
+}
+
+function integrityTitle(item, category) {
+  if (category === "parallel")
+    return `${supplierLabel(item.supplier_code)} · ${item.supplier_product_name}`;
+  if (category === "orphan-mappings")
+    return `${item.marketplace} · ${item.product_name || item.barcode}`;
+  if (category === "orphan-links")
+    return item.supplier_product_name || item.cost_item_code;
+  if (category === "manual-live")
+    return item.item_name;
+  if (category === "source-anomalies")
+    return item.item_name;
+  if (category === "duplicates")
+    return `${item.candidate_count} maliyet adayı · ${item.normalized_key}`;
+  return "Veri bütünlüğü kaydı";
+}
+
+function integrityReason(item, category) {
+  if (category === "parallel")
+    return `${item.legacy_link_count} approved legacy link aynı supplier kaydına bakıyor; aynı ürün mü, yanlış legacy bağlantı mı kullanıcı karar vermeli.`;
+  if (category === "orphan-mappings")
+    return "Marketplace ürünü bir cost code'a bağlı ama canonical maliyet kalemi artık bulunamıyor.";
+  if (category === "orphan-links")
+    return item.missing_cost_item
+      ? "Onaylı legacy supplier link'in maliyet kalemi eksik."
+      : "Onaylı legacy supplier link'in supplier kaydı eksik.";
+  if (category === "manual-live")
+    return item.candidate_offer_id
+      ? "Manual maliyet için canlı supplier adayı bulundu; aynı fiziksel ürün olup olmadığı kullanıcı onayı gerektirir."
+      : "Manual maliyet düzenli canlı kaynak incelemesi gerektiriyor.";
+  if (category === "source-anomalies")
+    return "Seçili supplier kaynağı unavailable veya kontrol tarihi eski görünüyor.";
+  if (category === "duplicates")
+    return "Normalize isim aynı görünüyor; bu yalnız inceleme adayıdır, fuzzy benzerlik merge kararı değildir.";
+  return "İnceleme gerekli.";
+}
+
+function integrityImpact(item) {
+  if (item.type === "parallel")
+    return [
+      ["Legacy link", item.legacy_link_count],
+      [
+        "Trendyol",
+        (item.legacy_links || []).reduce(
+          (sum, link) => sum + Number(link.trendyolMappings || 0),
+          0,
+        ),
+      ],
+      [
+        "HB",
+        (item.legacy_links || []).reduce(
+          (sum, link) => sum + Number(link.hbMappings || 0),
+          0,
+        ),
+      ],
+    ];
+  if (item.type === "orphan-mapping")
+    return [
+      ["Adet", item.quantity],
+      ["Trendyol", item.marketplace === "TRENDYOL" ? 1 : 0],
+      ["HB", item.marketplace === "HEPSIBURADA" ? 1 : 0],
+    ];
+  if (item.type === "source-anomaly")
+    return [
+      ["Mapping", item.mapping_count],
+      ["Trendyol", item.trendyol_mappings],
+      ["HB", item.hb_mappings],
+    ];
+  if (item.type === "duplicate-candidate")
+    return [["Aday", item.candidate_count]];
+  return [["Kayıt", 1]];
+}
+
+function integrityDetailRows(item, category) {
+  if (category === "parallel")
+    return [
+      ["Supplier", supplierLabel(item.supplier_code)],
+      ["Supplier ürün", item.supplier_product_name],
+      ["Canlı fiyat", money(item.current_price)],
+      ["Durum", item.availability],
+      ["Son kontrol", date(item.checked_at || item.last_seen_at)],
+      ["Neden paralel?", `${item.legacy_link_count} legacy link aynı supplier offer'a bağlı`],
+    ];
+  if (category === "orphan-mappings")
+    return [
+      ["Marketplace", item.marketplace],
+      ["Ürün", item.product_name],
+      ["Barkod", item.barcode],
+      ["Eksik cost code", item.cost_item_code],
+      ["Adet", item.quantity],
+      ["Manuel desi override", item.manual_desi_override],
+    ];
+  if (category === "orphan-links")
+    return [
+      ["Legacy link", item.legacy_link_id],
+      ["Cost code", item.cost_item_code],
+      ["Supplier", supplierLabel(item.supplier_code)],
+      ["Supplier ürün", item.supplier_product_name],
+      ["Eksik maliyet kalemi", item.missing_cost_item ? "Evet" : "Hayır"],
+      ["Eksik supplier kaydı", item.missing_supplier_offer ? "Evet" : "Hayır"],
+    ];
+  if (category === "manual-live")
+    return [
+      ["Manual maliyet", item.item_name],
+      ["Birim maliyet", money(item.unit_cost)],
+      ["Kullanım", item.mapping_count],
+      ["Canlı aday", item.candidate_product_name],
+      ["Aday supplier", supplierLabel(item.supplier_code)],
+      ["Aday fiyat", money(item.candidate_price)],
+    ];
+  if (category === "source-anomalies")
+    return [
+      ["Maliyet kalemi", item.item_name],
+      ["Selected supplier", item.supplier_product_name],
+      ["Supplier", supplierLabel(item.supplier_code)],
+      ["Durum", item.availability || "Kayıp"],
+      ["Son kontrol", date(item.checked_at || item.last_seen_at)],
+      ["Etkilenen mapping", item.mapping_count],
+    ];
+  return [
+    ["Normalize anahtar", item.normalized_key],
+    ["Aday sayısı", item.candidate_count],
+    ["Kanıt seviyesi", "İnceleme adayı"],
+    ["Uyarı", item.warning],
+  ];
+}
+
+function integrityResolutionOptions(category) {
+  const map = {
+    parallel: [
+      {
+        title: "Aynı fiziksel ürünse: tüm mappingleri hedef maliyete taşı",
+        description:
+          "Mevcut 1→1 replace önizlemesi kullanılır; selected source ve desi farkı onaysız değişmez.",
+      },
+      {
+        title: "Farklı ürünse: yanlış legacy bağlantıyı karantinaya al",
+        description:
+          "Yalnız hatalı association düzeltilir; ayrı canonical ürünler merge edilmez.",
+      },
+    ],
+    "orphan-mappings": [
+      {
+        title: "Mevcut canonical maliyete bağla",
+        description:
+          "Hedef maliyet kullanıcı tarafından seçilir; ürün adedi korunarak reassignment preview alınır.",
+      },
+      {
+        title: "Canlı offer'dan yeni canonical oluştur",
+        description:
+          "2C.2 create+assign akışı kullanılır; teknik cost code kullanıcıdan istenmez.",
+      },
+    ],
+    "orphan-links": [
+      {
+        title: "Doğru canonical maliyete iliştir",
+        description:
+          "Supplier link kanıtı doğruysa mevcut canonical ownership akışı kullanılır.",
+      },
+      {
+        title: "Yanlış legacy bağlantıyı karantinaya al",
+        description: "Orphan legacy kayıt business data silmeden güvenli ayrılır.",
+      },
+    ],
+    "manual-live": [
+      {
+        title: "Canlı ürüne geçir",
+        description:
+          "Manual→Live safe operation kullanılır; aynı fiziksel ürün kararı kullanıcı onayıyla verilir.",
+      },
+      {
+        title: "Aynı ürün değil",
+        description: "Aday reddedilir; manual kayıt kendi kontrol döngüsünde kalır.",
+      },
+    ],
+    "source-anomalies": [
+      {
+        title: "Tedarikçi kaynağını değiştir",
+        description:
+          "Canonical cost item aynı kalır, yalnız selected supplier source açık preview ile değişir.",
+      },
+      {
+        title: "Eski supplier kaydını yenisiyle eşleştir",
+        description:
+          "Mr Green tipi aynı fiziksel ürün replacement akışı kullanılır.",
+      },
+    ],
+    duplicates: [
+      {
+        title: "Gerçek duplicate ise: 1→1 replacement",
+        description:
+          "Kullanıcı source ve target seçer; tüm TY/HB mapping etkisi preview'da görünür.",
+      },
+      {
+        title: "Aynı ürün değil",
+        description:
+          "Mr. Green ile Actisoft gibi benzer görünen ama farklı fiziksel ürünler merge edilmez.",
+      },
+    ],
+  };
+  return map[category] || [];
 }
 function ResourceTable({
   mode,

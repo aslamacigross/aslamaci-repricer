@@ -477,6 +477,459 @@ class CostIntegrityService {
     return row;
   }
 
+  async reviewQueue({ category = "parallel", search = "", page = 1, limit = 25 } = {}) {
+    const safeCategory = String(category || "parallel");
+    const safePage = Math.max(Number(page) || 1, 1);
+    const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 50);
+    const normalizedSearch = String(search || "").trim();
+    const summary = await this._reviewSummary(this.db);
+    const loaders = {
+      parallel: () =>
+        this._reviewParallel({ search: normalizedSearch, page: safePage, limit: safeLimit }),
+      "orphan-mappings": () =>
+        this._reviewOrphanMappings({
+          search: normalizedSearch,
+          page: safePage,
+          limit: safeLimit,
+        }),
+      "orphan-links": () =>
+        this._reviewOrphanLinks({
+          search: normalizedSearch,
+          page: safePage,
+          limit: safeLimit,
+        }),
+      "source-anomalies": () =>
+        this._reviewSourceAnomalies({
+          search: normalizedSearch,
+          page: safePage,
+          limit: safeLimit,
+        }),
+      "manual-live": () =>
+        this._reviewManualLive({
+          search: normalizedSearch,
+          page: safePage,
+          limit: safeLimit,
+        }),
+      duplicates: () =>
+        this._reviewDuplicateCandidates({
+          search: normalizedSearch,
+          page: safePage,
+          limit: safeLimit,
+        }),
+    };
+    const selectedCategory = loaders[safeCategory] ? safeCategory : "parallel";
+    const result = await loaders[selectedCategory]();
+    return {
+      summary,
+      definitions: {
+        parallel:
+          "Aynı tedarikçi kaydı birden fazla legacy maliyet bağlantısında görünüyor.",
+        "orphan-mappings":
+          "Marketplace mapping mevcut ama bağlı olduğu canonical maliyet kalemi bulunamıyor.",
+        "orphan-links":
+          "Legacy supplier link onaylı görünüyor ama maliyet kalemi veya supplier kaydı eksik.",
+        "source-anomalies":
+          "Seçili canonical supplier kaynağı unavailable veya kontrol tarihi eskimiş görünüyor.",
+        "manual-live":
+          "Manual/Diğer maliyet kalemi için kullanıcı incelemesi gerektiren canlı tedarikçi adayı var.",
+        duplicates:
+          "Aynı fiziksel ürün olabilir diye incelenecek canonical maliyet adayları. Fuzzy benzerlik karar değildir.",
+      },
+      category: selectedCategory,
+      page: safePage,
+      limit: safeLimit,
+      search: normalizedSearch,
+      total: result.total,
+      items: result.items,
+    };
+  }
+
+  async _reviewSummary(queryable) {
+    const summary = (
+      await queryable.query(
+        `WITH duplicate_keys AS (
+           SELECT lower(regexp_replace(coalesce(item_name,''),'[^[:alnum:]]','','g')) AS normalized_key
+           FROM cost_items
+           WHERE lifecycle_status='ACTIVE'
+           GROUP BY 1
+           HAVING COUNT(*) > 1 AND length(lower(regexp_replace(coalesce(item_name,''),'[^[:alnum:]]','','g'))) >= 8
+         )
+         SELECT
+          (SELECT COUNT(*)::int FROM cost_item_file_links WHERE status='APPROVED') AS approved_legacy_links,
+          (SELECT COUNT(*)::int FROM cost_item_supplier_offers WHERE status='APPROVED') AS canonical_relations,
+          (SELECT COUNT(*)::int FROM cost_item_supplier_offers WHERE status='APPROVED' AND is_selected=TRUE) AS selected_relations,
+          (SELECT COUNT(*)::int FROM (
+             SELECT file_market_item_id FROM cost_item_file_links
+             WHERE status='APPROVED' AND file_market_item_id IS NOT NULL
+             GROUP BY file_market_item_id HAVING COUNT(*) > 1
+           ) groups) AS parallel_groups,
+          (SELECT COALESCE(SUM(link_count),0)::int FROM (
+             SELECT COUNT(*) AS link_count FROM cost_item_file_links
+             WHERE status='APPROVED' AND file_market_item_id IS NOT NULL
+             GROUP BY file_market_item_id HAVING COUNT(*) > 1
+           ) groups) AS parallel_rows,
+          (SELECT COUNT(*)::int FROM product_cost_mappings pcm
+             LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+             WHERE ci.id IS NULL) AS orphan_mappings,
+          (SELECT COUNT(*)::int FROM cost_item_file_links l
+             LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+             LEFT JOIN file_market_items f ON f.id=l.file_market_item_id
+             WHERE l.status='APPROVED' AND (ci.id IS NULL OR f.id IS NULL)) AS orphan_legacy_links,
+          (SELECT COUNT(*)::int FROM (
+             SELECT cost_item_id FROM cost_item_supplier_offers
+             WHERE status='APPROVED' AND is_selected=TRUE
+             GROUP BY cost_item_id HAVING COUNT(*) > 1
+           ) selected_conflicts) AS selected_conflicts,
+          (SELECT COUNT(*)::int FROM (
+             SELECT cost_item_id FROM cost_item_supplier_offers
+             WHERE status='APPROVED'
+             GROUP BY cost_item_id
+             HAVING SUM(CASE WHEN is_selected THEN 1 ELSE 0 END)=0
+           ) zero_selected) AS zero_selected_relations,
+          (SELECT COUNT(*)::int FROM cost_item_supplier_offers relation
+             LEFT JOIN file_market_items offer ON offer.id=relation.supplier_offer_id
+             WHERE relation.status='APPROVED' AND relation.is_selected=TRUE
+               AND (offer.id IS NULL
+                    OR offer.availability IS DISTINCT FROM 'AVAILABLE'
+                    OR offer.checked_at < NOW() - INTERVAL '30 days')) AS source_anomalies,
+          (SELECT COUNT(*)::int FROM cost_items
+             WHERE lifecycle_status='ACTIVE'
+               AND COALESCE(price_source,'MANUAL') IN ('MANUAL','OTHER')) AS manual_live_candidates,
+          (SELECT COUNT(*)::int FROM duplicate_keys) AS duplicate_candidates,
+          (SELECT COUNT(*)::int FROM cost_items ci
+             JOIN product_cost_mappings pcm ON pcm.cost_item_code=ci.item_code
+             WHERE ci.lifecycle_status='ARCHIVED') AS archived_active_mappings`,
+      )
+    ).rows[0];
+    return Object.fromEntries(
+      Object.entries(summary).map(([key, value]) => [key, Number(value) || 0]),
+    );
+  }
+
+  _reviewPagination(page, limit) {
+    return {
+      limit,
+      offset: (page - 1) * limit,
+    };
+  }
+
+  _searchClause(search, expressions, params) {
+    if (!search) return "";
+    params.push(`%${search}%`);
+    const marker = `$${params.length}`;
+    return ` AND (${expressions.map((expression) => `${expression} ILIKE ${marker}`).join(" OR ")})`;
+  }
+
+  async _reviewParallel({ search, page, limit }) {
+    const { offset } = this._reviewPagination(page, limit);
+    const params = [];
+    const searchClause = this._searchClause(
+      search,
+      ["f.product_name", "f.supplier_code", "ci.item_code", "ci.item_name"],
+      params,
+    );
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS total FROM (
+           SELECT l.file_market_item_id
+           FROM cost_item_file_links l
+           JOIN file_market_items f ON f.id=l.file_market_item_id
+           LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+           WHERE l.status='APPROVED' AND l.file_market_item_id IS NOT NULL${searchClause}
+           GROUP BY l.file_market_item_id
+           HAVING COUNT(*) > 1
+         ) groups`,
+        params,
+      )
+    ).rows[0].total;
+    params.push(limit, offset);
+    const rows = (
+      await this.db.query(
+        `WITH groups AS (
+           SELECT l.file_market_item_id,COUNT(*)::int AS legacy_link_count
+           FROM cost_item_file_links l
+           JOIN file_market_items f ON f.id=l.file_market_item_id
+           LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+           WHERE l.status='APPROVED' AND l.file_market_item_id IS NOT NULL${searchClause}
+           GROUP BY l.file_market_item_id
+           HAVING COUNT(*) > 1
+           ORDER BY COUNT(*) DESC,l.file_market_item_id
+           LIMIT $${params.length - 1} OFFSET $${params.length}
+         )
+         SELECT g.file_market_item_id AS supplier_offer_id,
+                g.legacy_link_count,
+                f.supplier_code,f.product_name AS supplier_product_name,
+                f.current_price,f.availability,f.checked_at,f.last_seen_at,
+                json_agg(
+                  json_build_object(
+                    'legacyLinkId',l.id,
+                    'costItemCode',l.cost_item_code,
+                    'costItemId',ci.id,
+                    'itemName',ci.item_name,
+                    'unitCost',ci.unit_cost,
+                    'unitDesi',ci.unit_desi,
+                    'lifecycleStatus',ci.lifecycle_status,
+                    'canonicalRelationId',relation.id,
+                    'selected',COALESCE(relation.is_selected,FALSE),
+                    'mappingCount',(SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=l.cost_item_code),
+                    'trendyolMappings',(SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=l.cost_item_code AND pcm.marketplace='TRENDYOL'),
+                    'hbMappings',(SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=l.cost_item_code AND pcm.marketplace='HEPSIBURADA')
+                  )
+                  ORDER BY ci.item_name,l.id
+                ) AS legacy_links
+         FROM groups g
+         JOIN file_market_items f ON f.id=g.file_market_item_id
+         JOIN cost_item_file_links l ON l.file_market_item_id=g.file_market_item_id AND l.status='APPROVED'
+         LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+         LEFT JOIN cost_item_supplier_offers relation
+           ON relation.cost_item_id=ci.id
+          AND relation.supplier_offer_id=l.file_market_item_id
+          AND relation.status='APPROVED'
+         GROUP BY g.file_market_item_id,g.legacy_link_count,f.id
+         ORDER BY g.legacy_link_count DESC,g.file_market_item_id`,
+        params,
+      )
+    ).rows;
+    return { total: Number(total), items: rows.map((row) => ({ type: "parallel", ...row })) };
+  }
+
+  async _reviewOrphanMappings({ search, page, limit }) {
+    const { offset } = this._reviewPagination(page, limit);
+    const params = [];
+    const searchClause = this._searchClause(
+      search,
+      ["pcm.barcode", "pcm.cost_item_code", "p.product_name"],
+      params,
+    );
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS total
+         FROM product_cost_mappings pcm
+         LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
+         WHERE ci.id IS NULL${searchClause}`,
+        params,
+      )
+    ).rows[0].total;
+    params.push(limit, offset);
+    const rows = (
+      await this.db.query(
+        `SELECT pcm.id AS mapping_id,pcm.marketplace,pcm.barcode,pcm.cost_item_code,
+                pcm.quantity,p.product_name,p.my_price,p.manual_desi_override
+         FROM product_cost_mappings pcm
+         LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
+         WHERE ci.id IS NULL${searchClause}
+         ORDER BY pcm.marketplace,pcm.barcode
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return { total: Number(total), items: rows.map((row) => ({ type: "orphan-mapping", ...row })) };
+  }
+
+  async _reviewOrphanLinks({ search, page, limit }) {
+    const { offset } = this._reviewPagination(page, limit);
+    const params = [];
+    const searchClause = this._searchClause(
+      search,
+      ["l.cost_item_code", "f.product_name", "f.supplier_code"],
+      params,
+    );
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS total
+         FROM cost_item_file_links l
+         LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+         LEFT JOIN file_market_items f ON f.id=l.file_market_item_id
+         WHERE l.status='APPROVED' AND (ci.id IS NULL OR f.id IS NULL)${searchClause}`,
+        params,
+      )
+    ).rows[0].total;
+    params.push(limit, offset);
+    const rows = (
+      await this.db.query(
+        `SELECT l.id AS legacy_link_id,l.cost_item_code,l.file_market_item_id,
+                CASE WHEN ci.id IS NULL THEN TRUE ELSE FALSE END AS missing_cost_item,
+                CASE WHEN f.id IS NULL THEN TRUE ELSE FALSE END AS missing_supplier_offer,
+                f.supplier_code,f.product_name AS supplier_product_name,
+                f.current_price,f.availability,f.checked_at
+         FROM cost_item_file_links l
+         LEFT JOIN cost_items ci ON ci.item_code=l.cost_item_code
+         LEFT JOIN file_market_items f ON f.id=l.file_market_item_id
+         WHERE l.status='APPROVED' AND (ci.id IS NULL OR f.id IS NULL)${searchClause}
+         ORDER BY l.id
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return { total: Number(total), items: rows.map((row) => ({ type: "orphan-link", ...row })) };
+  }
+
+  async _reviewSourceAnomalies({ search, page, limit }) {
+    const { offset } = this._reviewPagination(page, limit);
+    const params = [];
+    const searchClause = this._searchClause(
+      search,
+      ["ci.item_code", "ci.item_name", "f.product_name", "f.supplier_code"],
+      params,
+    );
+    const where = `relation.status='APPROVED' AND relation.is_selected=TRUE
+      AND (f.id IS NULL
+           OR f.availability IS DISTINCT FROM 'AVAILABLE'
+           OR f.checked_at < NOW() - INTERVAL '30 days')${searchClause}`;
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS total
+         FROM cost_item_supplier_offers relation
+         JOIN cost_items ci ON ci.id=relation.cost_item_id
+         LEFT JOIN file_market_items f ON f.id=relation.supplier_offer_id
+         WHERE ${where}`,
+        params,
+      )
+    ).rows[0].total;
+    params.push(limit, offset);
+    const rows = (
+      await this.db.query(
+        `SELECT relation.id AS relation_id,relation.cost_item_id,ci.item_code,
+                ci.item_name,ci.unit_cost,ci.unit_desi,
+                relation.supplier_offer_id,f.supplier_code,
+                f.product_name AS supplier_product_name,f.current_price,
+                f.availability,f.checked_at,f.last_seen_at,
+                (SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=ci.item_code) AS mapping_count,
+                (SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=ci.item_code AND pcm.marketplace='TRENDYOL') AS trendyol_mappings,
+                (SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=ci.item_code AND pcm.marketplace='HEPSIBURADA') AS hb_mappings
+         FROM cost_item_supplier_offers relation
+         JOIN cost_items ci ON ci.id=relation.cost_item_id
+         LEFT JOIN file_market_items f ON f.id=relation.supplier_offer_id
+         WHERE ${where}
+         ORDER BY f.checked_at NULLS FIRST,relation.id
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return { total: Number(total), items: rows.map((row) => ({ type: "source-anomaly", ...row })) };
+  }
+
+  async _reviewManualLive({ search, page, limit }) {
+    const { offset } = this._reviewPagination(page, limit);
+    const params = [];
+    const searchClause = this._searchClause(
+      search,
+      ["ci.item_code", "ci.item_name"],
+      params,
+    );
+    const where = `ci.lifecycle_status='ACTIVE'
+      AND COALESCE(ci.price_source,'MANUAL') IN ('MANUAL','OTHER')${searchClause}`;
+    const total = (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS total FROM cost_items ci WHERE ${where}`,
+        params,
+      )
+    ).rows[0].total;
+    params.push(limit, offset);
+    const rows = (
+      await this.db.query(
+        `SELECT ci.id AS cost_item_id,ci.item_code,ci.item_name,
+                ci.unit_cost,ci.unit_desi,ci.price_source,
+                (SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=ci.item_code) AS mapping_count,
+                candidate.id AS candidate_offer_id,candidate.supplier_code,
+                candidate.product_name AS candidate_product_name,
+                candidate.current_price AS candidate_price,
+                candidate.availability AS candidate_availability,
+                candidate.checked_at AS candidate_checked_at,
+                CASE
+                  WHEN lower(candidate.product_name)=lower(ci.item_name) THEN 'STRONG'
+                  WHEN candidate.id IS NOT NULL THEN 'SUPPORTING'
+                  ELSE 'REVIEW'
+                END AS evidence_tier
+         FROM cost_items ci
+         LEFT JOIN LATERAL (
+           SELECT f.*
+           FROM file_market_items f
+           WHERE f.availability='AVAILABLE'
+             AND f.current_price IS NOT NULL
+             AND (
+               lower(f.product_name)=lower(ci.item_name)
+               OR lower(f.product_name) LIKE '%' || lower(split_part(ci.item_name,' ',1)) || '%'
+             )
+           ORDER BY CASE WHEN lower(f.product_name)=lower(ci.item_name) THEN 0 ELSE 1 END,
+                    f.checked_at DESC NULLS LAST
+           LIMIT 1
+         ) candidate ON TRUE
+         WHERE ${where}
+         ORDER BY candidate.id NULLS LAST,ci.item_name
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return { total: Number(total), items: rows.map((row) => ({ type: "manual-live", ...row })) };
+  }
+
+  async _reviewDuplicateCandidates({ search, page, limit }) {
+    const { offset } = this._reviewPagination(page, limit);
+    const params = [];
+    const searchClause = this._searchClause(search, ["ci.item_code", "ci.item_name"], params);
+    const activeCte = `SELECT ci.*,
+              lower(regexp_replace(coalesce(ci.item_name,''),'[^[:alnum:]]','','g')) AS normalized_key
+       FROM cost_items ci
+       WHERE ci.lifecycle_status='ACTIVE'${searchClause}`;
+    const total = (
+      await this.db.query(
+        `WITH active AS (${activeCte})
+         SELECT COUNT(*)::int AS total FROM (
+           SELECT normalized_key FROM active
+           WHERE length(normalized_key) >= 8
+           GROUP BY normalized_key HAVING COUNT(*) > 1
+         ) keys`,
+        params,
+      )
+    ).rows[0].total;
+    params.push(limit, offset);
+    const rows = (
+      await this.db.query(
+        `WITH active AS (${activeCte}),
+         keys AS (
+           SELECT normalized_key,COUNT(*)::int AS candidate_count
+           FROM active
+           WHERE length(normalized_key) >= 8
+           GROUP BY normalized_key
+           HAVING COUNT(*) > 1
+           ORDER BY COUNT(*) DESC,normalized_key
+           LIMIT $${params.length - 1} OFFSET $${params.length}
+         )
+         SELECT keys.normalized_key,keys.candidate_count,
+                json_agg(
+                  json_build_object(
+                    'costItemId',active.id,
+                    'itemCode',active.item_code,
+                    'itemName',active.item_name,
+                    'unitCost',active.unit_cost,
+                    'unitDesi',active.unit_desi,
+                    'priceSource',active.price_source,
+                    'mappingCount',(SELECT COUNT(*)::int FROM product_cost_mappings pcm WHERE pcm.cost_item_code=active.item_code),
+                    'supplierRelationCount',(SELECT COUNT(*)::int FROM cost_item_supplier_offers relation WHERE relation.cost_item_id=active.id AND relation.status='APPROVED')
+                  )
+                  ORDER BY active.item_name,active.id
+                ) AS candidates
+         FROM keys
+         JOIN active ON active.normalized_key=keys.normalized_key
+         GROUP BY keys.normalized_key,keys.candidate_count
+         ORDER BY keys.candidate_count DESC,keys.normalized_key`,
+        params,
+      )
+    ).rows;
+    return {
+      total: Number(total),
+      items: rows.map((row) => ({
+        type: "duplicate-candidate",
+        evidenceTier: "REVIEW",
+        warning: "Fuzzy veya normalize isim benzerliği tek başına aynı fiziksel ürün değildir.",
+        ...row,
+      })),
+    };
+  }
+
   async _operationState(queryable, type, payload, lock) {
     const suffix = lock ? " FOR UPDATE" : "";
     if (type === "CREATE_MANUAL_COST") {

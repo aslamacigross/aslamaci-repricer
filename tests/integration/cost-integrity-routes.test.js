@@ -34,6 +34,14 @@ test("cost integrity API Phase 2C contractini ve authenticated actor'u korur", a
       calls.push(["eligibility", id]);
       return { eligible: false };
     },
+    async reviewQueue(query) {
+      calls.push(["review", query]);
+      return {
+        summary: { parallelGroups: 1 },
+        category: query.category || "parallel",
+        items: [],
+      };
+    },
     async searchCostItems(query) {
       calls.push(["search", query]);
       return { items: [], total: 0 };
@@ -79,6 +87,9 @@ test("cost integrity API Phase 2C contractini ve authenticated actor'u korur", a
   await request(app)
     .get("/api/cost-integrity/cost-items/4/hard-delete-eligibility")
     .expect(200);
+  await request(app)
+    .get("/api/cost-integrity/review?category=parallel&search=actisoft")
+    .expect(200);
   await request(app).get("/api/cost-integrity/cost-items?search=tea").expect(200);
   await request(app).get("/api/cost-integrity/cost-items/4/context").expect(200);
   await request(app).get("/api/cost-integrity/operations/2").expect(200);
@@ -95,6 +106,7 @@ test("cost integrity API Phase 2C contractini ve authenticated actor'u korur", a
       "apply",
       "reverse",
       "eligibility",
+      "review",
       "search",
       "context",
       "operation",

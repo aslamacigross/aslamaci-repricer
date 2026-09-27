@@ -106,6 +106,119 @@ describe("Toplu mapping paneli", () => {
     );
   });
 
+  test("veri bütünlüğü merkezi adayları açıklayıp otomatik düzeltme yapmaz", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (path) => {
+      if (path.startsWith("/api/cost-integrity/review"))
+        return {
+          data: {
+            summary: {
+              parallelGroups: 30,
+              orphanMappings: 2,
+              orphanLegacyLinks: 2,
+              manualLiveCandidates: 4,
+              sourceAnomalies: 1,
+              duplicateCandidates: 3,
+            },
+            definitions: {
+              parallel:
+                "Aynı tedarikçi kaydı birden fazla legacy maliyet bağlantısında görünüyor.",
+            },
+            category: "parallel",
+            page: 1,
+            limit: 25,
+            total: 1,
+            items: [
+              {
+                type: "parallel",
+                supplier_offer_id: 12,
+                supplier_code: "BIM",
+                supplier_product_name: "Mr. Green Beyaz Sabun",
+                current_price: 50,
+                availability: "AVAILABLE",
+                legacy_link_count: 2,
+                legacy_links: [
+                  {
+                    legacyLinkId: 1,
+                    costItemId: 101,
+                    costItemCode: "MR_GREEN",
+                    itemName: "Mr. Green Beyaz Sabun",
+                    unitCost: 50,
+                    mappingCount: 3,
+                    trendyolMappings: 2,
+                    hbMappings: 1,
+                    selected: true,
+                  },
+                  {
+                    legacyLinkId: 2,
+                    costItemId: 102,
+                    costItemCode: "ACTISOFT",
+                    itemName: "Actisoft Beyaz Sabun",
+                    unitCost: 45,
+                    mappingCount: 1,
+                    trendyolMappings: 1,
+                    hbMappings: 0,
+                    selected: false,
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      return { items: [] };
+    });
+
+    render(<Costs mode="costs" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", { name: /Veri Bütünlüğü/ }),
+    );
+
+    expect(
+      await screen.findByText("İnsan onaylı veri bütünlüğü merkezi"),
+    ).toBeVisible();
+    expect(screen.getByText(/BİM Mr\. Green ≠ FILE Actisoft/)).toBeVisible();
+    expect(screen.getByText("30")).toBeVisible();
+    expect(screen.getByText(/Mr\. Green Beyaz Sabun/)).toBeVisible();
+    expect(get).toHaveBeenCalledWith(
+      expect.stringContaining("/api/cost-integrity/review?"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "İncele" }));
+    expect(screen.getByText("Güvenli çözüm yolları")).toBeVisible();
+    expect(
+      screen.getByText(/Mevcut 1→1 replace önizlemesi kullanılır/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Şimdilik dokunma" }),
+    ).toBeVisible();
+    expect(post).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+
+    post.mockResolvedValueOnce({
+      data: {
+        operationType: "REPLACE_COST_ITEM",
+        payload: { sourceCostItemId: 102, targetCostItemId: 101 },
+        previewFingerprint: "integrity-preview",
+        impact: {
+          mappingCount: 4,
+          marketplaceCounts: { TRENDYOL: 3, HEPSIBURADA: 1 },
+        },
+        warnings: [],
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Etki önizle" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "REPLACE_COST_ITEM",
+        payload: { sourceCostItemId: 102, targetCostItemId: 101 },
+      }),
+    );
+    expect(screen.getByText("Etki önizlemesi")).toBeVisible();
+    expect(
+      screen.getByText("Tüm mappingleri başka maliyet kalemine taşı"),
+    ).toBeVisible();
+  });
+
   test("tekli mapping kaydında adet alanına dokunulmasa bile 1 gönderir", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();
