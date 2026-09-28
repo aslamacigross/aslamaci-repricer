@@ -683,32 +683,32 @@ const integrityCategories = [
   {
     key: "parallel",
     label: "Paralel bağlantılar",
-    summaryKey: "parallelGroups",
+    summaryKey: "parallel_groups",
   },
   {
     key: "orphan-mappings",
     label: "Orphan mapping",
-    summaryKey: "orphanMappings",
+    summaryKey: "orphan_mappings",
   },
   {
     key: "orphan-links",
     label: "Orphan supplier link",
-    summaryKey: "orphanLegacyLinks",
+    summaryKey: "orphan_legacy_links",
   },
   {
     key: "manual-live",
     label: "Manual → Live adayları",
-    summaryKey: "manualLiveCandidates",
+    summaryKey: "manual_live_candidates",
   },
   {
     key: "source-anomalies",
     label: "Kaynak problemi",
-    summaryKey: "sourceAnomalies",
+    summaryKey: "source_anomalies",
   },
   {
     key: "duplicates",
     label: "Duplicate adayları",
-    summaryKey: "duplicateCandidates",
+    summaryKey: "duplicate_candidates",
   },
 ];
 

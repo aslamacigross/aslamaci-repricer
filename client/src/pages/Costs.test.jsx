@@ -113,12 +113,12 @@ describe("Toplu mapping paneli", () => {
         return {
           data: {
             summary: {
-              parallelGroups: 30,
-              orphanMappings: 2,
-              orphanLegacyLinks: 2,
-              manualLiveCandidates: 4,
-              sourceAnomalies: 1,
-              duplicateCandidates: 3,
+              parallel_groups: 30,
+              orphan_mappings: 2,
+              orphan_legacy_links: 2,
+              source_anomalies: 9,
+              manual_live_candidates: 107,
+              duplicate_candidates: 13,
             },
             definitions: {
               parallel:
@@ -177,7 +177,24 @@ describe("Toplu mapping paneli", () => {
       await screen.findByText("İnsan onaylı veri bütünlüğü merkezi"),
     ).toBeVisible();
     expect(screen.getByText(/BİM Mr\. Green ≠ FILE Actisoft/)).toBeVisible();
-    expect(screen.getByText("30")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Paralel bağlantılar\s+30/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Orphan mapping\s+2/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Orphan supplier link\s+2/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Kaynak problemi\s+9/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Manual → Live adayları\s+107/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Duplicate adayları\s+13/ }),
+    ).toBeVisible();
     expect(screen.getByText(/Mr\. Green Beyaz Sabun/)).toBeVisible();
     expect(get).toHaveBeenCalledWith(
       expect.stringContaining("/api/cost-integrity/review?"),
