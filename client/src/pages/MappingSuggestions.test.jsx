@@ -446,6 +446,35 @@ describe("Akıllı mapping paneli", () => {
     );
   });
 
+  test.each([
+    ["gratis", "GRATIS", "Gratis"],
+    ["watsons", "WATSONS", "Watsons"],
+  ])("%s fiyat havuzu generic ekran ve canlı sync kontratını kullanır", async (view, code, label) => {
+    const user = userEvent.setup();
+    get.mockResolvedValue({
+      data: { items: [], total: 0, page: 1, limit: 50 },
+    });
+    post.mockResolvedValue({
+      data: {
+        processed: 2,
+        created: 2,
+        changed: 0,
+        metadata: { productsObserved: 2 },
+      },
+    });
+    render(<MappingSuggestions view={view} notify={vi.fn()} />);
+    expect(await screen.findByPlaceholderText(`${label} ürün veya marka ara`)).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: `Canlı ${label}'den yenile` }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        `/api/supplier-price-pools/${code}/items/sync-live`,
+        {},
+      ),
+    );
+  });
+
   test("Bizim otomatik fiyat kademesini gösterir ama manuel edit açmaz", async () => {
     get.mockImplementation(async (path) => {
       if (path.includes("/duplicates")) return { data: { items: [] } };

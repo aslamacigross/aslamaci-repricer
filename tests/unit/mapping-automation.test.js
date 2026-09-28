@@ -130,6 +130,109 @@ test("Rossmann kaynak anahtarı kendi havuzunda kabul edilir ve başka havuza ta
   );
 });
 
+test("Gratis ve Watsons stabil kaynak anahtarları yalnız kendi havuzunda kabul edilir", () => {
+  const { service } = fixture();
+  const [gratis] = service.normalizeSupplierRows("GRATIS", [
+    {
+      source_key: "gratis-api:10317170",
+      product_name: "LYKD Sabitleyici Sprey Dewy 100 ml",
+      current_price: 259,
+    },
+  ]);
+  const [watsons] = service.normalizeSupplierRows("WATSONS", [
+    {
+      source_key: "watsons-web:BP_1319563",
+      product_name: "NYX Kapatıcı Serum 02 Light 9,6 ml",
+      current_price: 1049.9,
+    },
+  ]);
+  assert.equal(gratis.supplier_code, "GRATIS");
+  assert.equal(watsons.supplier_code, "WATSONS");
+  assert.throws(
+    () => service.normalizeSupplierRows("GRATIS", [watsons]),
+    /kaynak anahtarı .* havuzuyla uyumlu değil/,
+  );
+});
+
+test("Gratis ve Watsons yalnız tam snapshot için availability reconciliation çalıştırır", async () => {
+  const calls = [];
+  const sourceRows = {
+    GRATIS: {
+      source_key: "gratis-api:1",
+      product_name: "Gratis Ürün 100 ml",
+      current_price: 100,
+    },
+    WATSONS: {
+      source_key: "watsons-web:BP_1",
+      product_name: "Watsons Ürün 100 ml",
+      current_price: 120,
+    },
+  };
+  const service = new MappingAutomationService({
+    repository: {
+      importSupplierItems: async (supplierCode, rows, options) => {
+        calls.push({ supplierCode, rows, options });
+        return { processed: rows.length, affectedBarcodes: [] };
+      },
+    },
+    costs: {},
+    costEngine: { recalculate: async () => ({ processed: 1 }) },
+  });
+  for (const supplierCode of ["GRATIS", "WATSONS"])
+    await service.syncLiveSupplierItems(supplierCode, {
+      livePriceRows: async () => ({
+        rows: [sourceRows[supplierCode]],
+        fullSnapshot: false,
+        stats: { completeTraversal: false },
+      }),
+    });
+  await service.syncLiveSupplierItems("GRATIS", {
+    livePriceRows: async () => ({
+      rows: [sourceRows.GRATIS],
+      fullSnapshot: true,
+      stats: { completeTraversal: true },
+    }),
+  });
+  assert.deepEqual(
+    calls.map((call) => [call.supplierCode, call.options.replaceAvailability]),
+    [
+      ["GRATIS", false],
+      ["WATSONS", false],
+      ["GRATIS", true],
+    ],
+  );
+});
+
+test("malformed supplier fiyatı repository çağrılmadan reddedilir", async () => {
+  let imported = false;
+  const service = new MappingAutomationService({
+    repository: {
+      importSupplierItems: async () => {
+        imported = true;
+      },
+    },
+    costs: {},
+    costEngine: { recalculate: async () => ({ processed: 1 }) },
+  });
+  await assert.rejects(
+    service.syncLiveSupplierItems("GRATIS", {
+      livePriceRows: async () => ({
+        rows: [
+          {
+            source_key: "gratis-api:1",
+            product_name: "Bozuk fiyatlı ürün",
+            current_price: 0,
+          },
+        ],
+        fullSnapshot: false,
+        stats: {},
+      }),
+    }),
+    /ürün satırı geçersiz/,
+  );
+  assert.equal(imported, false);
+});
+
 test("geçmiş mappingi File fiyatıyla destekleyip hedef adede ölçekler", async () => {
   const { service, saved, evaluated } = fixture();
   const result = await service.generate({ limit: 100 });

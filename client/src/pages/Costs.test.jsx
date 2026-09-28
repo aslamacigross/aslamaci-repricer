@@ -75,6 +75,18 @@ describe("Toplu mapping paneli", () => {
     ).toBeVisible();
   });
 
+  test.each([
+    ["Gratis", "Gratis ürün veya marka ara"],
+    ["Watsons", "Watsons ürün veya marka ara"],
+  ])("mapping ekranında %s fiyat havuzu sekmesi açılır", async (supplier, placeholder) => {
+    const user = userEvent.setup();
+    render(<Costs mode="mappings" notify={vi.fn()} />);
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(`${supplier} havuzu`) }),
+    );
+    expect(await screen.findByPlaceholderText(placeholder)).toBeVisible();
+  });
+
   test("maliyet kalemlerini panelden toplu yükler", async () => {
     const user = userEvent.setup();
     const notify = vi.fn();

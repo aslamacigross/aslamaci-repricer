@@ -19,6 +19,13 @@ test("ROSSMANN geçerli canlı tedarikçi kodudur", () => {
   });
 });
 
+test("GRATIS ve WATSONS geçerli canlı tedarikçi kodlarıdır", () => {
+  assert.equal(supplier("GRATIS").liveSync, true);
+  assert.equal(supplier("GRATIS").label, "Gratis");
+  assert.equal(supplier("WATSONS").liveSync, true);
+  assert.equal(supplier("WATSONS").label, "Watsons");
+});
+
 test("tekli hafif üründe kesirli birim desiyi korur", () => {
   assert.deepEqual(estimatePackageDesi("Çikolata 25 g"), {
     value: 0.025,

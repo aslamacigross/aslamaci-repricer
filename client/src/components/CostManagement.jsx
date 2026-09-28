@@ -26,6 +26,8 @@ export const SUPPLIERS = [
   { code: "BIZIM_MARKET", label: "Bizim" },
   { code: "BIM", label: "BİM" },
   { code: "ROSSMANN", label: "Rossmann" },
+  { code: "GRATIS", label: "Gratis" },
+  { code: "WATSONS", label: "Watsons" },
   { code: "OTHER", label: "Diğer" },
 ];
 

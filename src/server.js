@@ -9,6 +9,7 @@ async function start() {
   validateEnv();
   if (!env.skipMigrations) await migrate("up", pool);
   const container = createContainer();
+  await container.jobService.ensureRegistrations();
   const app = createApp(container);
   const server = app.listen(env.port, () =>
     logger.info("server_started", {

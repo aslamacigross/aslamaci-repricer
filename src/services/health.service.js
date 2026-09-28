@@ -105,11 +105,20 @@ class HealthService {
                 (ARRAY_AGG(r.status ORDER BY r.started_at DESC))[1] last_status
          FROM jobs j
          LEFT JOIN job_runs r ON r.job_name=j.name
-         WHERE j.name IN(
-          'sync-file-market-prices',
-          'sync-bizim-market-prices',
-          'sync-bim-market-prices',
-          'sync-rossmann-market-prices'
+         WHERE (
+           j.name IN(
+             'sync-file-market-prices',
+             'sync-bizim-market-prices',
+             'sync-bim-market-prices',
+             'sync-rossmann-market-prices'
+           )
+           OR (
+             j.name IN(
+               'sync-gratis-market-prices',
+               'sync-watsons-market-prices'
+             )
+             AND j.enabled=TRUE
+            )
          )
          GROUP BY j.name ORDER BY j.name`,
       )

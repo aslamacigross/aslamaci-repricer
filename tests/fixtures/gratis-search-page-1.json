@@ -1,0 +1,75 @@
+{
+  "data": [
+    {
+      "id": "10317170",
+      "stockStatus": "HIGH",
+      "prices": {
+        "currency": "TRY",
+        "discountRate": 0,
+        "discountedPrice": 25900,
+        "normalPrice": 25900,
+        "promotionPrice": 16900,
+        "discountedText": "Gratis Kart ile",
+        "promotionLabel": "Gratis Kart Fiyatı"
+      },
+      "attributes": {
+        "brand": "LYKD",
+        "displayName": "LYKD Makyaj Sabitleyici Sprey Dewy 100 ml",
+        "categories": ["Makyaj", "Yüz Makyajı", "Makyaj Sabitleyici"],
+        "categoryIds": ["501", "50103", "5010310"],
+        "eanUpc": "2050000158803",
+        "assortmentVariant": "Dewy",
+        "orderLimit": 4
+      },
+      "imageUrls": [
+        {
+          "fileUrl": "https://api.gratis.retter.io/images/10317170.jpg"
+        }
+      ],
+      "variants": {
+        "type": "assortment",
+        "values": [
+          { "id": "10317170", "value": "Dewy" },
+          { "id": "10317171", "value": "Matte" }
+        ]
+      },
+      "variantCount": "2 Tür",
+      "shareLink": "https://www.gratis.com/p-10317170",
+      "isActive": true
+    },
+    {
+      "id": "10317171",
+      "stockStatus": "NONE",
+      "prices": {
+        "currency": "TRY",
+        "discountRate": 20,
+        "discountedPrice": 19900,
+        "normalPrice": 24900,
+        "promotionPrice": 14900,
+        "discountedText": "Gratis Kart ile",
+        "promotionLabel": "Gratis Kart Fiyatı"
+      },
+      "attributes": {
+        "brand": "LYKD",
+        "displayName": "LYKD Makyaj Sabitleyici Sprey Matte 100 ml",
+        "categories": ["Makyaj", "Yüz Makyajı", "Makyaj Sabitleyici"],
+        "categoryIds": ["501", "50103", "5010310"],
+        "eanUpc": "2050000158810",
+        "assortmentVariant": "Matte"
+      },
+      "imageUrls": [],
+      "variants": {
+        "type": "assortment",
+        "values": [
+          { "id": "10317170", "value": "Dewy" },
+          { "id": "10317171", "value": "Matte" }
+        ]
+      },
+      "shareLink": "https://www.gratis.com/p-10317171",
+      "isActive": true
+    }
+  ],
+  "itemCount": 3,
+  "from": 0,
+  "size": 2
+}

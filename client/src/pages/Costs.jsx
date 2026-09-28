@@ -58,6 +58,8 @@ function supplierLabel(code) {
       BIZIM_MARKET: "Bizim",
       BIM: "BİM",
       ROSSMANN: "Rossmann",
+      GRATIS: "Gratis",
+      WATSONS: "Watsons",
     }[code] || code || "Tedarikçi"
   );
 }
@@ -267,6 +269,18 @@ export default function Costs({ mode, notify, marketplace = "TRENDYOL" }) {
             onClick={() => setMappingView("rossmann")}
           >
             <Store /> Rossmann havuzu
+          </button>
+          <button
+            className={mappingView === "gratis" ? "active" : ""}
+            onClick={() => setMappingView("gratis")}
+          >
+            <Store /> Gratis havuzu
+          </button>
+          <button
+            className={mappingView === "watsons" ? "active" : ""}
+            onClick={() => setMappingView("watsons")}
+          >
+            <Store /> Watsons havuzu
           </button>
           <button
             className={mappingView === "other" ? "active" : ""}

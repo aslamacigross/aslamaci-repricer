@@ -77,7 +77,14 @@ const SUPPLIER_SOURCE_PREFIXES = Object.freeze({
   BIZIM_MARKET: ["bizim-web:", "bizim_market:"],
   BIM: ["bim-yemeksepeti:", "bim:"],
   ROSSMANN: ["rossmann-api:"],
+  GRATIS: ["gratis-api:"],
+  WATSONS: ["watsons-web:"],
   OTHER: ["other:"],
+});
+
+const SUPPLIER_IMPORT_LIMITS = Object.freeze({
+  GRATIS: 50000,
+  WATSONS: 50000,
 });
 
 const PRODUCT_KIND_RULES = Object.freeze([
@@ -1281,9 +1288,10 @@ class MappingAutomationService {
         400,
         "EMPTY_SUPPLIER_ITEMS",
       );
-    if (rows.length > 10000)
+    const importLimit = SUPPLIER_IMPORT_LIMITS[supplierCode] || 10000;
+    if (rows.length > importLimit)
       throw new AppError(
-        "Tek işlemde en fazla 10000 tedarikçi ürünü yüklenebilir",
+        `Tek işlemde en fazla ${importLimit} tedarikçi ürünü yüklenebilir`,
         400,
         "TOO_MANY_SUPPLIER_ITEMS",
       );

@@ -55,6 +55,8 @@ const supplierDefinitions = {
   },
   BIM: { label: "BİM", shortLabel: "BİM", liveSync: true },
   ROSSMANN: { label: "Rossmann", shortLabel: "Rossmann", liveSync: true },
+  GRATIS: { label: "Gratis", shortLabel: "Gratis", liveSync: true },
+  WATSONS: { label: "Watsons", shortLabel: "Watsons", liveSync: true },
   OTHER: {
     label: "Diğer maliyet havuzu",
     shortLabel: "Diğer",
@@ -270,6 +272,22 @@ export default function MappingSuggestions({
       <SupplierPricePool
         key="ROSSMANN"
         supplierCode="ROSSMANN"
+        notify={notify}
+      />
+    );
+  if (view === "gratis")
+    return (
+      <SupplierPricePool
+        key="GRATIS"
+        supplierCode="GRATIS"
+        notify={notify}
+      />
+    );
+  if (view === "watsons")
+    return (
+      <SupplierPricePool
+        key="WATSONS"
+        supplierCode="WATSONS"
         notify={notify}
       />
     );
@@ -1168,6 +1186,9 @@ function SuggestionQueue({ notify, marketplace = "TRENDYOL" }) {
             <option value="FILE_MARKET">File Market</option>
             <option value="BIZIM_MARKET">Bizim Toptan</option>
             <option value="BIM">BİM</option>
+            <option value="ROSSMANN">Rossmann</option>
+            <option value="GRATIS">Gratis</option>
+            <option value="WATSONS">Watsons</option>
             <option value="OTHER">Diğer maliyet havuzu</option>
           </select>
         </div>
@@ -2074,6 +2095,8 @@ function SupplierPricePool({ supplierCode, notify }) {
                 <option value="BIZIM_MARKET">Bizim</option>
                 <option value="BIM">BİM</option>
                 <option value="ROSSMANN">Rossmann</option>
+                <option value="GRATIS">Gratis</option>
+                <option value="WATSONS">Watsons</option>
                 <option value="OTHER">Diğer</option>
               </select>
               <select

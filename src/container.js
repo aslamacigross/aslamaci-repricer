@@ -21,6 +21,8 @@ const { FileMarketService } = require("./services/file-market.service");
 const { BizimMarketService } = require("./services/bizim-market.service");
 const { BimMarketService } = require("./services/bim-market.service");
 const { RossmannMarketService } = require("./services/rossmann-market.service");
+const { GratisMarketService } = require("./services/gratis-market.service");
+const { WatsonsMarketService } = require("./services/watsons-market.service");
 const { HealthService } = require("./services/health.service");
 const { FinanceService } = require("./services/finance.service");
 const { HepsiburadaService } = require("./services/hepsiburada.service");
@@ -191,6 +193,8 @@ function createContainer(overrides = {}) {
   const bimMarket = overrides.bimMarket || new BimMarketService();
   const rossmannMarket =
     overrides.rossmannMarket || new RossmannMarketService();
+  const gratisMarket = overrides.gratisMarket || new GratisMarketService();
+  const watsonsMarket = overrides.watsonsMarket || new WatsonsMarketService();
   const desi = overrides.desi || new DesiService({ db, costEngine });
   const shippingTariff =
     overrides.shippingTariff || new ShippingTariffService({ db });
@@ -279,6 +283,30 @@ function createContainer(overrides = {}) {
   );
   jobService.register("sync-rossmann-market-prices", () =>
     mappingAutomation.syncLiveSupplierItems("ROSSMANN", rossmannMarket),
+  );
+  jobService.register(
+    "sync-gratis-market-prices",
+    () => mappingAutomation.syncLiveSupplierItems("GRATIS", gratisMarket),
+    {
+      description:
+        "Gratis public Retter kataloğundan supplier fiyat havuzunu yeniler",
+      scheduleMinutes: 1440,
+      scheduleType: "DAILY",
+      dailyAt: "00:30",
+      scheduleTimezone: "Europe/Istanbul",
+    },
+  );
+  jobService.register(
+    "sync-watsons-market-prices",
+    () => mappingAutomation.syncLiveSupplierItems("WATSONS", watsonsMarket),
+    {
+      description:
+        "Watsons public JSON-LD kataloğundan supplier fiyat havuzunu yeniler",
+      scheduleMinutes: 1440,
+      scheduleType: "DAILY",
+      dailyAt: "01:00",
+      scheduleTimezone: "Europe/Istanbul",
+    },
   );
   jobService.register("sync-products", () => sync.products());
   jobService.register("sync-hepsiburada-products", async () => {
@@ -527,6 +555,8 @@ function createContainer(overrides = {}) {
     bizimMarket,
     bimMarket,
     rossmannMarket,
+    gratisMarket,
+    watsonsMarket,
     health,
     desi,
     shippingTariff,

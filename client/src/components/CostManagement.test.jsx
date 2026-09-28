@@ -51,6 +51,9 @@ describe("shared cost management", () => {
     await userEvent.click(screen.getByRole("button", { name: "Seç" }));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }));
     expect(get).toHaveBeenCalledWith(expect.stringContaining("limit=20"));
+    const supplierSelect = screen.getByLabelText("Tedarikçi");
+    expect(within(supplierSelect).getByRole("option", { name: "Gratis" })).toBeVisible();
+    expect(within(supplierSelect).getByRole("option", { name: "Watsons" })).toBeVisible();
   });
 
   test("selector linked, unlinked eligible ve blocked offer aksiyonlarini ayirir", async () => {

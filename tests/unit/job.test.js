@@ -1,6 +1,55 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { JobService, safeItemError } = require("../../src/services/job.service");
+const { JobRepository } = require("../../src/repositories/job.repository");
+
+test("yeni supplier job kayıtları yalnız eksikse disabled oluşturulur", async () => {
+  const calls = [];
+  const repository = {
+    ensureDisabled: async (definition) => {
+      calls.push(definition);
+      return { name: definition.name, enabled: false };
+    },
+  };
+  const service = new JobService({ db: {}, repository });
+  service.register("sync-gratis-market-prices", async () => {}, {
+    description: "Gratis supplier sync",
+    scheduleMinutes: 1440,
+  });
+  service.register("sync-watsons-market-prices", async () => {}, {
+    description: "Watsons supplier sync",
+    scheduleMinutes: 1440,
+  });
+
+  const result = await service.ensureRegistrations();
+
+  assert.deepEqual(
+    calls.map((item) => item.name),
+    ["sync-gratis-market-prices", "sync-watsons-market-prices"],
+  );
+  assert.deepEqual(result, [
+    { name: "sync-gratis-market-prices", created: true },
+    { name: "sync-watsons-market-prices", created: true },
+  ]);
+});
+
+test("job repository kayıt sırasında mevcut enablement durumunu değiştirmez", async () => {
+  let query;
+  const repository = new JobRepository({
+    async query(sql, params) {
+      query = { sql, params };
+      return { rows: [] };
+    },
+  });
+  const created = await repository.ensureDisabled({
+    name: "sync-gratis-market-prices",
+    description: "Gratis supplier sync",
+  });
+  assert.equal(created, undefined);
+  assert.match(query.sql, /FALSE/);
+  assert.match(query.sql, /ON CONFLICT\(name\) DO NOTHING/);
+  assert.equal(query.params[0], "sync-gratis-market-prices");
+});
 
 test("otomatik repricer ürün-bazlı hatayı güvenli job metadatasına dönüştürür", () => {
   const item = safeItemError(

@@ -62,10 +62,21 @@ class JobService {
     this.db = db;
     this.repository = repository;
     this.handlers = handlers;
+    this.registrations = new Map();
     this.timer = null;
   }
-  register(name, handler) {
+  register(name, handler, registration = null) {
     this.handlers[name] = handler;
+    if (registration) this.registrations.set(name, { name, ...registration });
+  }
+
+  async ensureRegistrations() {
+    const registered = [];
+    for (const definition of this.registrations.values()) {
+      const created = await this.repository.ensureDisabled(definition);
+      registered.push({ name: definition.name, created: Boolean(created) });
+    }
+    return registered;
   }
 
   async run(name, metadata = {}) {

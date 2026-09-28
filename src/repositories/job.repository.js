@@ -54,6 +54,34 @@ class JobRepository {
     ).rows[0];
   }
 
+  async ensureDisabled({
+    name,
+    description,
+    scheduleMinutes = 1440,
+    scheduleType = "DAILY",
+    dailyAt = "00:00",
+    scheduleTimezone = "Europe/Istanbul",
+  }) {
+    return (
+      await this.db.query(
+        `INSERT INTO jobs(
+           name,description,schedule_minutes,enabled,
+           schedule_type,daily_at,schedule_timezone
+         )VALUES($1,$2,$3,FALSE,$4,$5,$6)
+         ON CONFLICT(name) DO NOTHING
+         RETURNING *`,
+        [
+          name,
+          description,
+          scheduleMinutes,
+          scheduleType,
+          dailyAt,
+          scheduleTimezone,
+        ],
+      )
+    ).rows[0];
+  }
+
   async start(name, client = this.db) {
     const job = (await client.query("SELECT * FROM jobs WHERE name=$1", [name]))
       .rows[0];

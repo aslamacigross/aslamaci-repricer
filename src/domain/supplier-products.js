@@ -18,6 +18,18 @@ const SUPPLIERS = Object.freeze({
     shortLabel: "Rossmann",
     liveSync: true,
   },
+  GRATIS: {
+    code: "GRATIS",
+    label: "Gratis",
+    shortLabel: "Gratis",
+    liveSync: true,
+  },
+  WATSONS: {
+    code: "WATSONS",
+    label: "Watsons",
+    shortLabel: "Watsons",
+    liveSync: true,
+  },
   OTHER: {
     code: "OTHER",
     label: "Diğer maliyet havuzu",

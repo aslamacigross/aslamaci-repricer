@@ -210,7 +210,7 @@ test("mapping aday havuzu supplier bazlı limitlenir ve Rossmann büyük katalog
         item.product_name === "Edenland Musk Latte EDP 50 ml",
     ),
   );
-  assert.deepEqual(calls[0].params, [50000]);
+  assert.deepEqual(calls[0].params, [70000]);
 });
 
 test("tedarikçi havuzu normal listede merge edilmiş eski duplicate kayıtları gizler", async () => {

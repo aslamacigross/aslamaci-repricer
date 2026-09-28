@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "id": "10128827",
+      "stockStatus": "LOW",
+      "prices": {
+        "currency": "TRY",
+        "discountRate": 0,
+        "discountedPrice": 16900,
+        "normalPrice": 16900,
+        "promotionPrice": 9900,
+        "discountedText": "Gratis Kart ile",
+        "promotionLabel": "Gratis Kart Fiyatı"
+      },
+      "attributes": {
+        "brand": "Beaulis",
+        "displayName": "Beaulis Drag It Inkpen Eyeliner 100 Black",
+        "categories": ["Makyaj", "Göz Makyajı"],
+        "categoryIds": ["501", "50102"],
+        "eanUpc": "8690000000001",
+        "colorName": "100 Black"
+      },
+      "imageUrls": [],
+      "shareLink": "https://www.gratis.com/p-10128827",
+      "isActive": true
+    }
+  ],
+  "itemCount": 3,
+  "from": 2,
+  "size": 2
+}
