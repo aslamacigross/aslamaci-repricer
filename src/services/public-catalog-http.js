@@ -37,6 +37,7 @@ async function publicCatalogRequest({
   baseDelayMs = 500,
   sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
   headers = {},
+  additionalRetryStatuses = [],
   responseType = "json",
 }) {
   const started = Date.now();
@@ -65,7 +66,10 @@ async function publicCatalogRequest({
         } catch {
           // Status and stage remain sufficient for diagnostics.
         }
-        const retryable = response.status === 429 || response.status >= 500;
+        const retryable =
+          response.status === 429 ||
+          response.status >= 500 ||
+          additionalRetryStatuses.includes(response.status);
         const diagnostics = {
           supplier,
           failureStage: "http_response",

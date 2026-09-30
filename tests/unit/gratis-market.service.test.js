@@ -156,22 +156,71 @@ test("Gratis partial pagination unseen ürünleri reconcile edecek fullSnapshot 
   assert.equal(result.stats.failedPages[0].httpStatus, 503);
 });
 
-test("Gratis 429 yanıtında bounded retry uygular", async () => {
-  let calls = 0;
+test("Gratis transient katalog hatalarını bounded retry ile aşar", async (t) => {
   const single = { ...firstPage, data: [firstPage.data[0]], itemCount: 1 };
-  const result = await service(async () => {
+  for (const scenario of [
+    { name: "403", status: 403, statusText: "Forbidden" },
+    {
+      name: "429",
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: { "retry-after": "0" },
+    },
+    { name: "5xx", status: 503, statusText: "Unavailable" },
+  ]) {
+    await t.test(scenario.name, async () => {
+      let calls = 0;
+      const result = await service(async () => {
+        calls++;
+        if (calls === 1) return response("temporary", scenario);
+        return response(single);
+      }).livePriceRows();
+      assert.equal(calls, 2);
+      assert.equal(result.fullSnapshot, true);
+      assert.equal(result.stats.retryCount, 1);
+    });
+  }
+
+  await t.test("timeout", async () => {
+    let calls = 0;
+    const result = await service(
+      (_url, { signal }) => {
+        calls++;
+        if (calls > 1) return Promise.resolve(response(single));
+        return new Promise((_, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("aborted"))),
+        );
+      },
+      { timeoutMs: 5 },
+    ).livePriceRows();
+    assert.equal(calls, 2);
+    assert.equal(result.fullSnapshot, true);
+    assert.equal(result.stats.retryCount, 1);
+  });
+});
+
+test("Gratis retry sınırı tükenince kategori ve snapshot partial kalır", async () => {
+  let calls = 0;
+  const result = await service(async (url) => {
     calls++;
-    if (calls === 1)
-      return response("slow down", {
-        status: 429,
-        statusText: "Too Many Requests",
-        headers: { "retry-after": "0" },
-      });
-    return response(single);
+    const data = JSON.parse(
+      Buffer.from(new URL(url).searchParams.get("data"), "base64").toString(),
+    );
+    if (data.query.from === 0) return response(firstPage);
+    return response("still blocked", { status: 403, statusText: "Forbidden" });
   }).livePriceRows();
-  assert.equal(calls, 2);
-  assert.equal(result.fullSnapshot, true);
-  assert.equal(result.stats.retryCount, 1);
+  assert.equal(calls, 4);
+  assert.equal(result.fullSnapshot, false);
+  assert.equal(result.stats.completeTraversal, false);
+  assert.equal(result.stats.retryCount, 2);
+  assert.deepEqual(result.stats.failedPages[0], {
+    categoryId: "501",
+    page: 2,
+    code: "GRATIS_HTTP_ERROR",
+    httpStatus: 403,
+    attempt: 3,
+    retryCount: 2,
+  });
 });
 
 test("Gratis ilk sayfa 403 ise güvenli diagnostic ile fail olur", async () => {

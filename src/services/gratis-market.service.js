@@ -194,6 +194,7 @@ class GratisMarketService {
       sleep: this.sleep,
       responseType: "json",
       headers: { "client-version": "4.8.1" },
+      additionalRetryStatuses: [403],
     });
     if (!result.data || !Array.isArray(result.data.data))
       throw catalogError(
@@ -289,12 +290,14 @@ class GratisMarketService {
           firstError ||= error;
           categoryComplete = false;
           const diagnostics = error.jobDiagnostics || {};
+          retryCount += Number(diagnostics.retryCount || 0);
           failedPages.push({
             categoryId: category.id,
             page: page + 1,
             code: error.code || "GRATIS_PAGE_FAILED",
             httpStatus: diagnostics.httpStatus ?? null,
             attempt: diagnostics.attempt ?? null,
+            retryCount: diagnostics.retryCount ?? 0,
           });
           this.log.warn("gratis_sync_page_failed", {
             supplier: "GRATIS",
@@ -302,10 +305,30 @@ class GratisMarketService {
             page: page + 1,
             httpStatus: diagnostics.httpStatus ?? null,
             attempt: diagnostics.attempt ?? null,
+            retryCount: diagnostics.retryCount ?? 0,
             productsSuccessfullyScanned: rows.size,
           });
           break;
         }
+      }
+      if (
+        categoryComplete &&
+        expectedTotal != null &&
+        categorySeen.size !== expectedTotal
+      ) {
+        failedPages.push({
+          categoryId: category.id,
+          page: null,
+          code: "GRATIS_ITEM_COUNT_MISMATCH",
+          expected: expectedTotal,
+          observed: categorySeen.size,
+        });
+        this.log.warn("gratis_sync_category_incomplete", {
+          supplier: "GRATIS",
+          categoryId: category.id,
+          expected: expectedTotal,
+          observed: categorySeen.size,
+        });
       }
       if (expectedTotal == null || categorySeen.size !== expectedTotal)
         categoryComplete = false;
