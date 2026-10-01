@@ -17,15 +17,36 @@ function catalogError(message, code, diagnostics = {}) {
   return error;
 }
 
-function retryDelay(response, attempt, baseDelayMs) {
+const MAX_RETRY_AFTER_MS = 30000;
+const MAX_EXPONENTIAL_BACKOFF_MS = 10000;
+
+function exponentialRetryDelay(attempt, baseDelayMs) {
+  return Math.min(
+    Math.max(Number(baseDelayMs) || 0, 0) * 2 ** (attempt - 1),
+    MAX_EXPONENTIAL_BACKOFF_MS,
+  );
+}
+
+function retryDelay(response, attempt, baseDelayMs, nowMs = Date.now()) {
   const retryAfter = response?.headers?.get?.("retry-after");
-  const seconds = Number(retryAfter);
-  if (Number.isFinite(seconds) && seconds >= 0)
-    return Math.min(seconds * 1000, 30000);
-  const retryDate = Date.parse(String(retryAfter || ""));
+  const value = typeof retryAfter === "string" ? retryAfter.trim() : "";
+  if (!value) return exponentialRetryDelay(attempt, baseDelayMs);
+  const seconds = Number(value);
+  if (Number.isFinite(seconds))
+    return seconds >= 0
+      ? Math.min(seconds * 1000, MAX_RETRY_AFTER_MS)
+      : exponentialRetryDelay(attempt, baseDelayMs);
+  const retryDate = Date.parse(value);
   if (Number.isFinite(retryDate))
-    return Math.min(Math.max(retryDate - Date.now(), 0), 30000);
-  return Math.min(baseDelayMs * 2 ** (attempt - 1), 10000);
+    return Math.min(Math.max(retryDate - nowMs, 0), MAX_RETRY_AFTER_MS);
+  return exponentialRetryDelay(attempt, baseDelayMs);
+}
+
+function policyRetryDelay(policy, context) {
+  if (typeof policy !== "function") return context.defaultDelayMs;
+  const selected = Number(policy(context));
+  if (!Number.isFinite(selected) || selected < 0) return context.defaultDelayMs;
+  return Math.min(selected, MAX_RETRY_AFTER_MS);
 }
 
 async function publicCatalogRequest({
@@ -38,11 +59,15 @@ async function publicCatalogRequest({
   sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
   headers = {},
   additionalRetryStatuses = [],
+  beforeAttempt = null,
+  retryDelayPolicy = null,
   responseType = "json",
 }) {
   const started = Date.now();
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (typeof beforeAttempt === "function")
+      await beforeAttempt({ attempt, supplier, url });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -87,7 +112,15 @@ async function publicCatalogRequest({
         );
         if (!retryable || attempt === maxAttempts) throw error;
         lastError = error;
-        await sleep(retryDelay(response, attempt, baseDelayMs));
+        const defaultDelayMs = retryDelay(response, attempt, baseDelayMs);
+        await sleep(
+          policyRetryDelay(retryDelayPolicy, {
+            response,
+            attempt,
+            supplier,
+            defaultDelayMs,
+          }),
+        );
         continue;
       }
       let body;
@@ -156,7 +189,15 @@ async function publicCatalogRequest({
       );
       if (attempt === maxAttempts) throw wrapped;
       lastError = wrapped;
-      await sleep(Math.min(baseDelayMs * 2 ** (attempt - 1), 10000));
+      const defaultDelayMs = exponentialRetryDelay(attempt, baseDelayMs);
+      await sleep(
+        policyRetryDelay(retryDelayPolicy, {
+          response: null,
+          attempt,
+          supplier,
+          defaultDelayMs,
+        }),
+      );
     } finally {
       clearTimeout(timeout);
     }
@@ -166,6 +207,7 @@ async function publicCatalogRequest({
 
 module.exports = {
   publicCatalogRequest,
+  retryDelay,
   safeResponseSnippet,
   catalogError,
 };

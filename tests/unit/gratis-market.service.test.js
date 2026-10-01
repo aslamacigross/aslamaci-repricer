@@ -16,12 +16,15 @@ const fixture = (name) =>
 const firstPage = fixture("gratis-search-page-1.json");
 const secondPage = fixture("gratis-search-page-2.json");
 
-function response(body, { status = 200, statusText = "OK", headers = {} } = {}) {
+function response(
+  body,
+  { status = 200, statusText = "OK", headers = {} } = {},
+) {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText,
-    headers: { get: (name) => headers[String(name).toLowerCase()] || null },
+    headers: { get: (name) => headers[String(name).toLowerCase()] ?? null },
     text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
   };
 }
@@ -31,7 +34,7 @@ function service(fetchImpl, overrides = {}) {
     categories: [{ id: "501", name: "Makyaj" }],
     pageSize: 2,
     fetchImpl,
-    requestDelayMs: 0,
+    requestIntervalMs: 0,
     sleep: async () => {},
     now: () => new Date("2026-09-29T10:00:00.000Z"),
     log: { info() {}, warn() {} },
@@ -42,7 +45,22 @@ function service(fetchImpl, overrides = {}) {
 test("Gratis tam katalog geçişi doğrulanmış üst kategori kimliklerini kullanır", () => {
   assert.deepEqual(
     GRATIS_TOP_LEVEL_CATEGORIES.map((category) => category.id),
-    ["501", "502", "503", "504", "505", "506", "507", "508", "509", "510", "511", "514", "515", "516"],
+    [
+      "501",
+      "502",
+      "503",
+      "504",
+      "505",
+      "506",
+      "507",
+      "508",
+      "509",
+      "510",
+      "511",
+      "514",
+      "515",
+      "516",
+    ],
   );
 });
 
@@ -77,7 +95,10 @@ test("Gratis alanları stabil SKU ve varyant kimliğiyle normalize edilir", () =
   assert.equal(dewy.brand, "LYKD");
   assert.equal(dewy.raw_data.barcode, "2050000158803");
   assert.equal(dewy.raw_data.variant_label, "Dewy");
-  assert.equal(dewy.source_category, "Makyaj > Yüz Makyajı > Makyaj Sabitleyici");
+  assert.equal(
+    dewy.source_category,
+    "Makyaj > Yüz Makyajı > Makyaj Sabitleyici",
+  );
   assert.equal(dewy.source_url, "https://www.gratis.com/p-10317170");
   assert.equal(dewy.availability, "AVAILABLE");
   assert.equal(matte.availability, "UNAVAILABLE");
@@ -140,17 +161,20 @@ test("Gratis duplicate sonuçları tek source_key olarak korur ve snapshotı eks
 });
 
 test("Gratis partial pagination unseen ürünleri reconcile edecek fullSnapshot üretmez", async () => {
-  const result = await service(async (url) => {
-    const data = JSON.parse(
-      Buffer.from(new URL(url).searchParams.get("data"), "base64").toString(),
-    );
-    if (data.query.from > 0)
-      return response("upstream unavailable", {
-        status: 503,
-        statusText: "Unavailable",
-      });
-    return response(firstPage);
-  }, { maxAttempts: 1 }).livePriceRows();
+  const result = await service(
+    async (url) => {
+      const data = JSON.parse(
+        Buffer.from(new URL(url).searchParams.get("data"), "base64").toString(),
+      );
+      if (data.query.from > 0)
+        return response("upstream unavailable", {
+          status: 503,
+          statusText: "Unavailable",
+        });
+      return response(firstPage);
+    },
+    { maxAttempts: 1 },
+  ).livePriceRows();
   assert.equal(result.rows.length, 2);
   assert.equal(result.fullSnapshot, false);
   assert.equal(result.stats.failedPages[0].httpStatus, 503);
@@ -221,12 +245,157 @@ test("Gratis retry sınırı tükenince kategori ve snapshot partial kalır", as
     attempt: 3,
     retryCount: 2,
   });
+  assert.deepEqual(result.stats.circuitBreaker, {
+    open: true,
+    reason: "PERSISTENT_HTTP_403",
+    categoryId: "501",
+    page: 2,
+    attempts: 3,
+    remainingCategoriesSkipped: 0,
+  });
+});
+
+test("Gratis tüm sayfa ve kategori geçişlerini tek global pacing politikasıyla sınırlar", async () => {
+  const categories = [
+    { id: "501", name: "Makyaj" },
+    { id: "502", name: "Cilt" },
+  ];
+  let clock = 0;
+  const starts = [];
+  const delays = [];
+  const result = await service(
+    async (url) => {
+      starts.push(clock);
+      const data = JSON.parse(
+        Buffer.from(new URL(url).searchParams.get("data"), "base64").toString(),
+      );
+      if (data.query.filters[0].filterValues[0] === "501")
+        return response(data.query.from === 0 ? firstPage : secondPage);
+      return response({
+        ...firstPage,
+        data: [firstPage.data[0]],
+        itemCount: 1,
+      });
+    },
+    {
+      categories,
+      requestIntervalMs: 1000,
+      nowMs: () => clock,
+      sleep: async (delayMs) => {
+        delays.push(delayMs);
+        clock += delayMs;
+      },
+    },
+  ).livePriceRows();
+  assert.equal(result.fullSnapshot, true);
+  assert.deepEqual(starts, [0, 1000, 2000]);
+  assert.deepEqual(delays, [1000, 1000]);
+});
+
+test("Gratis retry backoff ve global pacing aynı bekleme süresini iki kez uygulamaz", async () => {
+  const single = { ...firstPage, data: [firstPage.data[0]], itemCount: 1 };
+  let clock = 0;
+  let calls = 0;
+  const starts = [];
+  const delays = [];
+  const result = await service(
+    async () => {
+      starts.push(clock);
+      calls++;
+      if (calls === 1)
+        return response("temporary", {
+          status: 503,
+          statusText: "Unavailable",
+        });
+      return response(single);
+    },
+    {
+      requestIntervalMs: 1000,
+      nowMs: () => clock,
+      sleep: async (delayMs) => {
+        delays.push(delayMs);
+        clock += delayMs;
+      },
+    },
+  ).livePriceRows();
+  assert.equal(result.fullSnapshot, true);
+  assert.deepEqual(starts, [0, 1000]);
+  assert.deepEqual(delays, [500, 500]);
+});
+
+test("Gratis 403 cooldown sonrası retry ile tam snapshota devam eder", async (t) => {
+  const single = { ...firstPage, data: [firstPage.data[0]], itemCount: 1 };
+  for (const scenario of [
+    { failures: 1, expectedStarts: [0, 15000] },
+    { failures: 2, expectedStarts: [0, 15000, 45000] },
+  ]) {
+    await t.test(`${scenario.failures} geçici 403`, async () => {
+      let clock = 0;
+      let calls = 0;
+      const starts = [];
+      const result = await service(
+        async () => {
+          starts.push(clock);
+          calls++;
+          if (calls <= scenario.failures)
+            return response("blocked", {
+              status: 403,
+              statusText: "Forbidden",
+            });
+          return response(single);
+        },
+        {
+          requestIntervalMs: 1000,
+          nowMs: () => clock,
+          sleep: async (delayMs) => {
+            clock += delayMs;
+          },
+        },
+      ).livePriceRows();
+      assert.equal(result.fullSnapshot, true);
+      assert.deepEqual(starts, scenario.expectedStarts);
+    });
+  }
+});
+
+test("Gratis persistent 403 circuit breaker sonraki kategorileri çağırmaz", async () => {
+  const single = { ...firstPage, data: [firstPage.data[0]], itemCount: 1 };
+  const categoryCalls = [];
+  let clock = 0;
+  const result = await service(
+    async (url) => {
+      const payload = JSON.parse(
+        Buffer.from(new URL(url).searchParams.get("data"), "base64").toString(),
+      );
+      const categoryId = payload.query.filters[0].filterValues[0];
+      categoryCalls.push(categoryId);
+      if (categoryId === "501") return response(single);
+      return response("blocked", { status: 403, statusText: "Forbidden" });
+    },
+    {
+      categories: [
+        { id: "501", name: "Makyaj" },
+        { id: "508", name: "Ev" },
+        { id: "509", name: "Moda" },
+      ],
+      requestIntervalMs: 1000,
+      nowMs: () => clock,
+      sleep: async (delayMs) => {
+        clock += delayMs;
+      },
+    },
+  ).livePriceRows();
+  assert.equal(result.fullSnapshot, false);
+  assert.deepEqual(categoryCalls, ["501", "508", "508", "508"]);
+  assert.equal(result.stats.categories.length, 2);
+  assert.equal(result.stats.circuitBreaker.remainingCategoriesSkipped, 1);
 });
 
 test("Gratis ilk sayfa 403 ise güvenli diagnostic ile fail olur", async () => {
   await assert.rejects(
     service(
-      async () => response("token=secret", { status: 403, statusText: "Forbidden" }),
+      async () =>
+        response("token=secret", { status: 403, statusText: "Forbidden" }),
       { maxAttempts: 1 },
     ).livePriceRows(),
     (error) => {
@@ -244,7 +413,9 @@ test("Gratis timeout ve malformed payload full snapshot üretmez", async (t) => 
       service(
         (_url, { signal }) =>
           new Promise((_, reject) =>
-            signal.addEventListener("abort", () => reject(new Error("aborted"))),
+            signal.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            ),
           ),
         { timeoutMs: 5, maxAttempts: 1 },
       ).livePriceRows(),

@@ -1,13 +1,12 @@
 const { estimatePackageDesi } = require("../domain/supplier-products");
 const logger = require("../config/logger");
-const {
-  publicCatalogRequest,
-  catalogError,
-} = require("./public-catalog-http");
+const { publicCatalogRequest, catalogError } = require("./public-catalog-http");
 
 const GRATIS_API_URL =
   "https://api.gratis.retter.io/1oakekr4e/CALL/Search/search/default";
 const GRATIS_PAGE_SIZE = 100;
+const GRATIS_REQUEST_INTERVAL_MS = 1000;
+const GRATIS_FORBIDDEN_COOLDOWNS_MS = Object.freeze([15000, 30000]);
 const GRATIS_TOP_LEVEL_CATEGORIES = Object.freeze([
   { id: "501", name: "Makyaj" },
   { id: "502", name: "Cilt Bakım" },
@@ -69,11 +68,15 @@ function firstImage(product) {
 function productRow(product, { observedAt } = {}) {
   const productId = String(product?.id || "").trim();
   const attributes = product?.attributes || {};
-  const productName = String(attributes.displayName || product?.name || "").trim();
+  const productName = String(
+    attributes.displayName || product?.name || "",
+  ).trim();
   const selected = gratisPrice(product?.prices);
   if (!productId || !productName || !selected.currentPrice) return null;
   const categories = Array.isArray(attributes.categories)
-    ? attributes.categories.map((value) => String(value || "").trim()).filter(Boolean)
+    ? attributes.categories
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
     : [];
   const category = categories.join(" > ");
   const desi = estimatePackageDesi(productName);
@@ -156,8 +159,10 @@ class GratisMarketService {
     timeoutMs = 20000,
     maxAttempts = 3,
     maxPagesPerCategory = 250,
-    requestDelayMs = 150,
+    requestIntervalMs = GRATIS_REQUEST_INTERVAL_MS,
+    forbiddenCooldownsMs = GRATIS_FORBIDDEN_COOLDOWNS_MS,
     sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+    nowMs = () => Date.now(),
     now = () => new Date(),
     log = logger,
   } = {}) {
@@ -168,10 +173,34 @@ class GratisMarketService {
     this.timeoutMs = timeoutMs;
     this.maxAttempts = maxAttempts;
     this.maxPagesPerCategory = maxPagesPerCategory;
-    this.requestDelayMs = requestDelayMs;
+    this.requestIntervalMs = Math.min(
+      Math.max(Number(requestIntervalMs) || 0, 0),
+      10000,
+    );
+    this.forbiddenCooldownsMs = [...forbiddenCooldownsMs].map((value) =>
+      Math.min(Math.max(Number(value) || 0, 0), 30000),
+    );
     this.sleep = sleep;
+    this.nowMs = nowMs;
     this.now = now;
     this.log = log;
+    this.lastRequestStartedAt = null;
+  }
+
+  async waitForRequestSlot() {
+    const current = this.nowMs();
+    if (this.lastRequestStartedAt != null) {
+      const remaining =
+        this.requestIntervalMs - (current - this.lastRequestStartedAt);
+      if (remaining > 0) await this.sleep(remaining);
+    }
+    this.lastRequestStartedAt = this.nowMs();
+  }
+
+  retryDelayPolicy({ response, attempt, defaultDelayMs }) {
+    if (response?.status !== 403) return defaultDelayMs;
+    const cooldown = this.forbiddenCooldownsMs[attempt - 1];
+    return Math.max(defaultDelayMs, Number(cooldown) || 0);
   }
 
   async fetchPage(categoryId, from = 0) {
@@ -195,6 +224,8 @@ class GratisMarketService {
       responseType: "json",
       headers: { "client-version": "4.8.1" },
       additionalRetryStatuses: [403],
+      beforeAttempt: () => this.waitForRequestSlot(),
+      retryDelayPolicy: (context) => this.retryDelayPolicy(context),
     });
     if (!result.data || !Array.isArray(result.data.data))
       throw catalogError(
@@ -233,6 +264,8 @@ class GratisMarketService {
     let retryCount = 0;
     let completeTraversal = true;
     let firstError = null;
+    let circuitBreaker = null;
+    this.lastRequestStartedAt = null;
 
     for (const category of this.categories) {
       const categorySeen = new Set();
@@ -241,12 +274,18 @@ class GratisMarketService {
       let categoryComplete = true;
       for (let page = 0; page < this.maxPagesPerCategory; page++) {
         try {
-          const result = await this.fetchPage(category.id, page * this.pageSize);
+          const result = await this.fetchPage(
+            category.id,
+            page * this.pageSize,
+          );
           pagesFetched++;
           retryCount += result.retries;
           if (expectedTotal == null) {
             expectedTotal = result.total;
-            expectedPages = Math.max(1, Math.ceil(result.total / this.pageSize));
+            expectedPages = Math.max(
+              1,
+              Math.ceil(result.total / this.pageSize),
+            );
             if (expectedPages > this.maxPagesPerCategory) {
               categoryComplete = false;
               failedPages.push({
@@ -285,7 +324,6 @@ class GratisMarketService {
             });
             break;
           }
-          if (this.requestDelayMs > 0) await this.sleep(this.requestDelayMs);
         } catch (error) {
           firstError ||= error;
           categoryComplete = false;
@@ -308,6 +346,24 @@ class GratisMarketService {
             retryCount: diagnostics.retryCount ?? 0,
             productsSuccessfullyScanned: rows.size,
           });
+          if (
+            diagnostics.httpStatus === 403 &&
+            diagnostics.attempt === this.maxAttempts
+          ) {
+            circuitBreaker = {
+              open: true,
+              reason: "PERSISTENT_HTTP_403",
+              categoryId: category.id,
+              page: page + 1,
+              attempts: diagnostics.attempt,
+              remainingCategoriesSkipped:
+                this.categories.length - categories.length - 1,
+            };
+            this.log.warn("gratis_sync_circuit_open", {
+              supplier: "GRATIS",
+              ...circuitBreaker,
+            });
+          }
           break;
         }
       }
@@ -340,6 +396,7 @@ class GratisMarketService {
         complete: categoryComplete,
       });
       if (!categoryComplete) completeTraversal = false;
+      if (circuitBreaker) break;
     }
 
     if (!rows.size) {
@@ -355,6 +412,7 @@ class GratisMarketService {
           retryCount,
           fullSnapshotStarted: false,
           failedPages,
+          circuitBreaker,
         },
       );
     }
@@ -371,6 +429,7 @@ class GratisMarketService {
         failedPages,
         retryCount,
         completeTraversal,
+        circuitBreaker,
         durationMs: Date.now() - started,
       },
     };
@@ -381,6 +440,8 @@ class GratisMarketService {
 
 module.exports = {
   GRATIS_API_URL,
+  GRATIS_REQUEST_INTERVAL_MS,
+  GRATIS_FORBIDDEN_COOLDOWNS_MS,
   GRATIS_TOP_LEVEL_CATEGORIES,
   GratisMarketService,
   minorPrice,
