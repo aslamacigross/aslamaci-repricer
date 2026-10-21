@@ -904,10 +904,7 @@ export function CostBreakdown({ data, marketplace, notify, onChanged }) {
             `${money(p.packaging_cost)} · ${p.packaging_profile_name || "Eski desi kuralı"}`,
           ],
           ["Hizmet bedeli", money(p.service_fee)],
-          [
-            `Komisyon (${percent(p.commission_rate)})`,
-            money(commissionAmount),
-          ],
+          [`Komisyon (${percent(p.commission_rate)})`, money(commissionAmount)],
           ["Hedef kâr", money(p.target_profit)],
         ].map(([l, v]) => (
           <div key={l}>
@@ -916,19 +913,6 @@ export function CostBreakdown({ data, marketplace, notify, onChanged }) {
           </div>
         ))}
       </div>
-      <h3>Mapping satırları</h3>
-      {data.mappings.map((x) => (
-        <div className="mapping-row" key={x.id}>
-          <div>
-            <strong>{x.item_name || x.cost_item_code}</strong>
-            <small>
-              {x.cost_item_code} · {x.quantity} adet
-            </small>
-          </div>
-          <b>{money(x.line_cost)}</b>
-          {x.orphan && <Badge tone="danger">Orphan</Badge>}
-        </div>
-      ))}
       <CostAssignmentEditor
         marketplace={marketplace}
         barcode={p.barcode}

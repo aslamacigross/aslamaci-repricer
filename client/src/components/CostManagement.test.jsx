@@ -1,5 +1,11 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { get, post } from "../lib/api";
@@ -41,7 +47,9 @@ const offer = {
 describe("shared cost management", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    get.mockResolvedValue({ data: { items: [offer], total: 1, page: 1, limit: 20 } });
+    get.mockResolvedValue({
+      data: { items: [offer], total: 1, page: 1, limit: 20 },
+    });
   });
 
   test("shared selector supplier search ve seçim yapar", async () => {
@@ -52,8 +60,12 @@ describe("shared cost management", () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }));
     expect(get).toHaveBeenCalledWith(expect.stringContaining("limit=20"));
     const supplierSelect = screen.getByLabelText("Tedarikçi");
-    expect(within(supplierSelect).getByRole("option", { name: "Gratis" })).toBeVisible();
-    expect(within(supplierSelect).getByRole("option", { name: "Watsons" })).toBeVisible();
+    expect(
+      within(supplierSelect).getByRole("option", { name: "Gratis" }),
+    ).toBeVisible();
+    expect(
+      within(supplierSelect).getByRole("option", { name: "Watsons" }),
+    ).toBeVisible();
   });
 
   test("selector linked, unlinked eligible ve blocked offer aksiyonlarini ayirir", async () => {
@@ -86,15 +98,12 @@ describe("shared cost management", () => {
         limit: 20,
       },
     });
-    render(
-      <CostSelector
-        onSelect={vi.fn()}
-        onCreateFromOffer={create}
-      />,
-    );
+    render(<CostSelector onSelect={vi.fn()} onCreateFromOffer={create} />);
     expect(await screen.findByText("XYZ Şampuan 700 ml")).toBeVisible();
     expect(
-      screen.getAllByRole("button", { name: "Seç" }).find((button) => !button.disabled),
+      screen
+        .getAllByRole("button", { name: "Seç" })
+        .find((button) => !button.disabled),
     ).toBeTruthy();
     const createButton = screen.getByRole("button", {
       name: "Yeni maliyet kalemi oluştur ve seç",
@@ -104,9 +113,13 @@ describe("shared cost management", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ id: 8, selection_state: "UNLINKED_ELIGIBLE" }),
     );
-    expect(screen.getByText("Bu supplier ürünü şu anda kullanılamıyor.")).toBeVisible();
     expect(
-      screen.getAllByRole("button", { name: "Seç" }).find((button) => button.disabled),
+      screen.getByText("Bu supplier ürünü şu anda kullanılamıyor."),
+    ).toBeVisible();
+    expect(
+      screen
+        .getAllByRole("button", { name: "Seç" })
+        .find((button) => button.disabled),
     ).toBeTruthy();
   });
 
@@ -118,16 +131,31 @@ describe("shared cost management", () => {
     );
     render(<CostSelector onSelect={vi.fn()} />);
     await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
-    await userEvent.selectOptions(screen.getByLabelText("Tedarikçi"), "BIZIM_MARKET");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Tedarikçi"),
+      "BIZIM_MARKET",
+    );
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     bizim.resolve({
-      data: { items: [{ ...offer, id: 9, product_name: "Bizim ürünü" }], total: 1, page: 1, limit: 20 },
+      data: {
+        items: [{ ...offer, id: 9, product_name: "Bizim ürünü" }],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
     });
     expect(await screen.findByText("Bizim ürünü")).toBeVisible();
     file.resolve({
-      data: { items: [{ ...offer, product_name: "Geciken File ürünü" }], total: 1, page: 1, limit: 20 },
+      data: {
+        items: [{ ...offer, product_name: "Geciken File ürünü" }],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
     });
-    await waitFor(() => expect(screen.queryByText("Geciken File ürünü")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText("Geciken File ürünü")).not.toBeInTheDocument(),
+    );
     expect(screen.getByText("Bizim ürünü")).toBeVisible();
   });
 
@@ -135,64 +163,104 @@ describe("shared cost management", () => {
     const submit = vi.fn();
     render(<CostSelector onSelect={vi.fn()} onManualSubmit={submit} />);
     await userEvent.selectOptions(screen.getByLabelText("Tedarikçi"), "OTHER");
-    await userEvent.click(screen.getByRole("button", { name: "Manuel maliyet oluştur" }));
-    fireEvent.change(screen.getByLabelText("Ürün adı"), { target: { value: "Manuel ürün" } });
-    fireEvent.change(screen.getByLabelText("Fiyat"), { target: { value: "79" } });
-    await userEvent.selectOptions(screen.getByLabelText("Fiziki tedarikçi"), "BIM");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Manuel maliyet oluştur" }),
+    );
+    fireEvent.change(screen.getByLabelText("Ürün adı"), {
+      target: { value: "Manuel ürün" },
+    });
+    fireEvent.change(screen.getByLabelText("Fiyat"), {
+      target: { value: "79" },
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("Fiziki tedarikçi"),
+      "BIM",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Önizle" }));
-    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
-      itemName: "Manuel ürün",
-      unitCost: 79,
-      physicalSupplierCode: "BIM",
-    }));
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemName: "Manuel ürün",
+        unitCost: 79,
+        physicalSupplierCode: "BIM",
+      }),
+    );
   });
 
   test("impact preview fingerprint apply kontratına gider ve undo görünür", async () => {
     const notify = vi.fn();
     get.mockImplementation(async (path) => {
-      if (path.includes("/context")) return {
-        data: {
-          costItem: { id: 1, item_name: "Eski", unit_cost: 65 },
-          mappings: [{ id: 3, marketplace: "TRENDYOL", barcode: "ABC", quantity: 2 }],
-          supplierOffers: [],
-          hardDeleteEligibility: { eligible: false },
-        },
-      };
+      if (path.includes("/context"))
+        return {
+          data: {
+            costItem: { id: 1, item_name: "Eski", unit_cost: 65 },
+            mappings: [
+              { id: 3, marketplace: "TRENDYOL", barcode: "ABC", quantity: 2 },
+            ],
+            supplierOffers: [],
+            hardDeleteEligibility: { eligible: false },
+          },
+        };
       return { data: { items: [offer], total: 1, page: 1, limit: 20 } };
     });
     post.mockImplementation(async (path) => {
-      if (path.endsWith("/preview")) return {
-        data: {
-          operationType: "REASSIGN_PRODUCT_COST",
-          payload: { marketplace: "TRENDYOL", barcode: "ABC", sourceCostItemId: 1, targetCostItemId: 12, quantity: 2 },
-          previewFingerprint: "fingerprint-1",
-          impact: { mappingCount: 1, byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 }, currentUnitCost: 65, targetUnitCost: 79 },
-        },
-      };
+      if (path.endsWith("/preview"))
+        return {
+          data: {
+            operationType: "REASSIGN_PRODUCT_COST",
+            payload: {
+              marketplace: "TRENDYOL",
+              barcode: "ABC",
+              sourceCostItemId: 1,
+              targetCostItemId: 12,
+              quantity: 2,
+            },
+            previewFingerprint: "fingerprint-1",
+            impact: {
+              mappingCount: 1,
+              byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+              currentUnitCost: 65,
+              targetUnitCost: 79,
+            },
+          },
+        };
       return { data: { id: 88, operation_type: "REASSIGN_PRODUCT_COST" } };
     });
     render(
       <CostAssignmentEditor
         marketplace="TRENDYOL"
         barcode="ABC"
-        mappings={[{ id: 3, cost_item_id: 1, item_name: "Eski", unit_cost: 65, quantity: 2 }]}
+        mappings={[
+          {
+            id: 3,
+            cost_item_id: 1,
+            item_name: "Eski",
+            unit_cost: 65,
+            quantity: 2,
+          },
+        ]}
         notify={notify}
       />,
     );
     expect(await screen.findByText("Harras Filiz Çay 1 kg")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Seç" }));
-    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Değişikliği önizle" }),
+    );
     expect(await screen.findByText("İşlem önizlemesi")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Onayla" }));
-    await waitFor(() => expect(post).toHaveBeenCalledWith(
-      "/api/cost-integrity/apply",
-      expect.objectContaining({
-        previewFingerprint: "fingerprint-1",
-        confirmedMappingCount: 1,
-        idempotencyKey: expect.any(String),
-      }),
-    ));
-    expect(await screen.findByRole("button", { name: "Geri al" })).toBeVisible();
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/cost-integrity/apply",
+        expect.objectContaining({
+          previewFingerprint: "fingerprint-1",
+          confirmedMappingCount: 1,
+          idempotencyKey: expect.any(String),
+        }),
+      ),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Geri al" }),
+    ).toBeVisible();
   });
 
   test("unmapped bundle quantity 4 ile preview ve apply payloadini korur", async () => {
@@ -244,7 +312,8 @@ describe("shared cost management", () => {
         barcode="SHAMPOO-4X"
         mappings={[]}
         product={{
-          product_name: "4 adet Kepeğe Karşı Etkili Şampuan 700 ml Ekonomik paket",
+          product_name:
+            "4 adet Kepeğe Karşı Etkili Şampuan 700 ml Ekonomik paket",
           desi: 3,
           packaging_profile_name: "Standart paket",
         }}
@@ -258,7 +327,9 @@ describe("shared cost management", () => {
     await userEvent.clear(quantity);
     await userEvent.type(quantity, "4");
     expect(screen.getByText("4 × ₺150,00 = ₺600,00")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Değişikliği önizle" }),
+    );
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
         operationType: "ASSIGN_PRODUCT_COST",
@@ -275,7 +346,9 @@ describe("shared cost management", () => {
       "Yeni mapping / İlk maliyet eşlemesi",
     );
     expect(screen.getAllByText("Toplam ürün maliyeti")).toHaveLength(2);
-    expect(screen.getAllByText("Değişiklik sonrası tahmini desi")).toHaveLength(2);
+    expect(screen.getAllByText("Değişiklik sonrası tahmini desi")).toHaveLength(
+      2,
+    );
     await userEvent.click(screen.getByRole("button", { name: "Onayla" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(
@@ -351,7 +424,10 @@ describe("shared cost management", () => {
         notify={vi.fn()}
       />,
     );
-    await userEvent.selectOptions(screen.getByLabelText("Tedarikçi"), "ROSSMANN");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Tedarikçi"),
+      "ROSSMANN",
+    );
     await userEvent.click(
       await screen.findByRole("button", {
         name: "Yeni maliyet kalemi oluştur ve seç",
@@ -370,7 +446,9 @@ describe("shared cost management", () => {
         },
       }),
     );
-    expect(await screen.findByText("Yeni maliyet kalemi oluşturulacak")).toBeVisible();
+    expect(
+      await screen.findByText("Yeni maliyet kalemi oluşturulacak"),
+    ).toBeVisible();
     expect(screen.getByLabelText("Neden")).toHaveValue(
       "Yeni mapping / İlk maliyet eşlemesi",
     );
@@ -409,7 +487,9 @@ describe("shared cost management", () => {
         },
       }),
     );
-    expect(await screen.findByText("Yeni maliyet kalemi oluşturulacak")).toBeVisible();
+    expect(
+      await screen.findByText("Yeni maliyet kalemi oluşturulacak"),
+    ).toBeVisible();
     expect(screen.getByLabelText("Neden")).toHaveValue(
       "Yeni mapping / İlk maliyet eşlemesi",
     );
@@ -435,7 +515,12 @@ describe("shared cost management", () => {
       selection_state: "UNLINKED_ELIGIBLE",
     };
     get.mockResolvedValue({
-      data: { items: [offer, { ...offer, id: 8 }, unlinked], total: 3, page: 1, limit: 20 },
+      data: {
+        items: [offer, { ...offer, id: 8 }, unlinked],
+        total: 3,
+        page: 1,
+        limit: 20,
+      },
     });
     post
       .mockImplementationOnce(() => firstPreview.promise)
@@ -486,9 +571,14 @@ describe("shared cost management", () => {
       name: "Yeni maliyet kalemi oluştur ve seç",
     });
     expect(retry).toBeEnabled();
-    expect(notify).toHaveBeenCalledWith("Preview servisine ulaşılamadı", "error");
+    expect(notify).toHaveBeenCalledWith(
+      "Preview servisine ulaşılamadı",
+      "error",
+    );
     await userEvent.click(retry);
-    expect(await screen.findByText("Yeni maliyet kalemi oluşturulacak")).toBeVisible();
+    expect(
+      await screen.findByText("Yeni maliyet kalemi oluşturulacak"),
+    ).toBeVisible();
     expect(post).toHaveBeenLastCalledWith("/api/cost-integrity/preview", {
       operationType: "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
       payload: expect.objectContaining({ supplierOfferId: 82 }),
@@ -575,9 +665,13 @@ describe("shared cost management", () => {
       "error",
     );
     expect(screen.queryByText("İşlem önizlemesi")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Maliyet kalemi adı")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Maliyet kalemi adı"),
+    ).not.toBeInTheDocument();
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("Canonical: XYZ Şampuan 700 ml")).toBeVisible();
+    expect(
+      await screen.findByText("Canonical: XYZ Şampuan 700 ml"),
+    ).toBeVisible();
   });
 
   test("humanized maliyet aksiyonlari kapsam aciklamalariyla render olur", async () => {
@@ -769,25 +863,30 @@ describe("shared cost management", () => {
     ["0", "Ürün adedi en az 1 olmalıdır."],
     ["-1", "Ürün adedi en az 1 olmalıdır."],
     ["1.5", "Ürün adedi tam sayı olmalıdır."],
-  ])("geçersiz quantity %s preview'dan önce reddedilir", async (value, message) => {
-    const notify = vi.fn();
-    render(
-      <CostAssignmentEditor
-        marketplace="TRENDYOL"
-        barcode="INVALID-QTY"
-        mappings={[]}
-        notify={notify}
-      />,
-    );
-    await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
-    fireEvent.change(screen.getByLabelText("Ürün Adedi"), {
-      target: { value },
-    });
-    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
-    expect(screen.getByText(message)).toBeVisible();
-    expect(notify).toHaveBeenCalledWith(message, "error");
-    expect(post).not.toHaveBeenCalled();
-  });
+  ])(
+    "geçersiz quantity %s preview'dan önce reddedilir",
+    async (value, message) => {
+      const notify = vi.fn();
+      render(
+        <CostAssignmentEditor
+          marketplace="TRENDYOL"
+          barcode="INVALID-QTY"
+          mappings={[]}
+          notify={notify}
+        />,
+      );
+      await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
+      fireEvent.change(screen.getByLabelText("Ürün Adedi"), {
+        target: { value },
+      });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Değişikliği önizle" }),
+      );
+      expect(screen.getByText(message)).toBeVisible();
+      expect(notify).toHaveBeenCalledWith(message, "error");
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
 
   test("mevcut mapping quantity yuklenir ve ayni canonical item icinde duzeltilir", async () => {
     const notify = vi.fn();
@@ -858,7 +957,9 @@ describe("shared cost management", () => {
     expect(screen.getByText("5 · Manuel override")).toBeVisible();
     await userEvent.clear(quantity);
     await userEvent.type(quantity, "4");
-    await userEvent.click(screen.getByRole("button", { name: "Değişikliği önizle" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Değişikliği önizle" }),
+    );
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
         operationType: "REASSIGN_PRODUCT_COST",
@@ -926,11 +1027,17 @@ describe("shared cost management", () => {
     await userEvent.clear(screen.getByLabelText("Canonical birim desi"));
     await userEvent.type(screen.getByLabelText("Canonical birim desi"), "1.8");
     expect(screen.getByText("ceil(1,8 × 5) = 9")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Desiyi güncelle" }));
-    expect(await screen.findByText("Ortak birim desiyi güncelle")).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Desiyi güncelle" }),
+    );
+    expect(
+      await screen.findByText("Ortak birim desiyi güncelle"),
+    ).toBeVisible();
     expect(screen.getByText(/Trendyol: 2 mapping/)).toBeVisible();
     expect(screen.getByText(/Hepsiburada: 1 mapping/)).toBeVisible();
-    expect(screen.getByText(/manuel desi override değeri korunacaktır/i)).toBeVisible();
+    expect(
+      screen.getByText(/manuel desi override değeri korunacaktır/i),
+    ).toBeVisible();
     await userEvent.click(
       screen.getAllByRole("button", { name: "Desiyi güncelle" }).at(-1),
     );
@@ -958,46 +1065,249 @@ describe("shared cost management", () => {
       />,
     );
     await userEvent.type(screen.getByLabelText("Canonical birim desi"), "1.8");
-    await userEvent.click(screen.getByRole("button", { name: "Desiyi güncelle" }));
-    expect(await screen.findByText("Ortak birim desiyi güncelle")).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Desiyi güncelle" }),
+    );
+    expect(
+      await screen.findByText("Ortak birim desiyi güncelle"),
+    ).toBeVisible();
     expect(screen.queryByText(/Trendyol:/)).not.toBeInTheDocument();
   });
 
   test("split preview bütün mappingler atanmadığında UI tarafından reddedilir", async () => {
     const notify = vi.fn();
-    get.mockImplementation(async (path) => path.includes("/context") ? {
-      data: {
-        costItem: { id: 1, item_name: "Kırmızı Mercimek Makarnası", unit_cost: 59.9 },
-        mappings: [
-          { id: 1, marketplace: "TRENDYOL", barcode: "FUSILLI", quantity: 2 },
-          { id: 2, marketplace: "HEPSIBURADA", barcode: "PENNE", quantity: 3 },
-        ],
-        supplierOffers: [],
-        hardDeleteEligibility: { eligible: false },
-      },
-    } : { data: { items: [offer], total: 1, page: 1, limit: 20 } });
+    get.mockImplementation(async (path) =>
+      path.includes("/context")
+        ? {
+            data: {
+              costItem: {
+                id: 1,
+                item_name: "Kırmızı Mercimek Makarnası",
+                unit_cost: 59.9,
+              },
+              mappings: [
+                {
+                  id: 1,
+                  marketplace: "TRENDYOL",
+                  barcode: "FUSILLI",
+                  quantity: 2,
+                },
+                {
+                  id: 2,
+                  marketplace: "HEPSIBURADA",
+                  barcode: "PENNE",
+                  quantity: 3,
+                },
+              ],
+              supplierOffers: [],
+              hardDeleteEligibility: { eligible: false },
+            },
+          }
+        : { data: { items: [offer], total: 1, page: 1, limit: 20 } },
+    );
     render(
       <CostAssignmentEditor
         marketplace="TRENDYOL"
         barcode="FUSILLI"
-        mappings={[{ id: 1, cost_item_id: 1, item_name: "Kırmızı Mercimek Makarnası", quantity: 2 }]}
+        mappings={[
+          {
+            id: 1,
+            cost_item_id: 1,
+            item_name: "Kırmızı Mercimek Makarnası",
+            quantity: 2,
+          },
+        ]}
         notify={notify}
       />,
     );
-    await userEvent.click(
-      await screen.findByText("Diğer maliyet işlemleri"),
-    );
+    await userEvent.click(await screen.findByText("Diğer maliyet işlemleri"));
     await userEvent.click(
       screen.getByRole("button", {
         name: "Mappingleri farklı maliyetlere ayır",
       }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Ayırmayı önizle" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ayırmayı önizle" }),
+    );
     expect(notify).toHaveBeenCalledWith(
       "Bütün ürünleri bir hedef maliyet kalemine atamalısınız.",
       "error",
     );
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("multi-component product recipe editor", () => {
+  const mappings = [
+    {
+      id: 31,
+      cost_item_id: 1,
+      item_name: "Penne 240 g",
+      cost_item_code: "PENNE",
+      unit_cost: 75,
+      quantity: 2,
+      line_cost: 150,
+    },
+    {
+      id: 32,
+      cost_item_id: 2,
+      item_name: "Fusilli 240 g",
+      cost_item_code: "FUSILLI",
+      unit_cost: 69,
+      quantity: 1,
+      line_cost: 69,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    get.mockImplementation(async (path) => {
+      if (path.includes("/context"))
+        return {
+          data: {
+            costItem: {
+              id: path.includes("/2/") ? 2 : 1,
+              item_name: path.includes("/2/") ? "Fusilli 240 g" : "Penne 240 g",
+              item_code: path.includes("/2/") ? "FUSILLI" : "PENNE",
+              unit_cost: path.includes("/2/") ? 69 : 75,
+              unit_desi: 0.3,
+            },
+            mappings: [],
+            supplierOffers: [],
+            hardDeleteEligibility: { eligible: false },
+          },
+        };
+      return {
+        data: { items: [offer], total: 1, page: 1, limit: 20 },
+      };
+    });
+    post.mockImplementation(async (_path, body) => ({
+      data: {
+        operationType: body.operationType,
+        payload: body.payload,
+        previewFingerprint: `${body.operationType}-preview`,
+        warnings: [],
+        impact: {
+          mappingCount: 1,
+          byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+          targetQuantity: body.payload.quantity,
+          targetUnitCost: 75,
+          targetLineCost: Number(body.payload.quantity || 0) * 75,
+          targetUnitDesi: 0.3,
+          targetTotalDesi: Number(body.payload.quantity || 0) * 0.3,
+        },
+      },
+    }));
+  });
+
+  test("iki bileşeni, bağımsız adetleri ve 219 TL toplamı render eder; quantity hedef satırı günceller", async () => {
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="MIXED-219"
+        mappings={mappings}
+        product={{ barcode: "MIXED-219" }}
+        notify={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Maliyet bileşenleri")).toBeVisible();
+    expect(screen.getByText("Toplam ürün maliyeti: ₺219,00")).toBeVisible();
+    const penneInput = screen.getByLabelText("Penne 240 g adedi");
+    const penneCard = penneInput.closest("article");
+    expect(within(penneCard).getByText("2 × ₺75,00 = ₺150,00")).toBeVisible();
+    const fusilliCard = screen
+      .getByLabelText("Fusilli 240 g adedi")
+      .closest("article");
+    expect(within(fusilliCard).getByText("1 × ₺69,00 = ₺69,00")).toBeVisible();
+
+    fireEvent.change(penneInput, {
+      target: { value: "3" },
+    });
+    await userEvent.click(
+      within(penneCard).getByRole("button", { name: "Adedi güncelle" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "REASSIGN_PRODUCT_COST",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "MIXED-219",
+          sourceCostItemId: 1,
+          targetCostItemId: 1,
+          quantity: 3,
+        },
+      }),
+    );
+  });
+
+  test("add ve remove kullanıcı etkileşimleri exact component operasyonu üretir", async () => {
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="MIXED-219"
+        mappings={mappings}
+        product={{ barcode: "MIXED-219" }}
+        notify={vi.fn()}
+      />,
+    );
+    const fusilliCard = screen.getByText("Fusilli 240 g").closest("article");
+    await userEvent.click(
+      within(fusilliCard).getByRole("button", { name: "Bileşeni kaldır" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "REMOVE_PRODUCT_COST_COMPONENT",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "MIXED-219",
+          mappingId: 32,
+        },
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Kapat" }));
+
+    const addButtons = screen.getAllByRole("button", {
+      name: "+ Bir fiziki ürün daha bağla",
+    });
+    await userEvent.click(addButtons[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Değişikliği önizle" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+        operationType: "ASSIGN_PRODUCT_COST",
+        payload: {
+          marketplace: "TRENDYOL",
+          barcode: "MIXED-219",
+          targetCostItemId: 12,
+          quantity: 1,
+        },
+      }),
+    );
+  });
+
+  test("son component için remove kontrolü kapalıdır ve kesirli adet preview üretmez", async () => {
+    const notify = vi.fn();
+    render(
+      <CostAssignmentEditor
+        marketplace="TRENDYOL"
+        barcode="SINGLE"
+        mappings={[mappings[0]]}
+        product={{ barcode: "SINGLE" }}
+        notify={notify}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Bileşeni kaldır" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Penne 240 g adedi"), {
+      target: { value: "1.5" },
+    });
+    expect(screen.getByText("Ürün adedi tam sayı olmalıdır.")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Adedi güncelle" }),
+    ).toBeDisabled();
   });
 });
 
@@ -1009,7 +1319,9 @@ test("impact modal quantity ve marketplace etkisini mobil-dostu içerikte göste
         impact: {
           mappingCount: 2,
           byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 1 },
-          mappings: [{ id: 1, marketplace: "TRENDYOL", barcode: "FUSILLI", quantity: 2 }],
+          mappings: [
+            { id: 1, marketplace: "TRENDYOL", barcode: "FUSILLI", quantity: 2 },
+          ],
         },
       }}
       onClose={vi.fn()}
@@ -1017,7 +1329,9 @@ test("impact modal quantity ve marketplace etkisini mobil-dostu içerikte göste
     />,
   );
   expect(
-    screen.getByText((_, node) => node?.textContent === "TRENDYOL · FUSILLI · 2 adet"),
+    screen.getByText(
+      (_, node) => node?.textContent === "TRENDYOL · FUSILLI · 2 adet",
+    ),
   ).toBeVisible();
   expect(screen.getByText("Hepsiburada")).toBeVisible();
 });

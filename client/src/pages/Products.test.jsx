@@ -1,8 +1,9 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { get } from "../lib/api";
-import { CostBreakdown, fetchAllProducts } from "./Products";
+import { get, post } from "../lib/api";
+import Products, { CostBreakdown, fetchAllProducts } from "./Products";
 
 vi.mock("../lib/api", () => ({
   get: vi.fn(),
@@ -43,6 +44,7 @@ describe("Ürün CSV dışa aktarımı", () => {
 describe("Products maliyet yönetimi", () => {
   beforeEach(() => {
     get.mockReset();
+    post.mockReset();
     get.mockResolvedValue({
       data: {
         costItem: { id: 1, item_name: "Maliyet", unit_cost: 219 },
@@ -163,5 +165,130 @@ describe("Products maliyet yönetimi", () => {
       />,
     );
     expect(await screen.findByTestId("shared-cost-selector")).toBeVisible();
+  });
+
+  test("Products satırından drawer açılır; kullanıcı ikinci bileşen ekleyip mevcut bileşeni kaldırmayı önizler", async () => {
+    const product = {
+      ...baseBreakdownData.product,
+      barcode: "MIXED-219",
+      product_name: "Penne Fusilli Paket",
+      brand: "Harras",
+      category_name: "Makarna",
+      data_status: "COMPLETE",
+    };
+    const mappings = [
+      {
+        id: 31,
+        cost_item_id: 1,
+        item_name: "Penne 240 g",
+        cost_item_code: "PENNE",
+        unit_cost: 75,
+        unit_desi: 0.3,
+        quantity: 2,
+        line_cost: 150,
+        line_desi: 0.6,
+      },
+      {
+        id: 32,
+        cost_item_id: 2,
+        item_name: "Fusilli 240 g",
+        cost_item_code: "FUSILLI",
+        unit_cost: 69,
+        unit_desi: 0.4,
+        quantity: 1,
+        line_cost: 69,
+        line_desi: 0.4,
+      },
+    ];
+    get.mockImplementation(async (path) => {
+      if (path.startsWith("/api/products?"))
+        return { items: [product], total: 1, page: 1, limit: 50 };
+      if (path.includes("/cost-breakdown"))
+        return { data: { product, mappings } };
+      if (path.includes("/api/products/MIXED-219?"))
+        return { data: { ...product, barcode: "MIXED-219", settings: {} } };
+      if (path.includes("/context"))
+        return {
+          data: {
+            costItem: { id: 1, item_name: "Penne 240 g", unit_cost: 75 },
+            mappings: [],
+            supplierOffers: [],
+            hardDeleteEligibility: { eligible: false },
+          },
+        };
+      return {
+        data: {
+          items: [
+            {
+              id: 91,
+              product_name: "Macaroni 240 g",
+              current_price: 80,
+              supplier_code: "FILE_MARKET",
+              offer_type: "LIVE",
+              availability: "AVAILABLE",
+              selection_state: "LINKED",
+              canonical_cost_item_id: 3,
+              canonical_item_code: "MACARONI",
+              linked_cost_item_name: "Macaroni 240 g",
+              linked_unit_cost: 80,
+              linked_unit_desi: 0.2,
+            },
+          ],
+          total: 1,
+          page: 1,
+          limit: 20,
+        },
+      };
+    });
+    post.mockImplementation(async (_path, body) => ({
+      data: {
+        operationType: body.operationType,
+        payload: body.payload,
+        previewFingerprint: `${body.operationType}-drawer-preview`,
+        warnings: [],
+        impact: {
+          mappingCount: 1,
+          byMarketplace: { TRENDYOL: 1, HEPSIBURADA: 0 },
+        },
+      },
+    }));
+
+    render(<Products marketplace="TRENDYOL" notify={vi.fn()} />);
+    await userEvent.click(await screen.findByText("Penne Fusilli Paket"));
+    expect(await screen.findByText("Maliyet bileşenleri")).toBeVisible();
+    expect(screen.getByText("Toplam ürün maliyeti: ₺219,00")).toBeVisible();
+
+    const fusilliCard = screen
+      .getByLabelText("Fusilli 240 g adedi")
+      .closest("article");
+    await userEvent.click(fusilliCard.querySelector("button.btn-danger"));
+    expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+      operationType: "REMOVE_PRODUCT_COST_COMPONENT",
+      payload: {
+        marketplace: "TRENDYOL",
+        barcode: "MIXED-219",
+        mappingId: 32,
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "İptal" }));
+
+    await userEvent.click(
+      screen.getAllByRole("button", {
+        name: "+ Bir fiziki ürün daha bağla",
+      })[0],
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Değişikliği önizle" }),
+    );
+    expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
+      operationType: "ASSIGN_PRODUCT_COST",
+      payload: {
+        marketplace: "TRENDYOL",
+        barcode: "MIXED-219",
+        targetCostItemId: 3,
+        quantity: 1,
+      },
+    });
   });
 });

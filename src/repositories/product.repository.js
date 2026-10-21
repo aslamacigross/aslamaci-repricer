@@ -385,7 +385,9 @@ class ProductRepository {
     if (!product) return null;
     const mappings = (
       await this.db.query(
-        `SELECT pcm.*, ci.id AS cost_item_id,ci.item_name, ci.unit_cost, ci.unit_desi,
+        `SELECT pcm.*, ci.id AS cost_item_id,ci.item_name,
+              COALESCE(pcm.effective_unit_cost,ci.unit_cost) AS unit_cost,
+              ci.unit_cost AS canonical_unit_cost,ci.unit_desi,
               selected.supplier_offer_id AS selected_supplier_offer_id,
               offer.product_name AS selected_supplier_product_name,
               offer.supplier_code AS selected_supplier_code,
@@ -393,7 +395,8 @@ class ProductRepository {
               offer.availability AS selected_offer_availability,
               offer.checked_at AS selected_offer_checked_at,
               offer.last_seen_at AS selected_offer_last_seen_at,
-              pcm.quantity * ci.unit_cost AS line_cost, pcm.quantity * ci.unit_desi AS line_desi,
+              pcm.quantity * COALESCE(pcm.effective_unit_cost,ci.unit_cost) AS line_cost,
+              pcm.quantity * ci.unit_desi AS line_desi,
               (ci.item_code IS NULL) AS orphan
        FROM product_cost_mappings pcm LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
        LEFT JOIN cost_item_supplier_offers selected

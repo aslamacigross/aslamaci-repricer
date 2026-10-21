@@ -1436,6 +1436,53 @@ tbody tr.clickable:hover {
   padding-top: 20px;
   border-top: 1px solid var(--line);
 }
+.cost-components-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.cost-components-heading h3 {
+  margin: 0 0 4px;
+}
+.cost-components-heading small {
+  color: var(--muted);
+}
+.cost-component-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cost-component-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(100px, 0.2fr);
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.cost-component-main strong,
+.cost-component-main small,
+.cost-component-main span {
+  display: block;
+}
+.cost-component-main small,
+.cost-component-main span {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.cost-component-actions,
+.cost-component-card > .cost-selector-error {
+  grid-column: 1 / -1;
+}
+.cost-component-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .cost-current-summary,
 .cost-operation-success {
   display: flex;

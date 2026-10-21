@@ -10,6 +10,7 @@ const OPERATION_TYPES = new Set([
   "CHANGE_SELECTED_OFFER",
   "REASSIGN_PRODUCT_COST",
   "ASSIGN_PRODUCT_COST",
+  "REMOVE_PRODUCT_COST_COMPONENT",
   "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
   "REPLACE_COST_ITEM",
   "SPLIT_COST_MAPPINGS",
@@ -341,6 +342,16 @@ class CostIntegrityService {
         affectedMappings = await this._reverseLiveCostCreate(client, original);
       else if (original.operation_type === "ASSIGN_PRODUCT_COST")
         affectedMappings = await this._reverseAssignedMapping(client, original);
+      else if (original.operation_type === "REMOVE_PRODUCT_COST_COMPONENT")
+        affectedMappings = await this._reverseRemovedComponent(
+          client,
+          original,
+        );
+      else if (original.operation_type === "REASSIGN_PRODUCT_COST")
+        affectedMappings = await this._reverseReassignedComponent(
+          client,
+          original,
+        );
       else
         affectedMappings = await this._restoreSnapshot(
           client,
@@ -433,7 +444,10 @@ class CostIntegrityService {
   }
 
   async costItemContext(costItemId) {
-    const item = await this._costItem(this.db, positiveId(costItemId, "costItemId"));
+    const item = await this._costItem(
+      this.db,
+      positiveId(costItemId, "costItemId"),
+    );
     const [mappings, relations, eligibility, operations] = await Promise.all([
       this._mappings(this.db, item.item_code),
       this.db.query(
@@ -473,11 +487,20 @@ class CostIntegrityService {
       )
     ).rows[0];
     if (!row)
-      throw new AppError("Maliyet operasyonu bulunamadı", 404, "COST_OPERATION_NOT_FOUND");
+      throw new AppError(
+        "Maliyet operasyonu bulunamadı",
+        404,
+        "COST_OPERATION_NOT_FOUND",
+      );
     return row;
   }
 
-  async reviewQueue({ category = "parallel", search = "", page = 1, limit = 25 } = {}) {
+  async reviewQueue({
+    category = "parallel",
+    search = "",
+    page = 1,
+    limit = 25,
+  } = {}) {
     const safeCategory = String(category || "parallel");
     const safePage = Math.max(Number(page) || 1, 1);
     const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 50);
@@ -485,7 +508,11 @@ class CostIntegrityService {
     const summary = await this._reviewSummary(this.db);
     const loaders = {
       parallel: () =>
-        this._reviewParallel({ search: normalizedSearch, page: safePage, limit: safeLimit }),
+        this._reviewParallel({
+          search: normalizedSearch,
+          page: safePage,
+          limit: safeLimit,
+        }),
       "orphan-mappings": () =>
         this._reviewOrphanMappings({
           search: normalizedSearch,
@@ -690,7 +717,10 @@ class CostIntegrityService {
         params,
       )
     ).rows;
-    return { total: Number(total), items: rows.map((row) => ({ type: "parallel", ...row })) };
+    return {
+      total: Number(total),
+      items: rows.map((row) => ({ type: "parallel", ...row })),
+    };
   }
 
   async _reviewOrphanMappings({ search, page, limit }) {
@@ -725,7 +755,10 @@ class CostIntegrityService {
         params,
       )
     ).rows;
-    return { total: Number(total), items: rows.map((row) => ({ type: "orphan-mapping", ...row })) };
+    return {
+      total: Number(total),
+      items: rows.map((row) => ({ type: "orphan-mapping", ...row })),
+    };
   }
 
   async _reviewOrphanLinks({ search, page, limit }) {
@@ -763,7 +796,10 @@ class CostIntegrityService {
         params,
       )
     ).rows;
-    return { total: Number(total), items: rows.map((row) => ({ type: "orphan-link", ...row })) };
+    return {
+      total: Number(total),
+      items: rows.map((row) => ({ type: "orphan-link", ...row })),
+    };
   }
 
   async _reviewSourceAnomalies({ search, page, limit }) {
@@ -808,7 +844,10 @@ class CostIntegrityService {
         params,
       )
     ).rows;
-    return { total: Number(total), items: rows.map((row) => ({ type: "source-anomaly", ...row })) };
+    return {
+      total: Number(total),
+      items: rows.map((row) => ({ type: "source-anomaly", ...row })),
+    };
   }
 
   async _reviewManualLive({ search, page, limit }) {
@@ -863,13 +902,20 @@ class CostIntegrityService {
         params,
       )
     ).rows;
-    return { total: Number(total), items: rows.map((row) => ({ type: "manual-live", ...row })) };
+    return {
+      total: Number(total),
+      items: rows.map((row) => ({ type: "manual-live", ...row })),
+    };
   }
 
   async _reviewDuplicateCandidates({ search, page, limit }) {
     const { offset } = this._reviewPagination(page, limit);
     const params = [];
-    const searchClause = this._searchClause(search, ["ci.item_code", "ci.item_name"], params);
+    const searchClause = this._searchClause(
+      search,
+      ["ci.item_code", "ci.item_name"],
+      params,
+    );
     const activeCte = `SELECT ci.*,
               lower(regexp_replace(coalesce(ci.item_name,''),'[^[:alnum:]]','','g')) AS normalized_key
        FROM cost_items ci
@@ -924,7 +970,8 @@ class CostIntegrityService {
       items: rows.map((row) => ({
         type: "duplicate-candidate",
         evidenceTier: "REVIEW",
-        warning: "Fuzzy veya normalize isim benzerliği tek başına aynı fiziksel ürün değildir.",
+        warning:
+          "Fuzzy veya normalize isim benzerliği tek başına aynı fiziksel ürün değildir.",
         ...row,
       })),
     };
@@ -968,17 +1015,12 @@ class CostIntegrityService {
           409,
           "COST_ITEM_CODE_EXISTS",
         );
-      const productMappings = (
-        await queryable.query(
-          `SELECT pcm.*,ci.id AS cost_item_id,p.product_name,p.is_active,p.archived
-           FROM product_cost_mappings pcm
-           LEFT JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
-           JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
-           WHERE pcm.marketplace=$1 AND pcm.barcode=$2
-           ORDER BY pcm.id${lock ? " FOR UPDATE OF pcm" : ""}`,
-          [marketplace, barcode],
-        )
-      ).rows;
+      const productMappings = await this._productRecipe(
+        queryable,
+        marketplace,
+        barcode,
+        lock,
+      );
       let source = null;
       let sourceMapping = null;
       if (payload.sourceCostItemId) {
@@ -996,7 +1038,7 @@ class CostIntegrityService {
             404,
             "COST_MAPPING_NOT_FOUND",
           );
-      } else if (productMappings.length) {
+      } else if (productMappings.length && payload.addToRecipe !== true) {
         throw new AppError(
           "Üründe mevcut mapping var; değiştirilecek mapping seçilmelidir",
           409,
@@ -1014,10 +1056,11 @@ class CostIntegrityService {
         quantity,
         physicalSupplierCode,
         checkedAt: checkedAt.toISOString(),
+        addToRecipe: payload.addToRecipe === true,
       };
       const before = this._snapshot({
         costItems: source ? [source] : [],
-        mappings: sourceMapping ? [sourceMapping] : [],
+        mappings: productMappings,
       });
       return {
         payload: normalizedPayload,
@@ -1033,13 +1076,16 @@ class CostIntegrityService {
               archived: product.archived,
             },
             {
-              currentUnitCost: source?.unit_cost ?? null,
+              currentUnitCost:
+                sourceMapping?.effective_unit_cost ?? source?.unit_cost ?? null,
               targetUnitCost: unitCost,
               currentQuantity: sourceMapping?.quantity ?? null,
               targetQuantity: quantity,
               currentUnitDesi: source?.unit_desi ?? null,
               targetUnitDesi: unitDesi,
               product,
+              recipe: productMappings,
+              sourceMapping,
             },
           ),
           createsCanonicalCostItem: true,
@@ -1054,7 +1100,11 @@ class CostIntegrityService {
         "supplierOfferId",
       );
       const item = await this._costItem(queryable, costItemId, suffix);
-      const offer = await this._supplierOffer(queryable, supplierOfferId, suffix);
+      const offer = await this._supplierOffer(
+        queryable,
+        supplierOfferId,
+        suffix,
+      );
       if (offer.offer_type !== "MANUAL")
         throw new AppError(
           "Yalnız manuel maliyet kaynağı düzenlenebilir",
@@ -1111,6 +1161,81 @@ class CostIntegrityService {
         warnings: [],
       };
     }
+    if (type === "REMOVE_PRODUCT_COST_COMPONENT") {
+      const marketplace = normalizedMarketplace(payload.marketplace);
+      const barcode = required(payload.barcode, "barcode");
+      const mappingId = positiveId(payload.mappingId, "mappingId");
+      const product = (
+        await queryable.query(
+          `SELECT * FROM products WHERE marketplace=$1 AND barcode=$2${suffix}`,
+          [marketplace, barcode],
+        )
+      ).rows[0];
+      if (!product)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const recipe = await this._productRecipe(
+        queryable,
+        marketplace,
+        barcode,
+        lock,
+      );
+      const mapping = recipe.find((row) => Number(row.id) === mappingId);
+      if (!mapping)
+        throw new AppError(
+          "Maliyet bileşeni bulunamadı",
+          404,
+          "COST_MAPPING_NOT_FOUND",
+        );
+      if (recipe.length <= 1)
+        throw new AppError(
+          "Son maliyet bileşeni bu akıştan kaldırılamaz",
+          409,
+          "LAST_PRODUCT_COST_COMPONENT",
+        );
+      const lineCost =
+        Number(mapping.quantity) *
+        Number(mapping.effective_unit_cost ?? mapping.unit_cost);
+      const lineDesi =
+        Number(mapping.quantity) * Number(mapping.unit_desi || 0);
+      const recipeCost = recipe.reduce(
+        (total, row) =>
+          total +
+          Number(row.quantity) *
+            Number(row.effective_unit_cost ?? row.unit_cost),
+        0,
+      );
+      const recipeDesi = recipe.reduce(
+        (total, row) =>
+          total + Number(row.quantity) * Number(row.unit_desi || 0),
+        0,
+      );
+      return {
+        payload: { marketplace, barcode, mappingId },
+        target: { type: "product_mapping", id: mapping.id },
+        before: this._snapshot({ mappings: recipe }),
+        impact: {
+          ...this._impact(
+            [mapping],
+            mapping.effective_unit_cost ?? mapping.unit_cost,
+            null,
+          ),
+          removesComponent: true,
+          componentName: mapping.item_name,
+          currentQuantity: Number(mapping.quantity),
+          currentLineCost: lineCost,
+          currentTotalDesi: lineDesi,
+          recipeCurrentCost: recipeCost,
+          recipeTargetCost: recipeCost - lineCost,
+          recipeCurrentDesi: recipeDesi,
+          recipeTargetDesi: recipeDesi - lineDesi,
+          manualDesiOverride:
+            product.manual_desi_override == null
+              ? null
+              : Number(product.manual_desi_override),
+        },
+        warnings: [],
+      };
+    }
     if (type === "ASSIGN_PRODUCT_COST") {
       const marketplace = normalizedMarketplace(payload.marketplace);
       const barcode = required(payload.barcode, "barcode");
@@ -1127,22 +1252,29 @@ class CostIntegrityService {
       ).rows[0];
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
-      const existing = await queryable.query(
-        `SELECT id FROM product_cost_mappings
-         WHERE marketplace=$1 AND barcode=$2${lock ? " FOR UPDATE" : ""}`,
-        [marketplace, barcode],
-      );
-      if (existing.rowCount)
-        throw new AppError(
-          "Üründe mevcut mapping var; yeniden atama kullanılmalıdır",
-          409,
-          "SOURCE_MAPPING_REQUIRED",
-        );
       const targetItem = await this._costItem(
         queryable,
         targetCostItemId,
         suffix,
       );
+      const targetPricing = await this._mappingPricing(
+        queryable,
+        targetItem,
+        quantity,
+        lock,
+      );
+      const existing = await this._productRecipe(
+        queryable,
+        marketplace,
+        barcode,
+        lock,
+      );
+      if (existing.some((row) => row.cost_item_code === targetItem.item_code))
+        throw new AppError(
+          "Bu fiziki ürün zaten bağlı. Adedini değiştirebilirsiniz.",
+          409,
+          "TARGET_MAPPING_EXISTS",
+        );
       const previewMapping = {
         marketplace,
         barcode,
@@ -1154,15 +1286,21 @@ class CostIntegrityService {
       return {
         payload: { marketplace, barcode, targetCostItemId, quantity },
         target: { type: "product_mapping", id: `${marketplace}:${barcode}` },
-        before: this._snapshot({ costItems: [targetItem] }),
+        before: this._snapshot({
+          costItems: [targetItem],
+          mappings: existing,
+          offers: targetPricing.offer ? [targetPricing.offer] : [],
+        }),
         impact: this._assignmentImpact(previewMapping, {
           currentUnitCost: null,
-          targetUnitCost: targetItem.unit_cost,
+          targetUnitCost: targetPricing.unitCost,
           currentQuantity: null,
           targetQuantity: quantity,
           currentUnitDesi: null,
           targetUnitDesi: targetItem.unit_desi,
           product,
+          recipe: existing,
+          sourceMapping: null,
         }),
         warnings:
           Number(targetItem.unit_desi) > 0 ? [] : ["TARGET_DESI_MISSING"],
@@ -1184,12 +1322,30 @@ class CostIntegrityService {
       ).rows[0];
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
-      const existingMapping = await queryable.query(
-        `SELECT id FROM product_cost_mappings
-         WHERE marketplace=$1 AND barcode=$2${lock ? " FOR UPDATE" : ""}`,
-        [marketplace, barcode],
+      const existingMapping = await this._productRecipe(
+        queryable,
+        marketplace,
+        barcode,
+        lock,
       );
-      if (existingMapping.rowCount)
+      let source = null;
+      let sourceMapping = null;
+      if (payload.sourceCostItemId) {
+        source = await this._costItem(
+          queryable,
+          positiveId(payload.sourceCostItemId, "sourceCostItemId"),
+          suffix,
+        );
+        sourceMapping = existingMapping.find(
+          (row) => row.cost_item_code === source.item_code,
+        );
+        if (!sourceMapping)
+          throw new AppError(
+            "Kaynak mapping bulunamadı",
+            404,
+            "COST_MAPPING_NOT_FOUND",
+          );
+      } else if (existingMapping.length && payload.addToRecipe !== true)
         throw new AppError(
           "Ürün önizlemeden sonra başka bir maliyet kalemine bağlandı",
           409,
@@ -1272,7 +1428,17 @@ class CostIntegrityService {
         unitDesi,
         quantity,
         sourceCheckedAt: offer.checked_at || offer.last_seen_at || null,
+        addToRecipe: payload.addToRecipe === true,
+        sourceCostItemId: source?.id || null,
       };
+      const offerPricing =
+        offer.supplier_code === "BIZIM_MARKET"
+          ? priceTierForQuantity(
+              offer.current_price,
+              offer.price_tiers || [],
+              quantity,
+            )
+          : { tier: null, unitPrice: Number(offer.current_price) };
       const previewMapping = {
         marketplace,
         barcode,
@@ -1284,16 +1450,23 @@ class CostIntegrityService {
       return {
         payload: normalizedPayload,
         target: { type: "product_mapping", id: `${marketplace}:${barcode}` },
-        before: this._snapshot({ offers: [offer] }),
+        before: this._snapshot({
+          offers: [offer],
+          costItems: source ? [source] : [],
+          mappings: existingMapping,
+        }),
         impact: {
           ...this._assignmentImpact(previewMapping, {
-            currentUnitCost: null,
-            targetUnitCost: offer.current_price,
-            currentQuantity: null,
+            currentUnitCost:
+              sourceMapping?.effective_unit_cost ?? source?.unit_cost ?? null,
+            targetUnitCost: offerPricing.unitPrice,
+            currentQuantity: sourceMapping?.quantity ?? null,
             targetQuantity: quantity,
-            currentUnitDesi: null,
+            currentUnitDesi: source?.unit_desi ?? null,
             targetUnitDesi: unitDesi,
             product,
+            recipe: existingMapping,
+            sourceMapping,
           }),
           createsCanonicalCostItem: true,
           supplierCode: offer.supplier_code,
@@ -1384,26 +1557,40 @@ class CostIntegrityService {
         targetCostItemId,
         suffix,
       );
-      const mapping = (
-        await queryable.query(
-          `SELECT pcm.*,p.product_name,p.is_active,p.archived,p.desi,
-                  p.manual_desi_override,p.packaging_profile_name,
-                  p.packaging_rule_source,p.packaging_cost
-           FROM product_cost_mappings pcm
-           LEFT JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
-           WHERE pcm.marketplace=$1 AND pcm.barcode=$2 AND pcm.cost_item_code=$3${lock ? " FOR UPDATE OF pcm" : ""}`,
-          [marketplace, barcode, source.item_code],
-        )
-      ).rows[0];
+      const targetPricing = await this._mappingPricing(
+        queryable,
+        targetItem,
+        quantity,
+        lock,
+      );
+      const recipe = await this._productRecipe(
+        queryable,
+        marketplace,
+        barcode,
+        lock,
+      );
+      const mapping = recipe.find(
+        (row) => row.cost_item_code === source.item_code,
+      );
       if (!mapping)
         throw new AppError(
           "Kaynak mapping bulunamadı",
           404,
           "COST_MAPPING_NOT_FOUND",
         );
+      if (
+        source.item_code !== targetItem.item_code &&
+        recipe.some((row) => row.cost_item_code === targetItem.item_code)
+      )
+        throw new AppError(
+          "Bu fiziki ürün zaten bağlı. Adedini değiştirebilirsiniz.",
+          409,
+          "TARGET_MAPPING_EXISTS",
+        );
       const before = this._snapshot({
         costItems: [source, targetItem],
-        mappings: [mapping],
+        mappings: recipe,
+        offers: targetPricing.offer ? [targetPricing.offer] : [],
       });
       return {
         payload: {
@@ -1417,12 +1604,14 @@ class CostIntegrityService {
         before,
         impact: this._assignmentImpact(mapping, {
           currentUnitCost: mapping.effective_unit_cost ?? source.unit_cost,
-          targetUnitCost: targetItem.unit_cost,
+          targetUnitCost: targetPricing.unitCost,
           currentQuantity: mapping.quantity,
           targetQuantity: quantity,
           currentUnitDesi: source.unit_desi,
           targetUnitDesi: targetItem.unit_desi,
           product: mapping,
+          recipe,
+          sourceMapping: mapping,
         }),
         warnings:
           Number(targetItem.unit_desi) > 0 ? [] : ["TARGET_DESI_MISSING"],
@@ -1675,8 +1864,7 @@ class CostIntegrityService {
   async _execute(client, type, state, context) {
     if (type === "CREATE_MANUAL_COST")
       return this._createManualCost(client, state, context);
-    if (type === "EDIT_MANUAL_COST")
-      return this._editManualCost(client, state);
+    if (type === "EDIT_MANUAL_COST") return this._editManualCost(client, state);
     if (["CHANGE_SELECTED_OFFER", "MANUAL_TO_LIVE"].includes(type))
       return this._changeSelected(
         client,
@@ -1686,8 +1874,9 @@ class CostIntegrityService {
       );
     if (type === "REASSIGN_PRODUCT_COST")
       return this._reassign(client, state, context);
-    if (type === "ASSIGN_PRODUCT_COST")
-      return this._assign(client, state);
+    if (type === "ASSIGN_PRODUCT_COST") return this._assign(client, state);
+    if (type === "REMOVE_PRODUCT_COST_COMPONENT")
+      return this._removeComponent(client, state);
     if (type === "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN")
       return this._createLiveCostAndAssign(client, state, context);
     if (["REPLACE_COST_ITEM", "SPLIT_COST_MAPPINGS"].includes(type))
@@ -1780,7 +1969,12 @@ class CostIntegrityService {
           `INSERT INTO product_cost_mappings(
              marketplace,barcode,cost_item_code,quantity,updated_at
            )VALUES($1,$2,$3,$4,NOW()) RETURNING *`,
-          [payload.marketplace, payload.barcode, item.item_code, payload.quantity],
+          [
+            payload.marketplace,
+            payload.barcode,
+            item.item_code,
+            payload.quantity,
+          ],
         )
       ).rows[0];
     }
@@ -1826,14 +2020,40 @@ class CostIntegrityService {
       [item.id, offer.id, context.actor, context.reason],
     );
     await this._syncLegacyLink(client, item.id, offer.id, context.actor);
-    const mapping = (
-      await client.query(
-        `INSERT INTO product_cost_mappings(
-           marketplace,barcode,cost_item_code,quantity,updated_at
-         )VALUES($1,$2,$3,$4,NOW()) RETURNING *`,
-        [payload.marketplace, payload.barcode, item.item_code, payload.quantity],
-      )
-    ).rows[0];
+    let mapping;
+    if (payload.sourceCostItemId) {
+      const source = await this._costItem(client, payload.sourceCostItemId);
+      mapping = (
+        await client.query(
+          `UPDATE product_cost_mappings
+           SET cost_item_code=$4,quantity=$5,effective_unit_cost=NULL,
+               supplier_price_tier=NULL,updated_at=NOW()
+           WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3
+           RETURNING *`,
+          [
+            payload.marketplace,
+            payload.barcode,
+            source.item_code,
+            item.item_code,
+            payload.quantity,
+          ],
+        )
+      ).rows[0];
+    } else {
+      mapping = (
+        await client.query(
+          `INSERT INTO product_cost_mappings(
+             marketplace,barcode,cost_item_code,quantity,updated_at
+           )VALUES($1,$2,$3,$4,NOW()) RETURNING *`,
+          [
+            payload.marketplace,
+            payload.barcode,
+            item.item_code,
+            payload.quantity,
+          ],
+        )
+      ).rows[0];
+    }
     await this._applyOfferPricing(client, item.id, offer);
     const mappings = await this._mappings(client, item.item_code);
     return {
@@ -1870,7 +2090,12 @@ class CostIntegrityService {
            source_checked_at=$4,manual_review_last_confirmed_at=$4,
            manual_review_next_due_at=$4::timestamptz + INTERVAL '30 days',
            manual_review_status='OK',updated_at=NOW() WHERE id=$1`,
-      [payload.costItemId, payload.itemName, payload.unitCost, payload.checkedAt],
+      [
+        payload.costItemId,
+        payload.itemName,
+        payload.unitCost,
+        payload.checkedAt,
+      ],
     );
     return {
       after: await this._currentSnapshot(client, state.before),
@@ -1969,11 +2194,16 @@ class CostIntegrityService {
           "TARGET_MAPPING_EXISTS",
         );
     }
-    await client.query(
-      `UPDATE product_cost_mappings SET cost_item_code=$4,quantity=$5,updated_at=NOW()
-       WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
-      [marketplace, barcode, source.item_code, target.item_code, quantity],
-    );
+    const mapping = (
+      await client.query(
+        `UPDATE product_cost_mappings
+       SET cost_item_code=$4,quantity=$5,effective_unit_cost=NULL,
+           supplier_price_tier=NULL,updated_at=NOW()
+       WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3 RETURNING *`,
+        [marketplace, barcode, source.item_code, target.item_code, quantity],
+      )
+    ).rows[0];
+    await this._applyMappingPricing(client, mapping.id, target, quantity);
     return {
       after: await this._currentSnapshot(client, state.before),
       affectedMappings: [{ marketplace, barcode }],
@@ -1983,7 +2213,7 @@ class CostIntegrityService {
   async _assign(client, state) {
     const { marketplace, barcode, targetCostItemId, quantity } = state.payload;
     const target = await this._costItem(client, targetCostItemId);
-    const mapping = (
+    let mapping = (
       await client.query(
         `INSERT INTO product_cost_mappings(
            marketplace,barcode,cost_item_code,quantity,updated_at
@@ -1991,9 +2221,49 @@ class CostIntegrityService {
         [marketplace, barcode, target.item_code, quantity],
       )
     ).rows[0];
+    await this._applyMappingPricing(client, mapping.id, target, quantity);
+    mapping = (
+      await client.query("SELECT * FROM product_cost_mappings WHERE id=$1", [
+        mapping.id,
+      ])
+    ).rows[0];
     return {
       after: this._snapshot({ costItems: [target], mappings: [mapping] }),
       affectedMappings: [mapping],
+    };
+  }
+
+  async _removeComponent(client, state) {
+    const { marketplace, barcode, mappingId } = state.payload;
+    const removed = (
+      await client.query(
+        `DELETE FROM product_cost_mappings
+         WHERE id=$1 AND marketplace=$2 AND barcode=$3 RETURNING *`,
+        [mappingId, marketplace, barcode],
+      )
+    ).rows[0];
+    if (!removed)
+      throw new AppError(
+        "Maliyet bileşeni önizlemeden sonra değişti",
+        409,
+        "STALE_PREVIEW",
+      );
+    const remaining = (
+      await client.query(
+        `SELECT * FROM product_cost_mappings
+         WHERE marketplace=$1 AND barcode=$2 ORDER BY id`,
+        [marketplace, barcode],
+      )
+    ).rows;
+    if (!remaining.length)
+      throw new AppError(
+        "Son maliyet bileşeni kaldırılamaz",
+        409,
+        "LAST_PRODUCT_COST_COMPONENT",
+      );
+    return {
+      after: this._snapshot({ mappings: remaining }),
+      affectedMappings: [{ marketplace, barcode }],
     };
   }
 
@@ -2474,16 +2744,23 @@ class CostIntegrityService {
           "DELETE FROM product_cost_mappings WHERE id=$1 AND cost_item_code=$2",
           [mapping.id, createdItem.item_code],
         );
-        affected.push({ marketplace: mapping.marketplace, barcode: mapping.barcode });
+        affected.push({
+          marketplace: mapping.marketplace,
+          barcode: mapping.barcode,
+        });
       }
     }
-    await client.query("DELETE FROM cost_item_file_links WHERE cost_item_code=$1", [
-      createdItem.item_code,
+    await client.query(
+      "DELETE FROM cost_item_file_links WHERE cost_item_code=$1",
+      [createdItem.item_code],
+    );
+    await client.query(
+      "DELETE FROM cost_item_supplier_offers WHERE cost_item_id=$1",
+      [createdItem.id],
+    );
+    await client.query("DELETE FROM file_market_items WHERE id=$1", [
+      createdOffer.id,
     ]);
-    await client.query("DELETE FROM cost_item_supplier_offers WHERE cost_item_id=$1", [
-      createdItem.id,
-    ]);
-    await client.query("DELETE FROM file_market_items WHERE id=$1", [createdOffer.id]);
     await client.query("DELETE FROM cost_items WHERE id=$1", [createdItem.id]);
     return affected;
   }
@@ -2559,13 +2836,17 @@ class CostIntegrityService {
     const itemUnchanged =
       currentItem.item_name === createdItem.item_name &&
       Number(currentItem.unit_cost) === Number(createdItem.unit_cost) &&
-      Number(currentItem.unit_desi || 0) === Number(createdItem.unit_desi || 0) &&
+      Number(currentItem.unit_desi || 0) ===
+        Number(createdItem.unit_desi || 0) &&
       currentItem.unit === createdItem.unit &&
       currentItem.price_source === createdItem.price_source &&
       currentItem.note === createdItem.note &&
       Number(currentItem.previous_unit_cost || 0) ===
         Number(createdItem.previous_unit_cost || 0) &&
-      sameTimestamp(currentItem.source_checked_at, createdItem.source_checked_at) &&
+      sameTimestamp(
+        currentItem.source_checked_at,
+        createdItem.source_checked_at,
+      ) &&
       currentItem.lifecycle_status === createdItem.lifecycle_status &&
       sameTimestamp(currentItem.archived_at, createdItem.archived_at) &&
       currentItem.archived_by === createdItem.archived_by &&
@@ -2599,9 +2880,26 @@ class CostIntegrityService {
         409,
         "COST_OPERATION_NOT_REVERSIBLE",
       );
-    await client.query("DELETE FROM product_cost_mappings WHERE id=$1", [
-      createdMapping.id,
-    ]);
+    const originalMapping = original.before_snapshot?.mappings?.find(
+      (row) => Number(row.id) === Number(createdMapping.id),
+    );
+    if (originalMapping)
+      await client.query(
+        `UPDATE product_cost_mappings SET cost_item_code=$2,quantity=$3,
+           effective_unit_cost=$4,supplier_price_tier=$5,updated_at=NOW()
+         WHERE id=$1`,
+        [
+          originalMapping.id,
+          originalMapping.cost_item_code,
+          originalMapping.quantity,
+          originalMapping.effective_unit_cost,
+          originalMapping.supplier_price_tier,
+        ],
+      );
+    else
+      await client.query("DELETE FROM product_cost_mappings WHERE id=$1", [
+        createdMapping.id,
+      ]);
     await client.query("DELETE FROM cost_item_file_links WHERE id=$1", [
       legacyLinks[0].id,
     ]);
@@ -2610,25 +2908,205 @@ class CostIntegrityService {
     ]);
     await client.query("DELETE FROM cost_items WHERE id=$1", [createdItem.id]);
     return [
-      { marketplace: createdMapping.marketplace, barcode: createdMapping.barcode },
+      {
+        marketplace: createdMapping.marketplace,
+        barcode: createdMapping.barcode,
+      },
     ];
   }
 
   async _reverseAssignedMapping(client, original) {
     const payload = original.operation_payload || {};
-    const target = original.after_snapshot?.costItems?.[0];
-    if (!target)
+    const created = original.after_snapshot?.mappings?.[0];
+    if (!created)
       throw new AppError(
         "Mapping oluşturma işlemi geri alınamıyor",
         409,
         "COST_OPERATION_NOT_REVERSIBLE",
       );
-    await client.query(
-      `DELETE FROM product_cost_mappings
-       WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3`,
-      [payload.marketplace, payload.barcode, target.item_code],
-    );
+    const current = (
+      await client.query(
+        "SELECT * FROM product_cost_mappings WHERE id=$1 FOR UPDATE",
+        [created.id],
+      )
+    ).rows[0];
+    if (
+      !current ||
+      current.marketplace !== created.marketplace ||
+      current.barcode !== created.barcode ||
+      current.cost_item_code !== created.cost_item_code ||
+      Number(current.quantity) !== Number(created.quantity) ||
+      Number(current.effective_unit_cost || 0) !==
+        Number(created.effective_unit_cost || 0)
+    )
+      throw new AppError(
+        "Maliyet bileşeni daha sonra değiştiği için güvenle geri alınamaz",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    await client.query("DELETE FROM product_cost_mappings WHERE id=$1", [
+      created.id,
+    ]);
     return [{ marketplace: payload.marketplace, barcode: payload.barcode }];
+  }
+
+  async _reverseRemovedComponent(client, original) {
+    const payload = original.operation_payload || {};
+    const removed = original.before_snapshot?.mappings?.find(
+      (row) => Number(row.id) === Number(payload.mappingId),
+    );
+    if (!removed)
+      throw new AppError(
+        "Kaldırılan maliyet bileşeni geri alınamıyor",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    const conflict = await client.query(
+      `SELECT id FROM product_cost_mappings
+       WHERE id=$1 OR (marketplace=$2 AND barcode=$3 AND cost_item_code=$4)
+       FOR UPDATE`,
+      [
+        removed.id,
+        removed.marketplace,
+        removed.barcode,
+        removed.cost_item_code,
+      ],
+    );
+    if (conflict.rowCount)
+      throw new AppError(
+        "Aynı maliyet bileşeni daha sonra yeniden eklendiği için geri alma güvenli değil",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    await client.query(
+      `INSERT INTO product_cost_mappings(
+         id,marketplace,barcode,cost_item_code,quantity,effective_unit_cost,
+         supplier_price_tier,updated_at
+       )VALUES($1,$2,$3,$4,$5,$6,$7,NOW())`,
+      [
+        removed.id,
+        removed.marketplace,
+        removed.barcode,
+        removed.cost_item_code,
+        removed.quantity,
+        removed.effective_unit_cost,
+        removed.supplier_price_tier,
+      ],
+    );
+    return [{ marketplace: removed.marketplace, barcode: removed.barcode }];
+  }
+
+  async _reverseReassignedComponent(client, original) {
+    const payload = original.operation_payload || {};
+    const before = original.before_snapshot?.mappings?.find(
+      (row) =>
+        Number(row.cost_item_id) === Number(payload.sourceCostItemId) ||
+        Number(row.id) === Number(original.target_id),
+    );
+    const after = original.after_snapshot?.mappings?.find(
+      (row) => Number(row.id) === Number(before?.id),
+    );
+    if (!before || !after)
+      throw new AppError(
+        "Maliyet bileşeni değişikliği geri alınamıyor",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    const current = (
+      await client.query(
+        "SELECT * FROM product_cost_mappings WHERE id=$1 FOR UPDATE",
+        [after.id],
+      )
+    ).rows[0];
+    if (
+      !current ||
+      current.marketplace !== after.marketplace ||
+      current.barcode !== after.barcode ||
+      current.cost_item_code !== after.cost_item_code ||
+      Number(current.quantity) !== Number(after.quantity) ||
+      Number(current.effective_unit_cost || 0) !==
+        Number(after.effective_unit_cost || 0)
+    )
+      throw new AppError(
+        "Maliyet bileşeni daha sonra değiştiği için güvenle geri alınamaz",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    const duplicate = await client.query(
+      `SELECT id FROM product_cost_mappings
+       WHERE marketplace=$1 AND barcode=$2 AND cost_item_code=$3 AND id<>$4
+       FOR UPDATE`,
+      [before.marketplace, before.barcode, before.cost_item_code, before.id],
+    );
+    if (duplicate.rowCount)
+      throw new AppError(
+        "Önceki fiziki ürün daha sonra yeniden bağlandığı için geri alma güvenli değil",
+        409,
+        "COST_OPERATION_NOT_REVERSIBLE",
+      );
+    await client.query(
+      `UPDATE product_cost_mappings SET cost_item_code=$2,quantity=$3,
+         effective_unit_cost=$4,supplier_price_tier=$5,updated_at=NOW()
+       WHERE id=$1`,
+      [
+        before.id,
+        before.cost_item_code,
+        before.quantity,
+        before.effective_unit_cost,
+        before.supplier_price_tier,
+      ],
+    );
+    return [{ marketplace: before.marketplace, barcode: before.barcode }];
+  }
+
+  async _mappingPricing(queryable, item, quantity, lock = false) {
+    const selectedOffer = (
+      await queryable.query(
+        `SELECT offer.*,relation.id AS selected_relation_id
+         FROM cost_item_supplier_offers relation
+         JOIN file_market_items offer ON offer.id=relation.supplier_offer_id
+         WHERE relation.cost_item_id=$1 AND relation.status='APPROVED'
+           AND relation.is_selected=TRUE
+         ORDER BY relation.id DESC LIMIT 1${
+           lock ? " FOR UPDATE OF relation,offer" : ""
+         }`,
+        [item.id],
+      )
+    ).rows[0];
+    if (!selectedOffer || selectedOffer.supplier_code !== "BIZIM_MARKET")
+      return {
+        unitCost: Number(item.unit_cost),
+        effectiveUnitCost: null,
+        tier: null,
+        offer: selectedOffer || null,
+      };
+    const selected = priceTierForQuantity(
+      selectedOffer.current_price,
+      selectedOffer.price_tiers || [],
+      quantity,
+    );
+    return {
+      unitCost: selected.tier
+        ? Number(selected.unitPrice)
+        : Number(item.unit_cost),
+      effectiveUnitCost: selected.tier ? Number(selected.unitPrice) : null,
+      tier: selected.tier || null,
+      offer: selectedOffer,
+    };
+  }
+
+  async _applyMappingPricing(client, mappingId, item, quantity) {
+    const pricing = await this._mappingPricing(client, item, quantity, true);
+    await client.query(
+      `UPDATE product_cost_mappings
+       SET effective_unit_cost=$2,supplier_price_tier=$3::jsonb,updated_at=NOW()
+       WHERE id=$1`,
+      [
+        mappingId,
+        pricing.effectiveUnitCost,
+        pricing.tier ? JSON.stringify(pricing.tier) : null,
+      ],
+    );
   }
 
   async _applyOfferPricing(client, costItemId, offer) {
@@ -2743,6 +3221,22 @@ class CostIntegrityService {
     ).rows;
   }
 
+  async _productRecipe(queryable, marketplace, barcode, lock = false) {
+    return (
+      await queryable.query(
+        `SELECT pcm.*,ci.id AS cost_item_id,ci.item_name,ci.unit_cost,ci.unit_desi,
+                p.product_name,p.is_active,p.archived,p.desi,p.manual_desi_override,
+                p.packaging_profile_name,p.packaging_rule_source,p.packaging_cost
+         FROM product_cost_mappings pcm
+         JOIN cost_items ci ON ci.item_code=pcm.cost_item_code
+         JOIN products p ON p.marketplace=pcm.marketplace AND p.barcode=pcm.barcode
+         WHERE pcm.marketplace=$1 AND pcm.barcode=$2
+         ORDER BY pcm.id${lock ? " FOR UPDATE OF pcm" : ""}`,
+        [marketplace, barcode],
+      )
+    ).rows;
+  }
+
   async _aliases(queryable, aliasCodes, canonicalIds, lock = false) {
     return (
       await queryable.query(
@@ -2826,6 +3320,8 @@ class CostIntegrityService {
       currentUnitDesi,
       targetUnitDesi,
       product,
+      recipe = [],
+      sourceMapping = null,
     },
   ) {
     const normalizedCurrentQuantity =
@@ -2837,6 +3333,32 @@ class CostIntegrityService {
     const normalizedCurrentUnitDesi =
       currentUnitDesi == null ? null : Number(currentUnitDesi);
     const normalizedTargetUnitDesi = Number(targetUnitDesi || 0);
+    const recipeCurrentCost = recipe.reduce(
+      (total, row) =>
+        total +
+        Number(row.quantity) *
+          Number(row.effective_unit_cost ?? row.unit_cost ?? 0),
+      0,
+    );
+    const recipeCurrentDesi = recipe.reduce(
+      (total, row) => total + Number(row.quantity) * Number(row.unit_desi || 0),
+      0,
+    );
+    const sourceLineCost = sourceMapping
+      ? Number(sourceMapping.quantity) *
+        Number(
+          sourceMapping.effective_unit_cost ?? sourceMapping.unit_cost ?? 0,
+        )
+      : 0;
+    const sourceLineDesi = sourceMapping
+      ? Number(sourceMapping.quantity) * Number(sourceMapping.unit_desi || 0)
+      : 0;
+    const targetLineCost = normalizedTargetQuantity * normalizedTargetUnitCost;
+    const targetTotalDesi = normalizedTargetQuantity * normalizedTargetUnitDesi;
+    const recipeTargetCost =
+      recipeCurrentCost - sourceLineCost + targetLineCost;
+    const recipeTargetDesi =
+      recipeCurrentDesi - sourceLineDesi + targetTotalDesi;
     return {
       ...this._impact(
         [{ ...mapping, quantity: normalizedTargetQuantity }],
@@ -2849,14 +3371,18 @@ class CostIntegrityService {
         normalizedCurrentQuantity == null || normalizedCurrentUnitCost == null
           ? null
           : normalizedCurrentQuantity * normalizedCurrentUnitCost,
-      targetLineCost: normalizedTargetQuantity * normalizedTargetUnitCost,
+      targetLineCost,
       currentUnitDesi: normalizedCurrentUnitDesi,
       targetUnitDesi: normalizedTargetUnitDesi,
       currentTotalDesi:
         normalizedCurrentQuantity == null || normalizedCurrentUnitDesi == null
           ? null
           : normalizedCurrentQuantity * normalizedCurrentUnitDesi,
-      targetTotalDesi: normalizedTargetQuantity * normalizedTargetUnitDesi,
+      targetTotalDesi,
+      recipeCurrentCost,
+      recipeTargetCost,
+      recipeCurrentDesi,
+      recipeTargetDesi,
       effectiveProductDesi:
         product?.manual_desi_override == null
           ? Number(product?.desi || 0)
@@ -2867,7 +3393,7 @@ class CostIntegrityService {
           : Number(product.manual_desi_override),
       targetEffectiveProductDesi:
         product?.manual_desi_override == null
-          ? Math.ceil(normalizedTargetQuantity * normalizedTargetUnitDesi)
+          ? Math.ceil(recipeTargetDesi)
           : Number(product.manual_desi_override),
       packagingProfileName: product?.packaging_profile_name || null,
       packagingRuleSource: product?.packaging_rule_source || null,
