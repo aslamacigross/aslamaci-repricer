@@ -408,3 +408,94 @@ test("Hepsiburada aksiyonu Trendyol fiyat servisine asla gönderilmez", async ()
   assert.equal(trendyolCalls, 0);
   assert.equal(failedStatus, "FAILED");
 });
+
+test("recipe commit sonrası eski TY aksiyonu güncel yüksek maliyet/minimum ile engellenir", async () => {
+  const { action, product } = fixture();
+  // The action was generated with the old complete recipe. Apply reads the
+  // product AFTER the new recipe commit, and must not trust action.min_price.
+  product.calculated_product_cost = 900;
+  product.min_price = 1200;
+  let sent = 0;
+  const service = new ActionService({
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    actions: {
+      findOpen: async () => null,
+      todayStats: async () => ({ action_count: 0 }),
+    },
+    products: { get: async () => product },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: false,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+    trendyol: {
+      updatePrices: async () => {
+        sent++;
+      },
+    },
+  });
+  await assert.rejects(
+    service.apply(action.id, "system"),
+    (error) =>
+      error.code === "SAFETY_BLOCKED" &&
+      error.message.includes("BELOW_MIN_PRICE"),
+  );
+  assert.equal(sent, 0);
+});
+
+test("known boundary: TY recipe commit after apply safety check does not revalidate an in-flight send", async () => {
+  const { action, product } = fixture();
+  let submissions = 0;
+  const service = new ActionService({
+    withTransaction: async (work) =>
+      work({ query: async () => ({ rows: [action] }) }),
+    products: { get: async () => product },
+    actions: {
+      findOpen: async () => null,
+      todayStats: async () => ({ action_count: 0 }),
+      recordMarketPreflight: async () => {},
+      updateStatus: async (_id, status, fields = {}) => ({
+        ...action,
+        status,
+        batch_id: fields.batchId,
+      }),
+    },
+    repricer: {
+      globalSettings: async () => ({
+        dryRun: false,
+        repricerEnabled: true,
+        buyboxMaxAgeMinutes: 20,
+        maxChangePct: 15,
+        minChangeTl: 0.1,
+      }),
+    },
+    trendyol: {
+      getProductByBarcode: async () => {
+        // A complete higher-cost recipe commits after preparation, during API I/O.
+        product.calculated_product_cost = 900;
+        product.min_price = 1200;
+        return {
+          salePrice: action.old_price,
+          quantity: 10,
+          approved: true,
+          onSale: true,
+        };
+      },
+      updatePrices: async () => {
+        submissions++;
+        return { batchRequestId: "in-flight" };
+      },
+    },
+    audit: { record: async () => {} },
+  });
+  await service.apply(action.id, "system");
+  // Characterization, not a safety guarantee: closing this pre-existing race
+  // requires approved coordination with the protected action executor.
+  assert.equal(submissions, 1);
+  assert(Number(action.proposed_price) < product.min_price);
+});

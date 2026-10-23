@@ -808,7 +808,36 @@ export function ImpactPreviewModal({ preview, busy, onClose, onConfirm }) {
             <b>{impact.activeProductCount || 0}</b>
           </div>
         </div>
-        {impact.removesComponent ? (
+        {impact.currentRecipe && (
+          <div className="recipe-comparison">
+            <p>
+              {impact.marketplace} · {impact.barcode}
+            </p>
+            {[
+              ["Mevcut recipe", impact.currentRecipe, impact.currentTotals],
+              ["Önerilen recipe", impact.proposedRecipe, impact.proposedTotals],
+            ].map(([label, rows, totals]) => (
+              <section key={label} aria-label={label}>
+                <h3>{label}</h3>
+                {rows.map((row, index) => (
+                  <p key={index}>
+                    {row.itemName} · {row.quantity} × {money(row.unitCost)} ={" "}
+                    {money(row.lineCost)}
+                  </p>
+                ))}
+                <strong>Toplam ürün maliyeti: {money(totals.cost)}</strong>
+                <p>Etkin desi: {desi(totals.effectiveDesi)}</p>
+              </section>
+            ))}
+            {impact.manualDesiOverride != null && (
+              <p>
+                Manuel desi override: {desi(impact.manualDesiOverride)} ·
+                korunur
+              </p>
+            )}
+          </div>
+        )}
+        {impact.currentRecipe ? null : impact.removesComponent ? (
           <div className="cost-change-summary assignment-preview-summary">
             <span>Kaldırılacak bileşen</span>
             <b>{impact.componentName}</b>
@@ -1070,6 +1099,7 @@ function AssignmentControls({
   onDraftUnitDesiChange,
   recipe,
   sourceMapping,
+  draftOnly = false,
 }) {
   const [resolvedUnitDesi, setResolvedUnitDesi] = useState(unitDesi);
   useEffect(() => setResolvedUnitDesi(unitDesi), [costItemId, unitDesi]);
@@ -1127,6 +1157,10 @@ function AssignmentControls({
             ayrı alanlardır.
           </small>
         </div>
+      ) : draftOnly ? (
+        <small>
+          Canonical birim desi: {desi(resolvedUnitDesi)} · ortak kayıt değişmez
+        </small>
       ) : (
         <CanonicalDesiEditor
           costItemId={costItemId}
@@ -1139,22 +1173,31 @@ function AssignmentControls({
           onSaved={(item) => setResolvedUnitDesi(item.unit_desi)}
         />
       )}
-      <QuantityPackagingSummary
-        quantity={quantity}
-        unitCost={unitCost}
-        unitDesi={effectiveUnitDesi}
-        product={product}
-        recipe={recipe}
-        sourceMapping={sourceMapping}
-      />
+      {draftOnly ? (
+        <small>
+          Fiyat kademesi, maliyet ve desi tam recipe önizlemesinde hesaplanır.
+        </small>
+      ) : (
+        <QuantityPackagingSummary
+          quantity={quantity}
+          unitCost={unitCost}
+          unitDesi={effectiveUnitDesi}
+          product={product}
+          recipe={recipe}
+          sourceMapping={sourceMapping}
+        />
+      )}
       <Button disabled={disabled} onClick={onPreview}>
-        Değişikliği önizle
+        {draftOnly ? "Taslağa ekle" : "Değişikliği önizle"}
       </Button>
     </div>
   );
 }
 
 export function CostAssignmentEditor({
+  onStage,
+  onDraftQuantityChange,
+  draftDirty = false,
   marketplace,
   barcode,
   mappings = [],
@@ -1174,7 +1217,7 @@ export function CostAssignmentEditor({
   const createPreviewPending = useRef(false);
   const [splitAssignments, setSplitAssignments] = useState({});
   const [splitActiveMappingId, setSplitActiveMappingId] = useState(null);
-  const operation = useOperation({
+  const persistedOperation = useOperation({
     notify,
     onChanged,
     onConflict: () => {
@@ -1183,6 +1226,46 @@ export function CostAssignmentEditor({
       setDraftUnitDesi("");
     },
   });
+  const operation = !onStage
+    ? persistedOperation
+    : {
+        ...persistedOperation,
+        undo: () => {
+          if (draftDirty) {
+            notify?.(
+              "Önce recipe taslağını kaydedin veya iptal edin.",
+              "error",
+            );
+            return;
+          }
+          return persistedOperation.undo();
+        },
+        open: (type, payload) => {
+          if (
+            [
+              "ASSIGN_PRODUCT_COST",
+              "REASSIGN_PRODUCT_COST",
+              "REMOVE_PRODUCT_COST_COMPONENT",
+              "CREATE_MANUAL_COST",
+              "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN",
+            ].includes(type)
+          )
+            return onStage(type, payload, {
+              targetOffer,
+              current,
+              mapping,
+              mode,
+            });
+          if (draftDirty) {
+            notify?.(
+              "Önce recipe taslağını kaydedin veya iptal edin.",
+              "error",
+            );
+            return;
+          }
+          return persistedOperation.open(type, payload);
+        },
+      };
   const mapping = mappings.find((row) => Number(row.id) === Number(mappingId));
   const totalProductCost = mappings.reduce(
     (total, row) =>
@@ -1301,6 +1384,7 @@ export function CostAssignmentEditor({
     setDraftItemName(itemName);
     setDraftUnitDesi(unitDesi);
     setQuantityValidation("");
+    if (onStage) return;
     createPreviewPending.current = true;
     try {
       await assignmentPreview({ offer: target, itemName, unitDesi });
@@ -1408,6 +1492,7 @@ export function CostAssignmentEditor({
     operation.open("REASSIGN_PRODUCT_COST", {
       marketplace,
       barcode,
+      ...(onStage ? { draftMappingId: row.id } : {}),
       sourceCostItemId: row.cost_item_id,
       targetCostItemId: row.cost_item_id,
       quantity: Number(draft),
@@ -1457,6 +1542,7 @@ export function CostAssignmentEditor({
           onManualSubmit={manualPreview}
         />
         <AssignmentControls
+          draftOnly={Boolean(onStage)}
           quantity={quantity}
           onQuantityChange={(value) => {
             setQuantity(value);
@@ -1516,7 +1602,11 @@ export function CostAssignmentEditor({
           <h3>Maliyet bileşenleri</h3>
           <small>Her fiziki ürün ve adedi bağımsız yönetilir.</small>
         </div>
-        <strong>Toplam ürün maliyeti: {money(totalProductCost)}</strong>
+        <strong>
+          {onStage && draftDirty
+            ? "Taslak recipe · maliyet önizlemede hesaplanır"
+            : `Toplam ürün maliyeti: ${money(totalProductCost)}`}
+        </strong>
       </div>
       <div className="cost-component-list">
         {mappings.map((row) => {
@@ -1532,16 +1622,20 @@ export function CostAssignmentEditor({
                   Birim maliyet:{" "}
                   {money(row.effective_unit_cost ?? row.unit_cost)}
                 </span>
-                <span>
-                  Bileşen toplamı:{" "}
-                  <b>{`${Number(row.quantity)} × ${money(
-                    row.effective_unit_cost ?? row.unit_cost,
-                  )} = ${money(
-                    row.line_cost ??
-                      Number(row.quantity) *
-                        Number(row.effective_unit_cost ?? row.unit_cost ?? 0),
-                  )}`}</b>
-                </span>
+                {onStage && draftDirty ? (
+                  <span>Bileşen toplamı recipe önizlemesinde hesaplanır.</span>
+                ) : (
+                  <span>
+                    Bileşen toplamı:{" "}
+                    <b>{`${Number(row.quantity)} × ${money(
+                      row.effective_unit_cost ?? row.unit_cost,
+                    )} = ${money(
+                      row.line_cost ??
+                        Number(row.quantity) *
+                          Number(row.effective_unit_cost ?? row.unit_cost ?? 0),
+                    )}`}</b>
+                  </span>
+                )}
               </div>
               <Field label="Adet">
                 <input
@@ -1551,12 +1645,13 @@ export function CostAssignmentEditor({
                   step="1"
                   inputMode="numeric"
                   value={draft}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setQuantityDrafts((currentDrafts) => ({
                       ...currentDrafts,
                       [row.id]: event.target.value,
-                    }))
-                  }
+                    }));
+                    onDraftQuantityChange?.(row.id, event.target.value);
+                  }}
                 />
               </Field>
               <div className="cost-component-actions">
@@ -1662,6 +1757,7 @@ export function CostAssignmentEditor({
       </p>
       {mode === "ADD" && (
         <AssignmentControls
+          draftOnly={Boolean(onStage)}
           quantity={quantity}
           onQuantityChange={(value) => {
             setQuantity(value);
@@ -1696,6 +1792,7 @@ export function CostAssignmentEditor({
       )}
       {mode === "REASSIGN" && (
         <AssignmentControls
+          draftOnly={Boolean(onStage)}
           quantity={quantity}
           onQuantityChange={(value) => {
             setQuantity(value);
@@ -1730,10 +1827,15 @@ export function CostAssignmentEditor({
           }
           onPreview={assignmentPreview}
           disabled={
-            !current ||
+            (!current && !targetOffer) ||
             (!targetOffer && Number(quantity) === Number(mapping.quantity))
           }
           notify={notify}
+          createCanonical={Boolean(targetOffer?.createCanonical)}
+          draftItemName={draftItemName}
+          onDraftItemNameChange={setDraftItemName}
+          draftUnitDesi={draftUnitDesi}
+          onDraftUnitDesiChange={setDraftUnitDesi}
           recipe={mappings}
           sourceMapping={mapping}
         />
@@ -1764,7 +1866,7 @@ export function CostAssignmentEditor({
           </p>
         </div>
       )}
-      {!context ? (
+      {!context && mapping?.cost_item_id ? (
         <Loading label="Maliyet bağlantıları yükleniyor" />
       ) : (
         <CostSelector
@@ -1856,5 +1958,212 @@ export function CostAssignmentEditor({
         onConfirm={operation.apply}
       />
     </section>
+  );
+}
+
+// Products uses this wrapper exclusively. Component controls stage locally;
+// the only mapping write path is the complete recipe operation below.
+export function AtomicCostRecipeEditor(props) {
+  const { marketplace, barcode, mappings = [], notify, onChanged } = props;
+  const initial = (rows) =>
+    rows.map((row) => ({
+      ...row,
+      _component: {
+        costItemId: Number(row.cost_item_id),
+        quantity: Number(row.quantity),
+      },
+    }));
+  const [draft, setDraft] = useState(() => initial(mappings));
+  const [dirty, setDirty] = useState(false);
+  const nextId = useRef(-1);
+  useEffect(() => {
+    // Background refresh cannot silently overwrite an in-progress recipe.
+    if (!dirty) setDraft(initial(mappings));
+  }, [mappings, dirty]);
+  const operation = useOperation({
+    notify,
+    onChanged: async () => {
+      setDirty(false);
+      await onChanged?.();
+    },
+  });
+  const stage = (type, payload, meta) => {
+    let rows = [...draft];
+    if (type === "REMOVE_PRODUCT_COST_COMPONENT") {
+      if (rows.length <= 1) return;
+      rows = rows.filter((row) => Number(row.id) !== Number(payload.mappingId));
+    } else {
+      const quantity = Number(payload.quantity);
+      const source =
+        payload.draftMappingId != null
+          ? rows.find(
+              (row) => Number(row.id) === Number(payload.draftMappingId),
+            )
+          : payload.sourceCostItemId != null
+            ? rows.find(
+                (row) =>
+                  Number(row.cost_item_id) === Number(payload.sourceCostItemId),
+              )
+            : type === "REASSIGN_PRODUCT_COST" ||
+                (type.startsWith("CREATE_") && meta.mode !== "ADD")
+              ? rows.find((row) => row.id === meta.mapping?.id)
+              : null;
+      let component, item;
+      if (type === "CREATE_MANUAL_COST") {
+        component = Object.fromEntries(
+          [
+            "itemCode",
+            "itemName",
+            "unitCost",
+            "unitDesi",
+            "physicalSupplierCode",
+            "checkedAt",
+            "quantity",
+          ].map((key) => [key, payload[key]]),
+        );
+        item = {
+          item_name: payload.itemName,
+          unit_cost: Number(payload.unitCost),
+          unit_desi: Number(payload.unitDesi),
+        };
+      } else if (type === "CREATE_COST_ITEM_FROM_OFFER_AND_ASSIGN") {
+        component = {
+          supplierOfferId: payload.supplierOfferId,
+          itemName: payload.itemName,
+          unitDesi: payload.unitDesi,
+          quantity,
+        };
+        item = {
+          item_name: payload.itemName,
+          unit_cost: Number(meta.targetOffer?.current_price),
+          unit_desi: Number(payload.unitDesi),
+        };
+      } else {
+        const costItemId = payload.targetCostItemId ?? source?.cost_item_id;
+        component =
+          source?._component && !costItemId
+            ? { ...source._component, quantity }
+            : { costItemId: Number(costItemId), quantity };
+        const existing = rows.find(
+          (row) => Number(row.cost_item_id) === Number(costItemId),
+        );
+        item = existing || {
+          cost_item_id: Number(costItemId),
+          cost_item_code: meta.targetOffer?.canonical_item_code,
+          item_name:
+            meta.targetOffer?.linked_cost_item_name || meta.current?.item_name,
+          unit_cost: Number(
+            meta.targetOffer?.linked_unit_cost ?? meta.current?.unit_cost,
+          ),
+          unit_desi: Number(
+            meta.targetOffer?.linked_unit_desi ?? meta.current?.unit_desi ?? 0,
+          ),
+        };
+      }
+      const identity = (value) =>
+        value.costItemId
+          ? `item:${value.costItemId}`
+          : value.supplierOfferId
+            ? `offer:${value.supplierOfferId}`
+            : `manual:${value.itemCode}`;
+      if (
+        rows.some(
+          (row) =>
+            row.id !== source?.id &&
+            identity(row._component) === identity(component),
+        )
+      ) {
+        notify?.(
+          "Bu fiziki ürün zaten bağlı. Adedini değiştirebilirsiniz.",
+          "error",
+        );
+        return;
+      }
+      const row = {
+        ...item,
+        id: source?.id ?? nextId.current--,
+        quantity,
+        effective_unit_cost: null,
+        line_cost: quantity * Number(item.unit_cost),
+        _component: component,
+      };
+      rows = source
+        ? rows.map((existing) => (existing.id === source.id ? row : existing))
+        : [...rows, row];
+    }
+    setDraft(rows);
+    setDirty(true);
+  };
+  const cancel = () => {
+    setDraft(initial(mappings));
+    setDirty(false);
+    operation.close();
+  };
+  return (
+    <div>
+      <CostAssignmentEditor
+        {...props}
+        mappings={draft}
+        onStage={stage}
+        onDraftQuantityChange={(id, value) => {
+          setDraft((rows) =>
+            rows.map((row) =>
+              row.id !== id
+                ? row
+                : {
+                    ...row,
+                    quantity: value,
+                    line_cost: Number(value) * Number(row.unit_cost),
+                    _component: { ...row._component, quantity: value },
+                  },
+            ),
+          );
+          setDirty(true);
+        }}
+        draftDirty={dirty}
+      />
+      <div className="cost-component-actions">
+        <Button
+          disabled={
+            !dirty ||
+            operation.busy ||
+            draft.some((row) => quantityError(row._component.quantity))
+          }
+          onClick={() =>
+            operation.open("REPLACE_PRODUCT_COST_RECIPE", {
+              marketplace,
+              barcode,
+              components: draft.map((row) => ({
+                ...row._component,
+                quantity: Number(row._component.quantity),
+              })),
+            })
+          }
+        >
+          Recipe değişikliklerini önizle
+        </Button>
+        <Button
+          variant="secondary"
+          disabled={!dirty || operation.busy}
+          onClick={cancel}
+        >
+          Taslağı iptal et
+        </Button>
+        {operation.lastOperation && (
+          <Button disabled={operation.busy || dirty} onClick={operation.undo}>
+            Recipe işlemini geri al
+          </Button>
+        )}
+      </div>
+      {dirty && (
+        <p>Değişiklikler taslakta. Tam recipe onaylanana kadar kaydedilmez.</p>
+      )}
+      <ImpactPreviewModal
+        preview={operation.preview}
+        busy={operation.busy}
+        onClose={operation.close}
+        onConfirm={operation.apply}
+      />
+    </div>
   );
 }

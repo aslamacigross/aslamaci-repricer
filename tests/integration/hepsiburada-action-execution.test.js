@@ -262,3 +262,36 @@ test("HB executor minimum fiyat guvenligini Trendyol semantigiyle uygular", asyn
   });
   assert.equal(submissions(), 0);
 });
+
+test("recipe commit sonrası eski HB aksiyonu güncel yüksek maliyet/minimum ile engellenir", async () => {
+  const { service, submissions } = serviceFixture({
+    product: { calculated_product_cost: 900, min_price: 1200 },
+  });
+  await assert.rejects(
+    service.apply(81, "system"),
+    (error) =>
+      error.code === "SAFETY_BLOCKED" &&
+      error.message.includes("BELOW_MIN_PRICE"),
+  );
+  assert.equal(submissions(), 0);
+});
+
+test("known boundary: HB recipe commit after apply safety check does not revalidate an in-flight send", async () => {
+  const state = serviceFixture({
+    hepsiburada: {
+      readListingForPrice: async () => {
+        state.product.calculated_product_cost = 900;
+        state.product.min_price = 1200;
+        return {
+          price: state.action.old_price,
+          availableStock: 10,
+          isSalable: true,
+        };
+      },
+    },
+  });
+  await state.service.apply(81, "system");
+  // Existing executor behavior is recorded explicitly; no pricing rule changes.
+  assert.equal(state.submissions(), 1);
+  assert(Number(state.action.proposed_price) < state.product.min_price);
+});

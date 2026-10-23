@@ -27,7 +27,7 @@ import {
   Pagination,
   Field,
 } from "../components/ui";
-import { CostAssignmentEditor } from "../components/CostManagement";
+import { AtomicCostRecipeEditor } from "../components/CostManagement";
 const columns = [
   {
     key: "product_image_url",
@@ -913,7 +913,7 @@ export function CostBreakdown({ data, marketplace, notify, onChanged }) {
           </div>
         ))}
       </div>
-      <CostAssignmentEditor
+      <AtomicCostRecipeEditor
         marketplace={marketplace}
         barcode={p.barcode}
         mappings={data.mappings}

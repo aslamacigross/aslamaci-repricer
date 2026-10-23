@@ -262,15 +262,10 @@ describe("Products maliyet yönetimi", () => {
       .getByLabelText("Fusilli 240 g adedi")
       .closest("article");
     await userEvent.click(fusilliCard.querySelector("button.btn-danger"));
-    expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
-      operationType: "REMOVE_PRODUCT_COST_COMPONENT",
-      payload: {
-        marketplace: "TRENDYOL",
-        barcode: "MIXED-219",
-        mappingId: 32,
-      },
-    });
-    await userEvent.click(screen.getByRole("button", { name: "İptal" }));
+    expect(post).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText("Fusilli 240 g adedi"),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(
       screen.getAllByRole("button", {
@@ -278,16 +273,21 @@ describe("Products maliyet yönetimi", () => {
       })[0],
     );
     await userEvent.click(await screen.findByRole("button", { name: "Seç" }));
+    await userEvent.click(screen.getByRole("button", { name: "Taslağa ekle" }));
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Macaroni 240 g adedi")).toBeVisible();
     await userEvent.click(
-      screen.getByRole("button", { name: "Değişikliği önizle" }),
+      screen.getByRole("button", { name: "Recipe değişikliklerini önizle" }),
     );
     expect(post).toHaveBeenCalledWith("/api/cost-integrity/preview", {
-      operationType: "ASSIGN_PRODUCT_COST",
+      operationType: "REPLACE_PRODUCT_COST_RECIPE",
       payload: {
         marketplace: "TRENDYOL",
         barcode: "MIXED-219",
-        targetCostItemId: 3,
-        quantity: 1,
+        components: [
+          { costItemId: 1, quantity: 2 },
+          { costItemId: 3, quantity: 1 },
+        ],
       },
     });
   });
