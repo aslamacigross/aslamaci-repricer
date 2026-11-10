@@ -185,9 +185,9 @@ class ProductRepository {
     };
   }
 
-  async get(barcode, marketplace = "TRENDYOL") {
+  async get(barcode, marketplace = "TRENDYOL", queryable = this.db) {
     return (
-      await this.db.query(
+      await queryable.query(
         `SELECT p.*, row_to_json(ps) AS settings, row_to_json(rl) AS learning
        FROM products p
        LEFT JOIN product_settings ps ON ps.marketplace=p.marketplace AND ps.barcode=p.barcode

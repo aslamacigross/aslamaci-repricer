@@ -42,6 +42,10 @@ const env = {
     process.env.HEPSIBURADA_USER_AGENT || process.env.HB_USER_AGENT || "",
   hepsiburadaSellerName:
     process.env.HEPSIBURADA_SELLER_NAME || process.env.HB_SELLER_NAME || "",
+  hepsiburadaFloorRecoveryEnabled: bool(
+    process.env.HEPSIBURADA_SAFE_FLOOR_RECOVERY_ENABLED,
+    false,
+  ),
   hepsiburadaWebhookUsername:
     process.env.HEPSIBURADA_WEBHOOK_USERNAME ||
     process.env.HB_WEBHOOK_USERNAME ||

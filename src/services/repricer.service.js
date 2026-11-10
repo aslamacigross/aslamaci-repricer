@@ -6,14 +6,15 @@ const { env } = require("../config/env");
 const { AppError } = require("../utils/errors");
 
 class RepricerService {
-  constructor({ db, actions, settings }) {
+  constructor({ db, actions, settings, hbFloorRecovery }) {
     this.db = db;
     this.actions = actions;
     this.settings = settings;
+    this.hbFloorRecovery = hbFloorRecovery;
   }
 
-  async globalSettings() {
-    const stored = await this.settings.getAll();
+  async globalSettings(queryable = this.db) {
+    const stored = await this.settings.getAll(queryable);
     return {
       dryRun: stored.global_dry_run ?? env.dryRun,
       repricerEnabled: stored.global_repricer_enabled ?? env.repricerEnabled,
@@ -46,7 +47,7 @@ class RepricerService {
     return normalized;
   }
 
-  async candidates(barcode, marketplace = "TRENDYOL") {
+  async candidates(barcode, marketplace = "TRENDYOL", queryable = this.db) {
     const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
     const params = [normalizedMarketplace];
     let filter = "AND COALESCE(ps.auto_update,p.auto_update,FALSE)=TRUE";
@@ -58,7 +59,7 @@ class RepricerService {
       filter = "AND p.barcode=$2";
     }
     return (
-      await this.db.query(
+      await queryable.query(
         `SELECT p.*,
       COALESCE(ps.strategy,'Manuel') strategy,
       ps.price_cut_tl,ps.max_increase_tl,ps.max_single_change_pct,ps.max_daily_change_pct,
@@ -81,11 +82,36 @@ class RepricerService {
     ).rows;
   }
 
-  async preview(barcode, marketplace = "TRENDYOL") {
+  async preview(barcode, marketplace = "TRENDYOL", queryable = this.db) {
     if (Array.isArray(barcode) && barcode.length === 0) return [];
     const normalizedMarketplace = this.ensureSupportedMarketplace(marketplace);
-    const global = await this.globalSettings();
-    const products = await this.candidates(barcode, normalizedMarketplace);
+    const global = await this.globalSettings(queryable);
+    const products = await this.candidates(
+      barcode,
+      normalizedMarketplace,
+      queryable,
+    );
+    const floorBatches = new Map();
+    if (
+      this.hbFloorRecovery?.enabled &&
+      normalizedMarketplace === "HEPSIBURADA"
+    ) {
+      const eligible = products.filter((p) =>
+        this.hbFloorRecovery.eligible(p, {
+          ...p,
+          auto_update: p.setting_auto_update,
+        }),
+      );
+      for (let offset = 0; offset < eligible.length; offset += 200) {
+        const chunk = eligible.slice(offset, offset + 200);
+        try {
+          const batch = await this.hbFloorRecovery.loadBatch(chunk, queryable);
+          for (const p of chunk) floorBatches.set(p.barcode, batch);
+        } catch (error) {
+          for (const p of chunk) floorBatches.set(p.barcode, { error });
+        }
+      }
+    }
     const results = [];
     for (const product of products) {
       const settings = {
@@ -107,12 +133,13 @@ class RepricerService {
           parseBoolean(global.unlimitedIncrease) ||
           parseBoolean(product.unlimited_increase),
       };
-      const proposal = proposePrice(product, settings);
+      let proposal = proposePrice(product, settings);
       const today = await this.actions.todayStats(
         product.barcode,
         normalizedMarketplace,
+        queryable,
       );
-      const safety = safetyCheck({
+      let safety = safetyCheck({
         product,
         settings,
         global,
@@ -122,8 +149,36 @@ class RepricerService {
           dayStartPrice: today.day_start_price,
         },
       });
+      if (floorBatches.has(product.barcode)) {
+        const batch = floorBatches.get(product.barcode);
+        if (batch.error)
+          safety = {
+            ...safety,
+            safe: false,
+            failures: [
+              ...new Set([...safety.failures, "HB_FLOOR_EVIDENCE_UNAVAILABLE"]),
+            ],
+          };
+        else {
+          const recovery = await this.hbFloorRecovery.evaluate({
+            product,
+            settings,
+            global,
+            proposal,
+            today: {
+              actionCount: today.action_count,
+              dayStartPrice: today.day_start_price,
+            },
+            batch,
+          });
+          if (recovery) ({ proposal, safety } = recovery);
+        }
+      }
       results.push({
         ...proposal,
+        ...(floorBatches.has(product.barcode)
+          ? { floorRecoveryCandidate: true }
+          : {}),
         safetyChecks: safety,
         blockedReasons: safety.failures,
         barcode: product.barcode,
@@ -147,7 +202,10 @@ class RepricerService {
         const blockingSafetyFailures = (preview.blockedReasons || []).filter(
           (code) => !["DRY_RUN", "GLOBAL_REPRICER_DISABLED"].includes(code),
         );
-        if (automatic && blockingSafetyFailures.length) {
+        if (
+          (automatic || preview.floorRecoveryCandidate) &&
+          blockingSafetyFailures.length
+        ) {
           skipped.push({
             barcode: preview.barcode,
             reason: "SAFETY_BLOCKED",
@@ -191,10 +249,10 @@ class RepricerService {
         const key = crypto
           .createHash("sha256")
           .update(
-            `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}`,
+            `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}${preview.safetyChecks.hbFloorRecovery ? `:${preview.safetyChecks.hbFloorRecovery.fingerprint}` : ""}`,
           )
           .digest("hex");
-        const action = await this.actions.create({
+        const input = {
           marketplace: normalizedMarketplace,
           barcode: preview.barcode,
           product_name: preview.productName,
@@ -217,12 +275,16 @@ class RepricerService {
           net_profit_before: preview.netProfitBefore,
           safety_checks: preview.safetyChecks,
           expires_at: preview.expiresAt,
-        });
-        await this.actions.recordDecision(
-          action.id,
-          { barcode: preview.barcode, strategy: preview.strategy },
-          preview,
-        );
+        };
+        const action = preview.safetyChecks.hbFloorRecovery
+          ? await this.createFloorAction(input, preview)
+          : await this.actions.create(input);
+        if (!preview.safetyChecks.hbFloorRecovery)
+          await this.actions.recordDecision(
+            action.id,
+            { barcode: preview.barcode, strategy: preview.strategy },
+            preview,
+          );
         created.push(action);
       } catch (error) {
         errors.push({
@@ -241,6 +303,54 @@ class RepricerService {
       skippedItems: skipped,
       errors,
     };
+  }
+
+  async createFloorAction(input, preview) {
+    const client = await this.db.connect();
+    try {
+      await client.query("BEGIN");
+      // Product scope exists even before the first action. All new floor
+      // generators serialize here, then repeat preview and open-action checks.
+      const locked = await client.query(
+        "SELECT id FROM products WHERE marketplace='HEPSIBURADA' AND barcode=$1 FOR UPDATE",
+        [input.barcode],
+      );
+      if (!locked.rows.length)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const fresh = (
+        await this.preview(input.barcode, "HEPSIBURADA", client)
+      )[0];
+      if (
+        !fresh?.safetyChecks.safe ||
+        !fresh.safetyChecks.hbFloorRecovery ||
+        fresh.safetyChecks.hbFloorRecovery.fingerprint !==
+          preview.safetyChecks.hbFloorRecovery.fingerprint ||
+        fresh.proposedPrice !== preview.proposedPrice
+      )
+        throw new AppError("Floor preview değişti", 409, "STALE_PREVIEW");
+      if (
+        await this.actions.findOpen(input.barcode, client, null, "HEPSIBURADA")
+      )
+        throw new AppError(
+          "Açık fiyat aksiyonu var",
+          409,
+          "OPEN_ACTION_EXISTS",
+        );
+      const action = await this.actions.create(input, client);
+      await this.actions.recordDecision(
+        action.id,
+        { barcode: input.barcode, strategy: input.strategy },
+        fresh,
+        client,
+      );
+      await client.query("COMMIT");
+      return action;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async manualAction(barcode, proposedPrice, actor, options = {}) {

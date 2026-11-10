@@ -7,6 +7,9 @@ const { CostIntegrityService } = require("./services/cost-integrity.service");
 const { SyncService } = require("./services/sync.service");
 const { ShippingService } = require("./services/shipping.service");
 const { RepricerService } = require("./services/repricer.service");
+const {
+  HepsiburadaFloorRecoveryService,
+} = require("./services/hepsiburada-floor-recovery.service");
 const { ActionService } = require("./services/action.service");
 const {
   HepsiburadaActionService,
@@ -103,7 +106,9 @@ function createContainer(overrides = {}) {
     overrides.mappingAutomationRepository ||
     new MappingAutomationRepository(db, transaction);
   const dashboard = overrides.dashboard || new DashboardRepository(db);
-  const actions = overrides.actions || new ActionRepository(db, transaction);
+  const costEngine = overrides.costEngine || new CostEngineService(db);
+  const actions =
+    overrides.actions || new ActionRepository(db, transaction, { costEngine });
   const jobs = overrides.jobs || new JobRepository(db);
   const marketplaceRepository =
     overrides.marketplaceRepository || new MarketplaceRepository(db);
@@ -117,7 +122,6 @@ function createContainer(overrides = {}) {
     new OpportunityRepository(db, transaction);
   const contentRepository =
     overrides.contentRepository || new ContentRepository(db, transaction);
-  const costEngine = overrides.costEngine || new CostEngineService(db);
   const costIntegrity =
     overrides.costIntegrity ||
     new CostIntegrityService({
@@ -137,7 +141,15 @@ function createContainer(overrides = {}) {
   const sync =
     overrides.sync || new SyncService({ db, trendyol, hepsiburada, audit });
   const repricer =
-    overrides.repricer || new RepricerService({ db, actions, settings });
+    overrides.repricer ||
+    new RepricerService({
+      db,
+      actions,
+      settings,
+      hbFloorRecovery:
+        overrides.hbFloorRecovery ||
+        new HepsiburadaFloorRecoveryService({ db, hepsiburada }),
+    });
   const actionService =
     overrides.actionService ||
     new ActionService({
@@ -159,6 +171,7 @@ function createContainer(overrides = {}) {
       hepsiburada,
       audit,
       repricer,
+      hbFloorRecovery: repricer.hbFloorRecovery,
     });
   const learning =
     overrides.learning || new LearningService({ actions, sync, audit });

@@ -3,8 +3,8 @@ class SettingsRepository {
     this.db = db;
   }
 
-  async getAll() {
-    const result = await this.db.query(
+  async getAll(queryable = this.db) {
+    const result = await queryable.query(
       "SELECT key, value, description, updated_by, updated_at FROM system_settings ORDER BY key",
     );
     return Object.fromEntries(result.rows.map((row) => [row.key, row.value]));

@@ -41,8 +41,9 @@ function actionFilter({ status, barcode, marketplace } = {}) {
 }
 
 class ActionRepository {
-  constructor(db, withTransaction) {
+  constructor(db, withTransaction, { costEngine } = {}) {
     this.db = db;
+    this.costEngine = costEngine;
     this.withTransaction =
       withTransaction ||
       (async (work) => {
@@ -383,6 +384,20 @@ class ActionRepository {
           locked.expected_margin,
         ],
       );
+      if (
+        locked.marketplace === "HEPSIBURADA" &&
+        locked.safety_checks?.hbFloorRecovery
+      ) {
+        if (!this.costEngine)
+          throw new Error(
+            "HB floor verification requires transactional CostEngine",
+          );
+        await this.costEngine.recalculate(
+          locked.barcode,
+          client,
+          "HEPSIBURADA",
+        );
+      }
       await client.query(
         `INSERT INTO price_war_log(
           marketplace,barcode,product_name,old_price,new_price,price_diff,

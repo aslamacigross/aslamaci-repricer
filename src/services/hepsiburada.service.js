@@ -1,5 +1,6 @@
 const { env } = require("../config/env");
 const { canonicalGtin } = require("../domain/catalog-gtin");
+const { merchantId } = require("../domain/hepsiburada-merchant-identity");
 const {
   parseHepsiburadaPublicBuyboxHtml,
 } = require("../domain/hepsiburada-buybox");
@@ -2286,7 +2287,7 @@ function normalizeCommissionRows(payload) {
   return rows;
 }
 
-function normalizeBuyboxOrders(payload) {
+function normalizeBuyboxOrders(payload, { strictIdentity = false } = {}) {
   const variants = Array.isArray(payload?.variants) ? payload.variants : [];
   return variants
     .map((variant) => {
@@ -2309,11 +2310,26 @@ function normalizeBuyboxOrders(payload) {
               order.originalPrice,
           );
           return {
-            rank: Number.isFinite(rank) && rank > 0 ? rank : index + 1,
+            rank: strictIdentity
+              ? Number.isInteger(rank) && rank > 0
+                ? rank
+                : null
+              : Number.isFinite(rank) && rank > 0
+                ? rank
+                : index + 1,
             merchantName: String(
               order.merchantName || order.seller || order.sellerName || "",
             ).trim(),
             merchantId: String(order.merchantId || order.sellerId || "").trim(),
+            ...(strictIdentity
+              ? {
+                  identityConflict: Boolean(
+                    merchantId(order.merchantId) &&
+                    merchantId(order.sellerId) &&
+                    merchantId(order.merchantId) !== merchantId(order.sellerId),
+                  ),
+                }
+              : {}),
             price: Number.isFinite(price) && price > 0 ? price : null,
             originalPrice:
               Number.isFinite(Number(order.originalPrice)) &&
@@ -2325,7 +2341,11 @@ function normalizeBuyboxOrders(payload) {
           };
         })
         .filter((order) => order.price);
-      orders.sort((left, right) => left.rank - right.rank);
+      orders.sort((left, right) =>
+        strictIdentity
+          ? (left.rank ?? Infinity) - (right.rank ?? Infinity)
+          : left.rank - right.rank,
+      );
       return { sku, buyboxOrders: orders };
     })
     .filter((variant) => variant.sku);

@@ -1,6 +1,7 @@
 const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { SyncService } = require("../../src/services/sync.service");
+const { env } = require("../../src/config/env");
 
 function fakeDb(products, calls = []) {
   return {
@@ -58,6 +59,86 @@ function syncWith({ products, getBuyboxOrders, fetchPublicBuybox }) {
 }
 
 describe("Hepsiburada official buybox sync", () => {
+  test("opt-in exact merchant ID persists rank after a store-name change", async () => {
+    const oldFlag = env.hepsiburadaFloorRecoveryEnabled,
+      oldId = env.hepsiburadaMerchantId;
+    try {
+      env.hepsiburadaFloorRecoveryEnabled = true;
+      env.hepsiburadaMerchantId = "verified-merchant";
+      const { sync, calls } = syncWith({
+        products: [product(1)],
+        getBuyboxOrders: async () => ({
+          variants: [
+            {
+              sku: "HBV0001",
+              buyboxOrders: [
+                {
+                  rank: 1,
+                  merchantId: "other",
+                  merchantName: "AŞLAMACI GROSS",
+                  price: 99,
+                },
+                {
+                  rank: 2,
+                  merchantId: "verified-merchant",
+                  merchantName: "New name",
+                  price: 101,
+                },
+              ],
+            },
+          ],
+        }),
+      });
+      await sync.hepsiburadaBuybox(["SKU0001"], { requestDelayMs: 0 });
+      const update = calls.find((c) =>
+        String(c.sql || "").includes("buybox_seller=$8"),
+      );
+      assert.equal(update.params[3], 2);
+    } finally {
+      env.hepsiburadaFloorRecoveryEnabled = oldFlag;
+      env.hepsiburadaMerchantId = oldId;
+    }
+  });
+  test("flag off retains legacy name-matching sync behavior", async () => {
+    const oldFlag = env.hepsiburadaFloorRecoveryEnabled,
+      oldId = env.hepsiburadaMerchantId;
+    try {
+      env.hepsiburadaFloorRecoveryEnabled = false;
+      env.hepsiburadaMerchantId = "verified-merchant";
+      const { sync, calls } = syncWith({
+        products: [product(1)],
+        getBuyboxOrders: async () => ({
+          variants: [
+            {
+              sku: "HBV0001",
+              buyboxOrders: [
+                {
+                  rank: 1,
+                  merchantId: "other",
+                  merchantName: "AŞLAMACI GROSS",
+                  price: 99,
+                },
+                {
+                  rank: 2,
+                  merchantId: "verified-merchant",
+                  merchantName: "New name",
+                  price: 101,
+                },
+              ],
+            },
+          ],
+        }),
+      });
+      await sync.hepsiburadaBuybox(["SKU0001"], { requestDelayMs: 0 });
+      const update = calls.find((c) =>
+        String(c.sql || "").includes("buybox_seller=$8"),
+      );
+      assert.equal(update.params[3], 1);
+    } finally {
+      env.hepsiburadaFloorRecoveryEnabled = oldFlag;
+      env.hepsiburadaMerchantId = oldId;
+    }
+  });
   test("HTTP 403 eski buybox timestampini yenilemez", async () => {
     const { sync, calls } = syncWith({
       products: [

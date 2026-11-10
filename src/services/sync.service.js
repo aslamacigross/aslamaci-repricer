@@ -4,6 +4,9 @@ const { roundMoney } = require("../utils/numbers");
 const { canonicalGtin } = require("../domain/catalog-gtin");
 const { normalizeBuyboxOrders } = require("./hepsiburada.service");
 const {
+  findOwnBuyboxOrder,
+} = require("../domain/hepsiburada-merchant-identity");
+const {
   ObservationPersistenceService,
   emptyCounters,
 } = require("./observation-persistence.service");
@@ -1485,7 +1488,9 @@ class SyncService {
           skuList: batch,
         });
         summary.metadata.successRequests++;
-        const variants = normalizeBuyboxOrders(payload);
+        const variants = normalizeBuyboxOrders(payload, {
+          strictIdentity: env.hepsiburadaFloorRecoveryEnabled,
+        });
         summary.metadata.variantsReturned += variants.length;
         const variantsBySku = new Map(
           variants.map((variant) => [variant.sku, variant]),
@@ -1498,9 +1503,14 @@ class SyncService {
             continue;
           }
           const orders = variant.buyboxOrders;
-          const ownOrder = orders.find((order) =>
-            ownSellerNames.has(normalizedSellerName(order.merchantName)),
-          );
+          const ownOrder = env.hepsiburadaFloorRecoveryEnabled
+            ? findOwnBuyboxOrder(orders, {
+                ownMerchantId: env.hepsiburadaMerchantId,
+                ownSellerNames,
+              })
+            : orders.find((order) =>
+                ownSellerNames.has(normalizedSellerName(order.merchantName)),
+              );
           const first = orders.find((order) => order.rank === 1) || orders[0];
           const second = orders.find((order) => order.rank === 2);
           const third = orders.find((order) => order.rank === 3);
