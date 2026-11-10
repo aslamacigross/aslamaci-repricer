@@ -136,6 +136,10 @@ class HepsiburadaAutoRepricerService {
         const latest = await this.actions.get(action.id);
         if (
           latest &&
+          ![
+            "HB_SUBMISSION_OUTCOME_UNKNOWN",
+            "HB_SUBMISSION_PERSISTENCE_UNCERTAIN",
+          ].includes(error.code) &&
           ["PENDING", "APPROVED", "SENDING"].includes(latest.status)
         ) {
           await this.actions.updateStatus(action.id, "FAILED", {

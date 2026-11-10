@@ -1,9 +1,14 @@
+const { HepsiburadaPilotPolicy } = require("../domain/hepsiburada-pilot");
 const { AppError } = require("../utils/errors");
 const {
   matchesOwnListing,
 } = require("../domain/hepsiburada-merchant-identity");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
-const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
+const {
+  calculateNetProfit,
+  calculateNetMargin,
+  selectShippingCost,
+} = require("../domain/pricing");
 const { roundMoney, parseBoolean } = require("../utils/numbers");
 
 function firstValue(source, keys) {
@@ -82,6 +87,168 @@ class HepsiburadaActionService {
     });
   }
 
+  async persistSubmission(id, submission, actor, receipt, client) {
+    return this.actions.recordHbSubmission(
+      id,
+      submission,
+      actor,
+      receipt,
+      client,
+    );
+  }
+
+  // The final DB check follows the LAST external GET; it performs no more HTTP
+  // reads. The transaction ends before POST: this narrows, not eliminates, the
+  // unavoidable DB/provider gap. Old workers must be drained before activation.
+  async validatePilotDispatch(action, listing) {
+    return this.withTransaction(async (client) => {
+      const state = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [action.id],
+        )
+      ).rows[0];
+      if (state?.status !== "SENDING")
+        throw new AppError(
+          "Aksiyon gönderim durumunda değil",
+          409,
+          "DUPLICATE_APPLY",
+        );
+      const product = await this.products.get(
+        action.barcode,
+        "HEPSIBURADA",
+        client,
+      );
+      const pilot =
+        this.hbFloorRecovery?.pilot ||
+        this.repricer?.hbPilot ||
+        new HepsiburadaPilotPolicy();
+      pilot.assertAction(action, product);
+      if (!pilot.matchesListing(product, listing, action.safety_checks.hbPilot))
+        throw new AppError(
+          "Listing kimliği uyuşmuyor",
+          409,
+          "HB_FLOOR_MARKET_IDENTITY_UNVERIFIED",
+        );
+      if (!this.hepsiburada.livePriceUpdatesEnabled())
+        throw new AppError(
+          "HB fiyat izni kapalı",
+          409,
+          "HEPSIBURADA_PRICE_MUTATION_DISABLED",
+        );
+      const global = await this.repricer.globalSettings(client);
+      const settings = {
+        ...product.settings,
+        unlimited_increase:
+          parseBoolean(global.unlimitedIncrease) ||
+          parseBoolean(product.settings?.unlimited_increase),
+      };
+      const stats = await this.actions.todayStats(
+        action.barcode,
+        "HEPSIBURADA",
+        client,
+      );
+      const today = {
+        actionCount: stats.action_count,
+        dayStartPrice: stats.day_start_price,
+      };
+      if (action.safety_checks?.hbFloorRecovery) {
+        if (!this.hbFloorRecovery?.enabled)
+          throw new AppError("Floor kapalı", 409, "HB_FLOOR_DISABLED");
+        const result = await this.hbFloorRecovery.evaluate({
+          product,
+          settings,
+          global,
+          today,
+          proposal: proposePrice(product, settings),
+          action,
+          queryable: client,
+          observedListing: listing,
+        });
+        if (!result?.safety.safe)
+          throw new AppError(
+            "Son floor kanıtı değişti",
+            409,
+            "STALE_PREVIEW",
+            result?.safety.failures,
+          );
+        // Configuration can change while SELECTs await. Recheck synchronously
+        // after all evidence reads. No claim of remote cancellation is made.
+        pilot.assertAction(action, product);
+        if (!this.hbFloorRecovery.enabled)
+          throw new AppError("Floor kapalı", 409, "HB_FLOOR_DISABLED");
+        return result.safety.hbFloorRecovery;
+      }
+      // Identity-only can enable ordinary competitive actions. It must not
+      // inherit the floor exception, but its last-GET dispatch still requires
+      // current source evidence and target-tariff profit; never raise its target
+      // implicitly when the floor feature is off.
+      const evidence = await this.hbFloorRecovery.loadBatch(
+        [product],
+        client,
+        action.id,
+      );
+      const verified = this.hbFloorRecovery.verifyCost(product, evidence);
+      const targetShipping = selectShippingCost({
+        salePrice: Number(action.proposed_price),
+        desi: verified.desi,
+        carrier: evidence.carrier,
+        barems: evidence.barems,
+        costs: evidence.rates,
+      });
+      if (!(targetShipping > 0))
+        throw new AppError(
+          "Pilot hedef kargo maliyeti doğrulanamadı",
+          409,
+          "HB_PILOT_TARGET_UNSAFE",
+        );
+      const proposal = {
+        ...proposePrice(product, settings),
+        proposedPrice: Number(action.proposed_price),
+      };
+      const money = {
+        salePrice: proposal.proposedPrice,
+        productCost: product.calculated_product_cost,
+        shippingCost: targetShipping,
+        commissionRate: product.commission_rate,
+        packagingCost: product.packaging_cost,
+        serviceFee: product.service_fee,
+      };
+      proposal.expectedProfit = calculateNetProfit(money);
+      proposal.expectedMargin = calculateNetMargin(money);
+      const safety = safetyCheck({
+        product,
+        settings,
+        global,
+        proposal,
+        today,
+      });
+      if (
+        !safety.safe ||
+        proposal.expectedProfit <
+          Math.max(
+            Number(product.target_profit) || 0,
+            Number(settings.minimum_profit_tl) || 0,
+          ) ||
+        settings.mode !== "AUTOMATIC" ||
+        !parseBoolean(product.auto_update) ||
+        !parseBoolean(settings.auto_update) ||
+        listingPrice(listing, true) !== Number(action.old_price) ||
+        Number(product.my_price) !== Number(action.old_price) ||
+        listing.isSalable !== true ||
+        !(listingStock(listing) > 0)
+      )
+        throw new AppError(
+          "Pilot son kontrolü başarısız",
+          409,
+          "SAFETY_BLOCKED",
+          safety.failures,
+        );
+      pilot.assertAction(action, product);
+      return null;
+    });
+  }
+
   async apply(id, actor) {
     const preparation = await this.withTransaction(async (client) => {
       const locked = (
@@ -119,8 +286,14 @@ class HepsiburadaActionService {
       );
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const pilot =
+        this.hbFloorRecovery?.pilot ||
+        this.repricer?.hbPilot ||
+        new HepsiburadaPilotPolicy();
+      pilot.assertAction(locked, product);
       if (
         this.hbFloorRecovery?.enabled &&
+        pilot.scope(product, "floorRecovery").allowed &&
         ["AUTO", "JOB", "WEB"].includes(locked.source) &&
         (Number(product.my_price) < Number(product.min_price) ||
           locked.action === "MIN_FIYATA_TOPARLA") &&
@@ -249,6 +422,17 @@ class HepsiburadaActionService {
           "HEPSIBURADA_PRICE_MUTATION_DISABLED",
         );
       await this.actions.updateStatus(id, "SENDING", { actor }, client);
+      await this.audit.record(
+        {
+          actor,
+          action: "HB_PRICE_DISPATCH_INTENT",
+          entityType: "repricer_action",
+          entityId: String(id),
+          before: locked,
+          after: { status: "SENDING", outcome: "NOT_YET_KNOWN" },
+        },
+        client,
+      );
       return { dryRun: false, locked, product };
     });
     if (preparation.dryRun) {
@@ -263,6 +447,9 @@ class HepsiburadaActionService {
     }
 
     const { locked, product } = preparation;
+    let dispatchStarted = false;
+    let submission;
+    let floorPreflight;
     try {
       const listing = await this.hepsiburada.readListingForPrice({
         merchantSku: product.merchant_sku || product.barcode,
@@ -293,7 +480,6 @@ class HepsiburadaActionService {
           409,
           "MARKET_PRODUCT_UNAVAILABLE",
         );
-      let floorPreflight;
       if (locked.safety_checks?.hbFloorRecovery) {
         // Repeat current source/recipe/policy and own-listing GET checks after
         // preparation. Never reinterpret an old ordinary action as a floor action.
@@ -332,55 +518,146 @@ class HepsiburadaActionService {
               : "STALE_PREVIEW",
             recovery?.safety.failures,
           );
-        floorPreflight = recovery.safety.hbFloorRecovery;
+        floorPreflight = await this.validatePilotDispatch(
+          locked,
+          recovery.observedListing,
+        );
+      } else if (locked.safety_checks?.hbPilot) {
+        await this.validatePilotDispatch(locked, listing);
       }
-      const submission = await this.hepsiburada.submitPriceUpdate({
+      dispatchStarted = true;
+      submission = await this.hepsiburada.submitPriceUpdate({
         merchantSku: product.merchant_sku || product.barcode,
         hbSku: product.hb_sku || product.marketplace_product_id,
         price: Number(locked.proposed_price),
       });
-      const updated = await this.withTransaction((client) =>
-        this.actions.updateStatus(
-          id,
-          "AWAITING_RESULT",
-          {
-            actor,
-            batchId: submission.uploadId,
-            apiResponse: {
-              submission: submission.response,
-              ...(floorPreflight ? { floorPreflight } : {}),
-            },
-          },
-          client,
-        ),
-      );
-      await this.audit.record({
-        actor,
-        action: "HB_PRICE_ACTION_SENT",
-        entityType: "repricer_action",
-        entityId: String(id),
-        after: {
-          uploadId: submission.uploadId,
-          ...(floorPreflight ? { floorPreflight } : {}),
-        },
-      });
-      return updated;
     } catch (error) {
+      if (dispatchStarted) {
+        // SENDING is deliberately nonterminal. A timeout/missing upload ID does
+        // not prove rejection, and must not free findOpen or permit a retry.
+        try {
+          await this.withTransaction(async (client) => {
+            await this.actions.updateStatus(
+              id,
+              "SENDING",
+              {
+                actor,
+                error: "External outcome UNKNOWN",
+                apiResponse: {
+                  dispatch: {
+                    outcome: "UNKNOWN",
+                    code: error.code || "TRANSPORT_ERROR",
+                  },
+                },
+              },
+              client,
+            );
+            await this.audit.record(
+              {
+                actor,
+                action: "HB_PRICE_SUBMISSION_UNKNOWN",
+                entityType: "repricer_action",
+                entityId: String(id),
+                after: {
+                  outcome: "UNKNOWN",
+                  code: error.code || "TRANSPORT_ERROR",
+                },
+              },
+              client,
+            );
+          });
+        } catch {
+          /* Original committed SENDING + dispatch intent still block retry. */
+        }
+        const unknown = new AppError(
+          "HB gönderim sonucu belirsiz; otomatik tekrar yasak",
+          Number(error.status) === 429 || error.code === "HTTP_429" ? 429 : 409,
+          "HB_SUBMISSION_OUTCOME_UNKNOWN",
+        );
+        unknown.retryAfterMs = error.retryAfterMs;
+        throw unknown;
+      }
       const stale = ["PRICE_MISMATCH", "MARKET_PRICE_MISMATCH"].includes(
         error.code,
       );
-      await this.actions.updateStatus(id, stale ? "STALE" : "FAILED", {
-        actor,
-        error: error.message,
-      });
-      await this.audit.record({
-        actor,
-        action: stale ? "HB_PRICE_ACTION_STALE" : "HB_PRICE_ACTION_FAILED",
-        entityType: "repricer_action",
-        entityId: String(id),
-        after: { code: error.code || "HB_PRICE_ACTION_FAILED" },
+      await this.withTransaction(async (client) => {
+        await this.actions.updateStatus(
+          id,
+          stale ? "STALE" : "FAILED",
+          { actor, error: error.message },
+          client,
+        );
+        await this.audit.record(
+          {
+            actor,
+            action: stale ? "HB_PRICE_ACTION_STALE" : "HB_PRICE_ACTION_FAILED",
+            entityType: "repricer_action",
+            entityId: String(id),
+            after: { code: error.code || "HB_PRICE_ACTION_FAILED" },
+          },
+          client,
+        );
       });
       throw error;
+    }
+    const receipt = {
+      submission: submission.response,
+      dispatchReceipt: {
+        outcome: "ACCEPTED",
+        uploadId: submission.uploadId,
+        actor,
+        actionId: id,
+        before: "SENDING",
+        after: "AWAITING_RESULT",
+        recordedAt: new Date().toISOString(),
+      },
+      ...(floorPreflight ? { floorPreflight } : {}),
+    };
+    try {
+      return await this.withTransaction(async (client) => {
+        const updated = await this.persistSubmission(
+          id,
+          submission,
+          actor,
+          receipt,
+          client,
+        );
+        await this.audit.record(
+          {
+            actor,
+            action: "HB_PRICE_ACTION_SENT",
+            entityType: "repricer_action",
+            entityId: String(id),
+            before: { status: "SENDING" },
+            after: receipt,
+          },
+          client,
+        );
+        return updated;
+      });
+    } catch {
+      // Preserve an accepted upload for normal verification even if the audit
+      // sink is broken. The existing JSON receipt retains the transition and an
+      // explicit audit debt; never turn a local bookkeeping failure into FAILED.
+      try {
+        return await this.withTransaction((client) =>
+          this.persistSubmission(
+            id,
+            submission,
+            actor,
+            { ...receipt, auditPending: true },
+            client,
+          ),
+        );
+      } catch {
+        // DB unavailable: SENDING and its pre-dispatch audit were already durable.
+        // This needs separate reconciliation; neither retry nor SUCCESS is safe.
+        throw new AppError(
+          "HB kabul etti; yerel kayıt doğrulanamadı",
+          503,
+          "HB_SUBMISSION_PERSISTENCE_UNCERTAIN",
+        );
+      }
     }
   }
 
@@ -415,8 +692,14 @@ class HepsiburadaActionService {
         batchResponse,
       };
     if (
-      action.safety_checks?.hbFloorRecovery &&
-      !matchesOwnListing(product, listing)
+      action.safety_checks?.hbPilot
+        ? !(
+            this.hbFloorRecovery?.pilot ||
+            this.repricer?.hbPilot ||
+            new HepsiburadaPilotPolicy()
+          ).matchesListing(product, listing, action.safety_checks.hbPilot)
+        : action.safety_checks?.hbFloorRecovery &&
+          !matchesOwnListing(product, listing)
     )
       return {
         status: "PENDING",

@@ -1,3 +1,4 @@
+const { HepsiburadaPilotPolicy } = require("../domain/hepsiburada-pilot");
 const { env } = require("../config/env");
 const logger = require("../config/logger");
 const { roundMoney } = require("../utils/numbers");
@@ -5,6 +6,7 @@ const { canonicalGtin } = require("../domain/catalog-gtin");
 const { normalizeBuyboxOrders } = require("./hepsiburada.service");
 const {
   findOwnBuyboxOrder,
+  merchantId,
 } = require("../domain/hepsiburada-merchant-identity");
 const {
   ObservationPersistenceService,
@@ -462,7 +464,15 @@ async function verifiedGtinCrossMarketMetadata(db, gtin) {
 }
 
 class SyncService {
-  constructor({ db, trendyol, hepsiburada, audit, observations }) {
+  constructor({
+    db,
+    trendyol,
+    hepsiburada,
+    audit,
+    observations,
+    hbPilot = new HepsiburadaPilotPolicy(),
+  }) {
+    this.hbPilot = hbPilot;
     this.db = db;
     this.trendyol = trendyol;
     this.hepsiburada = hepsiburada;
@@ -1264,7 +1274,7 @@ class SyncService {
       baseParams.push([...new Set(barcodes.map(String).filter(Boolean))]);
       where += ` AND p.barcode=ANY($${baseParams.length}::text[])`;
     }
-    const selectProducts = `SELECT p.barcode,p.product_name,p.my_price,p.min_price,
+    const selectProducts = `SELECT p.marketplace,p.barcode,p.product_name,p.my_price,p.min_price,
                                   p.calculated_net_profit,p.marketplace_product_id,p.merchant_sku,
                                   p.hb_sku,p.listing_id,p.buybox_updated_at
                            FROM products p
@@ -1418,13 +1428,14 @@ class SyncService {
         result.thirdSeller,
         result.sellerCount,
         result.source,
+        result.identityConflict ? "HB_MERCHANT_IDENTITY_CONFLICT" : null,
       ];
       await this.db.query(
         `UPDATE products
          SET buybox_price=$1,second_price=$2,third_price=$3,rank=$4,
              has_multiple_seller=$5,buybox_updated_at=$7,
              buybox_seller=$8,second_seller=$9,third_seller=$10,
-             seller_count=$11,buybox_source=$12,buybox_error_code=NULL,
+             seller_count=$11,buybox_source=$12,buybox_error_code=$13,
              updated_at=NOW()
          WHERE marketplace='HEPSIBURADA' AND barcode=$6`,
         values,
@@ -1488,9 +1499,13 @@ class SyncService {
           skuList: batch,
         });
         summary.metadata.successRequests++;
-        const variants = normalizeBuyboxOrders(payload, {
-          strictIdentity: env.hepsiburadaFloorRecoveryEnabled,
-        });
+        const variants = normalizeBuyboxOrders(payload);
+        const strictVariants = new Map(
+          normalizeBuyboxOrders(payload, { strictIdentity: true }).map((v) => [
+            v.sku,
+            v,
+          ]),
+        );
         summary.metadata.variantsReturned += variants.length;
         const variantsBySku = new Map(
           variants.map((variant) => [variant.sku, variant]),
@@ -1502,31 +1517,47 @@ class SyncService {
             await recordSkuUnavailable(sku, "BUYBOX_NOT_RETURNED");
             continue;
           }
-          const orders = variant.buyboxOrders;
-          const ownOrder = env.hepsiburadaFloorRecoveryEnabled
-            ? findOwnBuyboxOrder(orders, {
-                ownMerchantId: env.hepsiburadaMerchantId,
-                ownSellerNames,
-              })
-            : orders.find((order) =>
-                ownSellerNames.has(normalizedSellerName(order.merchantName)),
-              );
-          const first = orders.find((order) => order.rank === 1) || orders[0];
-          const second = orders.find((order) => order.rank === 2);
-          const third = orders.find((order) => order.rank === 3);
-          const result = {
-            buyboxPrice: first?.price || null,
-            buyboxSeller: first?.merchantName || null,
-            secondPrice: second?.price || null,
-            secondSeller: second?.merchantName || null,
-            thirdPrice: third?.price || null,
-            thirdSeller: third?.merchantName || null,
-            sellerCount: orders.length,
-            hasMultipleSeller: orders.length > 1,
-            rank: ownOrder?.rank || null,
-            source: "HEPSIBURADA_OFFICIAL_API",
-          };
           for (const product of productsBySku.get(sku) || []) {
+            const identity = this.hbPilot.scope(product, "identity");
+            const orders =
+              (identity.allowed ? strictVariants.get(sku) : variant)
+                ?.buyboxOrders || [];
+            // Strict pilot requires an actual matching permanent provider ID.
+            // Legacy names remain available only outside this explicit pilot.
+            const ownOrder = identity.allowed
+              ? findOwnBuyboxOrder(orders, {
+                  ownMerchantId: identity.entry.merchantId,
+                })
+              : orders.find((order) =>
+                  ownSellerNames.has(normalizedSellerName(order.merchantName)),
+                );
+            const first = orders.find((order) => order.rank === 1) || orders[0];
+            const second = orders.find((order) => order.rank === 2);
+            const third = orders.find((order) => order.rank === 3);
+            const result = {
+              buyboxPrice: first?.price || null,
+              buyboxSeller: first?.merchantName || null,
+              secondPrice: second?.price || null,
+              secondSeller: second?.merchantName || null,
+              thirdPrice: third?.price || null,
+              thirdSeller: third?.merchantName || null,
+              sellerCount: orders.length,
+              hasMultipleSeller: orders.length > 1,
+              rank: ownOrder?.rank || null,
+              source:
+                this.hbPilot.identitySource(product) ||
+                "HEPSIBURADA_OFFICIAL_API",
+              identityConflict:
+                identity.allowed &&
+                (orders.filter(
+                  (o) => merchantId(o.merchantId) === identity.entry.merchantId,
+                ).length > 1 ||
+                  orders.some(
+                    (o) =>
+                      merchantId(o.merchantId) === identity.entry.merchantId &&
+                      o.identityConflict,
+                  )),
+            };
             await writeResult(product, result, observedAt, snapshots);
           }
         }

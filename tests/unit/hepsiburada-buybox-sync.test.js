@@ -34,6 +34,7 @@ function fakeDb(products, calls = []) {
 
 function product(index, overrides = {}) {
   return {
+    marketplace: "HEPSIBURADA",
     barcode: `SKU${String(index).padStart(4, "0")}`,
     hb_sku: `HBV${String(index).padStart(4, "0")}`,
     merchant_sku: `SKU${String(index).padStart(4, "0")}`,
@@ -60,11 +61,22 @@ function syncWith({ products, getBuyboxOrders, fetchPublicBuybox }) {
 
 describe("Hepsiburada official buybox sync", () => {
   test("opt-in exact merchant ID persists rank after a store-name change", async () => {
-    const oldFlag = env.hepsiburadaFloorRecoveryEnabled,
-      oldId = env.hepsiburadaMerchantId;
+    const oldFlag = env.hepsiburadaStrictMerchantIdentityEnabled,
+      oldId = env.hepsiburadaMerchantId,
+      oldList = env.hepsiburadaPilotAllowlist;
     try {
-      env.hepsiburadaFloorRecoveryEnabled = true;
+      env.hepsiburadaStrictMerchantIdentityEnabled = true;
       env.hepsiburadaMerchantId = "verified-merchant";
+      env.hepsiburadaPilotAllowlist = [
+        {
+          marketplace: "HEPSIBURADA",
+          merchantId: "verified-merchant",
+          merchantSku: "SKU0001",
+          hbSku: "HBV0001",
+          identity: true,
+          floorRecovery: false,
+        },
+      ];
       const { sync, calls } = syncWith({
         products: [product(1)],
         getBuyboxOrders: async () => ({
@@ -95,16 +107,28 @@ describe("Hepsiburada official buybox sync", () => {
       );
       assert.equal(update.params[3], 2);
     } finally {
-      env.hepsiburadaFloorRecoveryEnabled = oldFlag;
+      env.hepsiburadaStrictMerchantIdentityEnabled = oldFlag;
       env.hepsiburadaMerchantId = oldId;
+      env.hepsiburadaPilotAllowlist = oldList;
     }
   });
   test("flag off retains legacy name-matching sync behavior", async () => {
-    const oldFlag = env.hepsiburadaFloorRecoveryEnabled,
-      oldId = env.hepsiburadaMerchantId;
+    const oldFlag = env.hepsiburadaStrictMerchantIdentityEnabled,
+      oldId = env.hepsiburadaMerchantId,
+      oldList = env.hepsiburadaPilotAllowlist;
     try {
-      env.hepsiburadaFloorRecoveryEnabled = false;
+      env.hepsiburadaStrictMerchantIdentityEnabled = false;
       env.hepsiburadaMerchantId = "verified-merchant";
+      env.hepsiburadaPilotAllowlist = [
+        {
+          marketplace: "HEPSIBURADA",
+          merchantId: "verified-merchant",
+          merchantSku: "SKU0001",
+          hbSku: "HBV0001",
+          identity: true,
+          floorRecovery: false,
+        },
+      ];
       const { sync, calls } = syncWith({
         products: [product(1)],
         getBuyboxOrders: async () => ({
@@ -135,8 +159,9 @@ describe("Hepsiburada official buybox sync", () => {
       );
       assert.equal(update.params[3], 1);
     } finally {
-      env.hepsiburadaFloorRecoveryEnabled = oldFlag;
+      env.hepsiburadaStrictMerchantIdentityEnabled = oldFlag;
       env.hepsiburadaMerchantId = oldId;
+      env.hepsiburadaPilotAllowlist = oldList;
     }
   });
   test("HTTP 403 eski buybox timestampini yenilemez", async () => {
@@ -245,7 +270,8 @@ describe("Hepsiburada official buybox sync", () => {
       String(call.sql || "").includes("buybox_seller=$8"),
     );
     assert.ok(update);
-    assert.equal(update.params.length, 12);
+    assert.equal(update.params.length, 13);
+    assert.equal(update.params[12], null);
     assert.equal(update.params[0], 95);
     assert.equal(update.params[1], 99);
     assert.equal(update.params[2], null);
@@ -270,7 +296,7 @@ describe("Hepsiburada official buybox sync", () => {
     assert.match(String(update.sql), /third_seller=\$10/);
     assert.match(String(update.sql), /seller_count=\$11/);
     assert.match(String(update.sql), /buybox_source=\$12/);
-    assert.match(String(update.sql), /buybox_error_code=NULL/);
+    assert.match(String(update.sql), /buybox_error_code=\$13/);
     assert.equal(String(update.sql).includes("my_price"), false);
     const observation = calls.find((call) =>
       String(call.sql || "").includes("INSERT INTO repricer_observations"),
@@ -502,4 +528,108 @@ describe("Hepsiburada official buybox sync", () => {
       4,
     );
   });
+});
+
+for (const identity of [false, true])
+  for (const floor of [false, true]) {
+    test(`sync pilot is bounded; identity=${identity}, floor=${floor}`, async () => {
+      const saved = { ...env };
+      try {
+        env.hepsiburadaMerchantId = "verified-merchant";
+        env.hepsiburadaStrictMerchantIdentityEnabled = identity;
+        env.hepsiburadaFloorRecoveryEnabled = floor;
+        env.hepsiburadaPilotAllowlist = [
+          {
+            marketplace: "HEPSIBURADA",
+            merchantId: "verified-merchant",
+            merchantSku: "SKU0001",
+            hbSku: "HBV0001",
+            identity: true,
+            floorRecovery: false,
+          },
+        ];
+        const { sync, calls } = syncWith({
+          products: [product(1), product(2, { hb_sku: "HBV0001" })],
+          getBuyboxOrders: async () => ({
+            variants: [
+              {
+                sku: "HBV0001",
+                buyboxOrders: [
+                  {
+                    rank: 1,
+                    merchantId: "other",
+                    merchantName: "AŞLAMACI GROSS",
+                    price: 99,
+                  },
+                  {
+                    rank: 2,
+                    merchantId: "verified-merchant",
+                    merchantName: "New name",
+                    price: 101,
+                  },
+                ],
+              },
+            ],
+          }),
+        });
+        await sync.hepsiburadaBuybox(["SKU0001", "SKU0002"], {
+          requestDelayMs: 0,
+        });
+        const updates = calls.filter((c) =>
+          String(c.sql || "").includes("buybox_seller=$8"),
+        );
+        assert.equal(
+          updates.find((c) => c.params[5] === "SKU0001").params[3],
+          identity ? 2 : 1,
+        );
+        assert.equal(
+          updates.find((c) => c.params[5] === "SKU0002").params[3],
+          1,
+        );
+        assert.equal(
+          updates.find((c) => c.params[5] === "SKU0002").params[11],
+          "HEPSIBURADA_OFFICIAL_API",
+        );
+      } finally {
+        Object.assign(env, saved);
+      }
+    });
+  }
+test("strict pilot cannot infer merchant identity from a matching name without provider ID", async () => {
+  const saved = { ...env };
+  try {
+    env.hepsiburadaMerchantId = "verified-merchant";
+    env.hepsiburadaStrictMerchantIdentityEnabled = true;
+    env.hepsiburadaPilotAllowlist = [
+      {
+        marketplace: "HEPSIBURADA",
+        merchantId: "verified-merchant",
+        merchantSku: "SKU0001",
+        hbSku: "HBV0001",
+        identity: true,
+        floorRecovery: false,
+      },
+    ];
+    const { sync, calls } = syncWith({
+      products: [product(1)],
+      getBuyboxOrders: async () => ({
+        variants: [
+          {
+            sku: "HBV0001",
+            buyboxOrders: [
+              { rank: 1, merchantName: "AŞLAMACI GROSS", price: 99 },
+            ],
+          },
+        ],
+      }),
+    });
+    await sync.hepsiburadaBuybox(["SKU0001"], { requestDelayMs: 0 });
+    assert.equal(
+      calls.find((c) => String(c.sql || "").includes("buybox_seller=$8"))
+        .params[3],
+      null,
+    );
+  } finally {
+    Object.assign(env, saved);
+  }
 });

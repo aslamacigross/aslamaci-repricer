@@ -26,6 +26,29 @@ class ActionService {
     });
   }
 
+  async assertPilotApproval(action, client) {
+    if (action.marketplace !== "HEPSIBURADA" || !this.repricer?.hbPilot) return;
+    const product = await this.products.get(
+      action.barcode,
+      "HEPSIBURADA",
+      client,
+    );
+    if (!product)
+      throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+    const proof = this.repricer.hbPilot.assertAction(action, product);
+    if (
+      proof &&
+      (product.settings?.mode !== "AUTOMATIC" ||
+        !parseBoolean(product.auto_update) ||
+        !parseBoolean(product.settings?.auto_update))
+    )
+      throw new AppError(
+        "Pilot otomasyon izni kapalı",
+        409,
+        "HB_PILOT_POLICY_DENIED",
+      );
+  }
+
   async approve(id, actor) {
     const action = await this.actions.get(id);
     if (!action)
@@ -36,6 +59,42 @@ class ActionService {
         409,
         "INVALID_ACTION_STATE",
       );
+    await this.assertPilotApproval(action);
+    if (action.safety_checks?.hbPilot) {
+      return this.withTransaction(async (client) => {
+        const locked = (
+          await client.query(
+            "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+            [id],
+          )
+        ).rows[0];
+        if (locked?.status !== "PENDING")
+          throw new AppError(
+            "Aksiyon artık beklemiyor",
+            409,
+            "INVALID_ACTION_STATE",
+          );
+        await this.assertPilotApproval(locked, client);
+        const updated = await this.actions.updateStatus(
+          id,
+          "APPROVED",
+          { actor },
+          client,
+        );
+        await this.audit.record(
+          {
+            actor,
+            action: "REPRICER_ACTION_APPROVED",
+            entityType: "repricer_action",
+            entityId: String(id),
+            before: locked,
+            after: updated,
+          },
+          client,
+        );
+        return updated;
+      });
+    }
     const updated = await this.actions.updateStatus(id, "APPROVED", { actor });
     await this.audit.record({
       actor,
@@ -60,7 +119,7 @@ class ActionService {
     const updated = await this.withTransaction(async (client) => {
       const locked = (
         await client.query(
-          `SELECT id,status FROM repricer_actions
+          `SELECT * FROM repricer_actions
            WHERE id=ANY($1::bigint[]) FOR UPDATE`,
           [unique],
         )
@@ -74,6 +133,8 @@ class ActionService {
           409,
           "INVALID_ACTION_STATE",
         );
+      for (const action of locked)
+        await this.assertPilotApproval(action, client);
       return (
         await client.query(
           `UPDATE repricer_actions SET status='APPROVED',approved_by=$2,
@@ -123,6 +184,13 @@ class ActionService {
       ).rows[0];
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      await this.assertPilotApproval(action, client);
+      if (action.safety_checks?.hbPilot)
+        throw new AppError(
+          "Pilot hedefi düzenlemek için yeni preview gerekli",
+          409,
+          "HB_PILOT_REPREVIEW_REQUIRED",
+        );
       const minimumPrice = Math.max(
         Number(action.min_price || 0),
         Number(product.min_price || 0),

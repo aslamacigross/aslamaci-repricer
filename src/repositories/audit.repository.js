@@ -3,8 +3,8 @@ class AuditRepository {
     this.db = db;
   }
 
-  async record(entry) {
-    await this.db.query(
+  async record(entry, client = this.db) {
+    await client.query(
       `INSERT INTO audit_logs(actor, action, entity_type, entity_id, before_data, after_data, ip_address, request_id)
        VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)`,
       [

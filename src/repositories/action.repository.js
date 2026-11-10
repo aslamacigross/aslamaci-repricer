@@ -202,7 +202,8 @@ class ActionRepository {
       ).rows[0];
       if (
         !product ||
-        Number(product.my_price) !== Number(original.applied_price || original.proposed_price) ||
+        Number(product.my_price) !==
+          Number(original.applied_price || original.proposed_price) ||
         Number(original.old_price) < Number(product.min_price || 0)
       )
         return null;
@@ -226,7 +227,10 @@ class ActionRepository {
           third_price: original.third_price,
           expected_profit: original.net_profit_before,
           expected_margin: original.expected_margin,
-          safety_checks: { automaticRecovery: true, revertsActionId: original.id },
+          safety_checks: {
+            automaticRecovery: true,
+            revertsActionId: original.id,
+          },
           expires_at: new Date(Date.now() + 15 * 60000).toISOString(),
           net_profit_before: original.expected_profit,
           target_rank: 1,
@@ -553,6 +557,30 @@ class ActionRepository {
       );
       return recorded;
     });
+  }
+
+  async recordHbSubmission(id, submission, actor, apiResponse, client) {
+    const locked = (
+      await client.query(
+        "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+        [id],
+      )
+    ).rows[0];
+    if (!locked || locked.marketplace !== "HEPSIBURADA")
+      throw new Error("HB submission action missing");
+    if (
+      ["AWAITING_RESULT", "SUCCESS"].includes(locked.status) &&
+      String(locked.batch_id) === String(submission.uploadId)
+    )
+      return locked;
+    if (locked.status !== "SENDING")
+      throw new Error("HB submission receipt state conflict");
+    return this.updateStatus(
+      id,
+      "AWAITING_RESULT",
+      { actor, batchId: submission.uploadId, apiResponse },
+      client,
+    );
   }
 
   async updateStatus(id, status, fields = {}, client = this.db) {

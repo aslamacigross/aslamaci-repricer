@@ -1,3 +1,4 @@
+const { HepsiburadaPilotPolicy } = require("./domain/hepsiburada-pilot");
 const { pool, withTransaction } = require("./config/database");
 const { env } = require("./config/env");
 const { AuthService } = require("./services/auth.service");
@@ -138,8 +139,10 @@ function createContainer(overrides = {}) {
     });
   const shippingService =
     overrides.shippingService || new ShippingService(costs);
+  const hbPilot = overrides.hbPilot || new HepsiburadaPilotPolicy();
   const sync =
-    overrides.sync || new SyncService({ db, trendyol, hepsiburada, audit });
+    overrides.sync ||
+    new SyncService({ db, trendyol, hepsiburada, audit, hbPilot });
   const repricer =
     overrides.repricer ||
     new RepricerService({
@@ -148,7 +151,11 @@ function createContainer(overrides = {}) {
       settings,
       hbFloorRecovery:
         overrides.hbFloorRecovery ||
-        new HepsiburadaFloorRecoveryService({ db, hepsiburada }),
+        new HepsiburadaFloorRecoveryService({
+          db,
+          hepsiburada,
+          pilot: hbPilot,
+        }),
     });
   const actionService =
     overrides.actionService ||

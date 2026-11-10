@@ -1,0 +1,28 @@
+const { spawnSync } = require("child_process");
+if (!process.env.ASLAMACI_DISPOSABLE_PG_ROOT) {
+  console.error(
+    "ASLAMACI_DISPOSABLE_PG_ROOT must name a marked disposable Unix-socket PostgreSQL instance. No Railway URL is accepted.",
+  );
+  process.exitCode = 1;
+} else {
+  const environment = { ...process.env, ASLAMACI_HB_DATABASE: "postgres" };
+  for (const key of [
+    "DATABASE_URL",
+    "PGHOST",
+    "PGPORT",
+    "PGUSER",
+    "PGPASSWORD",
+    "PGDATABASE",
+  ])
+    delete environment[key];
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--test",
+      "--test-reporter=spec",
+      "tests/integration/hepsiburada-floor-lifecycle.test.js",
+    ],
+    { stdio: "inherit", env: environment },
+  );
+  process.exitCode = result.status ?? 1;
+}

@@ -1,3 +1,4 @@
+const { HepsiburadaPilotPolicy } = require("../domain/hepsiburada-pilot");
 const crypto = require("crypto");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
@@ -11,6 +12,7 @@ class RepricerService {
     this.actions = actions;
     this.settings = settings;
     this.hbFloorRecovery = hbFloorRecovery;
+    this.hbPilot = hbFloorRecovery?.pilot || new HepsiburadaPilotPolicy();
   }
 
   async globalSettings(queryable = this.db) {
@@ -174,8 +176,28 @@ class RepricerService {
           if (recovery) ({ proposal, safety } = recovery);
         }
       }
+      let pilotCandidate = false;
+      if (normalizedMarketplace === "HEPSIBURADA") {
+        try {
+          const proof = this.hbPilot.proof(product, {
+            floor: Boolean(safety.hbFloorRecovery),
+          });
+          if (proof) {
+            safety.hbPilot = proof;
+            pilotCandidate = true;
+          }
+        } catch (error) {
+          pilotCandidate = true;
+          safety = {
+            ...safety,
+            safe: false,
+            failures: [...new Set([...safety.failures, error.code])],
+          };
+        }
+      }
       results.push({
         ...proposal,
+        ...(pilotCandidate ? { pilotCandidate: true } : {}),
         ...(floorBatches.has(product.barcode)
           ? { floorRecoveryCandidate: true }
           : {}),
@@ -203,7 +225,9 @@ class RepricerService {
           (code) => !["DRY_RUN", "GLOBAL_REPRICER_DISABLED"].includes(code),
         );
         if (
-          (automatic || preview.floorRecoveryCandidate) &&
+          (automatic ||
+            preview.floorRecoveryCandidate ||
+            preview.pilotCandidate) &&
           blockingSafetyFailures.length
         ) {
           skipped.push({
@@ -249,7 +273,7 @@ class RepricerService {
         const key = crypto
           .createHash("sha256")
           .update(
-            `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}${preview.safetyChecks.hbFloorRecovery ? `:${preview.safetyChecks.hbFloorRecovery.fingerprint}` : ""}`,
+            `${normalizedMarketplace}:${preview.barcode}:${preview.oldPrice}:${preview.proposedPrice}:${preview.buyboxPrice}:${validityBucket}${preview.safetyChecks.hbPilot ? `:${preview.safetyChecks.hbPilot.revision}` : ""}${preview.safetyChecks.hbFloorRecovery ? `:${preview.safetyChecks.hbFloorRecovery.fingerprint}` : ""}`,
           )
           .digest("hex");
         const input = {
@@ -276,10 +300,10 @@ class RepricerService {
           safety_checks: preview.safetyChecks,
           expires_at: preview.expiresAt,
         };
-        const action = preview.safetyChecks.hbFloorRecovery
+        const action = preview.safetyChecks.hbPilot
           ? await this.createFloorAction(input, preview)
           : await this.actions.create(input);
-        if (!preview.safetyChecks.hbFloorRecovery)
+        if (!preview.safetyChecks.hbPilot)
           await this.actions.recordDecision(
             action.id,
             { barcode: preview.barcode, strategy: preview.strategy },
@@ -322,9 +346,11 @@ class RepricerService {
       )[0];
       if (
         !fresh?.safetyChecks.safe ||
-        !fresh.safetyChecks.hbFloorRecovery ||
-        fresh.safetyChecks.hbFloorRecovery.fingerprint !==
-          preview.safetyChecks.hbFloorRecovery.fingerprint ||
+        !fresh.safetyChecks.hbPilot ||
+        JSON.stringify(fresh.safetyChecks.hbPilot) !==
+          JSON.stringify(preview.safetyChecks.hbPilot) ||
+        fresh.safetyChecks.hbFloorRecovery?.fingerprint !==
+          preview.safetyChecks.hbFloorRecovery?.fingerprint ||
         fresh.proposedPrice !== preview.proposedPrice
       )
         throw new AppError("Floor preview değişti", 409, "STALE_PREVIEW");

@@ -1,3 +1,5 @@
+> Historical FAZ 2D.16 implementation record. The current flag, allowlist, dispatch and failure contract is [FAZ 2D.18 controlled pilot](hepsiburada-controlled-pilot.md). Test counts below are historical, not current validation.
+
 # FAZ 2D.16 — HB identity and safe floor recovery
 
 ## Default and scope

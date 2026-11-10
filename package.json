@@ -24,7 +24,8 @@
     "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js",
     "check": "node --check index.js && node --check src/server.js",
     "lint": "eslint src scripts tests client/src --ext .js,.jsx",
-    "format:check": "prettier --check src client scripts tests package.json .eslintrc.cjs"
+    "format:check": "prettier --check src client scripts tests package.json .eslintrc.cjs",
+    "test:hb:postgres": "node scripts/test-hb-postgres.js"
   },
   "engines": {
     "node": ">=20"

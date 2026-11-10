@@ -1,3 +1,4 @@
+const { testPilot } = require("../helpers/hepsiburada-pilot");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
@@ -138,7 +139,9 @@ function fixture() {
       return listing;
     },
   };
+  const { pilot, config } = testPilot(product);
   const service = new HepsiburadaFloorRecoveryService({
+    pilot,
     db: {
       query() {
         throw new Error("unexpected DB access");
@@ -158,6 +161,8 @@ function fixture() {
   });
   return {
     product,
+    pilot,
+    config,
     settings,
     global,
     batch,

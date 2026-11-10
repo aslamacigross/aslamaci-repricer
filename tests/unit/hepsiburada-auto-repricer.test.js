@@ -175,3 +175,51 @@ test("HB otomatik job ilk 429 sonrasinda kalan aksiyonlari gondermez", async () 
   assert.equal(cooldown.metadata.rateLimitCooldown, true);
   assert.equal(cooldown.metadata.cooldownRemainingMs, 89000);
 });
+
+for (const code of [
+  "HB_SUBMISSION_OUTCOME_UNKNOWN",
+  "HB_SUBMISSION_PERSISTENCE_UNCERTAIN",
+]) {
+  test(`automatic job cannot terminalize uncertain submission: ${code}`, async () => {
+    const f = fixture();
+    let writes = 0;
+    f.service.actions.get = async () => ({ id: 1, status: "SENDING" });
+    f.service.actions.updateStatus = async () => {
+      writes++;
+    };
+    f.service.hepsiburadaActionService.apply = async () => {
+      const error = new Error(code);
+      error.code = code;
+      throw error;
+    };
+    await f.service.run();
+    assert.equal(writes, 0);
+  });
+}
+
+test("uncertain submission with provider 429 stops the remaining worker queue", async () => {
+  const f = fixture({
+    actions: [
+      { id: 1, marketplace: "HEPSIBURADA", barcode: "HB1", status: "APPROVED" },
+      { id: 3, marketplace: "HEPSIBURADA", barcode: "HB2", status: "APPROVED" },
+    ],
+  });
+  let attempts = 0,
+    writes = 0;
+  f.service.actions.get = async () => ({ status: "SENDING" });
+  f.service.actions.updateStatus = async () => {
+    writes++;
+  };
+  f.service.hepsiburadaActionService.apply = async () => {
+    attempts++;
+    const e = new Error("unknown 429");
+    e.code = "HB_SUBMISSION_OUTCOME_UNKNOWN";
+    e.status = 429;
+    e.retryAfterMs = 120000;
+    throw e;
+  };
+  const result = await f.service.run();
+  assert.equal(attempts, 1);
+  assert.equal(writes, 0);
+  assert.equal(result.metadata.rateLimited, true);
+});

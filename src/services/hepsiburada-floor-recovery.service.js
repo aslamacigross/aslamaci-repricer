@@ -1,8 +1,6 @@
+const { HepsiburadaPilotPolicy } = require("../domain/hepsiburada-pilot");
 const crypto = require("crypto");
 const { env } = require("../config/env");
-const {
-  matchesOwnListing,
-} = require("../domain/hepsiburada-merchant-identity");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const {
   calculateNetProfit,
@@ -72,13 +70,15 @@ class HepsiburadaFloorRecoveryService {
     hepsiburada,
     enabled = env.hepsiburadaFloorRecoveryEnabled,
     now = () => Date.now(),
+    pilot = new HepsiburadaPilotPolicy(),
   }) {
-    Object.assign(this, { db, hepsiburada, enabled, now });
+    Object.assign(this, { db, hepsiburada, enabled, now, pilot });
     this.rateLimitedUntil = 0;
   }
   eligible(product, settings) {
     return (
       this.enabled === true &&
+      this.pilot.scope(product, "floorRecovery").allowed &&
       product.marketplace === "HEPSIBURADA" &&
       (product.rank == null ||
         (Number.isInteger(Number(product.rank)) && Number(product.rank) > 0)) &&
@@ -319,6 +319,7 @@ class HepsiburadaFloorRecoveryService {
     batch,
     action = null,
     queryable = this.db,
+    observedListing = null,
   }) {
     const baseline = safetyCheck({
       product,
@@ -345,6 +346,8 @@ class HepsiburadaFloorRecoveryService {
             action.safety_checks?.hbFloorRecovery?.version === VERSION),
         "HB_FLOOR_ACTION_UNVERIFIED",
       );
+      const pilotProof = this.pilot.proof(product, { floor: true });
+      if (action) this.pilot.assertAction(action, product);
       const buyboxException = product.rank == null;
       requireFloor(
         Number(product.buybox_price) > 0 &&
@@ -416,6 +419,7 @@ class HepsiburadaFloorRecoveryService {
         .createHash("sha256")
         .update(
           JSON.stringify({
+            pilot: pilotProof,
             product: pick(product, [
               "marketplace",
               "barcode",
@@ -460,12 +464,14 @@ class HepsiburadaFloorRecoveryService {
           "STALE_PREVIEW",
         );
       requireFloor(this.now() >= this.rateLimitedUntil, "HB_FLOOR_RATE_LIMIT");
-      const listing = await this.hepsiburada.readListingForPrice({
-        merchantSku: product.merchant_sku || product.barcode,
-        hbSku: product.hb_sku || product.marketplace_product_id,
-      });
+      const listing =
+        observedListing ||
+        (await this.hepsiburada.readListingForPrice({
+          merchantSku: product.merchant_sku || product.barcode,
+          hbSku: product.hb_sku || product.marketplace_product_id,
+        }));
       requireFloor(
-        matchesOwnListing(product, listing),
+        this.pilot.matchesListing(product, listing, pilotProof),
         "HB_FLOOR_MARKET_IDENTITY_UNVERIFIED",
       );
       const price = listingNumber(listing, [
@@ -497,11 +503,13 @@ class HepsiburadaFloorRecoveryService {
         "HB_FLOOR_NOT_UPWARD",
       );
       return {
+        observedListing: listing,
         proposal: next,
         safety: {
           ...safety,
           safe: true,
           failures: [],
+          hbPilot: pilotProof,
           hbFloorRecovery: {
             version: VERSION,
             buyboxException,

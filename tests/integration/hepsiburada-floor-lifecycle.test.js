@@ -1,3 +1,6 @@
+const { createDisposablePostgres } = require("../helpers/disposable-postgres");
+const { AuditRepository } = require("../../src/repositories/audit.repository");
+const { testPilot } = require("../helpers/hepsiburada-pilot");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { migrate } = require("../../src/db/migrate");
@@ -39,7 +42,15 @@ let raw,
   enforceClientOnly = false,
   leased = false;
 test.before(async () => {
-  raw = await createPglitePool();
+  raw =
+    process.env.ASLAMACI_HB_DATABASE === "postgres"
+      ? await createDisposablePostgres()
+      : await createPglitePool();
+  if (raw.realPostgres)
+    console.log(
+      "REAL POSTGRES:",
+      (await raw.query("SELECT version() AS version")).rows[0].version,
+    );
   // Existing schema in a disposable in-memory DB only; never Railway credentials.
   await migrate("up", raw);
   // Deterministic transaction/concurrency harness. PGlite is single-session;
@@ -52,6 +63,20 @@ test.before(async () => {
       return raw.query(sql, params);
     },
     connect: async () => {
+      if (raw.realPostgres) {
+        const client = await raw.connect();
+        leased = true;
+        return {
+          query: async (sql, params) => {
+            queries?.push(sql);
+            return client.query(sql, params);
+          },
+          release: () => {
+            leased = false;
+            client.release();
+          },
+        };
+      }
       const previous = transactions;
       let release;
       transactions = new Promise((resolve) => {
@@ -80,7 +105,7 @@ test.beforeEach(async () => {
   marketReads = 0;
   readHook = null;
   enforceClientOnly = false;
-  await raw.query(`TRUNCATE products,product_settings,repricer_learning,cost_items,file_market_items,repricer_actions,commission_rules,packaging_rules RESTART IDENTITY CASCADE;
+  await raw.query(`TRUNCATE audit_logs,products,product_settings,repricer_learning,cost_items,file_market_items,repricer_actions,commission_rules,packaging_rules RESTART IDENTITY CASCADE;
     DELETE FROM shipping_costs; DELETE FROM shipping_barems; DELETE FROM system_settings;
     INSERT INTO system_settings(key,value) VALUES('default_carrier_hepsiburada','"hepsiJET"'),
       ('global_dry_run','false'),('global_repricer_enabled','true'),('global_unlimited_increase','true'),('global_max_price_change_pct','0');
@@ -148,6 +173,7 @@ test.beforeEach(async () => {
     db,
     hepsiburada: api,
     enabled: true,
+    pilot: testPilot({ barcode: "FLOOR", hb_sku: "HBCV-FLOOR" }).pilot,
   });
   repricer = new RepricerService({
     db,
@@ -160,7 +186,12 @@ test.beforeEach(async () => {
     products,
     withTransaction: tx,
     repricer,
-    audit: { record: async (a) => writes.push(a) },
+    audit: {
+      record: async (a, client) => {
+        writes.push(a);
+        await new AuditRepository(db).record(a, client);
+      },
+    },
   });
   executor = new HepsiburadaActionService({
     actions,
@@ -169,7 +200,12 @@ test.beforeEach(async () => {
     repricer,
     hepsiburada: api,
     hbFloorRecovery: floor,
-    audit: { record: async (a) => writes.push(a) },
+    audit: {
+      record: async (a, client) => {
+        writes.push(a);
+        await new AuditRepository(db).record(a, client);
+      },
+    },
   });
 });
 async function generate() {
@@ -485,4 +521,505 @@ test("flag on rejects a legacy floor action even after merchant rank becomes kno
     code: "HB_FLOOR_ACTION_UNVERIFIED",
   });
   assert.equal(posted, 0);
+});
+
+async function approvedFloor() {
+  const a = await generate();
+  await approval.approve(a.id, "operator");
+  return a;
+}
+for (const [label, change] of [
+  [
+    "source cost",
+    async () =>
+      raw.query("UPDATE file_market_items SET current_price=330 WHERE id=1"),
+  ],
+  [
+    "MANUAL policy",
+    async () =>
+      raw.query(
+        "UPDATE product_settings SET mode='MANUAL',auto_update=FALSE WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "product auto_update",
+    async () =>
+      raw.query(
+        "UPDATE products SET auto_update=FALSE WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "settings auto_update",
+    async () =>
+      raw.query(
+        "UPDATE product_settings SET auto_update=FALSE WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "runtime floor switch",
+    async () => {
+      floor.enabled = false;
+    },
+  ],
+  [
+    "floor feature flag",
+    async () => {
+      floor.pilot.config().hepsiburadaFloorRecoveryEnabled = false;
+    },
+  ],
+  [
+    "allowlist removal",
+    async () => {
+      floor.pilot.config().hepsiburadaPilotAllowlist = [];
+    },
+  ],
+  [
+    "merchant change",
+    async () => {
+      floor.pilot.config().hepsiburadaMerchantId = "different-merchant";
+    },
+  ],
+  [
+    "inactive product",
+    async () =>
+      raw.query(
+        "UPDATE products SET is_active=FALSE WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "stock zero",
+    async () =>
+      raw.query(
+        "UPDATE products SET stock_quantity=0 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "destination shipping cost",
+    async () =>
+      raw.query(
+        "UPDATE shipping_costs SET cost_inc_vat=120 WHERE marketplace='HEPSIBURADA' AND carrier='hepsiJET' AND desi_kg=1",
+      ),
+  ],
+  [
+    "commission",
+    async () =>
+      raw.query(
+        "UPDATE commission_rules SET commission_rate=18 WHERE marketplace='HEPSIBURADA'",
+      ),
+  ],
+])
+  test(`LAST provider GET: ${label} change blocks dispatch`, async () => {
+    const a = await approvedFloor();
+    const lastGet = marketReads + 3;
+    let changed = false;
+    readHook = async (n) => {
+      if (n === lastGet) {
+        await change();
+        changed = true;
+      }
+    };
+    await assert.rejects(executor.apply(a.id, "operator"));
+    assert.equal(
+      changed,
+      true,
+      "must exercise the last provider GET, not an earlier check",
+    );
+    assert.equal(posted, 0);
+    assert.equal((await actions.get(a.id)).status, "FAILED");
+  });
+
+test("allowlist removal blocks approval, bulk approval and already-approved executor", async () => {
+  const a = await generate();
+  floor.pilot.config().hepsiburadaPilotAllowlist = [];
+  await assert.rejects(approval.approve(a.id, "operator"));
+  await assert.rejects(approval.approveMany([a.id], "operator"));
+  assert.equal((await actions.get(a.id)).status, "PENDING");
+  assert.equal(posted, 0);
+});
+test("pilot target editing requires a fresh preview; manual edit is not an escape hatch", async () => {
+  const a = await generate();
+  await assert.rejects(
+    approval.editAndApprove(a.id, { proposedPrice: 600 }, "operator"),
+    { code: "HB_PILOT_REPREVIEW_REQUIRED" },
+  );
+  assert.equal((await actions.get(a.id)).status, "PENDING");
+});
+test("empty pilot list cannot create the rank-unknown floor, including WEB generation", async () => {
+  floor.pilot.config().hepsiburadaPilotAllowlist = [];
+  const p = (await repricer.preview("FLOOR", "HEPSIBURADA"))[0];
+  assert.ok(p.blockedReasons.includes("BUYBOX_MISSING"));
+  assert.equal(p.safetyChecks.hbFloorRecovery, undefined);
+  // Ordinary WEB previews remain legacy; no floor exception is available.
+  const generated = await repricer.generate({
+    barcode: "FLOOR",
+    marketplace: "HEPSIBURADA",
+    source: "AUTO",
+  });
+  assert.equal(generated.created, 0);
+  assert.equal(posted, 0);
+});
+test("identity-only pilot normal action is proof-bound and cannot survive revocation", async () => {
+  const config = floor.pilot.config();
+  config.hepsiburadaStrictMerchantIdentityEnabled = true;
+  config.hepsiburadaFloorRecoveryEnabled = false;
+  config.hepsiburadaPilotAllowlist[0].identity = true;
+  const product = await products.get("FLOOR", "HEPSIBURADA");
+  await raw.query(
+    "UPDATE products SET rank=2,buybox_source=$1 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+    [floor.pilot.identitySource(product)],
+  );
+  const a = await generate();
+  assert.ok(a.safety_checks.hbPilot);
+  assert.equal(a.safety_checks.hbFloorRecovery, undefined);
+  await approval.approve(a.id, "operator");
+  config.hepsiburadaStrictMerchantIdentityEnabled = false;
+  await assert.rejects(executor.apply(a.id, "operator"), {
+    code: "HB_IDENTITY_SCOPE_REVOKED",
+  });
+  const result = await repricer.generate({
+    barcode: "FLOOR",
+    marketplace: "HEPSIBURADA",
+    source: "AUTO",
+  });
+  assert.equal(result.created, 0);
+  assert.equal(posted, 0);
+});
+test("independent generator instances share the DB SKU lock", async () => {
+  const otherActions = new ActionRepository(db, actions.withTransaction, {
+    costEngine: new CostEngineService(db),
+  });
+  const other = new RepricerService({
+    db,
+    actions: otherActions,
+    settings: new SettingsRepository(db),
+    hbFloorRecovery: floor,
+  });
+  const result = await Promise.all([
+    repricer.generate({
+      barcode: "FLOOR",
+      marketplace: "HEPSIBURADA",
+      source: "AUTO",
+    }),
+    other.generate({
+      barcode: "FLOOR",
+      marketplace: "HEPSIBURADA",
+      source: "AUTO",
+    }),
+  ]);
+  assert.equal(
+    result.reduce((n, r) => n + r.created, 0),
+    1,
+  );
+  assert.equal(
+    (await raw.query("SELECT COUNT(*)::int n FROM repricer_decisions")).rows[0]
+      .n,
+    1,
+  );
+});
+test("accepted POST plus audit failure retains receipt and normal verification", async () => {
+  const a = await approvedFloor();
+  const record = executor.audit.record;
+  executor.audit.record = async (event, client) => {
+    if (event.action === "HB_PRICE_ACTION_SENT")
+      throw new Error("audit sink unavailable");
+    return record(event, client);
+  };
+  const saved = await executor.apply(a.id, "operator");
+  assert.equal(saved.status, "AWAITING_RESULT");
+  assert.equal(saved.api_response.auditPending, true);
+  assert.equal(saved.api_response.dispatchReceipt.outcome, "ACCEPTED");
+  assert.equal(posted, 1);
+  assert.equal(
+    (await actions.findOpen("FLOOR", db, null, "HEPSIBURADA")).id,
+    a.id,
+  );
+  assert.equal(
+    (
+      await raw.query(
+        "SELECT COUNT(*)::int n FROM audit_logs WHERE action='HB_PRICE_DISPATCH_INTENT' AND entity_id=$1",
+        [String(a.id)],
+      )
+    ).rows[0].n,
+    1,
+  );
+  await assert.rejects(executor.apply(a.id, "operator"), {
+    code: "DUPLICATE_APPLY",
+  });
+  floor.enabled = false;
+  floor.pilot.config().hepsiburadaPilotAllowlist = [];
+  const verification = await executor.verifyPriceAction(saved);
+  assert.equal(verification.status, "VERIFIED");
+  assert.equal(
+    (await actions.confirmApplied(a.id, verification)).status,
+    "SUCCESS",
+  );
+  assert.equal(posted, 1);
+  assert.equal((await actions.get(a.id)).api_response.auditPending, true);
+});
+test("accepted POST plus both receipt writes failing retains open SENDING and cannot retry", async () => {
+  const a = await approvedFloor();
+  actions.recordHbSubmission = async () => {
+    throw new Error("DB receipt write unavailable");
+  };
+  await assert.rejects(executor.apply(a.id, "operator"), {
+    code: "HB_SUBMISSION_PERSISTENCE_UNCERTAIN",
+  });
+  assert.equal((await actions.get(a.id)).status, "SENDING");
+  assert.equal(posted, 1);
+  await assert.rejects(executor.apply(a.id, "operator"), {
+    code: "DUPLICATE_APPLY",
+  });
+  assert.equal(posted, 1);
+});
+test("unknown POST outcome is not FAILED/SUCCESS and is not blindly resent", async () => {
+  const a = await approvedFloor();
+  let attempts = 0;
+  executor.hepsiburada.submitPriceUpdate = async () => {
+    attempts++;
+    throw new Error("timeout after dispatch may have been accepted");
+  };
+  await assert.rejects(executor.apply(a.id, "operator"), {
+    code: "HB_SUBMISSION_OUTCOME_UNKNOWN",
+  });
+  const saved = await actions.get(a.id);
+  assert.equal(saved.status, "SENDING");
+  assert.equal(saved.api_response.dispatch.outcome, "UNKNOWN");
+  await assert.rejects(executor.apply(a.id, "operator"), {
+    code: "DUPLICATE_APPLY",
+  });
+  assert.equal(attempts, 1);
+  assert.equal(
+    (await actions.findOpen("FLOOR", db, null, "HEPSIBURADA")).id,
+    a.id,
+  );
+});
+test("late accepted response after pilot closes still verifies without another POST", async () => {
+  const a = await approvedFloor();
+  let release, started;
+  const entered = new Promise((resolve) => {
+    started = resolve;
+  });
+  const submit = executor.hepsiburada.submitPriceUpdate;
+  executor.hepsiburada.submitPriceUpdate = async (input) => {
+    started();
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    return submit(input);
+  };
+  const applying = executor.apply(a.id, "operator");
+  await entered;
+  floor.enabled = false;
+  floor.pilot.config().hepsiburadaPilotAllowlist = [];
+  await assert.rejects(executor.apply(a.id, "second-worker"), {
+    code: "DUPLICATE_APPLY",
+  });
+  release();
+  const saved = await applying;
+  assert.equal(saved.status, "AWAITING_RESULT");
+  assert.equal(posted, 1);
+  const verification = await executor.verifyPriceAction(saved);
+  assert.equal(verification.status, "VERIFIED");
+  assert.equal(
+    (await actions.confirmApplied(a.id, verification)).status,
+    "SUCCESS",
+  );
+});
+test("receipt retry cannot overwrite a newer verified SUCCESS", async () => {
+  const a = await approvedFloor();
+  const saved = await executor.apply(a.id, "operator");
+  await actions.confirmApplied(a.id, await executor.verifyPriceAction(saved));
+  const result = await actions.withTransaction((client) =>
+    actions.recordHbSubmission(
+      a.id,
+      { uploadId: saved.batch_id },
+      "retry",
+      { auditPending: true },
+      client,
+    ),
+  );
+  assert.equal(result.status, "SUCCESS");
+  assert.notEqual(result.api_response.auditPending, true);
+  assert.equal(posted, 1);
+});
+test("last GET race can be coordinated with a second real PostgreSQL connection", async () => {
+  const a = await approvedFloor();
+  const trigger = marketReads + 3;
+  let release, entered;
+  const waiting = new Promise((resolve) => {
+    entered = resolve;
+  });
+  readHook = async (n) => {
+    if (n === trigger) {
+      entered();
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+    }
+  };
+  const applying = executor.apply(a.id, "worker-1");
+  await waiting;
+  await raw.query(
+    "UPDATE product_settings SET mode='MANUAL',auto_update=FALSE WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+  );
+  release();
+  await assert.rejects(applying);
+  assert.equal(posted, 0);
+});
+test("existing SENDING claim from an older worker cannot be reclaimed by new executor", async () => {
+  const a = await approvedFloor();
+  await raw.query("UPDATE repricer_actions SET status='SENDING' WHERE id=$1", [
+    a.id,
+  ]);
+  await assert.rejects(executor.apply(a.id, "new-worker"), {
+    code: "DUPLICATE_APPLY",
+  });
+  assert.equal(posted, 0);
+  // This does NOT prove that a paused old binary can be revoked. Such workers
+  // must be drained; provider requests already sent cannot be cancelled here.
+});
+test("real PostgreSQL harness actually leases distinct backend sessions", async () => {
+  if (!raw.realPostgres) return; // PGlite suite is explicitly a different gate.
+  const one = await raw.connect(),
+    two = await raw.connect();
+  try {
+    assert.notEqual(
+      (await one.query("SELECT pg_backend_pid() AS pid")).rows[0].pid,
+      (await two.query("SELECT pg_backend_pid() AS pid")).rows[0].pid,
+    );
+  } finally {
+    one.release();
+    two.release();
+  }
+});
+
+test("provider identity conflict is a blocker even when both flags permit the exact SKU", async () => {
+  const config = floor.pilot.config();
+  config.hepsiburadaStrictMerchantIdentityEnabled = true;
+  config.hepsiburadaPilotAllowlist[0].identity = true;
+  const product = await products.get("FLOOR", "HEPSIBURADA");
+  await raw.query(
+    "UPDATE products SET buybox_source=$1,buybox_error_code='HB_MERCHANT_IDENTITY_CONFLICT' WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+    [floor.pilot.identitySource(product)],
+  );
+  const preview = (await repricer.preview("FLOOR", "HEPSIBURADA"))[0];
+  assert.ok(preview.blockedReasons.includes("HB_MERCHANT_IDENTITY_CONFLICT"));
+  assert.equal(preview.safetyChecks.safe, false);
+  assert.equal(
+    (
+      await repricer.generate({
+        barcode: "FLOOR",
+        marketplace: "HEPSIBURADA",
+        source: "AUTO",
+      })
+    ).created,
+    0,
+  );
+  assert.equal(posted, 0);
+});
+
+test("a competing old-style action appearing during last GET blocks the new dispatch", async () => {
+  const a = await approvedFloor();
+  const last = marketReads + 3;
+  readHook = async (n) => {
+    if (n === last)
+      await actions.create({
+        ...a,
+        status: "APPROVED",
+        idempotency_key: "competing-legacy-worker",
+      });
+  };
+  await assert.rejects(executor.apply(a.id, "new-worker"), {
+    code: "STALE_PREVIEW",
+  });
+  assert.equal(posted, 0);
+  assert.equal(
+    (
+      await raw.query(
+        "SELECT status FROM repricer_actions WHERE idempotency_key='competing-legacy-worker'",
+      )
+    ).rows[0].status,
+    "APPROVED",
+  );
+});
+test("last GET tariff transition invalidates an otherwise approved target", async () => {
+  const a = await approvedFloor();
+  const last = marketReads + 3;
+  readHook = async (n) => {
+    if (n === last)
+      await raw.query(
+        "INSERT INTO shipping_barems(marketplace,carrier,min_basket,max_basket,cost_ex_vat,cost_inc_vat) VALUES('HEPSIBURADA','hepsiJET',400,599.99,125,150)",
+      );
+  };
+  await assert.rejects(executor.apply(a.id, "operator"));
+  assert.equal(posted, 0);
+});
+test("same explicit idempotency key returns one action and does not dispatch", async () => {
+  const a = await generate();
+  const results = await Promise.all([actions.create(a), actions.create(a)]);
+  assert.equal(results[0].id, a.id);
+  assert.equal(results[1].id, a.id);
+  assert.equal(
+    (await raw.query("SELECT COUNT(*)::int n FROM repricer_actions")).rows[0].n,
+    1,
+  );
+  assert.equal(posted, 0);
+});
+test("dispatch-intent audit failure rolls back claim before any POST", async () => {
+  const a = await approvedFloor();
+  executor.audit.record = async () => {
+    throw new Error("intent audit failed");
+  };
+  await assert.rejects(executor.apply(a.id, "operator"), /intent audit failed/);
+  assert.equal((await actions.get(a.id)).status, "APPROVED");
+  assert.equal(posted, 0);
+});
+
+async function identityOnlyAction() {
+  const config = floor.pilot.config();
+  config.hepsiburadaStrictMerchantIdentityEnabled = true;
+  config.hepsiburadaFloorRecoveryEnabled = false;
+  config.hepsiburadaPilotAllowlist[0].identity = true;
+  const product = await products.get("FLOOR", "HEPSIBURADA");
+  await raw.query(
+    "UPDATE products SET rank=2,buybox_source=$1 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+    [floor.pilot.identitySource(product)],
+  );
+  return approvedFloor();
+}
+test("identity-only ordinary action retains no floor exception and can execute with valid evidence", async () => {
+  const a = await identityOnlyAction();
+  assert.equal(a.safety_checks.hbFloorRecovery, undefined);
+  assert.equal(
+    (await executor.apply(a.id, "operator")).status,
+    "AWAITING_RESULT",
+  );
+  assert.equal(posted, 1);
+});
+test("identity-only last GET cannot dispatch with changed supplier cost", async () => {
+  const a = await identityOnlyAction();
+  const last = marketReads + 1;
+  readHook = async (n) => {
+    if (n === last)
+      await raw.query(
+        "UPDATE file_market_items SET current_price=330 WHERE id=1",
+      );
+  };
+  await assert.rejects(executor.apply(a.id, "operator"));
+  assert.equal(posted, 0);
+});
+test("identity-only does not auto-enable a floor target correction at a new tariff", async () => {
+  const a = await identityOnlyAction();
+  const last = marketReads + 1;
+  // Current price remains in the original interval; only the target becomes
+  // expensive. Cached-current-shipping alone must not certify this action.
+  readHook = async (n) => {
+    if (n === last)
+      await raw.query(
+        "INSERT INTO shipping_barems(marketplace,carrier,min_basket,max_basket,cost_ex_vat,cost_inc_vat) VALUES('HEPSIBURADA','hepsiJET',550,599.99,125,150)",
+      );
+  };
+  await assert.rejects(executor.apply(a.id, "operator"));
+  assert.equal(posted, 0);
+  assert.equal((await actions.get(a.id)).proposed_price, a.proposed_price);
 });

@@ -70,6 +70,13 @@ function serviceFixture(overrides = {}) {
       statuses.push(status);
       return { ...action, status, batch_id: fields.batchId || action.batch_id };
     },
+    recordHbSubmission: async (id, submission, actor, apiResponse, client) =>
+      actions.updateStatus(
+        id,
+        "AWAITING_RESULT",
+        { actor, batchId: submission.uploadId, apiResponse },
+        client,
+      ),
     ...overrides.actions,
   };
   const hepsiburada = {
@@ -221,20 +228,32 @@ test("HB Listing API fiyat uyusmazligi aksiyonu STALE yapar", async () => {
   assert.equal(submissions(), 0);
 });
 
-test("HB basarisiz istek aksiyonu FAILED yapar ve yeniden gondermez", async () => {
-  const { service, statuses, submissions } = serviceFixture({
+test("HB transport failure retains UNKNOWN SENDING and cannot resend", async () => {
+  let attempts = 0;
+  const f = serviceFixture({
     hepsiburada: {
       submitPriceUpdate: async () => {
-        const error = new Error("upstream failed");
-        error.code = "HB_UPLOAD_FAILED";
-        throw error;
+        attempts++;
+        throw new Error("upstream failed");
       },
     },
   });
-  await assert.rejects(service.apply(81, "system"), /upstream failed/);
-  assert.deepEqual(statuses, ["SENDING", "FAILED"]);
-  assert.equal(submissions(), 0);
-  await assert.rejects(service.apply(81, "system"), /upstream failed/);
+  // This fixture emulates the durable state observed by a second request.
+  const update = f.service.actions.updateStatus;
+  f.service.actions.updateStatus = async (...args) => {
+    const value = await update(...args);
+    f.action.status = value.status;
+    return value;
+  };
+  await assert.rejects(f.service.apply(81, "system"), {
+    code: "HB_SUBMISSION_OUTCOME_UNKNOWN",
+  });
+  assert.deepEqual(f.statuses, ["SENDING", "SENDING"]);
+  assert.equal(f.action.status, "SENDING");
+  await assert.rejects(f.service.apply(81, "system"), {
+    code: "DUPLICATE_APPLY",
+  });
+  assert.equal(attempts, 1);
 });
 
 test("HB upload sonucu ve Listing fiyati birlikte dogrulanir", async () => {
@@ -294,4 +313,25 @@ test("known boundary: HB recipe commit after apply safety check does not revalid
   // Existing executor behavior is recorded explicitly; no pricing rule changes.
   assert.equal(state.submissions(), 1);
   assert(Number(state.action.proposed_price) < state.product.min_price);
+});
+
+test("uncertain POST retains provider 429 pacing evidence for the automatic worker", async () => {
+  const f = serviceFixture({
+    hepsiburada: {
+      submitPriceUpdate: async () => {
+        const e = new Error("rate limited");
+        e.status = 429;
+        e.retryAfterMs = 120000;
+        throw e;
+      },
+    },
+  });
+  await assert.rejects(
+    f.service.apply(81, "system"),
+    (e) =>
+      e.code === "HB_SUBMISSION_OUTCOME_UNKNOWN" &&
+      e.status === 429 &&
+      e.retryAfterMs === 120000,
+  );
+  assert.deepEqual(f.statuses, ["SENDING", "SENDING"]);
 });
