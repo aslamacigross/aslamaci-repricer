@@ -1,0 +1,64 @@
+{
+  "base": "9d4491feb4dbebe80fa6a3fffd1fc5c6ad49f62f",
+  "release": "2011383896a436001af53c78d7c42e1bae22c6c4",
+  "branch": "codex/faz-2d16-hb-floor-recovery",
+  "recordedAt": "2026-11-11T00:00:39.501878+00:00",
+  "results": {
+    "backend": {
+      "exitCode": 0,
+      "passed": 846,
+      "sha256": "216c2cd6741df8701f9a835f6481ef2a45070562aca66373072ab017d9cf2f7b",
+      "evidence": "backend.txt"
+    },
+    "frontend": {
+      "exitCode": 0,
+      "passed": 84,
+      "sha256": "89d14e69a37b06449663206fa7498cb8f0b7f0e1e34248673934104b0d50fc25",
+      "evidence": "frontend.txt",
+      "originalRawSha256": "638f3316819de4eb4b2ce45c128dbd1408d7659ba4b5917a9544bf8ac5d87fa7",
+      "normalization": "One final blank line removed for git whitespace check; remaining stdout unchanged."
+    },
+    "postgres": {
+      "exitCode": 0,
+      "passed": 101,
+      "sha256": "5afd179e825cae0e0bf6b261c77f0a97fc3372d1f8b29a77042470bb0e863741",
+      "evidence": "postgres.txt"
+    },
+    "focused": {
+      "exitCode": 0,
+      "passed": 313,
+      "sha256": "01ef40ba551158bb7f7bd841c784698b1c203e7f3b3cd411acd147ad27291f7e",
+      "evidence": "focused.txt"
+    },
+    "eslint": {
+      "exitCode": 0,
+      "passed": null,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "evidence": "eslint.txt"
+    },
+    "build": {
+      "exitCode": 0,
+      "passed": null,
+      "sha256": "57ece660f6caaad06298f381e003e1a8e1cc031616e900f746bafce3c26b6dad",
+      "evidence": "build.txt"
+    }
+  },
+  "livePricePosts": 0,
+  "liveDatabaseMutations": 0,
+  "cleanup": {
+    "remainingDisposableDatabasesBeforeStop": 0,
+    "stop": "waiting for server to shut down.... done\nserver stopped",
+    "temporaryClusterRemoved": true,
+    "previousPhaseBinariesAndClusterModified": false
+  },
+  "diffCheck": "PASS; verified again before local commit",
+  "nodeVersion": "v24.22.1",
+  "commands": {
+    "backend": "node --test --test-reporter=spec tests/**/*.test.js",
+    "frontend": "node node_modules/vitest/vitest.mjs run --config client/vite.config.js",
+    "postgres": "ASLAMACI_DISPOSABLE_PG_ROOT=<marked-local-root> ASLAMACI_DISPOSABLE_PG_PORT=55482 node scripts/test-verification-postgres.js",
+    "focused": "node --test --test-reporter=spec tests/unit/hepsiburada*.test.js tests/integration/hepsiburada*.test.js tests/unit/learning.test.js tests/integration/action-dry-run.test.js tests/unit/repricer*.test.js",
+    "eslint": "node node_modules/eslint/bin/eslint.js src scripts tests client/src --ext .js,.jsx",
+    "build": "node node_modules/vite/bin/vite.js build --config client/vite.config.js"
+  }
+}

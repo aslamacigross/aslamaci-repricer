@@ -259,7 +259,12 @@ test("HB transport failure retains UNKNOWN SENDING and cannot resend", async () 
 test("HB upload sonucu ve Listing fiyati birlikte dogrulanir", async () => {
   const { service, action } = serviceFixture({
     hepsiburada: {
-      readListingForPrice: async () => ({ price: 939, isSalable: true }),
+      readListingForPrice: async () => ({
+        merchantSku: "HB-MERCHANT-SKU",
+        hepsiburadaSku: "HBCV0000TEST",
+        price: 939,
+        isSalable: true,
+      }),
     },
   });
   const result = await service.verifyPriceAction({

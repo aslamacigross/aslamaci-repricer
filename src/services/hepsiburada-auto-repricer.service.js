@@ -140,11 +140,12 @@ class HepsiburadaAutoRepricerService {
             "HB_SUBMISSION_OUTCOME_UNKNOWN",
             "HB_SUBMISSION_PERSISTENCE_UNCERTAIN",
           ].includes(error.code) &&
-          ["PENDING", "APPROVED", "SENDING"].includes(latest.status)
+          ["PENDING", "APPROVED"].includes(latest.status)
         ) {
           await this.actions.updateStatus(action.id, "FAILED", {
             actor: "system",
             error: error.message,
+            expectedStatus: latest.status,
           });
         }
         if (Number(error.status) === 429 || error.code === "HTTP_429") {

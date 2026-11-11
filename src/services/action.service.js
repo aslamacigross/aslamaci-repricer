@@ -95,7 +95,16 @@ class ActionService {
         return updated;
       });
     }
-    const updated = await this.actions.updateStatus(id, "APPROVED", { actor });
+    const updated = await this.actions.updateStatus(id, "APPROVED", {
+      actor,
+      expectedStatus: "PENDING",
+    });
+    if (!updated)
+      throw new AppError(
+        "Aksiyon artık beklemiyor",
+        409,
+        "INVALID_ACTION_STATE",
+      );
     await this.audit.record({
       actor,
       action: "REPRICER_ACTION_APPROVED",
@@ -270,7 +279,16 @@ class ActionService {
         409,
         "INVALID_ACTION_STATE",
       );
-    const updated = await this.actions.updateStatus(id, "REJECTED", { actor });
+    const updated = await this.actions.updateStatus(id, "REJECTED", {
+      actor,
+      expectedStatus: action.status,
+    });
+    if (!updated)
+      throw new AppError(
+        "Aksiyonun durumu değişti",
+        409,
+        "INVALID_ACTION_STATE",
+      );
     await this.audit.record({
       actor,
       action: "REPRICER_ACTION_REJECTED",
@@ -468,6 +486,9 @@ class ActionService {
       return preparation.updated;
     }
     const locked = preparation.locked;
+    let dispatchStarted = false;
+    let response;
+    let batchId;
     try {
       if (locked.marketplace !== "TRENDYOL")
         throw new AppError(
@@ -508,7 +529,8 @@ class ActionService {
           409,
           "MARKET_PRODUCT_UNAVAILABLE",
         );
-      const response = await this.trendyol.updatePrices(
+      dispatchStarted = true;
+      response = await this.trendyol.updatePrices(
         [
           {
             barcode: locked.barcode,
@@ -518,35 +540,38 @@ class ActionService {
         ],
         { dryRun: false },
       );
-      const batchId = response.batchRequestId || response.batchId || null;
+      batchId = response.batchRequestId || response.batchId || null;
       if (!batchId)
         throw new AppError(
           "Trendyol fiyat isteği takip numarası döndürmedi",
           502,
           "MARKET_BATCH_ID_MISSING",
         );
-      const updated = await this.withTransaction(async (client) => {
-        const action = await this.actions.updateStatus(
-          id,
-          "AWAITING_RESULT",
-          {
-            actor,
-            batchId,
-            apiResponse: { submission: response },
-          },
-          client,
-        );
-        return action;
-      });
-      await this.audit.record({
-        actor,
-        action: "PRICE_ACTION_SENT",
-        entityType: "repricer_action",
-        entityId: String(id),
-        after: { batchId },
-      });
-      return updated;
     } catch (error) {
+      if (dispatchStarted) {
+        // Once POST starts, transport failure/missing receipt cannot prove
+        // rejection. Keep the already committed SENDING barrier for reconciliation.
+        try {
+          await this.actions.updateStatus(id, "SENDING", {
+            actor,
+            error: "External outcome UNKNOWN",
+            apiResponse: {
+              dispatch: {
+                outcome: "UNKNOWN",
+                code: error.code || "TRANSPORT_ERROR",
+              },
+              ...(response ? { submission: response } : {}),
+            },
+          });
+        } catch {
+          /* Original committed SENDING still blocks another dispatch. */
+        }
+        throw new AppError(
+          "Trendyol gönderim sonucu belirsiz; otomatik tekrar yasak",
+          409,
+          "TY_SUBMISSION_OUTCOME_UNKNOWN",
+        );
+      }
       const stale = ["PRICE_MISMATCH", "MARKET_PRICE_MISMATCH"].includes(
         error.code,
       );
@@ -562,6 +587,58 @@ class ActionService {
         after: { code: error.code || "PRICE_ACTION_FAILED" },
       });
       throw error;
+    }
+    const receipt = {
+      submission: response,
+      dispatchReceipt: {
+        outcome: "ACCEPTED",
+        batchId,
+        actor,
+        actionId: id,
+        before: "SENDING",
+        after: "AWAITING_RESULT",
+        recordedAt: new Date().toISOString(),
+      },
+    };
+    try {
+      return await this.withTransaction(async (client) => {
+        const updated = await this.actions.recordTrendyolSubmission(
+          id,
+          batchId,
+          actor,
+          receipt,
+          client,
+        );
+        await this.audit.record(
+          {
+            actor,
+            action: "PRICE_ACTION_SENT",
+            entityType: "repricer_action",
+            entityId: String(id),
+            after: { batchId },
+          },
+          client,
+        );
+        return updated;
+      });
+    } catch {
+      try {
+        return await this.withTransaction((client) =>
+          this.actions.recordTrendyolSubmission(
+            id,
+            batchId,
+            actor,
+            { ...receipt, auditPending: true },
+            client,
+          ),
+        );
+      } catch {
+        throw new AppError(
+          "Trendyol kabul etti; yerel kayıt doğrulanamadı",
+          503,
+          "TY_SUBMISSION_PERSISTENCE_UNCERTAIN",
+        );
+      }
     }
   }
 }

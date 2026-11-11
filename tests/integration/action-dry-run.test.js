@@ -190,6 +190,12 @@ test("Trendyol kabul yaniti urun fiyatini dogrulama olmadan kesinlestirmez", asy
   const actions = {
     findOpen: async () => null,
     todayStats: async () => ({ action_count: 0, day_start_price: 944 }),
+    recordTrendyolSubmission: async (id, batchId, actor, apiResponse) => ({
+      ...action,
+      status: "AWAITING_RESULT",
+      batch_id: batchId,
+      api_response: apiResponse,
+    }),
     recordMarketPreflight: async () => {},
     updateStatus: async (id, status, fields) => ({
       ...action,
@@ -458,6 +464,11 @@ test("known boundary: TY recipe commit after apply safety check does not revalid
     actions: {
       findOpen: async () => null,
       todayStats: async () => ({ action_count: 0 }),
+      recordTrendyolSubmission: async (id, batchId) => ({
+        ...action,
+        status: "AWAITING_RESULT",
+        batch_id: batchId,
+      }),
       recordMarketPreflight: async () => {},
       updateStatus: async (_id, status, fields = {}) => ({
         ...action,

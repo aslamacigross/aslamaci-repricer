@@ -1023,3 +1023,74 @@ test("identity-only does not auto-enable a floor target correction at a new tari
   assert.equal(posted, 0);
   assert.equal((await actions.get(a.id)).proposed_price, a.proposed_price);
 });
+
+for (const flagsOff of [false, true]) {
+  test(`FAZ 2D.19 C1 replay: Processing at 61m keeps barrier and one POST (flagsOff=${flagsOff})`, async () => {
+    const { LearningService } = require("../../src/services/learning.service");
+    if (flagsOff) {
+      repricer.hbFloorRecovery.enabled = false;
+      const config = repricer.hbFloorRecovery.pilot.config();
+      config.hepsiburadaFloorRecoveryEnabled = false;
+      config.hepsiburadaStrictMerchantIdentityEnabled = false;
+      config.hepsiburadaPilotAllowlist = [];
+      await raw.query(
+        "UPDATE products SET rank=2 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      );
+    }
+    executor.hepsiburada.submitPriceUpdate = async () => ({
+      uploadId: `ACCEPTED-STILL-PENDING-${++posted}`,
+      response: { status: "Accepted" },
+    });
+    executor.hepsiburada.getListingUploadStatus = async () => ({
+      status: "Processing",
+    });
+    const first = await generate();
+    await approval.approve(first.id, "isolated-review");
+    await executor.apply(first.id, "isolated-review");
+    await raw.query(
+      "UPDATE repricer_actions SET sent_at=NOW()-INTERVAL '61 minutes' WHERE id=$1",
+      [first.id],
+    );
+    const learning = new LearningService({
+      actions,
+      marketplace: "HEPSIBURADA",
+      sync: { verifyPriceAction: (a) => executor.verifyPriceAction(a) },
+      audit: { record: async () => {}, integration: async () => {} },
+    });
+    await learning.verifyPendingActions();
+    const saved = await actions.get(first.id);
+    await raw.query(
+      "UPDATE products SET buybox_price=501,buybox_updated_at=NOW() WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+    );
+    const next = await repricer.generate({
+      barcode: "FLOOR",
+      marketplace: "HEPSIBURADA",
+      source: "AUTO",
+    });
+    console.log(
+      JSON.stringify({
+        replay: "FAZ2D19",
+        flagsOff,
+        realPostgres: Boolean(raw.realPostgres),
+        firstId: first.id,
+        firstTarget: Number(first.proposed_price),
+        state: saved.status,
+        openId: (await actions.findOpen("FLOOR", db, null, "HEPSIBURADA"))?.id,
+        newActions: next.created,
+        totalMockPosts: posted,
+        secondPosts: posted - 1,
+      }),
+    );
+    assert.equal(saved.status, "AWAITING_RESULT");
+    assert.equal(next.created, 0);
+    assert.equal(posted, 1);
+    assert.match(saved.verification_error, /RECONCILIATION_REQUIRED/);
+    executor.hepsiburada.getListingUploadStatus = async () => ({
+      status: "Done",
+    });
+    listing.price = Number(first.proposed_price);
+    await learning.verifyPendingActions(first.id);
+    assert.equal((await actions.get(first.id)).status, "SUCCESS");
+    assert.equal(posted, 1);
+  });
+}

@@ -1,0 +1,137 @@
+{
+  "sourceBase": "9d4491feb4dbebe80fa6a3fffd1fc5c6ad49f62f",
+  "database": "real PostgreSQL 17.6, disposable Unix socket",
+  "timeoutCounterexamples": [
+    {
+      "marketplace": "HEPSIBURADA",
+      "age": 61,
+      "firstId": "1",
+      "status": "FAILED",
+      "openId": "2",
+      "nextCreated": 1,
+      "mockPosts": 2,
+      "summary": {
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "recoveries": 0,
+        "refreshFailures": 0,
+        "verification": {
+          "processed": 1,
+          "verified": 0,
+          "failed": 1,
+          "pending": 0,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "marketplace": "HEPSIBURADA",
+      "age": 180,
+      "firstId": "1",
+      "status": "FAILED",
+      "openId": "2",
+      "nextCreated": 1,
+      "mockPosts": 2,
+      "summary": {
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "recoveries": 0,
+        "refreshFailures": 0,
+        "verification": {
+          "processed": 1,
+          "verified": 0,
+          "failed": 1,
+          "pending": 0,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "marketplace": "TRENDYOL",
+      "age": 61,
+      "firstId": "1",
+      "status": "FAILED",
+      "openId": "2",
+      "nextCreated": 1,
+      "mockPosts": 2,
+      "summary": {
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "recoveries": 0,
+        "refreshFailures": 0,
+        "verification": {
+          "processed": 1,
+          "verified": 0,
+          "failed": 1,
+          "pending": 0,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "marketplace": "TRENDYOL",
+      "age": 180,
+      "firstId": "1",
+      "status": "FAILED",
+      "openId": "2",
+      "nextCreated": 1,
+      "mockPosts": 2,
+      "summary": {
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "recoveries": 0,
+        "refreshFailures": 0,
+        "verification": {
+          "processed": 1,
+          "verified": 0,
+          "failed": 1,
+          "pending": 0,
+          "errors": 0
+        }
+      }
+    }
+  ],
+  "trendyolExecutorCounterexamples": [
+    {
+      "base": "9d4491f",
+      "marketplace": "TRENDYOL",
+      "failure": "auditError",
+      "state": "FAILED",
+      "batchId": "TY-1",
+      "openId": null,
+      "mockPosts": 1,
+      "error": "mock audit unavailable",
+      "livePosts": 0
+    },
+    {
+      "base": "9d4491f",
+      "marketplace": "TRENDYOL",
+      "failure": "postError",
+      "state": "FAILED",
+      "batchId": null,
+      "openId": null,
+      "mockPosts": 1,
+      "error": "mock response lost",
+      "livePosts": 0
+    }
+  ],
+  "hbOwnListingCounterexample": [
+    {
+      "marketplace": "HEPSIBURADA",
+      "identity": "OTHER merchantSku / same hbSku",
+      "state": "SUCCESS",
+      "verified": true,
+      "mockPosts": 1
+    }
+  ],
+  "interpretation": "Mock-only counterexamples; not evidence of live duplicate price submissions. Timeout assertions intentionally failed before the safety fix.",
+  "moduleProvenance": {
+    "timeoutCounterexamples": "Before production source edits; new isolated fixture on base sources.",
+    "trendyolExecutorCounterexamples": "ActionService compiled directly from git show base SHA; current isolated fixture and migrated disposable schema.",
+    "hbOwnListingCounterexample": "HB verifyPriceAction still identical to base; other phase 2D.20 fixes already present in worktree."
+  }
+}

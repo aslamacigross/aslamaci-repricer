@@ -29,7 +29,10 @@ class LearningService {
       try {
         const result = await this.sync.verifyPriceAction(action);
         if (result.status === "VERIFIED") {
-          await this.actions.confirmApplied(action.id, result);
+          await this.actions.confirmApplied(action.id, {
+            ...result,
+            expectedBatchId: action.batch_id,
+          });
           await this.audit?.record?.({
             actor: "system",
             action: "PRICE_ACTION_VERIFIED",
@@ -44,20 +47,14 @@ class LearningService {
           summary.verified++;
           continue;
         }
-        const ageMinutes = action.sent_at
-          ? (Date.now() - new Date(action.sent_at).getTime()) / 60000
-          : 0;
-        const verificationTimedOut =
-          ["PENDING", "MISMATCH"].includes(result.status) && ageMinutes >= 60;
-        if (result.status === "FAILED" || verificationTimedOut) {
-          const marketplaceLabel =
-            this.marketplace === "HEPSIBURADA" ? "Hepsiburada" : "Trendyol";
-          await this.actions.markVerificationFailed(
+        if (result.status === "FAILED") {
+          const failed = await this.actions.markVerificationFailed(
             action.id,
-            result.error ||
-              `${marketplaceLabel} fiyatı 60 dakika içinde doğrulanamadı; otomatik tekrar gönderim yapılmadı`,
+            result.error || "Provider fiyat işlemini kesin olarak reddetti",
             result.batchResponse,
+            action.batch_id,
           );
+          if (!failed) continue;
           await this.audit?.record?.({
             actor: "system",
             action: "PRICE_ACTION_VERIFICATION_FAILED",
@@ -66,15 +63,25 @@ class LearningService {
             after: {
               barcode: action.barcode,
               batchId: action.batch_id,
-              reason: result.error || "VERIFICATION_TIMEOUT",
+              reason: result.error || "PROVIDER_REJECTED",
             },
           });
           summary.failed++;
         } else {
+          await this.recordPending(action, result);
           summary.pending++;
         }
       } catch (error) {
         summary.errors++;
+        // A failed GET/local write is not evidence that the provider rejected POST.
+        try {
+          await this.recordPending(action, {
+            status: "UNKNOWN",
+            error: error.message,
+          });
+        } catch {
+          /* A local warning failure must leave the dispatch barrier intact. */
+        }
         await this.audit?.integration?.({
           integration: this.marketplace,
           level: "ERROR",
@@ -85,6 +92,37 @@ class LearningService {
       }
     }
     return summary;
+  }
+
+  async recordPending(action, result) {
+    const ageMinutes = action.sent_at
+      ? (Date.now() - new Date(action.sent_at).getTime()) / 60000
+      : 0;
+    const overdue = ageMinutes >= 60;
+    const error = overdue
+      ? "PRICE_VERIFICATION_RECONCILIATION_REQUIRED: provider sonucu veya uygulanan fiyat doğrulanamadı; otomatik tekrar yasak"
+      : result.error || null;
+    const saved = await this.actions.recordVerificationPending?.(
+      action.id,
+      { ...result, error },
+      action.batch_id,
+    );
+    // The persistent action warning survives an unavailable audit sink. Emit
+    // once per overdue episode instead of flooding the integration log each poll.
+    if (saved && overdue && action.verification_error !== error)
+      await this.audit?.integration?.({
+        integration: this.marketplace,
+        level: "WARN",
+        operation: "PRICE_VERIFICATION_RECONCILIATION_REQUIRED",
+        message: error,
+        details: {
+          actionId: action.id,
+          barcode: action.barcode,
+          batchId: action.batch_id,
+          ageMinutes,
+          verificationStatus: result.status,
+        },
+      });
   }
 
   async checkOutcomes(elapsedMinutes, actionId = null) {
@@ -148,7 +186,8 @@ class LearningService {
         result,
         elapsedMinutes,
       };
-      await this.actions.recordOutcome(action, outcome);
+      const recorded = await this.actions.recordOutcome(action, outcome);
+      if (!recorded) continue;
       // An upward probe that loses Buybox returns to the price that had just
       // been observed winning. The repository makes this idempotent, so 5m
       // retries cannot create a chain of recovery actions.
@@ -169,16 +208,8 @@ class LearningService {
         await this.actions.applyLearningOutcome(action, outcome);
       if (targetAchieved) successful++;
       else failed++;
-      if (elapsedMinutes >= 60)
-        await this.actions.updateStatus(
-          action.id,
-          targetAchieved ? "SUCCESS" : "FAILED",
-          {
-            error: targetAchieved
-              ? null
-              : `Hedef ${targetRank}. sıra 60 dakika içinde alınamadı`,
-          },
-        );
+      // SUCCESS describes verified price application. Buybox success/failure is
+      // persisted in the outcome/learning tables and must not rewrite that state.
     }
     return {
       processed: pending.length,

@@ -321,7 +321,7 @@ class ActionRepository {
          WHERE status='AWAITING_RESULT' AND verified_at IS NULL
            AND ($2::bigint IS NULL OR id=$2)
            AND ($3::text IS NULL OR marketplace=$3)
-         ORDER BY sent_at ASC LIMIT $1`,
+         ORDER BY COALESCE(batch_checked_at,sent_at) ASC NULLS FIRST,id ASC LIMIT $1`,
         [
           Math.min(Math.max(Number(limit) || 200, 1), 500),
           actionId,
@@ -342,7 +342,7 @@ class ActionRepository {
     ).rows[0];
   }
 
-  async confirmApplied(id, { marketProduct, batchResponse }) {
+  async confirmApplied(id, { marketProduct, batchResponse, expectedBatchId }) {
     return this.withTransaction(async (client) => {
       const locked = (
         await client.query(
@@ -351,6 +351,11 @@ class ActionRepository {
         )
       ).rows[0];
       if (!locked) throw new Error("Fiyat aksiyonu bulunamadı");
+      if (
+        expectedBatchId != null &&
+        String(locked.batch_id) !== String(expectedBatchId)
+      )
+        throw new Error("Fiyat doğrulama batch kimliği değişti");
       if (locked.verified_at) return locked;
       if (locked.status !== "AWAITING_RESULT")
         throw new Error("Fiyat aksiyonu doğrulanabilir durumda değil");
@@ -435,22 +440,79 @@ class ActionRepository {
     });
   }
 
-  async markVerificationFailed(id, error, batchResponse) {
-    const current = await this.get(id);
-    const apiResponse = {
-      ...(current?.api_response || {}),
-      verification: { batch: batchResponse },
-    };
-    return (
-      await this.db.query(
-        `UPDATE repricer_actions SET status='FAILED',batch_checked_at=NOW(),
-         verification_error=$2,error=$2,
-         api_response=$3::jsonb,
-         updated_at=NOW() WHERE id=$1 AND status='AWAITING_RESULT'
-         RETURNING *`,
-        [id, error, JSON.stringify(apiResponse)],
+  async recordVerificationPending(id, result, expectedBatchId) {
+    return this.withTransaction(async (client) => {
+      const current = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (
+        !current ||
+        current.status !== "AWAITING_RESULT" ||
+        current.verified_at ||
+        String(current.batch_id) !== String(expectedBatchId)
       )
-    ).rows[0];
+        return null;
+      const apiResponse = {
+        ...current.api_response,
+        verification: {
+          ...current.api_response?.verification,
+          status: result.status,
+          ...(result.batchResponse !== undefined
+            ? { batch: result.batchResponse }
+            : {}),
+          ...(result.marketProduct
+            ? { observedPrice: result.marketProduct.salePrice }
+            : {}),
+          error: result.error || null,
+        },
+      };
+      return (
+        await client.query(
+          `UPDATE repricer_actions SET batch_checked_at=NOW(),verification_error=$2,
+         api_response=$3::jsonb,updated_at=NOW() WHERE id=$1 RETURNING *`,
+          [id, result.error || null, JSON.stringify(apiResponse)],
+        )
+      ).rows[0];
+    });
+  }
+
+  async markVerificationFailed(
+    id,
+    error,
+    batchResponse,
+    expectedBatchId = null,
+  ) {
+    return this.withTransaction(async (client) => {
+      const current = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (
+        !current ||
+        current.status !== "AWAITING_RESULT" ||
+        current.verified_at ||
+        (expectedBatchId != null &&
+          String(current.batch_id) !== String(expectedBatchId))
+      )
+        return null;
+      const apiResponse = {
+        ...current.api_response,
+        verification: { batch: batchResponse },
+      };
+      return (
+        await client.query(
+          `UPDATE repricer_actions SET status='FAILED',batch_checked_at=NOW(),
+         verification_error=$2,error=$2,api_response=$3::jsonb,updated_at=NOW()
+         WHERE id=$1 RETURNING *`,
+          [id, error, JSON.stringify(apiResponse)],
+        )
+      ).rows[0];
+    });
   }
 
   async recordOutcome(action, outcome) {
@@ -560,25 +622,47 @@ class ActionRepository {
   }
 
   async recordHbSubmission(id, submission, actor, apiResponse, client) {
+    return this.recordSubmission(
+      id,
+      "HEPSIBURADA",
+      submission.uploadId,
+      actor,
+      apiResponse,
+      client,
+    );
+  }
+
+  async recordTrendyolSubmission(id, batchId, actor, apiResponse, client) {
+    return this.recordSubmission(
+      id,
+      "TRENDYOL",
+      batchId,
+      actor,
+      apiResponse,
+      client,
+    );
+  }
+
+  async recordSubmission(id, marketplace, batchId, actor, apiResponse, client) {
     const locked = (
       await client.query(
         "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
         [id],
       )
     ).rows[0];
-    if (!locked || locked.marketplace !== "HEPSIBURADA")
-      throw new Error("HB submission action missing");
+    if (!locked || locked.marketplace !== marketplace)
+      throw new Error("Submission action missing");
     if (
       ["AWAITING_RESULT", "SUCCESS"].includes(locked.status) &&
-      String(locked.batch_id) === String(submission.uploadId)
+      String(locked.batch_id) === String(batchId)
     )
       return locked;
     if (locked.status !== "SENDING")
-      throw new Error("HB submission receipt state conflict");
+      throw new Error("Submission receipt state conflict");
     return this.updateStatus(
       id,
       "AWAITING_RESULT",
-      { actor, batchId: submission.uploadId, apiResponse },
+      { actor, batchId, apiResponse },
       client,
     );
   }
@@ -591,7 +675,7 @@ class ActionRepository {
        sent_at=CASE WHEN $2 IN('SENT','AWAITING_RESULT') THEN NOW() ELSE sent_at END,
        applied_price=COALESCE($4,applied_price), batch_id=COALESCE($5,batch_id),
        api_response=COALESCE($6::jsonb,api_response), error=COALESCE($7,error),updated_at=NOW()
-       WHERE id=$1 RETURNING *`,
+       WHERE id=$1 AND ($8::text IS NULL OR status=$8) RETURNING *`,
         [
           id,
           status,
@@ -600,6 +684,7 @@ class ActionRepository {
           fields.batchId || null,
           fields.apiResponse ? JSON.stringify(fields.apiResponse) : null,
           fields.error || null,
+          fields.expectedStatus || null,
         ],
       )
     ).rows[0];

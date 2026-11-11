@@ -179,6 +179,7 @@ test("HB otomatik job ilk 429 sonrasinda kalan aksiyonlari gondermez", async () 
 for (const code of [
   "HB_SUBMISSION_OUTCOME_UNKNOWN",
   "HB_SUBMISSION_PERSISTENCE_UNCERTAIN",
+  "DUPLICATE_APPLY",
 ]) {
   test(`automatic job cannot terminalize uncertain submission: ${code}`, async () => {
     const f = fixture();

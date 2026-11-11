@@ -1,0 +1,56 @@
+2026-11-11 02:46:12.608 +03 [10391] LOG:  starting PostgreSQL 17.6 on x86_64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.6), 64-bit
+2026-11-11 02:46:12.608 +03 [10391] LOG:  listening on Unix socket "/private/tmp/aslamaci-faz2d20-postgres/.s.PGSQL.55482"
+2026-11-11 02:46:12.612 +03 [10394] LOG:  database system was shut down at 2026-11-11 02:46:12 +03
+2026-11-11 02:46:12.614 +03 [10391] LOG:  database system is ready to accept connections
+2026-11-11 02:48:02.820 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:48:02.827 +03 [10392] LOG:  checkpoint complete: wrote 48 buffers (0.3%); 1 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.007 s; sync files=14, longest=0.001 s, average=0.001 s; distance=8893 kB, estimate=8893 kB; lsn=0/1DB6DC0, redo lsn=0/1DB6D68
+2026-11-11 02:49:12.426 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:49:12.428 +03 [10392] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=4, longest=0.001 s, average=0.001 s; distance=8724 kB, estimate=8876 kB; lsn=0/263C168, redo lsn=0/263C110
+2026-11-11 02:50:48.534 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:50:48.536 +03 [10392] LOG:  checkpoint complete: wrote 36 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=9, longest=0.001 s, average=0.001 s; distance=9516 kB, estimate=9516 kB; lsn=0/2F87438, redo lsn=0/2F873E0
+2026-11-11 02:51:07.371 +03 [10525] ERROR:  canceling statement due to lock timeout
+2026-11-11 02:51:07.371 +03 [10525] CONTEXT:  while locking tuple (0,6) in relation "repricer_actions"
+2026-11-11 02:51:07.371 +03 [10525] STATEMENT:  SELECT id FROM repricer_actions WHERE id=$1 FOR UPDATE
+2026-11-11 02:51:07.375 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:51:07.378 +03 [10392] LOG:  checkpoint complete: wrote 5 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.003 s; sync files=4, longest=0.001 s, average=0.001 s; distance=9412 kB, estimate=9506 kB; lsn=0/38B8478, redo lsn=0/38B8420
+2026-11-11 02:52:24.061 +03 [10605] ERROR:  canceling statement due to lock timeout
+2026-11-11 02:52:24.061 +03 [10605] CONTEXT:  while locking tuple (0,6) in relation "repricer_actions"
+2026-11-11 02:52:24.061 +03 [10605] STATEMENT:  SELECT id FROM repricer_actions WHERE id=$1 FOR UPDATE
+2026-11-11 02:52:24.065 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:52:24.384 +03 [10392] LOG:  checkpoint complete: wrote 1367 buffers (8.3%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.045 s, sync=0.126 s, total=0.320 s; sync files=5213, longest=0.001 s, average=0.001 s; distance=19799 kB, estimate=19799 kB; lsn=0/4CC48E0, redo lsn=0/4C0E1B8
+2026-11-11 02:52:25.694 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:52:25.696 +03 [10392] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=2, longest=0.001 s, average=0.001 s; distance=5450 kB, estimate=18364 kB; lsn=0/5160C60, redo lsn=0/5160C08
+2026-11-11 02:53:16.611 +03 [10689] ERROR:  canceling statement due to lock timeout
+2026-11-11 02:53:16.611 +03 [10689] CONTEXT:  while locking tuple (0,6) in relation "repricer_actions"
+2026-11-11 02:53:16.611 +03 [10689] STATEMENT:  SELECT id FROM repricer_actions WHERE id=$1 FOR UPDATE
+2026-11-11 02:53:16.882 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:53:17.443 +03 [10392] LOG:  checkpoint complete: wrote 1372 buffers (8.4%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.036 s, sync=0.126 s, total=0.562 s; sync files=5215, longest=0.001 s, average=0.001 s; distance=20293 kB, estimate=20293 kB; lsn=0/6579D20, redo lsn=0/6532188
+2026-11-11 02:53:22.392 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:53:22.394 +03 [10392] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.003 s; sync files=2, longest=0.001 s, average=0.001 s; distance=5179 kB, estimate=18782 kB; lsn=0/6A41148, redo lsn=0/6A410F0
+2026-11-11 02:54:34.748 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:54:34.750 +03 [10392] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.002 s, sync=0.001 s, total=0.003 s; sync files=4, longest=0.001 s, average=0.001 s; distance=7333 kB, estimate=17637 kB; lsn=0/716A698, redo lsn=0/716A640
+2026-11-11 02:54:59.318 +03 [10893] ERROR:  canceling statement due to lock timeout
+2026-11-11 02:54:59.318 +03 [10893] CONTEXT:  while locking tuple (0,6) in relation "repricer_actions"
+2026-11-11 02:54:59.318 +03 [10893] STATEMENT:  SELECT id FROM repricer_actions WHERE id=$1 FOR UPDATE
+2026-11-11 02:54:59.451 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:54:59.751 +03 [10392] LOG:  checkpoint complete: wrote 1269 buffers (7.7%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.041 s, sync=0.123 s, total=0.300 s; sync files=5215, longest=0.001 s, average=0.001 s; distance=20244 kB, estimate=20244 kB; lsn=0/85DE508, redo lsn=0/852F850
+2026-11-11 02:55:00.920 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:55:00.921 +03 [10392] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=2, longest=0.001 s, average=0.001 s; distance=5338 kB, estimate=18753 kB; lsn=0/8A662F8, redo lsn=0/8A662A0
+2026-11-11 02:55:56.517 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:55:56.520 +03 [10392] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.002 s, sync=0.001 s, total=0.003 s; sync files=4, longest=0.001 s, average=0.001 s; distance=7388 kB, estimate=17617 kB; lsn=0/919D420, redo lsn=0/919D3C8
+2026-11-11 02:58:52.353 +03 [11146] ERROR:  canceling statement due to lock timeout
+2026-11-11 02:58:52.353 +03 [11146] CONTEXT:  while locking tuple (0,6) in relation "repricer_actions"
+2026-11-11 02:58:52.353 +03 [11146] STATEMENT:  SELECT id FROM repricer_actions WHERE id=$1 FOR UPDATE
+2026-11-11 02:58:53.016 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:58:53.571 +03 [10392] LOG:  checkpoint complete: wrote 1381 buffers (8.4%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.036 s, sync=0.123 s, total=0.555 s; sync files=4668, longest=0.003 s, average=0.001 s; distance=20255 kB, estimate=20255 kB; lsn=0/A5D54A0, redo lsn=0/A5651B8
+2026-11-11 02:58:57.810 +03 [11169] FATAL:  terminating autovacuum process due to administrator command
+2026-11-11 02:58:57.810 +03 [11169] CONTEXT:  while vacuuming index "pg_class_tblspc_relfilenode_index" of relation "pg_catalog.pg_class"
+2026-11-11 02:58:57.913 +03 [10392] LOG:  checkpoint starting: immediate force wait
+2026-11-11 02:58:57.916 +03 [10392] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.003 s; sync files=2, longest=0.001 s, average=0.001 s; distance=6114 kB, estimate=18841 kB; lsn=0/AB5DC90, redo lsn=0/AB5DC38
+2026-11-11 03:00:39.329 +03 [10391] LOG:  received fast shutdown request
+2026-11-11 03:00:39.329 +03 [10391] LOG:  aborting any active transactions
+2026-11-11 03:00:39.331 +03 [10391] LOG:  background worker "logical replication launcher" (PID 10397) exited with exit code 1
+2026-11-11 03:00:39.331 +03 [10392] LOG:  shutting down
+2026-11-11 03:00:39.331 +03 [10392] LOG:  checkpoint starting: shutdown immediate
+2026-11-11 03:00:39.332 +03 [10392] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=16957 kB; lsn=0/AB5DDD0, redo lsn=0/AB5DDD0
+2026-11-11 03:00:39.334 +03 [10391] LOG:  database system is shut down

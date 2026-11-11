@@ -1,0 +1,63 @@
+
+ RUN  v3.2.4 /Users/bekiraslamaci/Developer/aslamaci-erp-return-20261021/aslamaci-erp-worktrees/faz-2d16-hb-floor-recovery/client
+
+ ✓ src/pages/ContentCenter.test.jsx (3 tests) 1076ms
+   ✓ İçerik Stüdyosu > mevcut/önerilen diff, kaynak briefi ve güvenlik uyarısını gösterir  543ms
+   ✓ İçerik Stüdyosu > taslak üretimi reçete ve pazaryeriyle açık onay ister  413ms
+ ✓ src/pages/OpportunityCenter.test.jsx (3 tests) 1764ms
+   ✓ Ürün Fırsatları > puan katkısı, eksik veri ve reçete bileşenini drawerda açıklar  442ms
+   ✓ Ürün Fırsatları > fırsat üretimi açık onayla ve seçili hedef pazaryeriyle çalışır  446ms
+   ✓ Ürün Fırsatları > ret nedeni açık onayla immutable karar geçmişine gönderilir  873ms
+ ✓ src/pages/Products.test.jsx (5 tests) 2476ms
+   ✓ Products maliyet yönetimi > product drawer maliyet dökümünde efektif komisyon satırını gösterir  362ms
+   ✓ Products maliyet yönetimi > Products satırından drawer açılır; kullanıcı ikinci bileşen ekleyip mevcut bileşeni kaldırmayı önizler  1934ms
+ ✓ src/pages/Costs.test.jsx (9 tests) 3223ms
+   ✓ Toplu mapping paneli > önizleme yapılmadan kaydetmez ve barkod kapsamlı endpointi kullanır  1305ms
+   ✓ Toplu mapping paneli > maliyet kalemlerini panelden toplu yükler  508ms
+   ✓ Toplu mapping paneli > veri bütünlüğü merkezi adayları açıklayıp otomatik düzeltme yapmaz  411ms
+ ✓ src/pages/PublishingCenter.test.jsx (2 tests) 778ms
+   ✓ Ürün Yayınlama Merkezi > yayın taslağını önce dry-run önizlemesine alır  585ms
+ ✓ src/pages/CatalogCenter.test.jsx (4 tests) 1001ms
+   ✓ Merkezi PIM ekranları > reçete yalnız açık insan onayıyla APPROVED olur  413ms
+ ✓ src/components/AtomicCostRecipeEditor.test.jsx (7 tests) 4689ms
+   ✓ quantity plus addition stay local; full before/after preview and one final apply  1136ms
+   ✓ cancel discards staged additions, removals and quantity changes without a write  730ms
+   ✓ initial unmapped recipe stages two components before any preview or apply  827ms
+   ✓ unlinked LIVE canonical is only a staged descriptor until final recipe apply  356ms
+   ✓ replace one component keeps the other; duplicate canonical and final removal are blocked  1209ms
+ ✓ src/pages/Integrations.test.jsx (3 tests) 579ms
+   ✓ Entegrasyonlar sayfası > credential ve capability durumlarını secret göstermeden sunar  416ms
+ ✓ src/components/DataTable.test.jsx (2 tests) 206ms
+ ✓ src/components/ui.test.jsx (1 test) 183ms
+ ✓ src/components/CostManagement.test.jsx (23 tests) 6550ms
+   ✓ shared cost management > shared selector supplier search ve seçim yapar  542ms
+   ✓ shared cost management > selector linked, unlinked eligible ve blocked offer aksiyonlarini ayirir  347ms
+   ✓ shared cost management > geç dönen File cevabı Bizim sonucunu overwrite etmez  556ms
+   ✓ shared cost management > impact preview fingerprint apply kontratına gider ve undo görünür  573ms
+   ✓ shared cost management > unmapped bundle quantity 4 ile preview ve apply payloadini korur  403ms
+   ✓ shared cost management > Rossmann unlinked LIVE offer CTA tiklamasi previewu dogrudan acar  485ms
+   ✓ shared cost management > create preview hatasindan sonra CTA yeniden kullanilabilir  347ms
+   ✓ shared cost management > unlinked offer apply conflict selectoru yeniler ve stale secimi temizler  613ms
+   ✓ shared cost management > humanized aksiyonlar mevcut backend operation tiplerini korur  616ms
+   ✓ shared cost management > geçersiz quantity  preview'dan önce reddedilir  300ms
+   ✓ shared cost management > geçersiz quantity 0 preview'dan önce reddedilir  311ms
+   ✓ shared cost management > geçersiz quantity -1 preview'dan önce reddedilir  314ms
+   ✓ shared cost management > geçersiz quantity 1.5 preview'dan önce reddedilir  327ms
+   ✓ multi-component product recipe editor > add ve remove kullanıcı etkileşimleri exact component operasyonu üretir  342ms
+ ✓ src/pages/MappingSuggestions.test.jsx (22 tests) 7428ms
+   ✓ Akıllı mapping paneli > Trendyol ürünü, File fiyatı ve güven skorunu birlikte gösterir  613ms
+   ✓ Akıllı mapping paneli > Hepsiburada seciliyken urun ve kimlik basliklarini dogru gosterir  344ms
+   ✓ Akıllı mapping paneli > onay öneriyi uygulatmadan yalnızca onay endpointini çağırır  582ms
+   ✓ Akıllı mapping paneli > mapping suggestion drawer shared CostSelector kullanır  420ms
+   ✓ Akıllı mapping paneli > mapping suggestion secilen canonical desiyi drawer icinde guvenle duzeltir  1219ms
+   ✓ Akıllı mapping paneli > onaylı öneriyi önizleyip gerçek mappinge uygular  611ms
+   ✓ Akıllı mapping paneli > yanlışlıkla onaylanan önerinin onayını iptal eder  450ms
+   ✓ Akıllı mapping paneli > seçili onaylı önerileri click eventi yerine id listesiyle önizler  316ms
+   ✓ Akıllı mapping paneli > kardeş varyant fiyatını tabloda ve detayda açıkça işaretler  306ms
+   ✓ Akıllı mapping paneli > 'FILE_MARKET' cevabı geç gelse de 'BIZIM_MARKET' havuzunu overwrite etmez  547ms
+   ✓ Akıllı mapping paneli > 'BIZIM_MARKET' cevabı geç gelse de 'FILE_MARKET' havuzunu overwrite etmez  542ms
+
+ Test Files  12 passed (12)
+      Tests  84 passed (84)
+   Start at  02:53:12
+   Duration  10.32s (transform 2.51s, setup 4.37s, collect 9.18s, tests 29.95s, environment 10.71s, prepare 1.67s)

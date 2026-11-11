@@ -26,6 +26,7 @@ test("sonuc jobu taze buybox verisiyle hedef sirayi degerlendirir", async () => 
     },
     recordOutcome: async (item, outcome) => {
       recorded = outcome;
+      return { id: 1 };
     },
     applyLearningOutcome: async () => {
       learned++;
@@ -49,7 +50,7 @@ test("sonuc jobu taze buybox verisiyle hedef sirayi degerlendirir", async () => 
   assert.equal(recorded.targetAchieved, true);
   assert.equal(recorded.result, "TARGET_RANK_ACHIEVED");
   assert.equal(learned, 1);
-  assert.equal(finalStatus, "SUCCESS");
+  assert.equal(finalStatus, undefined);
 });
 
 test("buybox yenilenemezse eski veriyle sonuc yazilmaz", async () => {

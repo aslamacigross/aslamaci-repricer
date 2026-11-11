@@ -415,13 +415,11 @@ function createContainer(overrides = {}) {
         failed++;
         itemErrors.push(safeItemError(action, error));
         const latest = await actions.get(action.id);
-        if (
-          latest &&
-          ["PENDING", "APPROVED", "SENDING"].includes(latest.status)
-        ) {
+        if (latest && ["PENDING", "APPROVED"].includes(latest.status)) {
           await actions.updateStatus(action.id, "FAILED", {
             actor: "system",
             error: error.message,
+            expectedStatus: latest.status,
           });
         }
       }

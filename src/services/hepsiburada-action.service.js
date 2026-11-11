@@ -698,12 +698,13 @@ class HepsiburadaActionService {
             this.repricer?.hbPilot ||
             new HepsiburadaPilotPolicy()
           ).matchesListing(product, listing, action.safety_checks.hbPilot)
-        : action.safety_checks?.hbFloorRecovery &&
-          !matchesOwnListing(product, listing)
+        : !matchesOwnListing(product, listing)
     )
       return {
         status: "PENDING",
-        error: "HB_FLOOR_MARKET_IDENTITY_UNVERIFIED",
+        error: action.safety_checks?.hbFloorRecovery
+          ? "HB_FLOOR_MARKET_IDENTITY_UNVERIFIED"
+          : "HB_MARKET_IDENTITY_UNVERIFIED",
         batchResponse,
       };
     const observedPrice = listingPrice(
