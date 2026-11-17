@@ -100,7 +100,13 @@ class HepsiburadaActionService {
   // The final DB check follows the LAST external GET; it performs no more HTTP
   // reads. The transaction ends before POST: this narrows, not eliminates, the
   // unavoidable DB/provider gap. Old workers must be drained before activation.
-  async validatePilotDispatch(action, listing) {
+  async validatePilotDispatch(action, listing, commissionEvidence) {
+    if (!commissionEvidence)
+      throw new AppError(
+        "Güncel SKU komisyon kanıtı yok",
+        409,
+        "HB_FLOOR_COMMISSION_UNVERIFIED",
+      );
     return this.withTransaction(async (client) => {
       const state = (
         await client.query(
@@ -164,6 +170,7 @@ class HepsiburadaActionService {
           action,
           queryable: client,
           observedListing: listing,
+          observedCommission: commissionEvidence,
         });
         if (!result?.safety.safe)
           throw new AppError(
@@ -188,7 +195,11 @@ class HepsiburadaActionService {
         client,
         action.id,
       );
-      const verified = this.hbFloorRecovery.verifyCost(product, evidence);
+      const verified = this.hbFloorRecovery.verifyCost(
+        product,
+        evidence,
+        commissionEvidence,
+      );
       const targetShipping = selectShippingCost({
         salePrice: Number(action.proposed_price),
         desi: verified.desi,
@@ -245,7 +256,7 @@ class HepsiburadaActionService {
           safety.failures,
         );
       pilot.assertAction(action, product);
-      return null;
+      return { commission: verified.commission };
     });
   }
 
@@ -521,9 +532,16 @@ class HepsiburadaActionService {
         floorPreflight = await this.validatePilotDispatch(
           locked,
           recovery.observedListing,
+          // All HTTP reads finish BEFORE the final DB transaction. Re-fetch
+          // commission after the own-listing GET; never reuse preview evidence.
+          await this.hbFloorRecovery.readCommission(latest),
         );
       } else if (locked.safety_checks?.hbPilot) {
-        await this.validatePilotDispatch(locked, listing);
+        floorPreflight = await this.validatePilotDispatch(
+          locked,
+          listing,
+          await this.hbFloorRecovery.readCommission(product),
+        );
       }
       dispatchStarted = true;
       submission = await this.hepsiburada.submitPriceUpdate({

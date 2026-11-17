@@ -2,6 +2,9 @@ const { AppError } = require("../utils/errors");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
 const { roundMoney, parseBoolean } = require("../utils/numbers");
+const {
+  verifyCommissionEvidence,
+} = require("../domain/hepsiburada-commission-evidence");
 
 class ActionService {
   constructor({
@@ -36,6 +39,16 @@ class ActionService {
     if (!product)
       throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
     const proof = this.repricer.hbPilot.assertAction(action, product);
+    if (action.safety_checks?.hbFloorRecovery) {
+      const saved = action.safety_checks.hbFloorRecovery.commission;
+      const current = verifyCommissionEvidence(
+        saved,
+        product,
+        this.repricer.hbPilot.config().hepsiburadaMerchantId,
+      );
+      if (current.fingerprint !== saved.fingerprint)
+        throw new AppError("Komisyon snapshot değişti", 409, "STALE_PREVIEW");
+    }
     if (
       proof &&
       (product.settings?.mode !== "AUTOMATIC" ||

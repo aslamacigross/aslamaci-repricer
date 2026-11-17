@@ -1,6 +1,6 @@
 const { createDisposablePostgres } = require("../helpers/disposable-postgres");
 const { AuditRepository } = require("../../src/repositories/audit.repository");
-const { testPilot } = require("../helpers/hepsiburada-pilot");
+const { testPilot, testCommission } = require("../helpers/hepsiburada-pilot");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { migrate } = require("../../src/db/migrate");
@@ -39,6 +39,8 @@ let raw,
   listing,
   marketReads,
   readHook,
+  commissionHook,
+  commissionReads,
   enforceClientOnly = false,
   leased = false;
 test.before(async () => {
@@ -104,6 +106,8 @@ test.beforeEach(async () => {
   posted = 0;
   marketReads = 0;
   readHook = null;
+  commissionHook = null;
+  commissionReads = 0;
   enforceClientOnly = false;
   await raw.query(`TRUNCATE audit_logs,products,product_settings,repricer_learning,cost_items,file_market_items,repricer_actions,commission_rules,packaging_rules RESTART IDENTITY CASCADE;
     DELETE FROM shipping_costs; DELETE FROM shipping_barems; DELETE FROM system_settings;
@@ -153,6 +157,11 @@ test.beforeEach(async () => {
   };
   const api = {
     livePriceUpdatesEnabled: () => true,
+    readCommissionForPrice: async ({ merchantSku, hbSku }) => {
+      commissionReads++;
+      if (commissionHook) return commissionHook({ merchantSku, hbSku });
+      return testCommission({ merchant_sku: merchantSku, hb_sku: hbSku });
+    },
     readListingForPrice: async () => {
       marketReads++;
       if (readHook) await readHook(marketReads);
@@ -207,6 +216,236 @@ test.beforeEach(async () => {
       },
     },
   });
+});
+
+test("SKU commission proof works with ZERO category rules and persists preview/receipt evidence", async () => {
+  await raw.query("DELETE FROM commission_rules");
+  const before = await snapshot();
+  const preview = (await repricer.preview("FLOOR", "HEPSIBURADA"))[0];
+  assert.equal(preview.safetyChecks.safe, true);
+  assert.equal(preview.safetyChecks.hbFloorRecovery.commission.rate, 17);
+  assert.equal(
+    preview.safetyChecks.hbFloorRecovery.commission.vatBasis,
+    "INCLUDED",
+  );
+  assert.deepEqual(await snapshot(), before);
+  assert.equal(posted, 0);
+  const a = await approvedFloor();
+  assert.equal(a.safety_checks.hbFloorRecovery.commission.hbSku, "HBCV-FLOOR");
+  const saved = await executor.apply(a.id, "operator");
+  const dispatchProof = saved.api_response.floorPreflight.commission;
+  assert.equal(
+    dispatchProof.fingerprint,
+    a.safety_checks.hbFloorRecovery.commission.fingerprint,
+  );
+  assert.equal(dispatchProof.source, "HEPSIBURADA_COMMISSION_API");
+  assert.equal(saved.status, "AWAITING_RESULT");
+  assert.equal(posted, 1);
+  const after = await snapshot();
+  assert.deepEqual(after.recipes, before.recipes);
+  assert.deepEqual(after.sources, before.sources);
+});
+
+for (const [label, change, code] of [
+  ["missing", () => null, "HB_FLOOR_COMMISSION_UNVERIFIED"],
+  [
+    "stale",
+    (e) => ({ ...e, checkedAt: new Date(Date.now() - 301000).toISOString() }),
+    "HB_FLOOR_COMMISSION_STALE",
+  ],
+  [
+    "wrong merchant",
+    (e) => ({ ...e, merchantId: "other" }),
+    "HB_FLOOR_COMMISSION_IDENTITY_UNVERIFIED",
+  ],
+  [
+    "wrong merchantSku",
+    (e) => ({ ...e, merchantSku: "OTHER" }),
+    "HB_FLOOR_COMMISSION_IDENTITY_UNVERIFIED",
+  ],
+  [
+    "wrong hbSku",
+    (e) => ({ ...e, hbSku: "OTHER" }),
+    "HB_FLOOR_COMMISSION_IDENTITY_UNVERIFIED",
+  ],
+  ["rate conflict", (e) => ({ ...e, rate: 18 }), "HB_FLOOR_COMMISSION_CHANGED"],
+  [
+    "VAT exclusive",
+    (e) => ({ ...e, vatBasis: "EXCLUDED" }),
+    "HB_FLOOR_COMMISSION_VAT_UNVERIFIED",
+  ],
+  [
+    "VAT unknown",
+    (e) => ({ ...e, vatBasis: "UNKNOWN" }),
+    "HB_FLOOR_COMMISSION_VAT_UNVERIFIED",
+  ],
+])
+  test(`category rate cannot rescue ${label} SKU evidence`, async () => {
+    commissionHook = async () =>
+      change(testCommission({ merchant_sku: "FLOOR", hb_sku: "HBCV-FLOOR" }));
+    const preview = (await repricer.preview("FLOOR", "HEPSIBURADA"))[0];
+    assert.ok(preview.blockedReasons.includes(code), JSON.stringify(preview));
+    assert.equal(
+      (
+        await repricer.generate({
+          marketplace: "HEPSIBURADA",
+          barcode: "FLOOR",
+          source: "AUTO",
+        })
+      ).created,
+      0,
+    );
+    assert.equal(posted, 0);
+  });
+
+test("provider error remains fail-closed, not a category fallback", async () => {
+  commissionHook = async () => {
+    throw new Error("mock provider unavailable");
+  };
+  const preview = (await repricer.preview("FLOOR", "HEPSIBURADA"))[0];
+  assert.ok(preview.blockedReasons.includes("HB_FLOOR_EVIDENCE_UNAVAILABLE"));
+  assert.equal(posted, 0);
+});
+
+test("commission changes after preview invalidate approval even when both sources now agree", async () => {
+  const a = await generate();
+  await raw.query(
+    "UPDATE products SET commission_rate=18 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+  );
+  commissionHook = async ({ merchantSku, hbSku }) =>
+    testCommission({
+      merchant_sku: merchantSku,
+      hb_sku: hbSku,
+      commission_rate: 18,
+    });
+  await assert.rejects(approval.approve(a.id, "operator"));
+  assert.equal((await actions.get(a.id)).status, "PENDING");
+  assert.equal(posted, 0);
+});
+
+test("expired approval commission snapshot requires a fresh preview and leaves PENDING", async () => {
+  const a = await generate();
+  await raw.query(
+    "UPDATE repricer_actions SET safety_checks=jsonb_set(safety_checks,'{hbFloorRecovery,commission,checkedAt}',to_jsonb($2::text)) WHERE id=$1",
+    [a.id, new Date(Date.now() - 301000).toISOString()],
+  );
+  await assert.rejects(approval.approve(a.id, "operator"), {
+    code: "HB_FLOOR_COMMISSION_STALE",
+  });
+  assert.equal((await actions.get(a.id)).status, "PENDING");
+  assert.equal(posted, 0);
+});
+
+test("a legacy floor action without commission provenance cannot gain approval", async () => {
+  const a = await generate();
+  await raw.query(
+    "UPDATE repricer_actions SET safety_checks=safety_checks #- '{hbFloorRecovery,commission}' WHERE id=$1",
+    [a.id],
+  );
+  await assert.rejects(approval.approve(a.id, "operator"), {
+    code: "HB_FLOOR_COMMISSION_UNVERIFIED",
+  });
+  assert.equal(posted, 0);
+});
+
+for (const [label, change] of [
+  [
+    "SKU commission",
+    async () =>
+      raw.query(
+        "UPDATE products SET commission_rate=18 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "supplier price",
+    async () =>
+      raw.query("UPDATE file_market_items SET current_price=330 WHERE id=1"),
+  ],
+  [
+    "destination tariff",
+    async () =>
+      raw.query(
+        "UPDATE shipping_costs SET cost_inc_vat=120 WHERE marketplace='HEPSIBURADA' AND desi_kg=1",
+      ),
+  ],
+  [
+    "manual policy",
+    async () =>
+      raw.query(
+        "UPDATE product_settings SET mode='MANUAL' WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+      ),
+  ],
+  [
+    "floor flag",
+    async () => {
+      floor.pilot.config().hepsiburadaFloorRecoveryEnabled = false;
+    },
+  ],
+])
+  test(`final commission GET observes ${label} change before POST`, async () => {
+    const a = await approvedFloor();
+    const lastGet = marketReads + 3;
+    let final = false,
+      changed = false;
+    readHook = async (n) => {
+      if (n === lastGet) final = true;
+    };
+    commissionHook = async ({ merchantSku, hbSku }) => {
+      if (final) {
+        assert.equal(
+          leased,
+          false,
+          "provider GET must finish before final DB transaction",
+        );
+        await change();
+        changed = true;
+      }
+      return testCommission({ merchant_sku: merchantSku, hb_sku: hbSku });
+    };
+    await assert.rejects(executor.apply(a.id, "operator"));
+    assert.equal(changed, true);
+    assert.equal(posted, 0);
+    assert.equal((await actions.get(a.id)).status, "FAILED"); // failed BEFORE dispatch only
+  });
+
+test("normal HB path with both flags OFF needs no new commission GET", async () => {
+  const config = floor.pilot.config();
+  config.hepsiburadaFloorRecoveryEnabled = false;
+  config.hepsiburadaStrictMerchantIdentityEnabled = false;
+  config.hepsiburadaPilotAllowlist = [];
+  await raw.query(
+    "UPDATE products SET rank=2 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
+  );
+  commissionHook = async () => {
+    throw new Error("must not call pilot commission API");
+  };
+  const a = await approvedFloor();
+  await executor.apply(a.id, "operator");
+  assert.equal(commissionReads, 0);
+  assert.equal(posted, 1);
+});
+
+test("missing final commission snapshot cannot trigger HTTP inside final validation", async () => {
+  executor.withTransaction = () => {
+    throw new Error("must reject before transaction");
+  };
+  await assert.rejects(executor.validatePilotDispatch({}, listing), {
+    code: "HB_FLOOR_COMMISSION_UNVERIFIED",
+  });
+  assert.equal(posted, 0);
+});
+
+test("historical Ceylon 2x225 fixture is ONLY a synthetic VAT-inclusive scenario", async () => {
+  await raw.query(`DELETE FROM commission_rules;
+    UPDATE products SET calculated_product_cost=450,min_price=737.82,my_price=729.99 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR';
+    UPDATE cost_items SET unit_cost=225,unit_desi=0.5 WHERE id=1;
+    UPDATE product_cost_mappings SET quantity=2 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR';
+    UPDATE file_market_items SET current_price=225 WHERE id=1;`);
+  listing.price = 729.99;
+  const preview = (await repricer.preview("FLOOR", "HEPSIBURADA"))[0];
+  assert.equal(preview.safetyChecks.safe, true, JSON.stringify(preview));
+  assert.equal(preview.proposedPrice, 737.82);
+  assert.equal(posted, 0);
 });
 async function generate() {
   const result = await repricer.generate({
@@ -428,6 +667,13 @@ test("destination tariff survives complete action flow and confirmed CostEngine 
     UPDATE cost_items SET unit_cost=144,unit_desi=3 WHERE id=1;
     UPDATE file_market_items SET current_price=144 WHERE id=1;`);
   listing.price = 386.87;
+  commissionHook = async () =>
+    testCommission({
+      ...listing,
+      merchant_sku: listing.merchantSku,
+      hb_sku: listing.hbSku,
+      commission_rate: 15,
+    });
   const a = await generate();
   assert.equal(Number(a.proposed_price), 582.34);
   assert.equal(Number(a.expected_profit), 200);
@@ -604,7 +850,7 @@ for (const [label, change] of [
     "commission",
     async () =>
       raw.query(
-        "UPDATE commission_rules SET commission_rate=18 WHERE marketplace='HEPSIBURADA'",
+        "UPDATE products SET commission_rate=18 WHERE marketplace='HEPSIBURADA' AND barcode='FLOOR'",
       ),
   ],
 ])
