@@ -1,4 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   RefreshCw,
   SlidersHorizontal,
@@ -236,25 +242,51 @@ export default function Products({ notify, marketplace = "TRENDYOL" }) {
     [detail, setDetail] = useState(null),
     [tab, setTab] = useState("cost"),
     [saving, setSaving] = useState(false);
-  async function load() {
+  const listRequest = useRef({ id: 0, mounted: false, controller: null });
+  const listScope = useRef({ filters, marketplace });
+  const load = useCallback(async () => {
+    const request = listRequest.current;
+    if (!request.mounted) return;
+    const id = ++request.id;
+    request.controller?.abort();
+    const controller = new AbortController();
+    request.controller = controller;
+    const { filters: currentFilters, marketplace: currentMarketplace } =
+      listScope.current;
+    const ownsRequest = () => request.mounted && request.id === id;
     setLoading(true);
     setError(null);
     try {
       const query = new URLSearchParams(
-        Object.entries(filters).filter(([, v]) => v !== ""),
+        Object.entries(currentFilters).filter(([, v]) => v !== ""),
       );
-      query.set("marketplace", marketplace);
-      setResult(await get(`/api/products?${query}`));
+      query.set("marketplace", currentMarketplace);
+      const next = await get(`/api/products?${query}`, {
+        signal: controller.signal,
+      });
+      if (ownsRequest()) setResult(next);
     } catch (e) {
-      setError(e);
+      if (ownsRequest() && e.name !== "AbortError") setError(e);
     } finally {
-      setLoading(false);
+      if (ownsRequest()) setLoading(false);
     }
-  }
-  useEffect(() => {
+  }, []);
+  // Invalidate at the committed selection change, not when the next debounce
+  // fires. Abort is an optimization; ownership also rejects late mock/cache replies.
+  useLayoutEffect(() => {
+    const request = listRequest.current;
+    request.mounted = true;
+    listScope.current = { filters, marketplace };
+    setLoading(true);
+    setError(null);
     const id = setTimeout(load, filters.search ? 300 : 0);
-    return () => clearTimeout(id);
-  }, [filters, marketplace]);
+    return () => {
+      clearTimeout(id);
+      request.mounted = false;
+      request.id++;
+      request.controller?.abort();
+    };
+  }, [filters, marketplace, load]);
   async function open(row) {
     setSelected(row);
     setDetail(null);
