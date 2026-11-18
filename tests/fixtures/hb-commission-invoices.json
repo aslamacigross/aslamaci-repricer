@@ -1,0 +1,53 @@
+[
+  {
+    "sourceSha256": "8f8273b6aebd7a9cf69a6ff43c6a3325488cefc71107accb3b1a61c61a02e0a1",
+    "commissionNet": 397.75,
+    "commissionVatRate": 20,
+    "otherNetCharges": [
+      { "type": "SHIPPING", "amount": 356.97 },
+      { "type": "COLLECTION", "amount": 16.43 },
+      { "type": "SERVICE", "amount": 10.99 }
+    ],
+    "campaignNetCredit": 367.55,
+    "commissionReturnNetCredit": 0,
+    "otherNetCredits": 0,
+    "invoiceVatBase": 414.59,
+    "invoiceVatTotal": 82.92,
+    "invoiceGrossTotal": 497.51,
+    "orderGrossCommissionSum": 477.31
+  },
+  {
+    "sourceSha256": "d1c5c01163a613fcb55c6cc1b9c7c0c5905861c3a48c44305807e7e9908d22de",
+    "commissionNet": 4340.32,
+    "commissionVatRate": 20,
+    "otherNetCharges": [
+      { "type": "SHIPPING", "amount": 1979.81 },
+      { "type": "COLLECTION", "amount": 167.72 },
+      { "type": "SERVICE", "amount": 98.91 }
+    ],
+    "campaignNetCredit": 3734.17,
+    "commissionReturnNetCredit": 0,
+    "otherNetCredits": 0,
+    "invoiceVatBase": 2852.59,
+    "invoiceVatTotal": 570.52,
+    "invoiceGrossTotal": 3423.11,
+    "orderGrossCommissionSum": 5208.38
+  },
+  {
+    "sourceSha256": "0205097137593f55e1610af03eb90943c7255ff5466b47733a01125593ea024f",
+    "commissionNet": 3454.16,
+    "commissionVatRate": 20,
+    "otherNetCharges": [
+      { "type": "SHIPPING", "amount": 2425.77 },
+      { "type": "COLLECTION", "amount": 146.88 },
+      { "type": "SERVICE", "amount": 21.98 }
+    ],
+    "campaignNetCredit": 1626.02,
+    "commissionReturnNetCredit": 0,
+    "otherNetCredits": 0,
+    "invoiceVatBase": 4422.77,
+    "invoiceVatTotal": 884.55,
+    "invoiceGrossTotal": 5307.32,
+    "orderGrossCommissionSum": 4144.99
+  }
+]
