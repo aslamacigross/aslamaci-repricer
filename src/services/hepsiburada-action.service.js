@@ -100,7 +100,13 @@ class HepsiburadaActionService {
   // The final DB check follows the LAST external GET; it performs no more HTTP
   // reads. The transaction ends before POST: this narrows, not eliminates, the
   // unavoidable DB/provider gap. Old workers must be drained before activation.
-  async validatePilotDispatch(action, listing) {
+  async validatePilotDispatch(action, listing, commissionEvidence) {
+    if (!commissionEvidence)
+      throw new AppError(
+        "Güncel SKU komisyon kanıtı yok",
+        409,
+        "HB_FLOOR_COMMISSION_UNVERIFIED",
+      );
     return this.withTransaction(async (client) => {
       const state = (
         await client.query(
@@ -114,11 +120,20 @@ class HepsiburadaActionService {
           409,
           "DUPLICATE_APPLY",
         );
-      const product = await this.products.get(
+      let product = await this.products.get(
         action.barcode,
         "HEPSIBURADA",
         client,
       );
+      if (this.repricer?.hbCashEconomy) {
+        product = await this.repricer.hbCashEconomy.prepare(product, {
+          queryable: client,
+          listing,
+          quote: commissionEvidence,
+          actionId: action.id,
+        });
+        this.repricer.hbCashEconomy.assertAction(action, product);
+      }
       const pilot =
         this.hbFloorRecovery?.pilot ||
         this.repricer?.hbPilot ||
@@ -164,6 +179,7 @@ class HepsiburadaActionService {
           action,
           queryable: client,
           observedListing: listing,
+          observedCommission: commissionEvidence,
         });
         if (!result?.safety.safe)
           throw new AppError(
@@ -188,7 +204,17 @@ class HepsiburadaActionService {
         client,
         action.id,
       );
-      const verified = this.hbFloorRecovery.verifyCost(product, evidence);
+      const verified = this.hbFloorRecovery.verifyCost(
+        product,
+        evidence,
+        commissionEvidence,
+        product.hb_cash_economics?.mode === "ENFORCE"
+          ? {
+              verifyCommission: (quote) =>
+                this.repricer.hbCashEconomy.verifyQuote(product, quote),
+            }
+          : {},
+      );
       const targetShipping = selectShippingCost({
         salePrice: Number(action.proposed_price),
         desi: verified.desi,
@@ -211,6 +237,8 @@ class HepsiburadaActionService {
         productCost: product.calculated_product_cost,
         shippingCost: targetShipping,
         commissionRate: product.commission_rate,
+        commissionModel: product.hb_cash_commission,
+        otherVerifiedCosts: product.hb_cash_other_costs,
         packagingCost: product.packaging_cost,
         serviceFee: product.service_fee,
       };
@@ -245,7 +273,161 @@ class HepsiburadaActionService {
           safety.failures,
         );
       pilot.assertAction(action, product);
-      return null;
+      return { commission: verified.commission };
+    });
+  }
+
+  async validateCashDispatch(action, listing, quote) {
+    const cash = this.repricer.hbCashEconomy;
+    return this.withTransaction(async (client) => {
+      const state = (
+        await client.query(
+          "SELECT * FROM repricer_actions WHERE id=$1 FOR UPDATE",
+          [action.id],
+        )
+      ).rows[0];
+      if (state?.status !== "SENDING")
+        throw new AppError(
+          "Aksiyon gönderim durumunda değil",
+          409,
+          "DUPLICATE_APPLY",
+        );
+      await client.query(
+        "SELECT barcode FROM products WHERE marketplace='HEPSIBURADA' AND barcode=$1 FOR UPDATE",
+        [action.barcode],
+      );
+      let current = await this.products.get(
+        action.barcode,
+        "HEPSIBURADA",
+        client,
+      );
+      if (!current)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      current = await cash.prepare(current, {
+        queryable: client,
+        listing,
+        quote,
+        actionId: action.id,
+      });
+      cash.assertAction(action, current);
+      const global = await this.repricer.globalSettings(client);
+      const settings = {
+        ...current.settings,
+        unlimited_increase:
+          parseBoolean(global.unlimitedIncrease) ||
+          parseBoolean(current.settings?.unlimited_increase),
+      };
+      const stats = await this.actions.todayStats(
+        action.barcode,
+        "HEPSIBURADA",
+        client,
+      );
+      const today = {
+        actionCount: stats.action_count,
+        dayStartPrice: stats.day_start_price,
+      };
+      let proposal = {
+        ...proposePrice(current, settings),
+        proposedPrice: Number(action.proposed_price),
+      };
+      const legacyMoney = {
+        salePrice: proposal.proposedPrice,
+        commissionRate: current.commission_rate,
+        productCost: current.calculated_product_cost,
+        shippingCost: current.calculated_shipping_cost,
+        packagingCost: current.packaging_cost,
+        serviceFee: current.service_fee,
+      };
+      proposal.expectedProfit = calculateNetProfit(legacyMoney);
+      proposal.expectedMargin = calculateNetMargin(legacyMoney);
+      proposal = cash.proposal(current, proposal);
+      const manual = ["MANUAL", "MANUAL_EDIT", "ROLLBACK"].includes(
+        action.source,
+      );
+      let safety = safetyCheck({
+        product: current,
+        settings,
+        global,
+        proposal,
+        manual,
+        automaticRecovery: Boolean(action.reverts_action_id),
+        today,
+      });
+      if (action.safety_checks?.hbFloorRecovery) {
+        const floor = await this.hbFloorRecovery.evaluate({
+          product: current,
+          settings,
+          global,
+          proposal,
+          today,
+          action,
+          queryable: client,
+          observedListing: listing,
+          observedCommission: quote,
+        });
+        if (!floor?.safety.safe)
+          throw new AppError(
+            "Güncel floor kanıtı değişti",
+            409,
+            "STALE_PREVIEW",
+          );
+        safety = floor.safety;
+      }
+      const open = await this.actions.findOpen(
+        action.barcode,
+        client,
+        action.id,
+        "HEPSIBURADA",
+      );
+      if (open)
+        throw new AppError(
+          "Ürün için başka açık aksiyon var",
+          409,
+          "OPEN_ACTION_EXISTS",
+        );
+      if (
+        !safety.safe ||
+        !this.hepsiburada.livePriceUpdatesEnabled() ||
+        Number(current.my_price) !== Number(action.old_price) ||
+        listingPrice(listing, true) !== Number(action.old_price) ||
+        listing.isSalable !== true ||
+        !(listingStock(listing) > 0)
+      )
+        throw new AppError(
+          "Son ekonomik kontrol başarısız",
+          409,
+          "SAFETY_BLOCKED",
+          safety.failures,
+        );
+      if (
+        !manual &&
+        (settings.mode !== "AUTOMATIC" ||
+          !parseBoolean(current.auto_update) ||
+          !parseBoolean(settings.auto_update))
+      )
+        throw new AppError(
+          "Otomasyon izni kapalı",
+          409,
+          "HB_CASH_POLICY_DENIED",
+        );
+      if (
+        current.hb_cash_economics.mode === "ENFORCE" &&
+        (proposal.proposedPrice < Number(current.min_price) ||
+          proposal.expectedProfit <
+            Math.max(
+              Number(current.target_profit || 0),
+              Number(settings.minimum_profit_tl || 0),
+            ))
+      )
+        throw new AppError(
+          "Nakit katkı tabanı sağlanmıyor",
+          409,
+          "MIN_PROFIT_TL_VIOLATION",
+        );
+      // Re-read in-memory policy after awaited DB reads. No HTTP remains before
+      // dispatch. This is not fencing, nor atomic with the remote POST.
+      cash.assertAction(action, current);
+      return proposal.economicComparison;
     });
   }
 
@@ -279,13 +461,20 @@ class HepsiburadaActionService {
         );
       if (locked.expires_at && new Date(locked.expires_at) < new Date())
         throw new AppError("Aksiyonun süresi dolmuş", 409, "ACTION_EXPIRED");
-      const product = await this.products.get(
+      let product = await this.products.get(
         locked.barcode,
         "HEPSIBURADA",
-        locked.safety_checks?.hbFloorRecovery ? client : undefined,
+        client,
       );
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      if (this.repricer?.hbCashEconomy) {
+        product = await this.repricer.hbCashEconomy.prepare(product, {
+          queryable: client,
+          actionId: locked.id,
+        });
+        this.repricer.hbCashEconomy.assertAction(locked, product);
+      }
       const pilot =
         this.hbFloorRecovery?.pilot ||
         this.repricer?.hbPilot ||
@@ -340,6 +529,8 @@ class HepsiburadaActionService {
       const moneyInput = {
         salePrice: proposal.proposedPrice,
         commissionRate: product.commission_rate,
+        commissionModel: product.hb_cash_commission,
+        otherVerifiedCosts: product.hb_cash_other_costs,
         productCost: product.calculated_product_cost,
         shippingCost: product.calculated_shipping_cost,
         packagingCost: product.packaging_cost,
@@ -347,6 +538,8 @@ class HepsiburadaActionService {
       };
       proposal.expectedProfit = calculateNetProfit(moneyInput);
       proposal.expectedMargin = calculateNetMargin(moneyInput);
+      if (this.repricer?.hbCashEconomy)
+        proposal = this.repricer.hbCashEconomy.proposal(product, proposal);
       const today = await this.actions.todayStats(
         product.barcode,
         "HEPSIBURADA",
@@ -450,6 +643,7 @@ class HepsiburadaActionService {
     let dispatchStarted = false;
     let submission;
     let floorPreflight;
+    let cashPreflight;
     try {
       const listing = await this.hepsiburada.readListingForPrice({
         merchantSku: product.merchant_sku || product.barcode,
@@ -521,9 +715,33 @@ class HepsiburadaActionService {
         floorPreflight = await this.validatePilotDispatch(
           locked,
           recovery.observedListing,
+          // All HTTP reads finish BEFORE the final DB transaction. Re-fetch
+          // commission after the own-listing GET; never reuse preview evidence.
+          await this.hbFloorRecovery.readCommission(latest),
         );
       } else if (locked.safety_checks?.hbPilot) {
-        await this.validatePilotDispatch(locked, listing);
+        floorPreflight = await this.validatePilotDispatch(
+          locked,
+          listing,
+          await this.hbFloorRecovery.readCommission(product),
+        );
+      }
+      if (locked.safety_checks?.hbCash) {
+        // Latest listing then latest merchant-scoped commission GET; ALL current
+        // DB/policy checks follow these reads, including changes during the GET.
+        const latestListing = await this.hepsiburada.readListingForPrice({
+          merchantSku: product.merchant_sku,
+          hbSku: product.hb_sku,
+        });
+        const latestQuote = await this.hepsiburada.readCommissionForPrice({
+          merchantSku: product.merchant_sku,
+          hbSku: product.hb_sku,
+        });
+        cashPreflight = await this.validateCashDispatch(
+          locked,
+          latestListing,
+          latestQuote,
+        );
       }
       dispatchStarted = true;
       submission = await this.hepsiburada.submitPriceUpdate({
@@ -612,6 +830,7 @@ class HepsiburadaActionService {
         recordedAt: new Date().toISOString(),
       },
       ...(floorPreflight ? { floorPreflight } : {}),
+      ...(cashPreflight ? { cashPreflight } : {}),
     };
     try {
       return await this.withTransaction(async (client) => {

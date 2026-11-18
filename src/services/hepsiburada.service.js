@@ -2,6 +2,10 @@ const { env } = require("../config/env");
 const { canonicalGtin } = require("../domain/catalog-gtin");
 const { merchantId } = require("../domain/hepsiburada-merchant-identity");
 const {
+  evidenceFromResponse,
+  validateCommissionScope,
+} = require("../domain/hepsiburada-commission-evidence");
+const {
   parseHepsiburadaPublicBuyboxHtml,
 } = require("../domain/hepsiburada-buybox");
 
@@ -1374,6 +1378,15 @@ class HepsiburadaService {
       rows.push(...normalizeCommissionRows(payload));
     }
     return rows;
+  }
+
+  // Read-only, exact SKU evidence for the controlled pilot. Normal sync/import
+  // keeps its existing rate parsing and does not gain new pricing authority.
+  async readCommissionForPrice({ merchantSku, hbSku }) {
+    const scope = { merchantId: env.hepsiburadaMerchantId, merchantSku, hbSku };
+    validateCommissionScope(scope);
+    const payload = await this.listCommissions([hbSku]);
+    return evidenceFromResponse(payload, scope);
   }
 
   async listMerchantProducts({

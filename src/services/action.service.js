@@ -2,6 +2,9 @@ const { AppError } = require("../utils/errors");
 const { proposePrice, safetyCheck } = require("../domain/repricer");
 const { calculateNetProfit, calculateNetMargin } = require("../domain/pricing");
 const { roundMoney, parseBoolean } = require("../utils/numbers");
+const {
+  verifyCommissionEvidence,
+} = require("../domain/hepsiburada-commission-evidence");
 
 class ActionService {
   constructor({
@@ -27,6 +30,20 @@ class ActionService {
   }
 
   async assertPilotApproval(action, client) {
+    if (action.marketplace === "HEPSIBURADA" && this.repricer?.hbCashEconomy) {
+      const current = await this.products.get(
+        action.barcode,
+        "HEPSIBURADA",
+        client,
+      );
+      if (!current)
+        throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+      const valued = await this.repricer.hbCashEconomy.prepare(current, {
+        queryable: client || this.db,
+        actionId: action.id,
+      });
+      this.repricer.hbCashEconomy.assertAction(action, valued);
+    }
     if (action.marketplace !== "HEPSIBURADA" || !this.repricer?.hbPilot) return;
     const product = await this.products.get(
       action.barcode,
@@ -36,6 +53,19 @@ class ActionService {
     if (!product)
       throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
     const proof = this.repricer.hbPilot.assertAction(action, product);
+    if (
+      action.safety_checks?.hbFloorRecovery &&
+      action.safety_checks?.hbCash?.mode !== "ENFORCE"
+    ) {
+      const saved = action.safety_checks.hbFloorRecovery.commission;
+      const current = verifyCommissionEvidence(
+        saved,
+        product,
+        this.repricer.hbPilot.config().hepsiburadaMerchantId,
+      );
+      if (current.fingerprint !== saved.fingerprint)
+        throw new AppError("Komisyon snapshot değişti", 409, "STALE_PREVIEW");
+    }
     if (
       proof &&
       (product.settings?.mode !== "AUTOMATIC" ||
@@ -60,7 +90,7 @@ class ActionService {
         "INVALID_ACTION_STATE",
       );
     await this.assertPilotApproval(action);
-    if (action.safety_checks?.hbPilot) {
+    if (action.safety_checks?.hbPilot || action.safety_checks?.hbCash) {
       return this.withTransaction(async (client) => {
         const locked = (
           await client.query(
@@ -194,7 +224,7 @@ class ActionService {
       if (!product)
         throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
       await this.assertPilotApproval(action, client);
-      if (action.safety_checks?.hbPilot)
+      if (action.safety_checks?.hbPilot || action.safety_checks?.hbCash)
         throw new AppError(
           "Pilot hedefi düzenlemek için yeni preview gerekli",
           409,
@@ -220,6 +250,8 @@ class ActionService {
       const moneyInput = {
         salePrice: proposedPrice,
         commissionRate: product.commission_rate,
+        commissionModel: product.hb_cash_commission,
+        otherVerifiedCosts: product.hb_cash_other_costs,
         productCost: product.calculated_product_cost,
         shippingCost: product.calculated_shipping_cost,
         packagingCost: product.packaging_cost,
@@ -428,6 +460,8 @@ class ActionService {
       const moneyInput = {
         salePrice: proposal.proposedPrice,
         commissionRate: product.commission_rate,
+        commissionModel: product.hb_cash_commission,
+        otherVerifiedCosts: product.hb_cash_other_costs,
         productCost: product.calculated_product_cost,
         shippingCost: product.calculated_shipping_cost,
         packagingCost: product.packaging_cost,

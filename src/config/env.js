@@ -47,6 +47,12 @@ const env = {
     false,
   ),
   hepsiburadaPilotAllowlist: process.env.HEPSIBURADA_PILOT_ALLOWLIST || "[]",
+  hepsiburadaCashEconomyMode:
+    process.env.HEPSIBURADA_CASH_ECONOMY_MODE || "OFF",
+  hepsiburadaCashAllowlist: process.env.HEPSIBURADA_CASH_ALLOWLIST || "[]",
+  hepsiburadaCashContract: process.env.HEPSIBURADA_CASH_CONTRACT || "null",
+  hepsiburadaCashWorkerProtocol:
+    process.env.HEPSIBURADA_CASH_WORKER_PROTOCOL || "",
   hepsiburadaFloorRecoveryEnabled: bool(
     process.env.HEPSIBURADA_SAFE_FLOOR_RECOVERY_ENABLED,
     false,

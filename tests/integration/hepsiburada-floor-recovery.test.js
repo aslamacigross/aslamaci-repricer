@@ -1,4 +1,4 @@
-const { testPilot } = require("../helpers/hepsiburada-pilot");
+const { testPilot, testCommission } = require("../helpers/hepsiburada-pilot");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
@@ -120,7 +120,6 @@ function fixture() {
     expenses: [
       {
         barcode: product.barcode,
-        configured_commission: 17,
         rule_id: 1,
         configured_packaging: 5,
       },
@@ -134,6 +133,10 @@ function fixture() {
     isSalable: true,
   };
   const api = {
+    commission: testCommission(product, { now }),
+    async readCommissionForPrice() {
+      return { ...this.commission };
+    },
     async readListingForPrice() {
       gets++;
       return listing;
@@ -309,9 +312,9 @@ for (const [label, change, code] of [
   [
     "commission changed",
     (f) => {
-      f.batch.expenses[0].configured_commission = 20;
+      f.api.commission.rate = 20;
     },
-    "HB_FLOOR_COMMISSION_UNVERIFIED",
+    "HB_FLOOR_COMMISSION_CHANGED",
   ],
   [
     "packaging changed",
@@ -613,3 +616,70 @@ test("multiple physical components aggregate independently into the verified cos
   assert.equal(r.safety.safe, true);
   assert.equal(r.proposal.proposedPrice, 593.24);
 });
+
+// Historical identities/prices are fixture references only. Synthetic costs
+// reproduce the reference floors; they are not historical cost observations.
+// Explicit synthetic gross commission does not certify live HB VAT semantics.
+for (const c of [
+  {
+    merchantSku: "HARRASCEYLON2",
+    hbSku: "HBCV0000H9KXKJ",
+    current: 729.99,
+    floor: 737.82,
+    unit: 225,
+    quantity: 2,
+    code: "391",
+  },
+  {
+    merchantSku: "8695471124202",
+    hbSku: "ZYULKER0182203",
+    current: 499,
+    floor: 569.14,
+    unit: 310,
+    quantity: 1,
+    code: "OBACAY",
+  },
+  {
+    merchantSku: "OBACAYEARLGREYDEMLİKPOSET",
+    hbSku: "HBCV0000GH0UCP",
+    current: 498.99,
+    floor: 557.1,
+    unit: 300,
+    quantity: 1,
+    code: "EARL",
+  },
+])
+  test(`historical exact tuple ${c.merchantSku}: provider-evidence preview never POSTs`, async () => {
+    const f = fixture();
+    Object.assign(f.product, {
+      merchant_sku: c.merchantSku,
+      hb_sku: c.hbSku,
+      my_price: c.current,
+      min_price: c.floor,
+      calculated_product_cost: c.unit * c.quantity,
+    });
+    Object.assign(f.row, {
+      cost_item_code: c.code,
+      canonical_unit_cost: c.unit,
+      quantity: c.quantity,
+      unit_desi: 1 / c.quantity,
+    });
+    f.offer.current_price = c.unit;
+    Object.assign(f.config.hepsiburadaPilotAllowlist[0], {
+      merchantSku: c.merchantSku,
+      hbSku: c.hbSku,
+    });
+    Object.assign(f.listing, {
+      merchantSku: c.merchantSku,
+      hbSku: c.hbSku,
+      price: c.current,
+    });
+    f.api.commission = testCommission(f.product, { now: f.now });
+    const r = await f.service.evaluate(f.input());
+    assert.equal(r.safety.safe, true, JSON.stringify(r));
+    assert.equal(r.proposal.proposedPrice, c.floor);
+    assert.equal(
+      r.safety.hbFloorRecovery.commission.merchantSku,
+      c.merchantSku,
+    );
+  });

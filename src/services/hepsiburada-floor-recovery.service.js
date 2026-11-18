@@ -14,6 +14,9 @@ const {
 } = require("../domain/hepsiburada-floor");
 const { priceTierForQuantity } = require("../domain/supplier-products");
 const {
+  verifyCommissionEvidence,
+} = require("../domain/hepsiburada-commission-evidence");
+const {
   roundMoney,
   parseBoolean,
   decimalToInteger,
@@ -148,9 +151,9 @@ class HepsiburadaFloorRecoveryService {
     requireFloor(barems.length <= 200, "HB_FLOOR_BATCH_LIMIT");
     const expenses = (
       await queryable.query(
-        `SELECT p.barcode,cr.commission_rate AS configured_commission,
+        `SELECT p.barcode,
       pr.id AS rule_id,pr.packaging_cost AS configured_packaging
-      FROM products p LEFT JOIN commission_rules cr ON cr.marketplace=p.marketplace AND cr.category_id=p.category_id
+      FROM products p
       LEFT JOIN LATERAL (SELECT x.* FROM packaging_rules x WHERE
         (x.marketplace=p.marketplace OR x.marketplace='TRENDYOL') AND COALESCE(x.active,TRUE)=TRUE AND (
         (x.rule_scope='BARCODE' AND UPPER(x.match_value)=UPPER(p.barcode)) OR
@@ -185,7 +188,23 @@ class HepsiburadaFloorRecoveryService {
     };
   }
 
-  verifyCost(product, batch) {
+  async readCommission(product) {
+    requireFloor(
+      Boolean(this.hepsiburada?.readCommissionForPrice),
+      "HB_FLOOR_COMMISSION_UNVERIFIED",
+    );
+    return this.hepsiburada.readCommissionForPrice({
+      merchantSku: product.merchant_sku,
+      hbSku: product.hb_sku,
+    });
+  }
+
+  verifyCost(
+    product,
+    batch,
+    commissionEvidence,
+    { verifyCommission = verifyCommissionEvidence } = {},
+  ) {
     const rows = batch.mappings.filter((r) => r.barcode === product.barcode);
     requireFloor(
       rows.length > 0 && rows.length <= 100,
@@ -269,16 +288,15 @@ class HepsiburadaFloorRecoveryService {
       "HB_FLOOR_COST_CHANGED",
     );
     const expense = batch.expenses.find((e) => e.barcode === product.barcode);
-    requireFloor(
-      expense &&
-        Number(expense.configured_commission) ===
-          Number(product.commission_rate) &&
-        Number(expense.configured_commission) > 0 &&
-        Number(expense.configured_commission) < 100,
-      "HB_FLOOR_COMMISSION_UNVERIFIED",
+    const commission = verifyCommission(
+      commissionEvidence,
+      product,
+      this.pilot.config().hepsiburadaMerchantId,
+      this.now(),
     );
     requireFloor(
-      expense.rule_id &&
+      expense &&
+        expense.rule_id &&
         String(expense.rule_id) === String(product.packaging_rule_id) &&
         Number(expense.configured_packaging) ===
           Number(product.packaging_cost) &&
@@ -307,6 +325,7 @@ class HepsiburadaFloorRecoveryService {
       cost: integerToDecimal(divideRounded(costUnits, 100n), 2),
       desi: effectiveDesi,
       expense,
+      commission,
     };
   }
 
@@ -320,7 +339,26 @@ class HepsiburadaFloorRecoveryService {
     action = null,
     queryable = this.db,
     observedListing = null,
+    observedCommission = null,
   }) {
+    if (this.hbCashEconomy && !product.hb_cash_economics?.batch) {
+      try {
+        product = await this.hbCashEconomy.prepare(product, {
+          queryable,
+          listing: observedListing,
+          quote: observedCommission,
+          actionId: action?.id,
+        });
+      } catch (error) {
+        return {
+          proposal,
+          safety: {
+            safe: false,
+            failures: [error.code || "HB_CASH_EVIDENCE_UNAVAILABLE"],
+          },
+        };
+      }
+    }
     const baseline = safetyCheck({
       product,
       settings,
@@ -358,13 +396,27 @@ class HepsiburadaFloorRecoveryService {
         "HB_FLOOR_OTHER_BLOCKER",
       );
       batch = batch || (await this.loadBatch([product], queryable, action?.id));
-      const verified = this.verifyCost(product, batch);
+      const commission =
+        observedCommission || (await this.readCommission(product));
+      const verified = this.verifyCost(
+        product,
+        batch,
+        commission,
+        product.hb_cash_economics?.mode === "ENFORCE"
+          ? {
+              verifyCommission: (quote) =>
+                this.hbCashEconomy.verifyQuote(product, quote),
+            }
+          : {},
+      );
       const target = solveHepsiburadaFloor({
         money: {
           productCost: verified.cost,
           packagingCost: product.packaging_cost,
           serviceFee: product.service_fee,
           commissionRate: product.commission_rate,
+          commissionModel: product.hb_cash_commission,
+          otherVerifiedCosts: product.hb_cash_other_costs,
           targetProfit: Math.max(
             Number(product.target_profit) || 0,
             Number(settings.minimum_profit_tl) || 0,
@@ -398,6 +450,8 @@ class HepsiburadaFloorRecoveryService {
         packagingCost: product.packaging_cost,
         serviceFee: product.service_fee,
         commissionRate: product.commission_rate,
+        commissionModel: product.hb_cash_commission,
+        otherVerifiedCosts: product.hb_cash_other_costs,
       };
       next.expectedProfit = calculateNetProfit(money);
       next.expectedMargin = calculateNetMargin(money);
@@ -453,6 +507,7 @@ class HepsiburadaFloorRecoveryService {
               (rate) => Number(rate.desi_kg) === verified.desi,
             ),
             expense: verified.expense,
+            commission: verified.commission.fingerprint,
           }),
         )
         .digest("hex");
@@ -517,6 +572,7 @@ class HepsiburadaFloorRecoveryService {
             minimum: target.price,
             shippingCost: target.shippingCost,
             checkedAt: new Date(this.now()).toISOString(),
+            commission: verified.commission,
           },
         },
       };

@@ -395,11 +395,11 @@ class ActionRepository {
       );
       if (
         locked.marketplace === "HEPSIBURADA" &&
-        locked.safety_checks?.hbFloorRecovery
+        (locked.safety_checks?.hbFloorRecovery || locked.safety_checks?.hbCash)
       ) {
         if (!this.costEngine)
           throw new Error(
-            "HB floor verification requires transactional CostEngine",
+            "HB economic verification requires transactional CostEngine",
           );
         await this.costEngine.recalculate(
           locked.barcode,
