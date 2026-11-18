@@ -110,16 +110,28 @@ const columns = [
           Number(r.calculated_net_profit) < 0 ? "text-danger" : "text-success"
         }
       >
-        {money(r.calculated_net_profit)}
+        {r.data_status === "HB_CASH_EVIDENCE_UNVERIFIED"
+          ? "UNKNOWN"
+          : money(r.calculated_net_profit)}
       </span>
     ),
   },
   {
     key: "calculated_net_margin",
     label: "Marj",
-    render: (r) => percent(r.calculated_net_margin),
+    render: (r) =>
+      r.data_status === "HB_CASH_EVIDENCE_UNVERIFIED"
+        ? "UNKNOWN"
+        : percent(r.calculated_net_margin),
   },
-  { key: "min_price", label: "Min fiyat", render: (r) => money(r.min_price) },
+  {
+    key: "min_price",
+    label: "Min fiyat",
+    render: (r) =>
+      r.data_status === "HB_CASH_EVIDENCE_UNVERIFIED"
+        ? "UNKNOWN"
+        : money(r.min_price),
+  },
   {
     key: "buybox_price",
     label: "Buybox fiyatı",
@@ -882,19 +894,52 @@ function BulkSettingsDrawer({
 
 export function CostBreakdown({ data, marketplace, notify, onChanged }) {
   const p = data.product;
-  const commissionAmount =
-    (Number(p.my_price || 0) * Number(p.commission_rate || 0)) / 100;
+  const cash = marketplace === "HEPSIBURADA" && p.hb_cash_economics;
+  const cashUnknown = Boolean(cash?.blockers?.length);
+  const cashApplied = cash?.version === "HB_CASH_RUNTIME_V1" && cash.applied;
+  const cashCurrent =
+    cashApplied &&
+    Number(cash.commission?.commissionBase) === Number(p.my_price);
+  const commissionAmount = cashCurrent
+    ? cash.commission.gross
+    : (Number(p.my_price || 0) * Number(p.commission_rate || 0)) / 100;
   return (
     <div>
       <div className="formula">
         <strong>Minimum fiyat hesabı</strong>
-        <code>
-          ({money(p.calculated_product_cost)} +{" "}
-          {money(p.calculated_shipping_cost)} + {money(p.packaging_cost)} +{" "}
-          {money(p.service_fee)} + {money(p.target_profit)}) / (1 -{" "}
-          {Number(p.commission_rate || 0)}/100) = {money(p.min_price)}
-        </code>
+        {cashUnknown ? (
+          <code>Nakit ekonomi UNKNOWN; güvenli fiyat doğrulanmadı.</code>
+        ) : cashApplied ? (
+          <code>
+            Nakit katkı tabanı: {money(p.min_price)} · Hedef kargo:{" "}
+            {money(cash.targetShipping)} · Net SKU komisyonu:{" "}
+            {percent(p.commission_rate)} + komisyon KDV’si %
+            {cash.commissionModel?.vatRate}
+          </code>
+        ) : (
+          <code>
+            ({money(p.calculated_product_cost)} +{" "}
+            {money(p.calculated_shipping_cost)} + {money(p.packaging_cost)} +{" "}
+            {money(p.service_fee)} + {money(p.target_profit)}) / (1 -{" "}
+            {Number(p.commission_rate || 0)}/100) = {money(p.min_price)}
+          </code>
+        )}
       </div>
+      {cash && (
+        <div className="inline-warning">
+          {cashUnknown
+            ? "Ekonomik kanıt UNKNOWN."
+            : cash.mode === "SHADOW"
+              ? `SHADOW: fiyatlandırma yetkisi vermez. Nakit senaryo tabanı ${money(cash.minimum)}, katkı ${money(cash.contribution)}.`
+              : `Ekonomik kanıt: ${cash.checkedAt || "UNKNOWN"}.`}
+          {cash.blockers?.length
+            ? ` Doğrulanamadı: ${cash.blockers.join(", ")}`
+            : ""}
+          {cashApplied && !cashCurrent
+            ? " Fiyat değişti; komisyon kanıtı yenilenmeli."
+            : ""}
+        </div>
+      )}
       <div className="breakdown-list">
         {[
           ["Ürün maliyeti", money(p.calculated_product_cost)],
@@ -904,7 +949,23 @@ export function CostBreakdown({ data, marketplace, notify, onChanged }) {
             `${money(p.packaging_cost)} · ${p.packaging_profile_name || "Eski desi kuralı"}`,
           ],
           ["Hizmet bedeli", money(p.service_fee)],
-          [`Komisyon (${percent(p.commission_rate)})`, money(commissionAmount)],
+          [
+            cashCurrent
+              ? `Brüt komisyon (${percent(p.commission_rate)} + KDV)`
+              : `Komisyon (${percent(p.commission_rate)})`,
+            cashUnknown || (cashApplied && !cashCurrent)
+              ? "UNKNOWN"
+              : money(commissionAmount),
+          ],
+          ...(cashCurrent
+            ? [
+                [
+                  "Komisyon KDV’si (brüt tutara dahil)",
+                  money(cash.commission.vat),
+                ],
+                ["Diğer doğrulanmış giderler", money(cash.otherVerifiedCosts)],
+              ]
+            : []),
           ["Hedef kâr", money(p.target_profit)],
         ].map(([l, v]) => (
           <div key={l}>

@@ -269,6 +269,8 @@ function proposePrice(product, settings = {}) {
   const moneyInput = {
     salePrice: proposed,
     commissionRate: product.commission_rate,
+    commissionModel: product.hb_cash_commission,
+    otherVerifiedCosts: product.hb_cash_other_costs,
     productCost: product.calculated_product_cost,
     shippingCost: product.calculated_shipping_cost,
     packagingCost: product.packaging_cost,

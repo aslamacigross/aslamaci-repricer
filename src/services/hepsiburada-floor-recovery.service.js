@@ -199,7 +199,12 @@ class HepsiburadaFloorRecoveryService {
     });
   }
 
-  verifyCost(product, batch, commissionEvidence) {
+  verifyCost(
+    product,
+    batch,
+    commissionEvidence,
+    { verifyCommission = verifyCommissionEvidence } = {},
+  ) {
     const rows = batch.mappings.filter((r) => r.barcode === product.barcode);
     requireFloor(
       rows.length > 0 && rows.length <= 100,
@@ -283,7 +288,7 @@ class HepsiburadaFloorRecoveryService {
       "HB_FLOOR_COST_CHANGED",
     );
     const expense = batch.expenses.find((e) => e.barcode === product.barcode);
-    const commission = verifyCommissionEvidence(
+    const commission = verifyCommission(
       commissionEvidence,
       product,
       this.pilot.config().hepsiburadaMerchantId,
@@ -336,6 +341,24 @@ class HepsiburadaFloorRecoveryService {
     observedListing = null,
     observedCommission = null,
   }) {
+    if (this.hbCashEconomy && !product.hb_cash_economics?.batch) {
+      try {
+        product = await this.hbCashEconomy.prepare(product, {
+          queryable,
+          listing: observedListing,
+          quote: observedCommission,
+          actionId: action?.id,
+        });
+      } catch (error) {
+        return {
+          proposal,
+          safety: {
+            safe: false,
+            failures: [error.code || "HB_CASH_EVIDENCE_UNAVAILABLE"],
+          },
+        };
+      }
+    }
     const baseline = safetyCheck({
       product,
       settings,
@@ -375,13 +398,25 @@ class HepsiburadaFloorRecoveryService {
       batch = batch || (await this.loadBatch([product], queryable, action?.id));
       const commission =
         observedCommission || (await this.readCommission(product));
-      const verified = this.verifyCost(product, batch, commission);
+      const verified = this.verifyCost(
+        product,
+        batch,
+        commission,
+        product.hb_cash_economics?.mode === "ENFORCE"
+          ? {
+              verifyCommission: (quote) =>
+                this.hbCashEconomy.verifyQuote(product, quote),
+            }
+          : {},
+      );
       const target = solveHepsiburadaFloor({
         money: {
           productCost: verified.cost,
           packagingCost: product.packaging_cost,
           serviceFee: product.service_fee,
           commissionRate: product.commission_rate,
+          commissionModel: product.hb_cash_commission,
+          otherVerifiedCosts: product.hb_cash_other_costs,
           targetProfit: Math.max(
             Number(product.target_profit) || 0,
             Number(settings.minimum_profit_tl) || 0,
@@ -415,6 +450,8 @@ class HepsiburadaFloorRecoveryService {
         packagingCost: product.packaging_cost,
         serviceFee: product.service_fee,
         commissionRate: product.commission_rate,
+        commissionModel: product.hb_cash_commission,
+        otherVerifiedCosts: product.hb_cash_other_costs,
       };
       next.expectedProfit = calculateNetProfit(money);
       next.expectedMargin = calculateNetMargin(money);

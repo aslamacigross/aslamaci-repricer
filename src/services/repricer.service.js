@@ -7,10 +7,17 @@ const { env } = require("../config/env");
 const { AppError } = require("../utils/errors");
 
 class RepricerService {
-  constructor({ db, actions, settings, hbFloorRecovery }) {
+  constructor({
+    db,
+    actions,
+    settings,
+    hbFloorRecovery,
+    hbCashEconomy = null,
+  }) {
     this.db = db;
     this.actions = actions;
     this.settings = settings;
+    this.hbCashEconomy = hbCashEconomy;
     this.hbFloorRecovery = hbFloorRecovery;
     this.hbPilot = hbFloorRecovery?.pilot || new HepsiburadaPilotPolicy();
   }
@@ -62,7 +69,7 @@ class RepricerService {
     }
     return (
       await queryable.query(
-        `SELECT p.*,
+        `SELECT p.*,row_to_json(ps) AS cash_settings,
       COALESCE(ps.strategy,'Manuel') strategy,
       ps.price_cut_tl,ps.max_increase_tl,ps.max_single_change_pct,ps.max_daily_change_pct,
       ps.minimum_profit_tl,
@@ -115,7 +122,16 @@ class RepricerService {
       }
     }
     const results = [];
-    for (const product of products) {
+    for (let product of products) {
+      let cashError;
+      if (this.hbCashEconomy) {
+        try {
+          product = await this.hbCashEconomy.prepare(product, { queryable });
+        } catch (error) {
+          cashError = error.code || "HB_CASH_EVIDENCE_UNAVAILABLE";
+          product = { ...product, data_complete: false };
+        }
+      }
       const settings = {
         ...product,
         price_cut_tl: product.price_cut_tl ?? global.defaultPriceCut,
@@ -176,6 +192,43 @@ class RepricerService {
           if (recovery) ({ proposal, safety } = recovery);
         }
       }
+      if (this.hbCashEconomy)
+        proposal = this.hbCashEconomy.proposal(product, proposal);
+      if (proposal.economicComparison)
+        safety.hbCash = proposal.economicComparison;
+      if (cashError)
+        safety = {
+          ...safety,
+          safe: false,
+          failures: [...new Set([...safety.failures, cashError])],
+        };
+      // Destination shipping can lower the actual contribution at any target.
+      if (
+        product.hb_cash_economics?.mode === "ENFORCE" &&
+        proposal.expectedProfit <
+          Math.max(
+            Number(product.target_profit || 0),
+            Number(settings.minimum_profit_tl || 0),
+          )
+      )
+        safety = {
+          ...safety,
+          safe: false,
+          failures: [
+            ...new Set([...safety.failures, "MIN_PROFIT_TL_VIOLATION"]),
+          ],
+        };
+      if (
+        product.hb_cash_economics?.mode === "ENFORCE" &&
+        (product.mode !== "AUTOMATIC" ||
+          !parseBoolean(product.auto_update) ||
+          !parseBoolean(product.setting_auto_update))
+      )
+        safety = {
+          ...safety,
+          safe: false,
+          failures: [...new Set([...safety.failures, "HB_CASH_POLICY_DENIED"])],
+        };
       let pilotCandidate = false;
       if (normalizedMarketplace === "HEPSIBURADA") {
         try {
@@ -227,7 +280,8 @@ class RepricerService {
         if (
           (automatic ||
             preview.floorRecoveryCandidate ||
-            preview.pilotCandidate) &&
+            preview.pilotCandidate ||
+            preview.safetyChecks?.hbCash) &&
           blockingSafetyFailures.length
         ) {
           skipped.push({
@@ -300,10 +354,11 @@ class RepricerService {
           safety_checks: preview.safetyChecks,
           expires_at: preview.expiresAt,
         };
-        const action = preview.safetyChecks.hbPilot
-          ? await this.createFloorAction(input, preview)
-          : await this.actions.create(input);
-        if (!preview.safetyChecks.hbPilot)
+        const action =
+          preview.safetyChecks.hbPilot || preview.safetyChecks.hbCash
+            ? await this.createFloorAction(input, preview)
+            : await this.actions.create(input);
+        if (!preview.safetyChecks.hbPilot && !preview.safetyChecks.hbCash)
           await this.actions.recordDecision(
             action.id,
             { barcode: preview.barcode, strategy: preview.strategy },
@@ -346,11 +401,15 @@ class RepricerService {
       )[0];
       if (
         !fresh?.safetyChecks.safe ||
-        !fresh.safetyChecks.hbPilot ||
+        !(fresh.safetyChecks.hbPilot || fresh.safetyChecks.hbCash) ||
         JSON.stringify(fresh.safetyChecks.hbPilot) !==
           JSON.stringify(preview.safetyChecks.hbPilot) ||
         fresh.safetyChecks.hbFloorRecovery?.fingerprint !==
           preview.safetyChecks.hbFloorRecovery?.fingerprint ||
+        fresh.safetyChecks.hbCash?.fingerprint !==
+          preview.safetyChecks.hbCash?.fingerprint ||
+        fresh.safetyChecks.hbCash?.revision !==
+          preview.safetyChecks.hbCash?.revision ||
         fresh.proposedPrice !== preview.proposedPrice
       )
         throw new AppError("Floor preview değişti", 409, "STALE_PREVIEW");
@@ -384,9 +443,11 @@ class RepricerService {
       options.marketplace,
     );
     const products = await this.candidates(barcode, normalizedMarketplace);
-    const product = products[0];
+    let product = products[0];
     if (!product)
       throw new AppError("Ürün bulunamadı", 404, "PRODUCT_NOT_FOUND");
+    if (this.hbCashEconomy && product)
+      product = await this.hbCashEconomy.prepare(product);
     const price = roundMoney(proposedPrice);
     const current = roundMoney(product.my_price);
     const action =
@@ -400,17 +461,21 @@ class RepricerService {
     const moneyInput = {
       salePrice: price,
       commissionRate: product.commission_rate,
+      commissionModel: product.hb_cash_commission,
+      otherVerifiedCosts: product.hb_cash_other_costs,
       productCost: product.calculated_product_cost,
       shippingCost: product.calculated_shipping_cost,
       packagingCost: product.packaging_cost,
       serviceFee: product.service_fee,
     };
-    const proposal = {
+    let proposal = {
       action,
       proposedPrice: price,
       expectedProfit: calculateNetProfit(moneyInput),
       expectedMargin: calculateNetMargin(moneyInput),
     };
+    if (this.hbCashEconomy)
+      proposal = this.hbCashEconomy.proposal(product, proposal);
     const global = await this.globalSettings();
     const today = await this.actions.todayStats(barcode, normalizedMarketplace);
     const settings = {
@@ -440,6 +505,20 @@ class RepricerService {
         dayStartPrice: today.day_start_price,
       },
     });
+    if (
+      product.hb_cash_economics?.mode === "ENFORCE" &&
+      (price < Number(product.min_price) ||
+        proposal.expectedProfit <
+          Math.max(
+            Number(product.target_profit || 0),
+            Number(settings.minimum_profit_tl || 0),
+          ))
+    ) {
+      safety.safe = false;
+      safety.failures = [
+        ...new Set([...safety.failures, "MIN_PROFIT_TL_VIOLATION"]),
+      ];
+    }
     const hardFailures = safety.failures.filter((code) => code !== "DRY_RUN");
     if (hardFailures.length)
       throw new AppError(
@@ -456,6 +535,8 @@ class RepricerService {
           `manual:${normalizedMarketplace}:${barcode}:${current}:${price}:${product.updated_at}`,
         )
         .digest("hex");
+    if (proposal.economicComparison)
+      safety.hbCash = proposal.economicComparison;
     const source = options.source || "MANUAL";
     const strategy = options.strategy || "Manuel";
     const created = await this.actions.create({

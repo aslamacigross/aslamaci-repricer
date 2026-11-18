@@ -1,3 +1,6 @@
+const {
+  HepsiburadaCashEconomyService,
+} = require("./services/hepsiburada-cash-economy.service");
 const { HepsiburadaPilotPolicy } = require("./domain/hepsiburada-pilot");
 const { pool, withTransaction } = require("./config/database");
 const { env } = require("./config/env");
@@ -157,6 +160,17 @@ function createContainer(overrides = {}) {
           pilot: hbPilot,
         }),
     });
+  const hbCashEconomy =
+    overrides.hbCashEconomy ||
+    new HepsiburadaCashEconomyService({
+      db,
+      hepsiburada,
+      floor: repricer.hbFloorRecovery,
+    });
+  repricer.hbCashEconomy = hbCashEconomy;
+  costEngine.hbCashEconomy = hbCashEconomy;
+  if (repricer.hbFloorRecovery)
+    repricer.hbFloorRecovery.hbCashEconomy = hbCashEconomy;
   const actionService =
     overrides.actionService ||
     new ActionService({
@@ -596,6 +610,7 @@ function createContainer(overrides = {}) {
     actions,
     jobs,
     costEngine,
+    hbCashEconomy,
     costIntegrity,
     shippingService,
     sync,

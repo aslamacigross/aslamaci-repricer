@@ -1,15 +1,73 @@
+const { AppError } = require("../utils/errors");
 const { env } = require("../config/env");
 
 class CostEngineService {
-  constructor(db) {
+  constructor(db, { hbCashEconomy = null } = {}) {
     this.db = db;
+    this.hbCashEconomy = hbCashEconomy;
   }
 
-  async recalculate(barcode, queryable = this.db, marketplace = "TRENDYOL") {
+  async recalculate(
+    barcode,
+    queryable = this.db,
+    marketplace = "TRENDYOL",
+    providerReads = null,
+  ) {
     queryable = queryable || this.db;
     const normalizedMarketplace = String(
       marketplace || "TRENDYOL",
     ).toUpperCase();
+    // Keep legacy recomputation and cash cache/scalars atomic. Never publish an
+    // intermediate net-only floor to another connection during ENFORCE refresh.
+    // Callers already owning a transaction pass their client and keep ownership.
+    if (
+      normalizedMarketplace === "HEPSIBURADA" &&
+      this.hbCashEconomy?.policy().mode !== "OFF" &&
+      this.hbCashEconomy &&
+      queryable === this.db
+    ) {
+      const policy = this.hbCashEconomy.policy();
+      const scopedRows = policy.entries.length
+        ? (
+            await this.db.query(
+              "SELECT marketplace,barcode,merchant_sku,hb_sku FROM products WHERE marketplace='HEPSIBURADA' AND ($1::text IS NULL OR barcode=$1) AND merchant_sku=ANY($2::text[])",
+              [barcode || null, policy.entries.map((e) => e.merchantSku)],
+            )
+          ).rows.filter((p) => this.hbCashEconomy.scope(p, policy))
+        : [];
+      const reads = await this.hbCashEconomy.preload(scopedRows);
+      const client = await this.db.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await this.recalculate(
+          barcode,
+          client,
+          marketplace,
+          reads,
+        );
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+    if (
+      normalizedMarketplace === "HEPSIBURADA" &&
+      this.hbCashEconomy?.policy().entries.length
+    ) {
+      const schema = await queryable.query(
+        "SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='products' AND column_name='hb_cash_economics'",
+      );
+      if (!schema.rows.length)
+        throw new AppError(
+          "HB cash draft schema has not been approved/applied",
+          409,
+          "HB_CASH_SCHEMA_REQUIRED",
+        );
+    }
     const stored = (
       await queryable.query(
         `SELECT key,value FROM system_settings
@@ -113,11 +171,54 @@ class CostEngineService {
           WHEN c.total_desi<=0 THEN 'DESI_MISSING' WHEN c.shipping_cost<=0 THEN 'SHIPPING_MISSING'
           WHEN NOT c.packaging_rule_found THEN 'PACKAGING_MISSING' ELSE 'COMPLETE' END,
         updated_at=NOW()
-      FROM calculated c WHERE p.marketplace=c.marketplace AND p.barcode=c.barcode RETURNING p.barcode,p.data_complete,p.min_price
+      FROM calculated c WHERE p.marketplace=c.marketplace AND p.barcode=c.barcode RETURNING p.barcode,p.data_complete,p.min_price,to_jsonb(p)->>'merchant_sku' AS merchant_sku,to_jsonb(p)->>'hb_sku' AS hb_sku,to_jsonb(p)->'hb_cash_economics' AS hb_cash_economics
     `,
       params,
     );
-    return { processed: result.rowCount, items: result.rows };
+    let economicComparisons;
+    if (normalizedMarketplace === "HEPSIBURADA" && this.hbCashEconomy) {
+      const policy = this.hbCashEconomy.policy();
+      const codes = result.rows
+        .filter(
+          (row) =>
+            this.hbCashEconomy.scope(
+              { ...row, marketplace: normalizedMarketplace },
+              policy,
+            ) || row.hb_cash_economics?.applied,
+        )
+        .map((row) => row.barcode);
+      if (codes.length) {
+        const rows = (
+          await queryable.query(
+            `SELECT p.*,row_to_json(ps) AS settings FROM products p LEFT JOIN product_settings ps ON ps.marketplace=p.marketplace AND ps.barcode=p.barcode WHERE p.marketplace='HEPSIBURADA' AND p.barcode=ANY($1::text[]) ORDER BY p.barcode`,
+            [codes],
+          )
+        ).rows;
+        economicComparisons = await this.hbCashEconomy.refresh(
+          rows,
+          queryable,
+          providerReads,
+        );
+      }
+    }
+    return {
+      processed: result.rowCount,
+      items: result.rows.map(({ barcode, data_complete, min_price }) => {
+        const e = economicComparisons?.find((x) => x.barcode === barcode);
+        return {
+          barcode,
+          data_complete:
+            e?.mode === "ENFORCE" && e.blockers ? false : data_complete,
+          min_price:
+            e?.mode === "ENFORCE" && e.blockers
+              ? null
+              : e?.applied
+                ? e.minimum
+                : min_price,
+        };
+      }),
+      ...(economicComparisons ? { economicComparisons } : {}),
+    };
   }
 }
 

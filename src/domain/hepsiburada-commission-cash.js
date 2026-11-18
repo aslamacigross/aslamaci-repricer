@@ -10,8 +10,8 @@ const { selectShippingCost } = require("./pricing");
 const { merchantId } = require("./hepsiburada-merchant-identity");
 const { MAX_AGE_MS } = require("./hepsiburada-commission-evidence");
 
-// Isolated economic draft. No production caller, configuration switch, action
-// creation, DB write or dispatch permission is supplied by this module.
+// Pure evidence/math layer. The separate runtime adapter owns opt-in rollout,
+// caches and lifecycle validation. This module grants no dispatch permission.
 const MODE = "READ_ONLY_ECONOMIC_DRAFT";
 const SCALE = 1000000n;
 const cents = (value) => decimalToInteger(value, 2);
@@ -351,6 +351,7 @@ function cashFloorScenario(input) {
         ...m,
         commissionRate: effective,
         serviceFee: money(cents(m.serviceFee) + cents(m.otherVerifiedCosts)),
+        otherVerifiedCosts: 0, // folded into serviceFee for the estimate only
       },
     });
     const shipping = selectShippingCost({

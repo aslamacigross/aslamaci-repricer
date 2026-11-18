@@ -27,6 +27,16 @@ function calculateMinimumPrice(input) {
 }
 
 function calculateCommissionAmount(input) {
+  if (input.commissionModel) {
+    if (input.commissionModel.version !== "HB_CASH_RUNTIME_V1")
+      throw new Error("Unsupported commission model");
+    // Lazy import avoids the existing cash-floor/pricing module cycle.
+    return require("./hepsiburada-commission-cash").commissionCash({
+      commissionBase: input.salePrice,
+      skuRate: input.commissionRate,
+      ...input.commissionModel,
+    }).gross;
+  }
   return money(
     divideRounded(
       cents(input.salePrice) * rateUnits(input.commissionRate),
@@ -44,7 +54,8 @@ function calculateNetProfit(input) {
       cents(input.productCost) -
       cents(input.shippingCost) -
       cents(input.packagingCost) -
-      cents(input.serviceFee),
+      cents(input.serviceFee) -
+      cents(input.otherVerifiedCosts || 0),
   );
 }
 

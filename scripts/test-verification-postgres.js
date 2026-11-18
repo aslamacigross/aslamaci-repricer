@@ -23,6 +23,7 @@ if (!process.env.ASLAMACI_DISPOSABLE_PG_ROOT) {
       "tests/integration/hepsiburada-floor-lifecycle.test.js",
       "tests/integration/price-verification-lifecycle.test.js",
       "tests/integration/hepsiburada-commission-cash.test.js",
+      "tests/integration/hepsiburada-cash-runtime.test.js",
     ],
     { stdio: "inherit", env: environment },
   );
